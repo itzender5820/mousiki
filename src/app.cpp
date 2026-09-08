@@ -1270,9 +1270,11 @@ void App::handle_key(int key) {
             break;
         case 'a': // add selected to queue
             queue_add_selected();
+            status_line_ = "added to queue";
             break;
         case 'd': // remove last queued item
             queue_remove_last();
+            status_line_ = "removed from queue";
             break;
         case 'l': case 'L': // retry lyrics fetch for the current track
             if (has_track_) {
