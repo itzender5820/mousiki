@@ -1,0 +1,199 @@
+# Mousiki Configuration File
+# Location: $HOME/.config/mousiki/config.txt
+
+##-------------------------------------------
+##              PANEL 1: COLORS
+##-------------------------------------------
+
+# Frame & Controls
+ColorBorderTop=250
+ColorBorderBottom=250
+ColorDiskTop=240
+ColorDiskBottom=255
+ColorMetadataKey=
+ColorMetadataVal=
+ColorVizLeft=250
+ColorVizRight=250
+ColorProgressBarPlayed=250
+ColorProgressBarPending=245
+
+# List
+ColorListInactiveFg=255
+ColorListInactiveBg=
+ColorListPlayingFg=245
+ColorListPlayingBg=
+ColorListCursorFg=
+ColorListCursorBg=240
+
+# Queue
+ColorQueueInactiveFg=255
+ColorQueueInactiveBg=
+ColorQueuePlayingFg=245
+ColorQueuePlayingBg=
+ColorQueueCursorFg=
+ColorQueueCursorBg=240
+
+# Lyrics
+ColorLyricsInactiveFg=245
+ColorLyricsInactiveBg=
+ColorLyricsActiveLineFg=251
+ColorLyricsActiveLineBg=
+ColorLyricsActiveWordFg=255
+ColorLyricsActiveWordBg=0
+
+##-------------------------------------------
+##              PANEL 2: ON/OFF
+##-------------------------------------------
+
+ElimentDisk=true
+ElimentDummyButtons=true
+ElimentQueue=true
+ElimentWaveForm=true
+ElimentLyrics=true
+LyricsPlaceholderBall=false
+Visualizer=true
+
+##-------------------------------------------
+##             PANEL 3: ANIMATION
+##-------------------------------------------
+
+VisualizerFluidity=10
+## 1 to 10
+WaveformStyle=raw
+## raw , smooth
+DiskRotationSpeed=0.25
+## 0.01x to 1.00x
+PlaybackMode=list
+## list , loop , shuffle , stop
+VisualizerDegradationSpeed=10
+## 1 to 10
+VisualizerViscosity=1
+## 1 to 10
+LyricsAlignment=center
+## center , left , right
+LyricsAnimation=word by word
+## full , word by word , line by line , letter by letter
+## active line only , active word only
+
+##-------------------------------------------
+##             PANEL 4: REFERENCE
+##-------------------------------------------
+
+font_en={
+          A={A,a},
+          B={B,b},
+          C={C,c},
+          D={D,d},
+          E={E,e},
+          F={F,f},
+          G={G,g},
+          H={H,h},
+          I={I,i},
+          J={J,j},
+          K={K,k},
+          L={L,l},
+          M={M,m},
+          N={N,n},
+          O={O,o},
+          P={P,p},
+          Q={Q,q},
+          R={R,r},
+          S={S,s},
+          T={T,t},
+          U={U,u},
+          V={V,v},
+          W={W,w},
+          X={X,x},
+          Y={Y,y},
+          Z={Z,z},
+        };
+
+UpperLeftCorner="╭";
+UpperRightCorner="╮";
+BottomLeftCorner="╰";
+LowerRightCorner="╯";
+Vertical="│";
+Horizontal="─";
+Seprator=":  :"
+ListSeparator="|"
+
+# General
+HKeySetting="s"
+
+# Local Music Paths
+LocalMusicPath=/data/data/com.termux/files/home/disk/Download
+LocalMusicPath=~/disk/Music
+LocalMusicPath=~/music
+
+# Navigation
+HKeyNavigateUp="ARROW_KEY_UP"
+HKeyNavigateDown="ARROW_KEY_DOWN"
+HKeyPlay="ENTER"
+HKeyPlayNextSong="n"
+HKeyPlayPreviousSong="b"
+HKeyTogglePlayPause="p"
+HKeyToggleRepeat="r"
+HKeyToggleShuffle="m"
+HKeySearch="/"
+HKeySearchOnline="/s:"
+HKeySeekForward="ARROW_KEY_RIGHT"
+HKeySeekBackward="ARROW_KEY_LEFT"
+HKeyIncreaseVolume="1"
+HKeyDecreaseVolume="2"
+HKeyAddHoveringSongToQueue="a"
+HKeyRemoveHoveringSongFromQueue="d"
+HKeySwitchBetweenCards="TAB"
+HKeyFilterForFolder="f"
+HKeyClearFilter="c"
+HKeyQuit="q"
+HKeyResetPreference="e"
+HKeyDownloadStream="y"
+
+##-------------------------------------------
+##             PANEL 5: ABOUT APP
+##-------------------------------------------
+
+ClassTextAboutApp= {
+
+
+
+
+
+
+Devloper : ender
+Github   : itzender5820
+Email    : itz.ender5820@gmail.com
+Discord  : itx.ender
+Version  : orignal and final v1.0 
+Licence  : Apache licence 2.0
+
+
+Mousiki
+A terminal music player built for people who
+prefer control, simplicity, and a keyboard.
+
+Mousiki is designed around a fast, focused TUI
+with no unnecessary interface layers.
+
+Everything is keyboard-driven.
+Everything is configurable.
+Everything stays in your terminal.
+
+Features
+- Local music playback
+- Search and filtering
+- Queue management
+- Online search and streaming
+- Lyrics with active-word highlighting
+- Shuffle and repeat
+- Fully configurable colors
+- Fully configurable hotkeys
+
+Configuration
+$HOME/.config/mousiki/config.txt
+
+Mousiki is free software.
+Built with care for the terminal.
+
+
+};
