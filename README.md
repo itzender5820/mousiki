@@ -8,6 +8,10 @@ Hey there! Welcome to **Mousiki**, a terminal music player built from the ground
 
 I created Mousiki because I wanted a fast, focused TUI (Terminal User Interface) without any unnecessary interface layers. It’s designed to be completely keyboard-driven and fully configurable while giving you rich features like spectrum visualizers, synced lyrics, and online streaming—all without ever leaving your terminal.
 
+## Preview
+
+![Mousiki Preview](./previeww.mp4)
+
 ## ✨ Features
 
 - **Local Music Playback:** Instantly browse and play your local music files.
