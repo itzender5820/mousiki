@@ -10,6 +10,9 @@
 #include <sstream>
 #include <thread>
 #include <unistd.h>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
 
 namespace muisc {
 
@@ -333,6 +336,20 @@ fs::path find_lyrics_script() {
     fs::path cwd_candidate = fs::path("scripts") / "fetch_lyrics.py";
     if (fs::exists(cwd_candidate)) return cwd_candidate;
 
+#if defined(__APPLE__)
+    char exe_buf[4096];
+    uint32_t size = sizeof(exe_buf);
+    if (_NSGetExecutablePath(exe_buf, &size) == 0) {
+        std::error_code ec;
+        fs::path exe_dir = fs::canonical(fs::path(exe_buf), ec).parent_path();
+        if (!ec) {
+            fs::path p = exe_dir / "scripts" / "fetch_lyrics.py";
+            if (fs::exists(p)) return p;
+            p = exe_dir.parent_path() / "scripts" / "fetch_lyrics.py";
+            if (fs::exists(p)) return p;
+        }
+    }
+#else
     char exe_buf[4096];
     ssize_t n = readlink("/proc/self/exe", exe_buf, sizeof(exe_buf) - 1);
     if (n > 0) {
@@ -343,6 +360,7 @@ fs::path find_lyrics_script() {
         p = exe_dir.parent_path() / "scripts" / "fetch_lyrics.py";
         if (fs::exists(p)) return p;
     }
+#endif
     return cwd_candidate;
 }
 

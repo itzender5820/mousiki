@@ -2,7 +2,7 @@
 
 ![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
 ![Language](https://img.shields.io/badge/Language-C++17-orange.svg)
-![Platform](https://img.shields.io/badge/Platform-Linux_%7C_Android-brightgreen.svg)
+![Platform](https://img.shields.io/badge/Platform-Linux_%7C_macOS_%7C_Android-brightgreen.svg)
 
 Hey there! Welcome to **Mousiki**, a terminal music player built from the ground up for people who prefer control, simplicity, and a keyboard.
 
@@ -23,14 +23,14 @@ I created Mousiki because I wanted a fast, focused TUI (Terminal User Interface)
 
 ## 🚀 Supported Platforms
 
-- **Native Support:** **Linux** and **Android (Termux)**.
-- **Unverified Support:** *Windows* and *macOS*. (Support for these platforms is currently not verified because I don't have the hardware access needed to test and debug on those specific operating systems. If you try it out and get it working, feel free to contribute!)
+- **Native Support:** **Linux**, **macOS**, and **Android (Termux)**.
+- **Unverified Support:** *Windows*. (Support for Windows is currently not verified because I don't have the hardware access needed to test and debug on that operating system. If you try it out and get it working, feel free to contribute!)
 
 ## 🛠️ Getting Started
 
 ### Prerequisites & Installation
 
-Mousiki relies on a few external tools for audio fetching, decoding, and lyrics. The easiest way to get started is by running the setup script on a Debian-based Linux system or Termux:
+Mousiki relies on a few external tools for audio fetching, decoding, and lyrics. The easiest way to get started is by running the setup script on macOS (requires [Homebrew](https://brew.sh)), Debian-based Linux, or Termux:
 
 ```bash
 # Clone the repository
