@@ -72,6 +72,17 @@ else
     echo "==> Existing config found at $CONFIG_DIR/config.txt (keeping current file)"
 fi
 
+# Configure yt-dlp to prevent YouTube HTTP 403 Forbidden errors
+YTDLP_CONFIG_DIR="$HOME/.config/yt-dlp"
+mkdir -p "$YTDLP_CONFIG_DIR"
+if [ ! -f "$YTDLP_CONFIG_DIR/config" ]; then
+    echo '--extractor-args "youtube:player_client=android"' > "$YTDLP_CONFIG_DIR/config"
+    echo "==> Configured yt-dlp to use android player client"
+elif ! grep -q "player_client" "$YTDLP_CONFIG_DIR/config"; then
+    echo '--extractor-args "youtube:player_client=android"' >> "$YTDLP_CONFIG_DIR/config"
+    echo "==> Added android player client to existing yt-dlp config"
+fi
+
 echo "==> Building Mousiki..."
 CORES=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
 cmake -B build
