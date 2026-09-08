@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/banner.png" alt="Mousiki" width="100%">
+  <img src="./banner.png" alt="Mousiki" width="100%">
 </p>
 
 <h1 align="center">Mousiki</h1>
@@ -10,8 +10,8 @@
 
 <p align="center">
   <a href="#features">Features</a> •
-  <a href="#installation">Installation</a> •
-  <a href="#usage">Usage</a>
+  <a href="#installation">Prerequisites & Installation</a> •
+  <a href="#usage">Preview</a>
 </p>
 
 # Mousiki 🎵
