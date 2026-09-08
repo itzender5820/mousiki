@@ -46,7 +46,8 @@ std::optional<SongResult> YoutubeSource::resolve(const std::string& query, std::
     // Download straight to the deterministic cache path via -o with a
     // fixed basename (no %(title)s expansion needed since we already
     // resolved it above), forcing opus so the extension matches path_for().
-    std::string cmd = "yt-dlp --no-warnings -x --audio-format opus "
+    // Use the android player_client to avoid YouTube's 403 Forbidden on web clients.
+    std::string cmd = "yt-dlp --no-warnings --extractor-args \"youtube:player_client=android\" -x --audio-format opus "
                        "-o " + shell_quote((cached.parent_path() / cached.stem()).string() + ".%(ext)s") + " "
                        "\"ytsearch1:" + query + "\"";
     ProcResult r = run_capture(cmd, /*merge_stderr=*/true);
@@ -69,7 +70,7 @@ std::optional<SongResult> YoutubeSource::resolve_by_id(const std::string& video_
     }
 
     std::string url = "https://www.youtube.com/watch?v=" + video_id;
-    std::string cmd = "yt-dlp --no-warnings -x --audio-format opus "
+    std::string cmd = "yt-dlp --no-warnings --extractor-args \"youtube:player_client=android\" -x --audio-format opus "
                        "-o " + shell_quote((cached.parent_path() / cached.stem()).string() + ".%(ext)s") + " "
                        + shell_quote(url);
     ProcResult r = run_capture(cmd, /*merge_stderr=*/true);
