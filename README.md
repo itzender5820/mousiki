@@ -1,3 +1,19 @@
+<p align="center">
+  <img src="./assets/banner.png" alt="Mousiki" width="100%">
+</p>
+
+<h1 align="center">Mousiki</h1>
+
+<p align="center">
+  Your music, your way.
+</p>
+
+<p align="center">
+  <a href="#features">Features</a> •
+  <a href="#installation">Installation</a> •
+  <a href="#usage">Usage</a>
+</p>
+
 # Mousiki 🎵
 
 ![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
