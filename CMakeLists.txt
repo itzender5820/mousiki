@@ -71,6 +71,12 @@ if(ANDROID)
 elseif(WIN32)
   target_compile_definitions(mousiki PRIVATE MUISC_PLATFORM_WINDOWS=1 MA_ENABLE_ONLY_SPECIFIC_BACKENDS=1 MA_ENABLE_WASAPI=1)
   target_link_libraries(mousiki PRIVATE ole32 winmm)
+elseif(APPLE)
+  # miniaudio links CoreAudio at runtime via dlopen, so no -framework flags
+  # are needed here. All backends stay compiled in; the runtime picks
+  # ma_backend_coreaudio (see audio_backend.cpp).
+  target_compile_definitions(mousiki PRIVATE MUISC_PLATFORM_MACOS=1)
+  target_link_libraries(mousiki PRIVATE dl m)
 elseif(UNIX AND NOT APPLE)
   target_compile_definitions(mousiki PRIVATE MUISC_PLATFORM_LINUX=1 MA_ENABLE_ONLY_SPECIFIC_BACKENDS=1 MA_ENABLE_PULSEAUDIO=1 MA_ENABLE_ALSA=1)
   # Note: miniaudio talks to PipeWire through its PulseAudio *and* ALSA
