@@ -10,6 +10,8 @@ bool init_platform_audio_context(ma_context& out_context) {
     ma_backend backends[] = { ma_backend_wasapi };
 #elif defined(MUISC_PLATFORM_LINUX)
     ma_backend backends[] = { ma_backend_pulseaudio, ma_backend_alsa };
+#elif defined(MUISC_PLATFORM_MACOS)
+    ma_backend backends[] = { ma_backend_coreaudio };
 #else
     ma_backend backends[] = { ma_backend_null };
 #endif
@@ -26,6 +28,8 @@ const char* platform_backend_name() {
     return "WASAPI (Windows)";
 #elif defined(MUISC_PLATFORM_LINUX)
     return "PulseAudio/ALSA -> PipeWire (Linux)";
+#elif defined(MUISC_PLATFORM_MACOS)
+    return "Core Audio (macOS)";
 #else
     return "null";
 #endif

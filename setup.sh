@@ -2,20 +2,94 @@
 
 set -e
 
-echo "Installing dependencies..."
-sudo apt update
-sudo apt install -y ffmpeg yt-dlp mpv python3 python3-pip
+OS="$(uname -s)"
 
-echo "Installing Python dependencies..."
-python3 -m pip install syncedlyrics
+echo "==> Detecting operating system: $OS"
 
-echo "Installing Mousiki configuration..."
-mkdir -p "$HOME/.config/mousiki"
-cp config.txt "$HOME/.config/mousiki/config.txt"
+if [ "$OS" = "Darwin" ]; then
+    echo "==> macOS detected. Checking prerequisites..."
+    if ! command -v brew >/dev/null 2>&1; then
+        echo "Error: Homebrew is required on macOS. Install it from https://brew.sh and re-run setup.sh"
+        exit 1
+    fi
 
-echo "Building Mousiki..."
+    echo "==> Installing macOS dependencies via Homebrew..."
+    BREW_DEPS=()
+    for dep in cmake ffmpeg yt-dlp python3; do
+        if ! command -v "$dep" >/dev/null 2>&1; then
+            BREW_DEPS+=("$dep")
+        fi
+    done
+
+    if [ ${#BREW_DEPS[@]} -gt 0 ]; then
+        echo "==> Installing missing packages: ${BREW_DEPS[*]}"
+        HOMEBREW_NO_AUTO_UPDATE=1 brew install "${BREW_DEPS[@]}"
+    else
+        echo "==> All Homebrew packages already installed."
+    fi
+
+elif [ -n "$TERMUX_VERSION" ] || [ -d "/data/data/com.termux" ]; then
+    echo "==> Termux detected. Installing dependencies via pkg..."
+    pkg update -y
+    pkg install -y cmake clang ffmpeg yt-dlp python make
+
+elif [ "$OS" = "Linux" ]; then
+    echo "==> Linux detected."
+    if command -v apt-get >/dev/null 2>&1; then
+        echo "==> Installing dependencies via apt..."
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential ffmpeg yt-dlp python3 python3-pip
+    elif command -v pacman >/dev/null 2>&1; then
+        echo "==> Installing dependencies via pacman..."
+        sudo pacman -Sy --noconfirm cmake base-devel ffmpeg yt-dlp python python-pip
+    elif command -v dnf >/dev/null 2>&1; then
+        echo "==> Installing dependencies via dnf..."
+        sudo dnf install -y cmake gcc-c++ make ffmpeg yt-dlp python3 python3-pip
+    else
+        echo "Warning: Unsupported package manager. Please ensure cmake, ffmpeg, yt-dlp, and python3 are installed."
+    fi
+else
+    echo "Warning: Unrecognized OS ($OS). Assuming dependencies are installed manually."
+fi
+
+echo "==> Installing Python dependencies..."
+if ! python3 -c "import syncedlyrics" >/dev/null 2>&1; then
+    echo "==> Installing syncedlyrics..."
+    python3 -m pip install --break-system-packages syncedlyrics 2>/dev/null || \
+    python3 -m pip install --user syncedlyrics 2>/dev/null || \
+    python3 -m pip install syncedlyrics
+else
+    echo "==> syncedlyrics is already installed."
+fi
+
+echo "==> Installing Mousiki configuration..."
+CONFIG_DIR="$HOME/.config/mousiki"
+mkdir -p "$CONFIG_DIR"
+if [ ! -f "$CONFIG_DIR/config.txt" ]; then
+    cp config.txt "$CONFIG_DIR/config.txt"
+    echo "==> Created $CONFIG_DIR/config.txt"
+else
+    echo "==> Existing config found at $CONFIG_DIR/config.txt (keeping current file)"
+fi
+
+# Configure yt-dlp to prevent YouTube HTTP 403 Forbidden errors
+YTDLP_CONFIG_DIR="$HOME/.config/yt-dlp"
+mkdir -p "$YTDLP_CONFIG_DIR"
+if [ ! -f "$YTDLP_CONFIG_DIR/config" ]; then
+    echo '--extractor-args "youtube:player_client=android"' > "$YTDLP_CONFIG_DIR/config"
+    echo "==> Configured yt-dlp to use android player client"
+elif ! grep -q "player_client" "$YTDLP_CONFIG_DIR/config"; then
+    echo '--extractor-args "youtube:player_client=android"' >> "$YTDLP_CONFIG_DIR/config"
+    echo "==> Added android player client to existing yt-dlp config"
+fi
+
+echo "==> Building Mousiki..."
+CORES=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
 cmake -B build
-cd build
-make -j6
+cmake --build build -j"$CORES"
 
-echo "Setup complete!"
+echo ""
+echo "========================================="
+echo "  Setup complete! Run Mousiki with:     "
+echo "    ./build/mousiki                      "
+echo "========================================="

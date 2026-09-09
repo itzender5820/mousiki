@@ -124,6 +124,7 @@ HKeySetting="s"
 LocalMusicPath=/data/data/com.termux/files/home/disk/Download
 LocalMusicPath=~/disk/Music
 LocalMusicPath=~/music
+LocalMusicPath=~/Music
 
 # Navigation
 HKeyNavigateUp="ARROW_KEY_UP"
