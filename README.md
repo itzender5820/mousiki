@@ -28,6 +28,34 @@ I created Mousiki because I wanted a fast, focused TUI (Terminal User Interface)
 
 ## 🛠️ Getting Started
 
+## Default Keybindings
+
+Configurable in `$HOME/.config/mousiki/config.txt`.
+
+### Search & Playback
+| Action | Keybinding | Description |
+| :--- | :--- | :--- |
+| **Local Search** | `/` | Filter and search local library |
+| **Online Stream Search** | `/s: <query>` | Search and stream music online |
+| **Download Stream** | `y` | Download currently streaming track |
+| **Play / Pause** | `p` (or `ENTER`) | Toggle playback |
+| **Next / Previous Track** | `n` / `b` | Skip between songs |
+| **Seek** | `ARROW_LEFT` / `ARROW_RIGHT` | Seek backward / forward |
+| **Volume** | `1` / `2` | Decrease / Increase volume |
+| **Shuffle / Repeat** | `m` / `r` | Toggle shuffle or repeat mode |
+
+### Navigation & Queue
+| Action | Keybinding | Description |
+| :--- | :--- | :--- |
+| **Navigate** | `ARROW_UP` / `ARROW_DOWN` | Move selection |
+| **Switch Tabs/Cards** | `TAB` | Cycle between UI panels |
+| **Add to Queue** | `a` | Enqueue selected track |
+| **Remove from Queue** | `d` | Dequeue selected track |
+| **Filter by Folder** | `f` | Apply folder filter |
+| **Clear Filter** | `c` | Reset active search/filters |
+| **Quit** | `q` | Exit application |
+
+
 ### Prerequisites & Installation
 
 Mousiki relies on a few external tools for audio fetching, decoding, and lyrics. The easiest way to get started is by running the setup script on a Debian-based Linux system or Termux:
