@@ -103,17 +103,55 @@ if ! print_dep "cmake" "cmake"; then
 fi
 
 # -------------------------------
+# Python package manager
+# -------------------------------
+
+PIP_PATH="$(command -v pip 2>/dev/null || true)"
+PIPX_PATH="$(command -v pipx 2>/dev/null || true)"
+
+if [[ "$PIPX_PATH" == /usr/* ]]; then
+    PIP_MANAGER="pipx"
+    PIP_MANAGER_PATH="$PIPX_PATH"
+elif [[ "$PIP_PATH" == /usr/* ]]; then
+    PIP_MANAGER="pip"
+    PIP_MANAGER_PATH="$PIP_PATH"
+elif [ -n "$PIPX_PATH" ]; then
+    PIP_MANAGER="pipx"
+    PIP_MANAGER_PATH="$PIPX_PATH"
+elif [ -n "$PIP_PATH" ]; then
+    PIP_MANAGER="pip"
+    PIP_MANAGER_PATH="$PIP_PATH"
+else
+    echo "Error: neither pip nor pipx is installed."
+    exit 1
+fi
+
+echo "Python package manager: $PIP_MANAGER"
+echo "  $PIP_MANAGER_PATH"
+
+# -------------------------------
 # Python dependency
 # -------------------------------
 
-if "$PYTHON_CMD" -c "import syncedlyrics" >/dev/null 2>&1; then
-    printf "%-14s ✓\n" "syncedlyrics"
-else
-    printf "%-14s ✗\n" "syncedlyrics"
-    MISSING+=("syncedlyrics")
-fi
+if [ "$PIP_MANAGER" = "pip" ]; then
 
-echo "================================="
+    if "$PYTHON_CMD" -c "import syncedlyrics" >/dev/null 2>&1; then
+        printf "%-14s ✓\n" "syncedlyrics"
+    else
+        printf "%-14s ✗\n" "syncedlyrics"
+        MISSING+=("syncedlyrics")
+    fi
+
+elif [ "$PIP_MANAGER" = "pipx" ]; then
+
+    if "$PIP_MANAGER_PATH" list 2>/dev/null | grep -q '^syncedlyrics '; then
+        printf "%-14s ✓\n" "syncedlyrics"
+    else
+        printf "%-14s ✗\n" "syncedlyrics"
+        MISSING+=("syncedlyrics")
+    fi
+
+fi
 
 # -------------------------------
 # Install missing dependencies
@@ -204,6 +242,24 @@ if [ ${#MISSING[@]} -gt 0 ]; then
 fi
 
 # -------------------------------
+# Install Python dependencies
+# -------------------------------
+
+if [[ " ${MISSING[*]} " == *" syncedlyrics "* ]]; then
+
+    echo ""
+    echo "==> Installing syncedlyrics..."
+
+    if [ "$PIP_MANAGER" = "pip" ]; then
+        "$PYTHON_CMD" -m pip install syncedlyrics
+
+    elif [ "$PIP_MANAGER" = "pipx" ]; then
+        "$PIP_MANAGER_PATH" install syncedlyrics
+    fi
+
+fi
+
+# -------------------------------
 # Verify dependencies again
 # -------------------------------
 
@@ -222,9 +278,20 @@ if [ "$IS_TERMUX" = true ] && ! check_command clang; then
     exit 1
 fi
 
-if ! "$PYTHON_CMD" -c "import syncedlyrics" >/dev/null 2>&1; then
-    echo "Error: syncedlyrics is not installed correctly."
-    exit 1
+if [ "$PIP_MANAGER" = "pip" ]; then
+
+    if ! "$PYTHON_CMD" -c "import syncedlyrics" >/dev/null 2>&1; then
+        echo "Error: syncedlyrics is not installed correctly."
+        exit 1
+    fi
+
+elif [ "$PIP_MANAGER" = "pipx" ]; then
+
+    if ! "$PIP_MANAGER_PATH" list 2>/dev/null | grep -q '^syncedlyrics '; then
+        echo "Error: syncedlyrics is not installed correctly."
+        exit 1
+    fi
+
 fi
 
 echo "All dependencies are ready."
