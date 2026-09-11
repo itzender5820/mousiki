@@ -187,25 +187,7 @@ const char* fft_glyph(int level) {
 // Counts UTF-8 codepoints (not bytes) -- used for the letter-by-letter
 // lyrics reveal below. terminal_ui.cpp has an equivalent utf8_take(), but
 // it's `static` (file-local) so it isn't reachable from here.
-static int lyric_utf8_count(const std::string& s) {
-    int n = 0;
-    for (unsigned char c : s) if ((c & 0xC0) != 0x80) ++n; // skip UTF-8 continuation bytes
-    return n;
-}
 
-// Byte-safe prefix of the first `n` UTF-8 codepoints of `s`.
-static std::string lyric_utf8_prefix(const std::string& s, int n) {
-    if (n <= 0) return "";
-    int count = 0;
-    size_t i = 0;
-    while (i < s.size()) {
-        size_t start = i;
-        ++i;
-        while (i < s.size() && (static_cast<unsigned char>(s[i]) & 0xC0) == 0x80) ++i;
-        if (++count > n) return s.substr(0, start);
-    }
-    return s;
-}
 
 std::vector<std::string> render_lyric_line_wrapped(const LyricLine& line, double elapsed, int width,
                                                      bool is_active, const Settings& settings) {
@@ -224,16 +206,38 @@ std::vector<std::string> render_lyric_line_wrapped(const LyricLine& line, double
     std::vector<W> cur;
     int cur_len = 0;
     for (auto& w : words) {
-        int wlen = display_width(w.text);
-        int candidate = cur.empty() ? wlen : cur_len + 1 + wlen;
-        if (!cur.empty() && candidate > width) {
+        std::string remain = w.text;
+        while (!remain.empty()) {
+            int r_wlen = display_width(remain);
+            int available = cur.empty() ? width : (width - cur_len - 1);
+            
+            if (r_wlen <= available) {
+                cur.push_back({remain, w.t, w.has_ts});
+                cur_len += (cur.empty() ? r_wlen : 1 + r_wlen);
+                break;
+            }
+            
+            if (!cur.empty()) {
+                rows.push_back(cur);
+                cur.clear();
+                cur_len = 0;
+                continue; // retry fitting on a new line
+            }
+            
+            // The word exceeds the full width of a line, must split it.
+            std::string chunk = utf8_take(remain, width);
+            if (chunk.empty()) {
+                // Failsafe: width is too small (e.g., 1) to fit a wide character (width 2).
+                // Force-take 2 columns so we at least make progress (1 grapheme cluster).
+                chunk = utf8_take(remain, 2);
+            }
+            
+            cur.push_back({chunk, w.t, w.has_ts});
             rows.push_back(cur);
             cur.clear();
-            cur_len = wlen;
-        } else {
-            cur_len = candidate;
+            cur_len = 0;
+            remain = remain.substr(chunk.size());
         }
-        cur.push_back(w);
     }
     if (!cur.empty()) rows.push_back(cur);
 
@@ -294,7 +298,7 @@ std::vector<std::string> render_lyric_line_wrapped(const LyricLine& line, double
                 // timing context at all (a single-word line), use a
                 // reasonable fixed pace.
                 std::string full = mapped_words[i];
-                int nchars = lyric_utf8_count(full);
+                int nchars = display_width(full);
                 double dur = -1.0;
                 if (i + 1 < row.size() && row[i + 1].has_ts && row[i + 1].t > row[i].t) {
                     dur = row[i + 1].t - row[i].t;
@@ -305,7 +309,7 @@ std::vector<std::string> render_lyric_line_wrapped(const LyricLine& line, double
                 }
                 double frac = std::clamp((elapsed - row[i].t) / dur, 0.0, 1.0);
                 int revealed = static_cast<int>(frac * nchars);
-                std::string shown = lyric_utf8_prefix(full, revealed);
+                std::string shown = utf8_take(full, revealed);
                 int hidden_cols = display_width(full) - display_width(shown);
                 s += word_ansi + kUnderline + shown + "\x1b[0m" + std::string(std::max(0, hidden_cols), ' ');
             } else if (is_current) {
@@ -369,6 +373,11 @@ fs::path find_lyrics_script() {
 App::App() {
     settings_ = load_settings();
     lyrics_script_ = find_lyrics_script();
+    
+    // Inject the cache directory into local music paths so streamed songs
+    // automatically appear in the local view for seamless offline playback
+    settings_.local_music_paths.push_back(cache_.cache_dir().string());
+    
     all_local_tracks_ = local_source_.scan(settings_.local_music_paths);
     local_view_ = all_local_tracks_;
     launch_row_meta_resolver();
@@ -618,6 +627,17 @@ void App::launch_load_async(fs::path local_path, std::string title, std::string 
         load_stage_ = 4;
         auto t2 = clock::now();
         pl.metadata = probe_metadata(path, pl.title, pl.artist, pl.location_label);
+        
+        // Ensure lyrics fetch uses the real metadata tags instead of the filename/folder
+        if (is_local) {
+            if (!pl.metadata.name.empty() && pl.metadata.name != "-") {
+                pl.title = pl.metadata.name;
+            }
+            if (!pl.metadata.artist.empty() && pl.metadata.artist != "-") {
+                pl.artist = pl.metadata.artist;
+            }
+        }
+        
         double duration = probe_duration_seconds(path);
         t_probe = elapsed_s(t2);
         pl.total_sec = duration > 0 ? static_cast<size_t>(duration) : 0;
@@ -678,11 +698,11 @@ void App::launch_load_async(fs::path local_path, std::string title, std::string 
 // just gets discarded rather than clobbering the new/retried track's
 // lyrics. Shared by the initial per-track fetch (poll_pending_load) and
 // the manual retry hotkey (handle_key's 'l' case).
-void App::launch_lyrics_fetch(std::string title, std::string artist, fs::path path) {
+void App::launch_lyrics_fetch(std::string title, std::string artist, fs::path path, bool force_network) {
     lyrics_ready_ = false;
     int my_epoch = ++lyrics_epoch_;
-    std::thread([this, title, artist, path, my_epoch]() {
-        LyricsResult r = fetch_synced_lyrics(title, artist, lyrics_script_.string(), path);
+    std::thread([this, title, artist, path, force_network, my_epoch]() {
+        LyricsResult r = fetch_synced_lyrics(title, artist, lyrics_script_.string(), path, force_network);
         std::lock_guard<std::mutex> lock(lyrics_mutex_);
         if (my_epoch != lyrics_epoch_.load()) return; // a newer/retried fetch has since started — discard
         lyrics_result_ = std::move(r);
@@ -1163,7 +1183,9 @@ void App::start_local_track(const LocalTrack& track) {
 
 void App::start_online_track(const OnlineResult& result) {
     if (load_in_progress_.load()) { status_line_ = "still loading the previous track ..."; return; }
-    launch_load_async({}, result.title, result.uploader, "youtube", /*is_local=*/false, result.video_id);
+    // Pass "" for artist so the lyrics search queries just the YouTube video title
+    // (which usually contains "Artist - Song Name" perfectly), instead of appending the channel name.
+    launch_load_async({}, result.title, "", "youtube", /*is_local=*/false, result.video_id);
 }
 
 // ---------------------------------------------------------------------
@@ -1278,7 +1300,7 @@ void App::handle_key(int key) {
             break;
         case 'l': case 'L': // retry lyrics fetch for the current track
             if (has_track_) {
-                launch_lyrics_fetch(metadata_.name, metadata_.artist == "-" ? "" : metadata_.artist, current_path_);
+                launch_lyrics_fetch(metadata_.name, metadata_.artist == "-" ? "" : metadata_.artist, current_path_, /*force_network=*/true);
                 status_line_ = "retrying lyrics ...";
             }
             break;
@@ -1286,6 +1308,47 @@ void App::handle_key(int key) {
             settings_.waveform_smooth = !settings_.waveform_smooth;
             recompute_waveform_for_current_track();
             status_line_ = settings_.waveform_smooth ? "waveform: smooth" : "waveform: raw";
+            break;
+        case 'y': case 'Y': // save cached stream to local music path
+            if (has_track_) {
+                if (current_path_.string().find(".cache") != std::string::npos || metadata_.location == "youtube") {
+                    std::string dest_dir;
+                    if (!settings_.local_music_paths.empty()) {
+                        dest_dir = settings_.local_music_paths[0];
+                    } else {
+                        const char* home = std::getenv("HOME");
+                        dest_dir = home ? std::string(home) + "/Music" : "./Music";
+                    }
+                    std::error_code ec;
+                    fs::create_directories(dest_dir, ec);
+                    
+                    std::string safe_name = metadata_.name;
+                    for (char& c : safe_name) if (c == '/' || c == '\\') c = '_';
+                    std::string safe_artist = (metadata_.artist == "-" ? "" : metadata_.artist);
+                    for (char& c : safe_artist) if (c == '/' || c == '\\') c = '_';
+                    
+                    std::string filename = safe_artist.empty() ? safe_name : safe_name + " - " + safe_artist;
+                    filename += current_path_.extension().string();
+                    
+                    fs::path dest_path = fs::path(dest_dir) / filename;
+                    if (fs::exists(dest_path, ec)) {
+                        status_line_ = "already saved: " + dest_path.filename().string();
+                    } else {
+                        fs::copy_file(current_path_, dest_path, fs::copy_options::overwrite_existing, ec);
+                        if (!ec) {
+                            fs::remove(current_path_, ec);
+                            current_path_ = dest_path; // update so sidecar lyrics go to the new folder
+                            metadata_.location = dest_dir;
+                            status_line_ = "saved to " + dest_path.string();
+                            refresh_local_view();
+                        } else {
+                            status_line_ = "failed to save: " + ec.message();
+                        }
+                    }
+                } else {
+                    status_line_ = "not a cached stream";
+                }
+            }
             break;
         case 't': // remove the hovering song from the queue
             queue_remove_hovering();
