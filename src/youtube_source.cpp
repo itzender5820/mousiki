@@ -6,10 +6,10 @@ namespace muisc {
 
 // yt-dlp --print "%(title)s\t%(artist,uploader)s" "ytsearch1:QUERY"
 // gives us a title before we commit to a deterministic cache filename.
-static bool probe_title(const std::string& query, std::string& title, std::string& artist) {
-    std::string cmd = "yt-dlp --no-warnings --skip-download "
-                       "--print \"%(title)s\t%(artist,uploader)s\" "
-                       "\"ytsearch1:" + query + "\"";
+static bool probe_title(const std::string& query, std::string& id, std::string& title, std::string& artist) {
+    std::string cmd = "yt-dlp -4 --no-warnings --extractor-args \"youtube:player_client=android;player_skip=webpage,configs,js\" --match-filters \"categories *= 'Music' & duration >= 90\" --flat-playlist "
+                       "--print \"%(id)s\t%(title)s\t%(uploader)s\" "
+                       "\"ytsearch10:" + query + "\"";
     ProcResult r = run_capture(cmd);
     if (!r.ok() || r.out.empty()) return false;
 
@@ -17,22 +17,29 @@ static bool probe_title(const std::string& query, std::string& title, std::strin
     std::istringstream stream(r.out);
     std::string line;
     std::getline(stream, line);
-    auto tab = line.find('\t');
-    if (tab == std::string::npos) {
-        title = line;
+    
+    auto t1 = line.find('\t');
+    if (t1 == std::string::npos) return false;
+    auto t2 = line.find('\t', t1 + 1);
+    
+    id = line.substr(0, t1);
+    if (t2 == std::string::npos) {
+        title = line.substr(t1 + 1);
         artist.clear();
     } else {
-        title = line.substr(0, tab);
-        artist = line.substr(tab + 1);
+        title = line.substr(t1 + 1, t2 - t1 - 1);
+        artist = line.substr(t2 + 1);
     }
+    
+    if (!id.empty() && id.back() == '\r') id.pop_back();
     if (!title.empty() && title.back() == '\r') title.pop_back();
     if (!artist.empty() && artist.back() == '\r') artist.pop_back();
-    return !title.empty();
+    return !title.empty() && !id.empty();
 }
 
 std::optional<SongResult> YoutubeSource::resolve(const std::string& query, std::string* error_out) {
-    std::string title, artist;
-    if (!probe_title(query, title, artist)) {
+    std::string id, title, artist;
+    if (!probe_title(query, id, title, artist)) {
         if (error_out) *error_out = "yt-dlp couldn't find/reach a result for: " + query;
         return std::nullopt;
     }
@@ -43,13 +50,10 @@ std::optional<SongResult> YoutubeSource::resolve(const std::string& query, std::
         return result;
     }
 
-    // Download straight to the deterministic cache path via -o with a
-    // fixed basename (no %(title)s expansion needed since we already
-    // resolved it above), forcing opus so the extension matches path_for().
-    // Use the android player_client to avoid YouTube's 403 Forbidden on web clients.
-    std::string cmd = "yt-dlp --no-warnings --extractor-args \"youtube:player_client=android\" -x --audio-format opus "
+    std::string url = "https://www.youtube.com/watch?v=" + id;
+    std::string cmd = "yt-dlp -4 --no-warnings --extractor-args \"youtube:player_client=android;player_skip=webpage,configs,js\" -x -f bestaudio/best --audio-format opus --audio-quality 0 "
                        "-o " + shell_quote((cached.parent_path() / cached.stem()).string() + ".%(ext)s") + " "
-                       "\"ytsearch1:" + query + "\"";
+                       + shell_quote(url);
     ProcResult r = run_capture(cmd, /*merge_stderr=*/true);
 
     if (!cache_.is_cached(title, "opus")) {
@@ -70,7 +74,7 @@ std::optional<SongResult> YoutubeSource::resolve_by_id(const std::string& video_
     }
 
     std::string url = "https://www.youtube.com/watch?v=" + video_id;
-    std::string cmd = "yt-dlp --no-warnings --extractor-args \"youtube:player_client=android\" -x --audio-format opus "
+    std::string cmd = "yt-dlp -4 --no-warnings --extractor-args \"youtube:player_client=android;player_skip=webpage,configs,js\" -x -f bestaudio/best --audio-format opus --audio-quality 0 "
                        "-o " + shell_quote((cached.parent_path() / cached.stem()).string() + ".%(ext)s") + " "
                        + shell_quote(url);
     ProcResult r = run_capture(cmd, /*merge_stderr=*/true);
