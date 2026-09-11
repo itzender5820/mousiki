@@ -48,6 +48,7 @@ struct LyricsResult {
 // skipped rather than faked.
 LyricsResult fetch_synced_lyrics(const std::string& title, const std::string& artist,
                                   const std::string& helper_script_path,
-                                  const fs::path& track_path = fs::path());
+                                  const fs::path& track_path = fs::path(),
+                                  bool force_network = false);
 
 } // namespace muisc
