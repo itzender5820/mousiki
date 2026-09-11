@@ -88,7 +88,9 @@ TrackMetadata probe_metadata(const fs::path& file, const std::string& fallback_n
             md.sampling = val + "KHz"; // matches the mockup's (unconventional) unit label
         } else if (key == "codec_name") {
             md.format = to_upper(val);
-        } else if (key == "TAG:artist" && fallback_artist.empty()) {
+        } else if (key == "TAG:title") {
+            md.name = val;
+        } else if (key == "TAG:artist") {
             md.artist = val;
         } else if (key == "TAG:date") {
             md.year = val.substr(0, 4);
