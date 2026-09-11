@@ -39,7 +39,7 @@ static bool json_get_string(const std::string& json, const std::string& key, std
 
 std::vector<OnlineResult> OnlineSource::search(const std::string& query, int count) {
     std::vector<OnlineResult> results;
-    std::string cmd = "yt-dlp --no-warnings --flat-playlist -j "
+    std::string cmd = "yt-dlp -4 --no-warnings --match-filters \"categories *= 'Music' & duration >= 90\" --flat-playlist -j "
                        "\"ytsearch" + std::to_string(count) + ":" + query + "\"";
     ProcResult r = run_capture(cmd);
     if (r.out.empty()) return results;
