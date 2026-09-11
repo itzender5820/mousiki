@@ -1,4 +1,5 @@
 #include "lyrics_fetcher.h"
+#include "TextSanitizer.h"
 #include "process_util.h"
 #include <cctype>
 #include <fstream>
@@ -164,8 +165,9 @@ static bool json_get_string(const std::string& json, const std::string& key, std
 // --- enhanced/plain LRC parsing ----------------------------------------
 
 static std::vector<LyricLine> parse_lrc(const std::string& lrc_text, bool enhanced) {
+    std::string sanitized_lrc = sanitize_lyric_text(lrc_text);
     std::vector<LyricLine> lines;
-    std::istringstream stream(lrc_text);
+    std::istringstream stream(sanitized_lrc);
     std::string raw_line;
 
     static const std::regex line_ts_re(R"(^\[(\d+):(\d+(?:\.\d+)?)\])");
@@ -224,12 +226,13 @@ static std::vector<LyricLine> parse_lrc(const std::string& lrc_text, bool enhanc
 }
 
 LyricsResult fetch_synced_lyrics(const std::string& title, const std::string& artist,
-                                  const std::string& helper_script_path, const fs::path& track_path) {
+                                  const std::string& helper_script_path, const fs::path& track_path,
+                                  bool force_network) {
     LyricsResult result;
 
     // 1) Local sidecar file — no subprocess at all if this hits.
     std::string local_lrc;
-    if (load_sidecar(track_path, local_lrc)) {
+    if (!force_network && load_sidecar(track_path, local_lrc)) {
         result.lines = parse_lrc(local_lrc, /*enhanced=*/true);
         if (!result.lines.empty()) {
             result.status = LyricsStatus::Ok;
@@ -249,9 +252,19 @@ LyricsResult fetch_synced_lyrics(const std::string& title, const std::string& ar
                        " " + shell_quote(title) + " " + shell_quote(artist);
     ProcResult r = run_capture(cmd, /*merge_stderr=*/false);
 
-    if (r.out.empty()) {
+    if (r.exit_code < 0) {
+        // posix_spawnp itself failed — python3 genuinely isn't on PATH.
         result.status = LyricsStatus::PythonMissing;
         result.message = "python3 not found on PATH — lyrics unavailable";
+        return result;
+    }
+
+    if (r.out.empty()) {
+        // python3 ran but the script produced no JSON — crash, timeout,
+        // or killed by signal before it could emit().
+        result.status = LyricsStatus::Error;
+        result.message = "lyrics helper script produced no output (exit " +
+                         std::to_string(r.exit_code) + ")";
         return result;
     }
 
