@@ -102,7 +102,7 @@ private:
     mutable LyricsResult lyrics_result_;
     std::atomic<bool> lyrics_ready_{false};
     std::atomic<int> lyrics_epoch_{0};
-    void launch_lyrics_fetch(std::string title, std::string artist, fs::path path);
+    void launch_lyrics_fetch(std::string title, std::string artist, fs::path path, bool force_network = false);
 
     std::string status_line_;
     bool quit_ = false;
