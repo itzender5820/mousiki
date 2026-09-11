@@ -189,6 +189,11 @@ std::string apply_font_map(const std::string& text,
     std::string out;
     out.reserve(text.size());
     for (char c : text) {
+        if (static_cast<unsigned char>(c) >= 0x80) { 
+            out += c; 
+            continue; 
+        } // pass multi-byte UTF-8 through untouched
+        
         char key = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
         auto it = font_map.find(key);
         if (it != font_map.end()) {
