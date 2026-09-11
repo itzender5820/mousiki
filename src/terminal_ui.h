@@ -32,11 +32,9 @@ private:
 std::string pad_right(const std::string& s, int width);
 std::string pad_left(const std::string& s, int width);
 std::string truncate_str(const std::string& s, int width);
+std::string utf8_take(const std::string& s, int width);
 
-// Counts UTF-8 *codepoints* (not bytes). Good enough for this UI: every
-// non-ASCII character in it (Braille cells, box-drawing glyphs, the few
-// arrow/triangle icons) is a single terminal column, so codepoint count
-// == display width here without needing full wcwidth handling.
+// Computes terminal display width of a UTF-8 string based on wcwidth.
 int display_width(const std::string& s);
 
 } // namespace muisc
