@@ -1,3 +1,5 @@
+<div align="center">
+
 # Mousiki 🎵
 
 ![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
@@ -12,6 +14,7 @@ I created Mousiki because I wanted a fast, focused TUI (Terminal User Interface)
 
 ![Mousiki Preview](./rawlook.png)
 
+</div>
 ## ✨ Features
 
 - **Local Music Playback:** Instantly browse and play your local music files.
@@ -105,5 +108,23 @@ Mousiki stands on the shoulders of giants. A huge thank you to the developers be
 
 This project is open-sourced under the [Apache License 2.0](LICENSE). 
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=itzender5820%2Fmousiki&type=date&legend=top-left">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=itzender5820/mousiki&type=date&theme=dark&legend=top-left" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=itzender5820/mousiki&type=date&legend=top-left" />
+    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=itzender5820/mousiki&type=date&legend=top-left" />
+  </picture>
+</a>
+
 ---
 *Crafted with ❤️ for the terminal by [itzender5820](https://github.com/itzender5820)*
+
+
+<p align="center">
+  <img
+    src="https://raw.githubusercontent.com/mayankchaudhary26/Cool-Readme-ideas/refs/heads/master/data/trust%20me.gif"
+    alt="Trust me"
+  />
+</p>
