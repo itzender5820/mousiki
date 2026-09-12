@@ -12,7 +12,7 @@ I created Mousiki because I wanted a fast, focused TUI (Terminal User Interface)
 
 ## Preview
 
-![Mousiki Preview](./rawlook.png)
+![Mousiki Preview](./preview.gif)
 
 </div>
 ## ✨ Features
