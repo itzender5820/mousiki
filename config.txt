@@ -142,7 +142,7 @@ BottomLeftCorner="╰";
 LowerRightCorner="╯";
 Vertical="│";
 Horizontal="─";
-Seprator=":  :"
+Separator=":  :"
 ListSeparator="|"
 
 # General
