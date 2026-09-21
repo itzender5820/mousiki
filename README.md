@@ -36,6 +36,7 @@ Mousiki is a terminal music player built from the ground up for people who prefe
 - **Synced Lyrics:** Real-time, word-by-word active lyrics highlighting as the song plays.
 - **Visualizers:** Real-time FFT spectrum, waveform rendering, and spinning disk art.
 - **Queue Management:** Effortless queueing, shuffling, and repeating.
+- **External Player Control:** Drive music playing in your browser or the Spotify desktop app straight from the TUI.
 - **Highly Configurable:** Tweak colors, visualizer fluidity, animations, and hotkeys to match your exact workflow.
 
 ## 🚀 Supported Platforms
@@ -61,6 +62,7 @@ Configurable in `$HOME/.config/mousiki/config.txt`.
 | **Seek** | `ARROW_LEFT` / `ARROW_RIGHT` | Seek backward / forward |
 | **Volume** | `1` / `2` | Decrease / Increase volume |
 | **Shuffle / Repeat** | `m` / `r` | Toggle shuffle or repeat mode |
+| **External Players** | `o` | Attach / detach an external player |
 
 ### Navigation & Queue
 | Action | Keybinding | Description |
@@ -90,12 +92,24 @@ bash setup.sh
 
 If you're building manually, ensure you have `cmake`, a C++17 compiler, `ffmpeg`, `yt-dlp`, and the Python `requests` package installed.
 
+Optionally, install [`playerctl`](https://github.com/altdesktop/playerctl) for external player control on Linux. It isn't needed for local or streaming playback — and if you'd rather not install anything, Mousiki falls back to `busctl` (ships with systemd) or `gdbus` (ships with glib), one of which you almost certainly already have.
+
 ### Running the App
 
 After a successful build, you can start the player with:
 ```bash
 ./build/mousiki
 ```
+
+## 🎛️ External Player Control
+
+Mousiki can also drive music that isn't playing inside it — a track in your browser (YouTube, SoundCloud, or any page with media) or the Spotify desktop app.
+
+Press `o` to open the **External Players** panel, pick a detected player with the arrow keys, and press `ENTER` to attach. While attached, the usual transport keys are forwarded to that player instead of Mousiki's own playback: `p` play/pause, `n` / `b` next / previous, `ARROW_LEFT` / `ARROW_RIGHT` seek, `1` / `2` volume, and `x` mute. The metadata panel and progress bar follow the external track, and synced lyrics are fetched for it just like a local one. Press `o` again to detach and return to controlling Mousiki (inside the panel, `ESC` just closes it without changing what you're attached to, and `d` detaches). Attaching pauses local playback by default, so the two never play over each other.
+
+On **Linux** this rides on MPRIS, the standard D-Bus remote-control protocol that Firefox, Chromium/Chrome, Spotify, VLC, mpv, and most other players already speak. Mousiki links no D-Bus library; exactly as it shells out to `yt-dlp` and `ffmpeg`, it talks to MPRIS through whichever of `playerctl`, `busctl`, or `gdbus` it finds on your `PATH` — in that order of preference. `playerctl` is the nicest of the three and the one worth installing.
+
+On **macOS** there is no MPRIS: only the **Spotify** and **Music** apps can be controlled, through `osascript`. Browser media is *not* controllable on macOS — there's no scriptable equivalent. On **Windows** and **Android (Termux)**, external control is not supported at all.
 
 ## ⚙️ Configuration
 
@@ -108,6 +122,16 @@ You can easily tell Mousiki where to look for your music. Simply add multiple `L
 # Add as many custom paths as you need:
 LocalMusicPath=/custom/path
 LocalMusicPath=/home/user/Music
+```
+
+### Tuning External Player Control
+External control is on by default. These four keys shape it:
+
+```ini
+ExternalControl=true         # Master on/off switch
+ExternalPollIntervalMs=500   # How often the attached player is re-polled (200-5000; each poll is a subprocess round-trip)
+ExternalAutoPauseLocal=true  # Pause local playback when attaching
+ColorExternal=               # Accent color for the panel (empty = same as the list)
 ```
 
 ## 🙏 Attribution & Dependencies

@@ -319,6 +319,7 @@ void apply_default_hotkeys(Settings& s) {
             {"HKeyToggleMute",                  "x"},
             {"HKeyCheatsheet",                  "?"},
             {"HKeyRetryLyrics",                 "l"},
+            {"HKeyExternalControl",             "o"},
         };
         for (const auto& [action, key] : defaults) {
             // Only fill actions that are entirely absent from the config.
@@ -658,6 +659,12 @@ static Settings load_from_config(const fs::path& path) {
         if (key == "AutoSaveC1") { if (!unquote(value).empty()) s.autosave_c1 = normalize_color_value(unquote(value)); continue; }
         if (key == "AutoSaveC2") { if (!unquote(value).empty()) s.autosave_c2 = normalize_color_value(unquote(value)); continue; }
 
+        // --- External player control (MPRIS: browser / Spotify) ---------
+        if (key == "ExternalControl") { s.external_control_enabled = parse_bool(value); continue; }
+        if (key == "ExternalPollIntervalMs") { try { s.external_poll_ms = std::clamp(std::stoi(value), 200, 5000); } catch (...) {} continue; }
+        if (key == "ExternalAutoPauseLocal") { s.external_auto_pause_local = parse_bool(value); continue; }
+        if (key == "ColorExternal") { if (!unquote(value).empty()) s.external_color = normalize_color_value(unquote(value)); continue; }
+
         // --- Local music library paths ---
         // Each LocalMusicPath= line appends one directory.
         // A leading ~ is expanded to $HOME so users can write:
@@ -869,6 +876,22 @@ void save_settings(const Settings& s) {
     out << "AutoSaveIndicatorType=" << (s.autosave_indicator_type == 1 ? "color" : "blink") << "\n## blink , color\n";
     out << "AutoSaveC1=" << s.autosave_c1 << "\n";
     out << "AutoSaveC2=" << s.autosave_c2 << "\n";
+    out << "\n";
+
+    out << "##-------------------------------------------\n";
+    out << "##        EXTERNAL PLAYER CONTROL\n";
+    out << "##-------------------------------------------\n\n";
+    out << "ExternalControl=" << tf(s.external_control_enabled) << "\n";
+    out << "## control music playing outside mousiki -- a browser (YouTube etc.) or the\n";
+    out << "## Spotify desktop app -- over MPRIS/D-Bus. Linux only; needs one of\n";
+    out << "## playerctl / busctl / gdbus on PATH.\n";
+    out << "ExternalPollIntervalMs=" << s.external_poll_ms << "\n## 200 to 5000\n";
+    out << "## how often the attached external player is re-polled, in milliseconds.\n";
+    out << "## each poll is a subprocess round-trip, so lower = more CPU.\n";
+    out << "ExternalAutoPauseLocal=" << tf(s.external_auto_pause_local) << "\n";
+    out << "## pause mousiki's own local playback when attaching to an external player,\n";
+    out << "## so the two don't play over each other\n";
+    out << "ColorExternal=" << s.external_color << "\n## empty = same as the list color\n";
     out << "\n";
 
     out << "##-------------------------------------------\n";

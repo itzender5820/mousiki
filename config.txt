@@ -104,6 +104,23 @@ AutoSaveC1=
 AutoSaveC2=
 
 ##-------------------------------------------
+##        EXTERNAL PLAYER CONTROL
+##-------------------------------------------
+## Control music playing outside mousiki -- in a browser (YouTube etc.)
+## or the Spotify desktop app -- over MPRIS/D-Bus. Linux only; needs one
+## of playerctl / busctl / gdbus on PATH (at least one ships with nearly
+## every desktop install).
+ExternalControl=true
+## how often the attached external player is re-polled, in milliseconds
+## (200-5000). each poll is a subprocess round-trip, so lower = more CPU.
+ExternalPollIntervalMs=500
+## pause mousiki's own local playback when attaching to an external
+## player, so the two don't play over each other
+ExternalAutoPauseLocal=true
+## accent color for the external-player panel -- empty = same as the list
+ColorExternal=
+
+##-------------------------------------------
 ##             PANEL 4: REFERENCE
 ##-------------------------------------------
 
@@ -181,6 +198,7 @@ HKeyConsole="t"
 HKeyToggleMute="x"
 HKeyCheatsheet="?"
 HKeyRetryLyrics="l"
+HKeyExternalControl="o"
 
 ##-------------------------------------------
 ##             PANEL 5: ABOUT APP
