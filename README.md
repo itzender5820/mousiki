@@ -24,7 +24,7 @@ Mousiki is a terminal music player built from the ground up for people who prefe
 
 ``Personal preference is not a compromise—it's the design goal.``
 
-FOR WIN32 CHECKOUT [fork](https://github.com/StSchwerdtfeger/Mousiki-Windows-Native-Port)
+[FOR WIN32 CLICK HERE](https://github.com/StSchwerdtfeger/Mousiki-Windows-Native-Port)
  
 ## Preview
 
