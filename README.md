@@ -23,14 +23,17 @@
 Mousiki is a terminal music player built from the ground up for people who prefer control, simplicity, and a keyboard. It's a fast, focused TUI (Terminal User Interface) without unnecessary interface layers — fully keyboard-driven and configurable, with spectrum visualizers, synced lyrics, and online streaming, all without leaving your terminal.
 
 ``Personal preference is not a compromise—it's the design goal.``
+
+FOR WIN32 CHECKOUT [fork](https://github.com/StSchwerdtfeger/Mousiki-Windows-Native-Port)
  
 ## Preview
 
 ![Mousiki Preview](./preview.gif)
 
 </div>
-## ✨ Features
 
+## ✨ Features
+- **Online Search & Streaming:** Search and stream tracks directly from online sources.
 - **Local Music Playback:** Instantly browse and play your local music files.
 - **Online Search & Streaming:** Search and stream tracks directly from online sources.
 - **Synced Lyrics:** Real-time, word-by-word active lyrics highlighting as the song plays.
