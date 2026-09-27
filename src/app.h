@@ -1,6 +1,8 @@
 #pragma once
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -9,6 +11,7 @@
 #include <vector>
 
 #include "disk_art.h"
+#include "external_control.h"
 #include "fft_visualizer.h"
 #include "local_source.h"
 #include "lyrics_fetcher.h"
@@ -27,7 +30,7 @@
 
 namespace muisc {
 
-enum class Mode { Browse, Search, Settings, ColorEdit, Console, Cheatsheet, BulkAdd, RetryLyrics };
+enum class Mode { Browse, Search, Settings, ColorEdit, Console, Cheatsheet, BulkAdd, RetryLyrics, External };
 enum class ListSource { Local, Online };
 
 struct QueueItem {
@@ -297,6 +300,118 @@ private:
     bool* rl_bool_ptr(RLField f);           // nullptr for non-checkbox fields
     std::string* rl_text_ptr(RLField f);    // nullptr for checkbox fields
     std::vector<std::string> build_retry_lyrics_panel() const; // fixed-width, fixed-height lines for draw_floating_panel()
+
+    // --- external player control (MPRIS: browser / Spotify) ------------
+    // mousiki's own playback (player_/has_track_) only ever covers audio
+    // *it* decoded. This block is the other half: attaching to a player
+    // running outside the process -- a browser tab, the Spotify desktop
+    // app -- and driving it over MPRIS, so the same transport keys work
+    // whether the sound is coming from us or from something else.
+    //
+    // Every ExternalControl call is a blocking subprocess round-trip
+    // (tens of milliseconds), which is far too slow for a 40ms render
+    // loop, so *nothing* here is called from the UI thread. ext_thread_
+    // owns all of it: it re-polls the attached player every
+    // settings_.external_poll_ms, rescans the player list while the
+    // picker is open, and executes transport commands pushed onto
+    // ext_cmd_queue_ by handle_key(). The UI thread only ever touches
+    // the published snapshots under ext_mutex_.
+    ExternalControl ext_;
+    bool ext_attached_ = false;
+    ExternalPlayer ext_target_;              // which player we're driving; valid when ext_attached_
+
+    mutable std::mutex ext_mutex_;           // guards ext_state_/ext_players_/ext_state_at_/ext_cmd_queue_
+    ExtTrackState ext_state_;                // last published snapshot of the attached player
+    std::vector<ExternalPlayer> ext_players_;// last published discovery result
+    // When ext_state_ was sampled. The attached player's real position
+    // only refreshes once per poll interval, which would make the
+    // progress bar visibly step rather than move; ext_elapsed() adds the
+    // wall-clock time since this instant while the player is Playing so
+    // the bar advances smoothly between polls, then snaps back to truth
+    // on the next one.
+    std::chrono::steady_clock::time_point ext_state_at_;
+    std::vector<std::function<void()>> ext_cmd_queue_;
+
+    std::thread ext_thread_;
+    std::condition_variable ext_cv_;         // wakes the thread early for a queued command / fresh scan
+    std::atomic<bool> ext_thread_stop_{false};
+    std::atomic<bool> ext_scan_pending_{false};
+    // A bare notify_one() on a predicate-guarded wait_for() does nothing:
+    // the thread wakes, re-evaluates the predicate, finds no queued
+    // command and goes straight back to waiting out the rest of the
+    // interval. This flag is what actually lets the UI thread say "stop
+    // waiting and do a pass right now" -- on attach, and when the picker
+    // opens and would otherwise show an empty list for half a second.
+    std::atomic<bool> ext_wake_{false};
+    std::atomic<bool> ext_dirty_{false};     // a new snapshot is waiting to be folded into the UI state
+
+    // Volume is the one control with no safe "read it back later" story:
+    // MPRIS volume is per-player and detaching should not leave the
+    // browser muted, so the pre-attach value is remembered and restored.
+    int ext_pre_attach_volume_ = -1;
+    // A single failed poll is not proof the player died -- D-Bus returns
+    // a transient ServiceUnknown while a browser is swapping which tab
+    // owns the MPRIS name, and dropping the attachment on that blip
+    // would make the feature feel flaky. Only a run of them counts.
+    int ext_invalid_polls_ = 0;
+    static constexpr int kExtInvalidPollsBeforeDetach = 3;
+    bool ext_muted_ = false;
+    int ext_pre_mute_volume_ = 100;
+    // Guards against re-firing a lyrics fetch every poll: holds the
+    // "title\x1fartist" of whatever we last fetched for, so a fetch only
+    // happens when the external player actually changes track.
+    std::string ext_lyrics_key_;
+
+    // While attached, the external player's title/artist/length are
+    // mirrored into metadata_/total_sec_/has_track_ so every existing
+    // panel keeps rendering from one source of truth instead of each
+    // learning about a second engine. That overwrites whatever the local
+    // track had, so the originals are parked here and put back on
+    // detach -- detaching returns you to exactly the view you left.
+    TrackMetadata ext_saved_metadata_;
+    size_t ext_saved_total_sec_ = 0;
+    bool ext_saved_has_track_ = false;
+    std::vector<float> ext_saved_waveform_;
+    bool ext_saved_waveform_ready_ = false;
+
+    // Picker panel (floating, same mechanism as Bulk Add).
+    int ext_cursor_ = 0;
+    int ext_scroll_ = 0;
+    static constexpr int kExternalPanelWidth = 62;   // matches the Bulk Add / Retry Lyrics panels
+    static constexpr int kExternalVisibleRows = 7;
+
+    void ext_start_thread();
+    void ext_stop_thread();
+    // Pushes a transport command onto the queue and wakes the thread.
+    // Deliberately fire-and-forget: a keypress must never block a frame
+    // waiting on a D-Bus round-trip to a player that may be wedged.
+    void ext_enqueue(std::function<void()> cmd);
+    // Reads the published volume, adjusts by delta and writes it back --
+    // external volume is the player's state, not ours.
+    void ext_nudge_volume(int delta_pct);
+    // Browsers accept MPRIS Seek and then ignore the offset, stepping
+    // their own fixed ~5s instead, so an accurate jump has to go through
+    // SetPosition with the current trackid. This picks whichever the
+    // attached player can actually honor.
+    void ext_seek(double delta_sec);
+    // Flips the published status optimistically, because PlaybackStatus
+    // lags the command by a few hundred milliseconds and the button
+    // would otherwise look like it ignored the first press.
+    void ext_toggle_play_pause();
+    void poll_pending_external();            // UI-thread side: folds a published snapshot into metadata_/total_sec_
+    void ext_attach(const ExternalPlayer& p);
+    void ext_detach();
+    // Position with the between-polls interpolation described above.
+    double ext_elapsed() const;
+    std::vector<std::string> build_external_panel() const;
+
+    // --- unified transport view -----------------------------------------
+    // What the UI should *display* and what the transport keys should
+    // *drive*, independent of which engine is actually producing sound.
+    // While attached these read the external player's published snapshot;
+    // otherwise they fall through to player_ exactly as before.
+    double current_elapsed() const;
+    bool current_paused() const;
 
     // --- async track loading ---
     struct PendingLoad {

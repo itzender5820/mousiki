@@ -123,6 +123,19 @@ struct Settings {
     bool waveform_smooth = true;
     int play_mode = 0; // 0=list 1=loop(repeat) 2=shuffle 3=stop 4=repeat queue
 
+    // --- external player control (MPRIS: browser / Spotify) ------------
+    // Drives music playing *outside* mousiki -- a browser tab, the
+    // Spotify desktop app -- over MPRIS/D-Bus. Linux only; needs one of
+    // playerctl / busctl / gdbus on PATH.
+    bool external_control_enabled = true;   // config: ExternalControl
+    int external_poll_ms = 500;             // 200-5000, how often the attached external player is
+                                            // re-polled; each poll is a subprocess round-trip, so
+                                            // lower values cost real CPU (config: ExternalPollIntervalMs)
+    bool external_auto_pause_local = true;  // pause mousiki's own local playback when attaching to an
+                                            // external player, so the two don't play over each other
+                                            // (config: ExternalAutoPauseLocal)
+    std::string external_color;             // external-player panel accent — empty = falls back to list_color
+
     // --- console logging (config.txt: ConsoleVerbosity) -----------------
     // "basic" = every external command mousiki ran (yt-dlp/ffprobe/
     // ffmpeg/lyrics-fetch) + raw output. "verbose" = that, plus internal/

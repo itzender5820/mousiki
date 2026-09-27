@@ -1057,18 +1057,27 @@ void App::queue_move_hovering(int dir) {
 SnapshotData App::build_snapshot() const {
     SnapshotData snap;
     snap.play_mode = settings_.play_mode;
-    snap.muted = muted_;
+    snap.muted = muted_;   // the local mute, not ext_muted_ -- see below
     // Save the *real* volume, not the forced-0 muted value, so unmuting
     // next session restores to what it actually was, not silence.
     snap.volume = muted_ ? pre_mute_volume_ : player_.volume();
 
-    if (has_track_) {
+    // While attached to an external player, metadata_/has_track_ are
+    // mirroring *its* track (see poll_pending_external()), and
+    // current_path_/current_video_id_ still point at the local one that
+    // was parked on attach. Snapshotting the mirrored fields would save
+    // a Spotify title against a local file path -- a session that
+    // restores as the wrong song. The parked local state is the truth
+    // here; someone else's player is not ours to restore.
+    const bool local_playing = ext_attached_ ? ext_saved_has_track_ : has_track_;
+    const TrackMetadata& local_meta = ext_attached_ ? ext_saved_metadata_ : metadata_;
+    if (local_playing) {
         snap.has_now_playing = true;
         snap.now_playing.is_local = current_is_local_;
         snap.now_playing.path = current_is_local_ ? current_path_.string() : std::string();
         snap.now_playing.video_id = current_is_local_ ? std::string() : current_video_id_;
-        snap.now_playing.title = metadata_.name;
-        snap.now_playing.artist = metadata_.artist;
+        snap.now_playing.title = local_meta.name;
+        snap.now_playing.artist = local_meta.artist;
         snap.position_sec = player_.poll_elapsed();
     }
 
@@ -1247,8 +1256,9 @@ static const char* kRefHotkeyNames[] = {
     "HKeyAddHoveringSongToQueue", "HKeyRemoveHoveringSongFromQueue", "HKeySwitchBetweenCards",
     "HKeyFilterForFolder", "HKeyClearFilter", "HKeyDownloadStream",
     "HKeyRefreshUi", "HKeyConsole", "HKeyToggleMute", "HKeyCheatsheet", "HKeyRetryLyrics",
+    "HKeyExternalControl",
 };
-static constexpr int kRefRowCount = 25;
+static constexpr int kRefRowCount = 26;
 
 std::string* App::color_field_ptr(int row, int col) {
     switch (row) {
@@ -1277,7 +1287,7 @@ int App::settings_max_row() const {
     // track the actual font_map/about_app_lines content).
     switch (settings_tab_) {
         case 0: return 13; // COLOR_SCHEMA: 14 rows
-        case 1: return 6;  // ONOFF_SCHEMA: 7 rows
+        case 1: return 8;  // ONOFF_SCHEMA: 9 rows (7 element toggles + 2 external-control ones)
         case 2: return 7;  // ANIM_SCHEMA: 8 rows
         case 3: {
             int letters = 0;
@@ -1312,6 +1322,8 @@ std::string App::settings_get_value(int row, int col) const {
             case 4: v = settings_.element_lyrics; break;
             case 5: v = settings_.element_lyrics_placeholder_ball; break;
             case 6: v = settings_.element_visualizer; break;
+            case 7: v = settings_.external_control_enabled; break;
+            case 8: v = settings_.external_auto_pause_local; break;
         }
         return v ? "true" : "false";
     }
@@ -1383,6 +1395,15 @@ void App::settings_commit_edit() {
             case 4: settings_.element_lyrics = is_true; break;
             case 5: settings_.element_lyrics_placeholder_ball = is_true; break;
             case 6: settings_.element_visualizer = is_true; break;
+            // Toggling external control off mid-session only stops new
+            // polling from starting; ext_start_thread() is a one-shot at
+            // launch, so an already-running thread keeps the current
+            // attachment alive until quit. That's deliberate -- yanking
+            // the transport out from under an attached player because a
+            // settings row flipped would be worse than honoring it next
+            // launch.
+            case 7: settings_.external_control_enabled = is_true; break;
+            case 8: settings_.external_auto_pause_local = is_true; break;
         }
     } else if (settings_tab_ == 2) {
         std::string v = to_lower(buf);
@@ -1631,6 +1652,34 @@ void App::handle_key(int key) {
         return;
     }
 
+    if (mode_ == Mode::External) {
+        std::vector<ExternalPlayer> players;
+        {
+            std::lock_guard<std::mutex> lk(ext_mutex_);
+            players = ext_players_;
+        }
+        int total = static_cast<int>(players.size());
+        ext_cursor_ = std::clamp(ext_cursor_, 0, std::max(0, total - 1));
+
+        if (key == 27 || key == 'o' || key == 'O') { mode_ = Mode::Browse; return; }
+        if (key == 'A' && total > 0) { // up
+            ext_cursor_ = std::max(0, ext_cursor_ - 1);
+            if (ext_cursor_ < ext_scroll_) ext_scroll_ = ext_cursor_;
+            return;
+        }
+        if (key == 'B' && total > 0) { // down
+            ext_cursor_ = std::min(total - 1, ext_cursor_ + 1);
+            if (ext_cursor_ >= ext_scroll_ + kExternalVisibleRows) ext_scroll_ = ext_cursor_ - kExternalVisibleRows + 1;
+            return;
+        }
+        if ((key == '\r' || key == '\n') && total > 0) {
+            ext_attach(players[ext_cursor_]); // closes the panel itself
+            return;
+        }
+        if (key == 'd' || key == 'D') { ext_detach(); return; }
+        return;
+    }
+
     if (mode_ == Mode::Search) {
         if (key == 27) {
             // Cancel: put the view back exactly as it was before '/' was
@@ -1691,7 +1740,11 @@ void App::handle_key(int key) {
             }
             break;
         case 'C': // right = seek forward
-            if (has_track_) player_.seek_relative(5.0);
+            if (ext_attached_) {
+                ext_seek(5.0);
+            } else if (has_track_) {
+                player_.seek_relative(5.0);
+            }
             break;
         case 'D': // left = seek back ... OR, while queue-focused, move the hovering queue item down.
             // Left-arrow and Shift+D are indistinguishable at the terminal-
@@ -1700,20 +1753,32 @@ void App::handle_key(int key) {
             // unavailable during that time, but that's an acceptable
             // trade since you're not usually seeking while reordering a
             // queue anyway.
-            if (queue_focus_) queue_move_hovering(1);
-            else if (has_track_) player_.seek_relative(-5.0);
+            if (queue_focus_) {
+                queue_move_hovering(1);
+            } else if (ext_attached_) {
+                ext_seek(-5.0);
+            } else if (has_track_) {
+                player_.seek_relative(-5.0);
+            }
             break;
         case 'u': case 'U': // move the hovering queue item up (only meaningful once you've Tab'd into the queue)
             queue_move_hovering(-1);
             break;
-        case 'p': case 'P': // play/pause
-            if (has_track_) { if (player_.is_paused()) player_.resume(); else player_.pause(); }
+        case 'p': case 'P': // play/pause -- drives whichever engine is
+                             // currently in charge (see current_paused()).
+            if (ext_attached_) {
+                ext_toggle_play_pause();
+            } else if (has_track_) {
+                if (player_.is_paused()) player_.resume(); else player_.pause();
+            }
             break;
         case '1': // volume up
-            if (has_track_) player_.set_volume(std::min(100, player_.volume() + 5));
+            if (ext_attached_) ext_nudge_volume(+5);
+            else if (has_track_) player_.set_volume(std::min(100, player_.volume() + 5));
             break;
         case '2': // volume down
-            if (has_track_) player_.set_volume(std::max(0, player_.volume() - 5));
+            if (ext_attached_) ext_nudge_volume(-5);
+            else if (has_track_) player_.set_volume(std::max(0, player_.volume() - 5));
             break;
         case 'n': case 'N': // next -- the queue (if any) takes priority,
                              // same as auto-advance-on-finish does, and
@@ -1722,14 +1787,40 @@ void App::handle_key(int key) {
                              // still always actually skips, though --
                              // Repeat/Stop only govern *automatic*
                              // advance, not an explicit "n" press).
-            if (!queue_.empty()) play_next_from_queue();
-            else play_relative(1);
+            if (ext_attached_) {
+                std::string bus = ext_target_.bus_name;
+                ext_enqueue([this, bus]() { ext_.next(bus); });
+            } else if (!queue_.empty()) {
+                play_next_from_queue();
+            } else {
+                play_relative(1);
+            }
+            break;
+        case 'o': case 'O': // external players -- open the picker, or
+                             // detach if already driving one, so the same
+                             // key both enters and leaves the mode.
+            if (ext_attached_) {
+                ext_detach();
+            } else {
+                mode_ = Mode::External;
+                ext_cursor_ = 0;
+                ext_scroll_ = 0;
+                ext_scan_pending_ = true;
+                ext_wake_ = true;
+                ext_cv_.notify_one();   // scan now instead of at the next tick
+                status_line_.clear();
+            }
             break;
         case 'b': // prev -- relative to what's actually playing (see
                   // current_track_list_index()), not the hover cursor.
                   // No queue equivalent: a FIFO queue has no well-defined
                   // "previous" once an item's been consumed.
-            play_relative(-1);
+            if (ext_attached_) {
+                std::string bus = ext_target_.bus_name;
+                ext_enqueue([this, bus]() { ext_.previous(bus); });
+            } else {
+                play_relative(-1);
+            }
             break;
         case 'a': // add hovering song to queue (List focus) -- or, when
                   // the Queue panel itself is focused, "a" has nothing
@@ -1780,6 +1871,29 @@ void App::handle_key(int key) {
             mode_ = Mode::Console;
             break;
         case 'x': case 'X': // mute -- force volume to 0 without touching pause state
+            // While attached, this mutes *their* player, and the level to
+            // come back to is tracked separately from the local one so
+            // detaching can't cross-contaminate the two.
+            if (ext_attached_) {
+                std::string bus = ext_target_.bus_name;
+                if (!ext_muted_) {
+                    int cur = 100;
+                    {
+                        std::lock_guard<std::mutex> lk(ext_mutex_);
+                        if (ext_state_.volume_pct >= 0) cur = ext_state_.volume_pct;
+                    }
+                    ext_pre_mute_volume_ = cur;
+                    ext_muted_ = true;
+                    ext_enqueue([this, bus]() { ext_.set_volume(bus, 0); });
+                    log_event("muted (external)");
+                } else {
+                    int v = ext_pre_mute_volume_;
+                    ext_muted_ = false;
+                    ext_enqueue([this, bus, v]() { ext_.set_volume(bus, v); });
+                    log_event("unmuted (external)");
+                }
+                break;
+            }
             if (!muted_) {
                 pre_mute_volume_ = player_.volume();
                 player_.set_volume(0);
@@ -2026,7 +2140,7 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
         }
     }
 
-    double elapsed = has_track_ ? player_.poll_elapsed() : 0.0;
+    double elapsed = current_elapsed();
     fft_.set_fluidity(settings_.visualizer_fluidity);
     fft_.set_degradation_speed(settings_.visualizer_degradation_speed);
     fft_.set_viscosity(settings_.visualizer_viscosity);
@@ -2265,7 +2379,7 @@ std::vector<std::string> App::build_progress_panel(int total_width) const {
     int main_total_w = std::max(24, total_width - side_panel_w);
     int wave_w = main_total_w - 4;
 
-    double elapsed = has_track_ ? player_.poll_elapsed() : 0.0;
+    double elapsed = current_elapsed();
     int active_cols = (total_sec_ > 0) ? static_cast<int>((elapsed / static_cast<double>(total_sec_)) * wave_w) : 0;
     active_cols = std::clamp(active_cols, 0, wave_w);
 
@@ -2334,7 +2448,7 @@ std::vector<std::string> App::build_progress_panel(int total_width) const {
         std::string bar = border_ansi + settings_.box_vertical + "\x1b[0m";
         return bar + " " + centered + " " + bar;
     };
-    std::string play_label = (has_track_ && player_.is_paused()) ? "PLAY" : (has_track_ ? "PAUSE" : "PLAY");
+    std::string play_label = (has_track_ && current_paused()) ? "PLAY" : (has_track_ ? "PAUSE" : "PLAY");
 
     std::vector<std::string> out;
     if (settings_.element_dummy_buttons) {
@@ -2361,7 +2475,14 @@ std::vector<std::string> App::build_progress_panel(int total_width) const {
         out.push_back(bar + " " + row2_content + " " + bar);
     }
 
+    // The volume bar has to show whichever engine the "1"/"2" keys are
+    // actually driving, or it would sit at the local level while the
+    // browser's volume moves underneath it.
     int vol = player_.volume();
+    if (ext_attached_) {
+        std::lock_guard<std::mutex> lk(ext_mutex_);
+        if (ext_state_.volume_pct >= 0) vol = ext_state_.volume_pct;
+    }
     int vol_hashes = (vol * 20) / 100;
     // "#" (filled) matches the waveform's played color, "-" (empty)
     // matches its unplayed/remaining color -- color_played/color_unplayed
@@ -2711,11 +2832,12 @@ void App::build_settings_screen(std::ostringstream& frame, int W, int player_h) 
             y++;
         }
     } else if (settings_tab_ == 1 || settings_tab_ == 2) {
-        static const char* onoff_l[7] = {"Eliment Disk", "Dummy Buttons", "Queue Display", "WaveForm",
-                                          "Lyrics Engine", "Lyric Ball", "Visualizer"};
+        static const char* onoff_l[9] = {"Eliment Disk", "Dummy Buttons", "Queue Display", "WaveForm",
+                                          "Lyrics Engine", "Lyric Ball", "Visualizer",
+                                          "External Control", "Ext. Auto-Pause"};
         static const char* anim_l[8] = {"Vis. Fluidity", "Waveform Style", "Disk Speed", "Playback Mode",
                                          "Vis. Degradation", "Vis. Viscosity", "Lyrics Alignment", "Lyrics Animation"};
-        int count = (settings_tab_ == 1) ? 7 : 8;
+        int count = (settings_tab_ == 1) ? 9 : 8;
         const char* const* labels = (settings_tab_ == 1) ? onoff_l : anim_l;
         for (int i = 0; i < count; ++i) {
             pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
@@ -2744,7 +2866,7 @@ void App::build_settings_screen(std::ostringstream& frame, int W, int player_h) 
                                                     "Add To Queue", "Remove From Queue", "Switch Cards",
                                                     "Filter By Folder", "Clear Filter", "Download Stream",
                                                     "Refresh UI", "Console / Logs", "Toggle Mute", "Cheatsheet",
-                                                    "Retry Lyrics"};
+                                                    "Retry Lyrics", "External Players"};
         std::vector<char> letters;
         for (char c = 'A'; c <= 'Z'; ++c) if (settings_.font_map.count(c)) letters.push_back(c);
         int display_count = kRefRowCount + 1 + static_cast<int>(letters.size()); // +1 for the divider row
@@ -2904,6 +3026,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {"HKeyToggleMute",                  "Mute (without pausing)"},
         {"HKeyCheatsheet",                  "This cheatsheet"},
         {"HKeyRetryLyrics",                 "Retry lyrics"},
+        {"HKeyExternalControl",             "External players (browser / Spotify)"},
     };
 
     int height = std::max(term_rows_ - 4, 8); // real terminal height, minus this overlay's own top/bottom border rows
@@ -2932,6 +3055,473 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
 // takes as many rows as it actually has content for: an input row while
 // typing, then a short starred checklist once results come in. It never
 // grows to fill the terminal.
+
+// ---------------------------------------------------------------------
+// External player control (MPRIS: browser / Spotify)
+// ---------------------------------------------------------------------
+// The design constraint that shapes everything below: every
+// ExternalControl call is a blocking subprocess round-trip (tens of
+// milliseconds, and unbounded if the player is wedged). The render loop
+// runs at 40ms. So not one of them may happen on the UI thread -- not
+// in a key handler, and certainly not in a panel builder. ext_thread_
+// owns all of them and publishes snapshots under ext_mutex_; the UI
+// thread only ever reads those snapshots and pushes closures onto
+// ext_cmd_queue_.
+
+void App::ext_start_thread() {
+    if (ext_thread_.joinable()) return;
+    if (!settings_.external_control_enabled) {
+        ConsoleLog::instance().log_verbose("external control: disabled in config (ExternalControl=false)");
+        return;
+    }
+    if (!ExternalControl::available()) {
+        // Not an error worth putting on the status line -- on a machine
+        // with no MPRIS backend (Windows, a bare Termux shell) the
+        // feature simply isn't there, and the picker will say so.
+        ConsoleLog::instance().log_verbose("external control: no backend on PATH (playerctl/busctl/gdbus) -- unavailable");
+        return;
+    }
+    ConsoleLog::instance().log_verbose(std::string("external control: backend=") + ExternalControl::backend_name());
+
+    ext_thread_stop_ = false;
+    ext_thread_ = std::thread([this]() {
+        while (!ext_thread_stop_.load()) {
+            std::vector<std::function<void()>> cmds;
+            bool attached = false;
+            std::string bus;
+            {
+                std::lock_guard<std::mutex> lk(ext_mutex_);
+                cmds.swap(ext_cmd_queue_);
+                attached = ext_attached_;
+                bus = ext_target_.bus_name;
+            }
+
+            // Commands first: a keypress should take effect before the
+            // next poll, not after it, or the UI shows the pre-command
+            // state for a whole interval and the key feels dropped.
+            for (auto& c : cmds) {
+                if (ext_thread_stop_.load()) return;
+                c();
+            }
+            const bool just_commanded = !cmds.empty();
+
+            if (attached && !bus.empty()) {
+                ExtTrackState st = ext_.poll(bus);
+                {
+                    std::lock_guard<std::mutex> lk(ext_mutex_);
+                    ext_state_ = std::move(st);
+                    ext_state_at_ = std::chrono::steady_clock::now();
+                }
+                ext_dirty_ = true;
+            }
+            if (ext_scan_pending_.load()) {
+                std::vector<ExternalPlayer> players = ext_.list_players();
+                {
+                    std::lock_guard<std::mutex> lk(ext_mutex_);
+                    ext_players_ = std::move(players);
+                }
+                ext_dirty_ = true;
+            }
+
+            // settings_.external_poll_ms is read without a lock. It's a
+            // plain int the settings panel may rewrite on the UI thread;
+            // a torn read is not possible in practice on any supported
+            // target, and the worst case is one poll at a stale interval.
+            int wait_ms = std::clamp(settings_.external_poll_ms, 200, 5000);
+            // Right after a command, re-read sooner than the full
+            // interval -- but not immediately: MPRIS PlaybackStatus lags
+            // a PlayPause by a few hundred milliseconds, so a 60ms
+            // re-poll reliably reads the *old* status and would undo the
+            // optimistic flip in ext_toggle_play_pause(), making the
+            // button visibly bounce back before settling.
+            if (just_commanded) wait_ms = 350;
+
+            std::unique_lock<std::mutex> lk(ext_mutex_);
+            ext_cv_.wait_for(lk, std::chrono::milliseconds(wait_ms), [this]() {
+                return ext_thread_stop_.load() || !ext_cmd_queue_.empty() || ext_wake_.exchange(false);
+            });
+        }
+    });
+}
+
+void App::ext_stop_thread() {
+    if (!ext_thread_.joinable()) return;
+    ext_thread_stop_ = true;
+    ext_cv_.notify_all();
+    ext_thread_.join();
+}
+
+// Volume on an external player is whatever *it* last reported, not a
+// value we own, so a nudge reads the published snapshot, adjusts, and
+// writes back. The optimistic local update matters: without it two quick
+// presses would both read the same pre-poll value and the second would
+// undo the first.
+void App::ext_nudge_volume(int delta_pct) {
+    std::string bus;
+    int cur = -1;
+    {
+        std::lock_guard<std::mutex> lk(ext_mutex_);
+        bus = ext_target_.bus_name;
+        cur = ext_state_.volume_pct;
+    }
+    if (bus.empty()) return;
+    if (cur < 0) cur = 100;   // player doesn't report volume -- assume full and go from there
+    int next = std::clamp(cur + delta_pct, 0, 100);
+    {
+        std::lock_guard<std::mutex> lk(ext_mutex_);
+        ext_state_.volume_pct = next;
+    }
+    ext_muted_ = (next == 0);
+    ext_enqueue([this, bus, next]() { ext_.set_volume(bus, next); });
+}
+
+// Chromium answers MPRIS Seek with success and then ignores the offset
+// entirely -- it routes the call through its media-session
+// seek-forward/backward action, which steps a fixed ~5s no matter what
+// was asked for. On exactly the player this feature exists for, a
+// relative seek therefore silently does something other than what the
+// key says. SetPosition lands where it is told, so that is the path
+// whenever the player reports a trackid and a position to anchor to.
+void App::ext_seek(double delta_sec) {
+    std::string bus, track_id;
+    double sampled = -1.0, len = -1.0;
+    {
+        std::lock_guard<std::mutex> lk(ext_mutex_);
+        bus = ext_target_.bus_name;
+        track_id = ext_state_.track_id;
+        sampled = ext_state_.position_sec;
+        len = ext_state_.length_sec;
+    }
+    if (bus.empty()) return;
+
+    if (track_id.empty() || sampled < 0.0) {
+        // No anchor to jump from -- fall back to the relative seek and
+        // accept whatever the player makes of it.
+        ext_enqueue([this, bus, delta_sec]() { ext_.seek_relative(bus, delta_sec); });
+        return;
+    }
+
+    // ext_elapsed() (not the raw sample) so seeking from a bar that has
+    // been interpolating forward lands where the bar actually is.
+    double target = ext_elapsed() + delta_sec;
+    if (len > 0.0) target = std::min(target, std::max(0.0, len - 0.5));
+    target = std::max(0.0, target);
+    {
+        // Optimistic: move the bar on the keypress rather than at the
+        // next poll, then let the poll correct it if the player refused.
+        std::lock_guard<std::mutex> lk(ext_mutex_);
+        ext_state_.position_sec = target;
+        ext_state_at_ = std::chrono::steady_clock::now();
+    }
+    ext_enqueue([this, bus, track_id, target]() { ext_.set_position(bus, track_id, target); });
+}
+
+void App::ext_toggle_play_pause() {
+    // Bake the interpolated position into the sample before flipping, so
+    // pausing freezes the bar where it visibly was rather than snapping
+    // it back to the last poll's value.
+    double now_pos = ext_elapsed();
+    std::string bus;
+    {
+        std::lock_guard<std::mutex> lk(ext_mutex_);
+        bus = ext_target_.bus_name;
+        if (ext_state_.valid) {
+            if (ext_state_.position_sec >= 0.0) ext_state_.position_sec = now_pos;
+            ext_state_at_ = std::chrono::steady_clock::now();
+            // PlaybackStatus lags the command by a few hundred ms; without
+            // this the PLAY/PAUSE button ignores the first press.
+            if (ext_state_.status == ExtStatus::Playing)      ext_state_.status = ExtStatus::Paused;
+            else if (ext_state_.status == ExtStatus::Paused)  ext_state_.status = ExtStatus::Playing;
+        }
+    }
+    if (bus.empty()) return;
+    ext_enqueue([this, bus]() { ext_.play_pause(bus); });
+}
+
+void App::ext_enqueue(std::function<void()> cmd) {
+    if (!ext_thread_.joinable()) return; // feature unavailable -- silently ignore
+    {
+        std::lock_guard<std::mutex> lk(ext_mutex_);
+        // A wedged player would otherwise let held-down keys pile up
+        // into a backlog that keeps executing long after the key was
+        // released. Dropping the oldest keeps the queue honest.
+        if (ext_cmd_queue_.size() >= 32) ext_cmd_queue_.erase(ext_cmd_queue_.begin());
+        ext_cmd_queue_.push_back(std::move(cmd));
+    }
+    ext_cv_.notify_one();
+}
+
+void App::ext_attach(const ExternalPlayer& p) {
+    // Two engines playing over each other is never what anyone wants.
+    if (settings_.external_auto_pause_local && has_track_ && !player_.is_paused()) {
+        player_.pause();
+    }
+
+    // Park the local view so detaching restores it verbatim (see the
+    // ext_saved_* comment in app.h).
+    ext_saved_metadata_ = metadata_;
+    ext_saved_total_sec_ = total_sec_;
+    ext_saved_has_track_ = has_track_;
+    ext_saved_waveform_ = waveform_envelope_;
+    ext_saved_waveform_ready_ = waveform_ready_;
+
+    {
+        std::lock_guard<std::mutex> lk(ext_mutex_);
+        ext_target_ = p;
+        ext_attached_ = true;
+        ext_state_ = ExtTrackState{};
+        ext_state_at_ = std::chrono::steady_clock::now();
+    }
+
+    // There is no PCM coming from someone else's process, so there is no
+    // waveform to draw -- clear it rather than leaving the last local
+    // track's envelope sitting under an unrelated song's progress bar.
+    waveform_envelope_.clear();
+    waveform_ready_ = false;
+    ++waveform_epoch_;   // invalidate any in-flight local waveform pass
+
+    ext_pre_attach_volume_ = -1;
+    ext_muted_ = false;
+    ext_invalid_polls_ = 0;
+    ext_lyrics_key_.clear();
+    // Deliberately NOT setting ext_dirty_ here: it means "the poll
+    // thread published a real snapshot", and what was installed above is
+    // the blank placeholder. Marking it dirty had the very next UI frame
+    // read valid=false and conclude the player was already gone --
+    // attaching detached itself one frame later.
+    ext_wake_ = true;
+    ext_cv_.notify_one();   // poll it now, not in half a second
+    mode_ = Mode::Browse;
+    log_event("attached to " + (p.display_name.empty() ? p.id : p.display_name));
+}
+
+void App::ext_detach() {
+    if (!ext_attached_) return;
+    ExternalPlayer was;
+    {
+        std::lock_guard<std::mutex> lk(ext_mutex_);
+        was = ext_target_;
+    }
+
+    // Walking away having left someone's browser silent would be rude:
+    // put the volume back the way we found it. Queued (not called) --
+    // this runs on the UI thread.
+    if (ext_pre_attach_volume_ >= 0) {
+        std::string bus = was.bus_name;
+        int v = ext_pre_attach_volume_;
+        ext_enqueue([this, bus, v]() { ext_.set_volume(bus, v); });
+    }
+
+    {
+        std::lock_guard<std::mutex> lk(ext_mutex_);
+        ext_attached_ = false;
+        ext_target_ = ExternalPlayer{};
+        ext_state_ = ExtTrackState{};
+    }
+    ext_muted_ = false;
+    ext_pre_attach_volume_ = -1;
+    ext_invalid_polls_ = 0;
+    ext_lyrics_key_.clear();
+
+    // Restore the local view exactly as it was before attaching.
+    metadata_ = ext_saved_metadata_;
+    total_sec_ = ext_saved_total_sec_;
+    has_track_ = ext_saved_has_track_;
+    waveform_envelope_ = ext_saved_waveform_;
+    waveform_ready_ = ext_saved_waveform_ready_;
+    if (waveform_ready_) waveform_reveal_start_ = std::chrono::steady_clock::now();
+
+    // The lyrics panel is still showing the external track's words; pull
+    // the local track's back.
+    if (has_track_) launch_lyrics_fetch(metadata_.name, metadata_.artist, current_path_);
+
+    log_event("detached from " + (was.display_name.empty() ? was.id : was.display_name));
+}
+
+// The attached player's real position only refreshes once per poll
+// interval, which would make the progress bar step in visible jumps.
+// Adding the wall-clock time since the sample keeps it moving smoothly
+// in between, and each poll snaps it back to the truth.
+double App::ext_elapsed() const {
+    std::lock_guard<std::mutex> lk(ext_mutex_);
+    if (!ext_state_.valid || ext_state_.position_sec < 0.0) return 0.0;
+    double pos = ext_state_.position_sec;
+    if (ext_state_.status == ExtStatus::Playing) {
+        pos += std::chrono::duration<double>(std::chrono::steady_clock::now() - ext_state_at_).count();
+    }
+    if (ext_state_.length_sec > 0.0) pos = std::min(pos, ext_state_.length_sec);
+    return std::max(0.0, pos);
+}
+
+double App::current_elapsed() const {
+    if (ext_attached_) return ext_elapsed();
+    return has_track_ ? player_.poll_elapsed() : 0.0;
+}
+
+bool App::current_paused() const {
+    if (ext_attached_) {
+        std::lock_guard<std::mutex> lk(ext_mutex_);
+        // Unknown counts as paused: a player that isn't reporting
+        // Playing shouldn't keep the disk art spinning.
+        return ext_state_.status != ExtStatus::Playing;
+    }
+    return player_.is_paused();
+}
+
+// UI-thread side of the external control loop. Folds whatever the poll
+// thread published into the same fields every panel already renders
+// from, so none of them need to know a second engine exists.
+void App::poll_pending_external() {
+    // The picker's list is only worth refreshing while it's open.
+    ext_scan_pending_.store(mode_ == Mode::External);
+
+    if (!ext_dirty_.exchange(false)) return;
+    if (!ext_attached_) return;
+
+    ExtTrackState st;
+    ExternalPlayer tgt;
+    {
+        std::lock_guard<std::mutex> lk(ext_mutex_);
+        st = ext_state_;
+        tgt = ext_target_;
+    }
+
+    if (!st.valid) {
+        // The player may have gone away mid-session (tab closed, Spotify
+        // quit) -- but a single failed poll is not proof of that (see
+        // kExtInvalidPollsBeforeDetach), so only a run of them drops the
+        // attachment and hands the transport keys back to local playback.
+        if (++ext_invalid_polls_ < kExtInvalidPollsBeforeDetach) return;
+        log_event((tgt.display_name.empty() ? tgt.id : tgt.display_name) + " is gone — detached");
+        ext_detach();
+        return;
+    }
+    ext_invalid_polls_ = 0;
+
+    has_track_ = true;
+    metadata_.name = st.title.empty() ? "(unknown)" : st.title;
+    metadata_.artist = st.artist.empty() ? "-" : st.artist;
+    metadata_.year = "-";
+    metadata_.sampling = "-";
+    metadata_.type = std::string("external (") + ExternalControl::backend_name() + ")";
+    metadata_.format = st.album.empty() ? "-" : st.album;
+    metadata_.file_size = "-";
+    metadata_.location = tgt.display_name.empty() ? tgt.id : tgt.display_name;
+    metadata_.extra_label = "source";
+    metadata_.extra_value = tgt.kind == "spotify" ? "Spotify"
+                          : (tgt.kind == "browser" ? "browser" : tgt.id);
+    total_sec_ = st.length_sec > 0.0 ? static_cast<size_t>(st.length_sec) : 0;
+
+    // First successful poll after attaching tells us the volume to put
+    // back on detach.
+    if (ext_pre_attach_volume_ < 0 && st.volume_pct >= 0) ext_pre_attach_volume_ = st.volume_pct;
+
+    // Synced lyrics follow the external track too -- that is most of the
+    // point of driving Spotify from a lyrics-capable player. Keyed so a
+    // fetch fires on track change, not on every poll.
+    std::string key = metadata_.name + "\x1f" + metadata_.artist;
+    if (key != ext_lyrics_key_) {
+        ext_lyrics_key_ = key;
+        // No track path: an external player's media isn't a local file
+        // we can drop a sidecar .lrc next to, so this is a network-only
+        // lookup by title/artist.
+        launch_lyrics_fetch(st.title, st.artist, fs::path());
+    }
+}
+
+std::vector<std::string> App::build_external_panel() const {
+    const int W = kExternalPanelWidth;
+    const int inner_w = W - 2;
+    std::string border = ansi_for(settings_.border_color, false);
+    std::string accent = ansi_for(settings_.external_color.empty() ? settings_.list_color
+                                                                   : settings_.external_color);
+    std::string obar = border.empty() ? settings_.box_vertical : (border + settings_.box_vertical + "\x1b[0m");
+    auto wrap = [&](const std::string& inner_line) { return obar + inner_line + obar; };
+
+    std::vector<ExternalPlayer> players;
+    std::string attached_bus;
+    {
+        std::lock_guard<std::mutex> lk(ext_mutex_);
+        players = ext_players_;
+        if (ext_attached_) attached_bus = ext_target_.bus_name;
+    }
+
+    std::vector<std::string> lines;
+    lines.push_back(box_top("EXTERNAL PLAYERS", W, border));
+    lines.push_back(wrap(box_top("", inner_w, border)));
+
+    int total = static_cast<int>(players.size());
+    int show = std::min(total, kExternalVisibleRows);
+    int scroll = std::clamp(ext_scroll_, 0, std::max(0, total - show));
+
+    // Same fixed-height discipline as the Bulk Add panel: unused rows are
+    // blanked rather than omitted, so the floating rectangle never
+    // changes size between frames (see draw_floating_panel() in app.h).
+    for (int r = 0; r < kExternalVisibleRows; ++r) {
+        if (r >= show) {
+            std::string msg;
+            // Say *why* the list is empty instead of showing a blank box.
+            if (total == 0 && r == 0) {
+                if (!settings_.external_control_enabled)      msg = "  external control is off (ExternalControl=false)";
+                else if (!ExternalControl::available())        msg = "  no MPRIS backend found (install playerctl)";
+                else                                          msg = "  nothing playing outside mousiki right now";
+            } else if (total == 0 && r == 1 && settings_.external_control_enabled && ExternalControl::available()) {
+                msg = "  start a song in your browser or Spotify";
+            }
+            lines.push_back(wrap(box_line(msg, inner_w, border)));
+            continue;
+        }
+        int idx = scroll + r;
+        const auto& p = players[idx];
+        bool hovering = (idx == ext_cursor_);
+        bool is_attached = !attached_bus.empty() && p.bus_name == attached_bus;
+
+        // kind gets a short tag rather than an icon -- the UI is
+        // deliberately glyph-light and a tag survives every terminal.
+        std::string kind_tag = p.kind == "spotify" ? "[spotify]"
+                             : (p.kind == "browser" ? "[browser]" : "[player] ");
+        std::string mark = is_attached ? "▸" : " ";
+        std::string name = truncate_str(p.display_name.empty() ? p.id : p.display_name, 24);
+        std::string line = mark + " " + pad_right(kind_tag, 10) + " " + pad_right(name, 24);
+
+        // Colored/highlighted only after box_line() has done its padding
+        // and truncation -- those count raw bytes, not display columns,
+        // so splicing escapes in beforehand risks the truncation cutting
+        // through a reset and leaking style onto every later line. Same
+        // reasoning as build_bulk_add_panel().
+        std::string boxed = box_line(line, inner_w, border);
+        if (hovering) {
+            std::string vbar = border.empty() ? settings_.box_vertical : (border + settings_.box_vertical + "\x1b[0m");
+            size_t start = vbar.size() + 1;
+            size_t end = boxed.size() - vbar.size() - 1;
+            boxed = boxed.substr(0, start) + "\x1b[7m" + boxed.substr(start, end - start) + "\x1b[0m" + boxed.substr(end);
+        } else if (is_attached && !accent.empty()) {
+            std::string vbar = border.empty() ? settings_.box_vertical : (border + settings_.box_vertical + "\x1b[0m");
+            size_t start = vbar.size() + 1;
+            size_t end = boxed.size() - vbar.size() - 1;
+            boxed = boxed.substr(0, start) + accent + boxed.substr(start, end - start) + "\x1b[0m" + boxed.substr(end);
+        }
+        lines.push_back(wrap(boxed));
+    }
+
+    int more = total - show;
+    std::string left_label = more > 0 ? ("[ " + std::to_string(more) + " more ]") : "";
+    std::string right_label = attached_bus.empty() ? "ENTER attach" : "ENTER attach   d detach";
+    std::string prefix = settings_.box_lower_left + settings_.box_horizontal;
+    if (!left_label.empty()) prefix += " " + left_label + " ";
+    std::string suffix = " " + right_label + " ";
+    suffix += settings_.box_lower_right;
+    int used = display_width(prefix) + display_width(suffix);
+    int dashes = std::max(0, inner_w - used);
+    std::string bottom = prefix;
+    for (int i = 0; i < dashes; ++i) bottom += settings_.box_horizontal;
+    bottom += suffix;
+    bottom = pad_right(bottom, inner_w);
+    lines.push_back(wrap(border.empty() ? bottom : (border + bottom + "\x1b[0m")));
+
+    lines.push_back(box_bottom(W, "[ESC] close", border));
+    return lines;
+}
 
 // ---------------------------------------------------------------------
 // Floating panels (Bulk Add, Retry Lyrics) -- see app.h's comment on
@@ -3291,7 +3881,8 @@ std::string App::render_frame(TerminalIO& term) {
     // change always has.
     auto mode_family = [](Mode m) {
         switch (m) {
-            case Mode::Browse: case Mode::Search: case Mode::BulkAdd: case Mode::RetryLyrics: return 0;
+            case Mode::Browse: case Mode::Search: case Mode::BulkAdd:
+            case Mode::RetryLyrics: case Mode::External: return 0;
             case Mode::Settings: case Mode::ColorEdit: return 1;
             case Mode::Console: return 2;
             case Mode::Cheatsheet: return 3;
@@ -3399,6 +3990,8 @@ std::string App::render_frame(TerminalIO& term) {
         draw_floating_panel(frame, build_bulk_add_panel(), kBulkAddPanelWidth, W);
     } else if (mode_ == Mode::RetryLyrics) {
         draw_floating_panel(frame, build_retry_lyrics_panel(), kRetryLyricsPanelWidth, W);
+    } else if (mode_ == Mode::External) {
+        draw_floating_panel(frame, build_external_panel(), kExternalPanelWidth, W);
     }
 
     // Hard safety net on top of the list_visible_rows_ sizing above: even
@@ -3474,6 +4067,8 @@ int App::run() {
         start_local_track(local_view_[0]);
     }
 
+    ext_start_thread();
+
     TerminalIO term;
     last_frame_time_ = std::chrono::steady_clock::now();
     last_autosave_at_ = std::chrono::steady_clock::now();
@@ -3487,6 +4082,7 @@ int App::run() {
         poll_pending_load();
         poll_pending_waveform();
         poll_pending_bulk_add();
+        poll_pending_external();
         maybe_autosave();
 
         auto now = std::chrono::steady_clock::now();
@@ -3494,13 +4090,13 @@ int App::run() {
         last_frame_time_ = now;
         viz_dt_ = dt;
 
-        if (has_track_) {
+        if (has_track_ && !ext_attached_) {
             player_.poll_elapsed();
             if (player_.finished()) advance_track();
         }
         // Disk only spins while something is actually playing — frozen
         // when idle or paused, per instruction.
-        if (has_track_ && !player_.is_paused()) {
+        if (has_track_ && !current_paused()) {
             angle_ = std::fmod(angle_ + kAngularVelocity * settings_.disk_rotation_speed * dt,
                                2.0 * 3.14159265358979323846);
         }
@@ -3516,6 +4112,9 @@ int App::run() {
         std::this_thread::sleep_for(std::chrono::milliseconds(40));
     }
 
+    // Stopped before player_ so a queued transport command can't outlive
+    // the App it captured `this` from.
+    ext_stop_thread();
     player_.stop();
     term.restore();
     save_settings(settings_);
