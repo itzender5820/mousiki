@@ -85,6 +85,10 @@ ConsoleVerbosity=basic
 ## verbose = basic, plus internal/OS-level events (terminal resize, audio device init, spawn errors, ...)
 ## Log file: $HOME/.cache/mousiki/logs/console.log -- wiped fresh at the start of every session.
 
+ShowStatusMessages=true
+## the one-line notifications at the bottom of the player view (e.g. "play mode: shuffle", "saved session snapshot").
+## set to false to silence them -- they still show up in the Console overlay ('t') and the log file either way.
+
 ##-------------------------------------------
 ##             AUTOSAVE / SESSION SNAPSHOT
 ##-------------------------------------------

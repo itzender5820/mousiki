@@ -18,8 +18,6 @@ struct LyricLine {
 
 enum class LyricsStatus {
     Ok,
-    ModuleMissing,   // Python 'requests' package not installed -> show pip-install hint
-    PythonMissing,   // python3 not found on PATH
     NotFound,        // ran fine, no lyrics available for this track
     Error,
 };
@@ -33,15 +31,13 @@ struct LyricsResult {
 };
 
 // Priority chain: a local sidecar .lrc file next to `track_path` (checked
-// first, no subprocess spawned at all) -> the Python helper script
-// (scripts/fetch_lyrics.py), which tries Better Lyrics first (word-level
-// TTML, converted to enhanced LRC) and falls back to LRCLIB (line-synced
-// only) if Better Lyrics has nothing -- see scripts/lrc.py. Whatever
-// comes back from a network fetch is written back to the sidecar file,
-// so the next time this track plays (even offline) it's a local-file
-// hit.
+// first, no network at all) -> Better Lyrics (word-level, via TTML,
+// converted to enhanced LRC) -> LRCLIB (line-synced only) if Better
+// Lyrics has nothing. Both APIs are called directly over HTTP (libcurl,
+// see http_client.h) -- no external process, no Python. Whatever comes
+// back from a network fetch is written back to the sidecar file, so the
+// next time this track plays (even offline) it's a local-file hit.
 LyricsResult fetch_synced_lyrics(const std::string& title, const std::string& artist,
-                                  const std::string& helper_script_path,
                                   const fs::path& track_path = fs::path(),
                                   bool force_network = false);
 

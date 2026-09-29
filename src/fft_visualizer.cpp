@@ -23,8 +23,8 @@ void FftVisualizer::set_fluidity(int level) {
     // (0.06) to let real overshoot happen rather than just slowly
     // creeping — that's what reads as "fluid" rather than merely
     // "smoothed".
-    spring_k_ = 55.0f - t * 51.0f;    // 55 (snappy) -> 4 (very fluid)
-    damping_ = 0.35f - t * 0.29f;     // 0.35 -> 0.06: less resistance to velocity = more sustained motion
+    spring_k_ = 55.0f - t * 35.0f;    // 55 (snappy) -> 20 (fluid, but not sluggish)
+    damping_ = 0.35f - t * 0.15f;     // 0.35 -> 0.20: less resistance to velocity = more sustained motion, without the old low-end overshoot lag
 }
 
 void FftVisualizer::set_degradation_speed(int level) {
@@ -39,7 +39,7 @@ void FftVisualizer::set_degradation_speed(int level) {
 
 void FftVisualizer::set_viscosity(int level) {
     level = std::clamp(level, 0, 10);
-    viscosity_ = static_cast<float>(level) / 10.0f * 0.7f; // 0 -> 0.7, matches the old derived range's top end
+    viscosity_ = static_cast<float>(level) / 10.0f * 0.20f; // 0 -> 0.20 -- was 0.7, which over-smoothed and read as sluggish
 }
 
 void FftVisualizer::reset() {
@@ -105,8 +105,19 @@ void FftVisualizer::compute_bands_locked(const std::array<float, kFftSize>& ring
     // "fluidity" motion the user controls via the settings slider happens
     // downstream in compute_bars()'s spring-damper step.
     for (int b = 0; b < kMaxBands; ++b) {
-        float a = (full[b] > smooth_bands_[b]) ? 0.55f : 0.30f;
-        smooth_bands_[b] = smooth_bands_[b] * (1.0f - a) + full[b] * a;
+        float a;
+        if (full[b] > smooth_bands_[b]) {
+            // Fast attack -- pushed close to instant (was 0.90)
+            a = 0.97f;
+        } else {
+            // Very fast release -- pushed close to instant (was 0.80),
+            // but stopping short of 1.0 so a bar still reads as decaying
+            // rather than snapping straight to silence on a single dip.
+            a = 0.93f;
+        }
+        smooth_bands_[b] =
+            smooth_bands_[b] * (1.0f - a) +
+            full[b] * a;
     }
 }
 

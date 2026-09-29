@@ -628,6 +628,7 @@ static Settings load_from_config(const fs::path& path) {
             s.console_verbosity = (v == "verbose") ? 1 : 0;
             continue;
         }
+        if (key == "ShowStatusMessages") { s.show_status_messages = parse_bool(value); continue; }
 
         // --- Autosave / session snapshot --------------------------------
         if (key == "AutoSave") { s.autosave_enabled = parse_bool(value); continue; }
@@ -762,6 +763,20 @@ Settings load_settings() {
             "Zero external UI bloat: 100% native POSIX terminal runtime.",
         };
     }
+
+    // Self-heals configs already duplicated by a past version of the
+    // cache-dir injection bug (App::App() used to push_back() it
+    // unconditionally every session, and save_settings() persists
+    // whatever's in this vector -- so it kept compounding). Dedupes by
+    // path string while keeping first-seen order.
+    {
+        std::vector<std::string> deduped;
+        for (const auto& p : s.local_music_paths) {
+            if (std::find(deduped.begin(), deduped.end(), p) == deduped.end()) deduped.push_back(p);
+        }
+        s.local_music_paths = std::move(deduped);
+    }
+
     return s;
 }
 
@@ -854,6 +869,7 @@ void save_settings(const Settings& s) {
     out << "##             CONSOLE / LOGGING\n";
     out << "##-------------------------------------------\n\n";
     out << "ConsoleVerbosity=" << (s.console_verbosity == 1 ? "verbose" : "basic") << "\n## basic , verbose\n";
+    out << "ShowStatusMessages=" << tf(s.show_status_messages) << "\n## bottom-of-screen notifications (\"play mode: shuffle\", \"saved session snapshot\", ...) -- turn off to silence them; they still go to the Console overlay ('t') regardless\n";
     out << "## basic   = every command mousiki ran (yt-dlp/ffprobe/ffmpeg/lyrics-fetch) + its raw output\n";
     out << "## verbose = basic, plus internal/OS-level events (terminal resize, audio device init, spawn errors, ...)\n";
     out << "## Log file: $HOME/.cache/mousiki/logs/console.log -- wiped fresh at the start of every session.\n";

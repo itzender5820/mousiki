@@ -65,6 +65,23 @@ target_include_directories(mousiki PRIVATE "${CMAKE_SOURCE_DIR}/src" "${MINIAUDI
 find_package(Threads REQUIRED)
 target_link_libraries(mousiki PRIVATE Threads::Threads)
 
+# ---------------------------------------------------------------------------
+# libcurl — used by src/http_client.cpp for the two lyrics APIs (Better
+# Lyrics, LRCLIB). This is the only network client mousiki needs at
+# runtime now that yt-dlp ships as a standalone binary (see setup.sh) and
+# lyrics fetching no longer shells out to Python -- replacing both was
+# specifically to drop the Python/pip/pip3/pipx dependency that had been
+# the single biggest source of setup friction.
+# ---------------------------------------------------------------------------
+find_package(CURL REQUIRED)
+target_link_libraries(mousiki PRIVATE CURL::libcurl)
+
+# zlib -- used by src/lyrics_fetcher.cpp's KuGou provider to inflate the
+# KRC lyrics blob it downloads (see decrypt_krc()/zlib_inflate_to_string()
+# there).
+find_package(ZLIB REQUIRED)
+target_link_libraries(mousiki PRIVATE ZLIB::ZLIB)
+
 if(ANDROID)
   target_compile_definitions(mousiki PRIVATE MUISC_PLATFORM_ANDROID=1 MA_ENABLE_ONLY_SPECIFIC_BACKENDS=1 MA_ENABLE_OPENSL=1)
   target_link_libraries(mousiki PRIVATE OpenSLES log android)

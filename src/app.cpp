@@ -334,52 +334,23 @@ std::vector<std::string> render_lyric_line_wrapped(const LyricLine& line, double
     return out;
 }
 
-fs::path find_lyrics_script() {
-    if (const char* env = std::getenv("MOUSIKI_SCRIPTS_DIR")) {
-        fs::path p = fs::path(env) / "fetch_lyrics.py";
-        if (fs::exists(p)) return p;
-    }
-    fs::path cwd_candidate = fs::path("scripts") / "fetch_lyrics.py";
-    if (fs::exists(cwd_candidate)) return cwd_candidate;
-
-#if defined(__APPLE__)
-    char exe_buf[4096];
-    uint32_t size = sizeof(exe_buf);
-    if (_NSGetExecutablePath(exe_buf, &size) == 0) {
-        std::error_code ec;
-        fs::path exe_dir = fs::canonical(fs::path(exe_buf), ec).parent_path();
-        if (!ec) {
-            fs::path p = exe_dir / "scripts" / "fetch_lyrics.py";
-            if (fs::exists(p)) return p;
-            p = exe_dir.parent_path() / "scripts" / "fetch_lyrics.py";
-            if (fs::exists(p)) return p;
-        }
-    }
-#else
-    char exe_buf[4096];
-    ssize_t n = readlink("/proc/self/exe", exe_buf, sizeof(exe_buf) - 1);
-    if (n > 0) {
-        exe_buf[n] = '\0';
-        fs::path exe_dir = fs::path(exe_buf).parent_path();
-        fs::path p = exe_dir / "scripts" / "fetch_lyrics.py";
-        if (fs::exists(p)) return p;
-        p = exe_dir.parent_path() / "scripts" / "fetch_lyrics.py";
-        if (fs::exists(p)) return p;
-    }
-#endif
-    return cwd_candidate;
-}
-
 } // namespace
 
 App::App() {
     settings_ = load_settings();
-    lyrics_script_ = find_lyrics_script();
-    
+
     // Inject the cache directory into local music paths so streamed songs
-    // automatically appear in the local view for seamless offline playback
-    settings_.local_music_paths.push_back(cache_.cache_dir().string());
-    
+    // automatically appear in the local view for seamless offline playback.
+    // save_settings() persists local_music_paths back to config.txt, so
+    // an unconditional push_back() here duplicated the cache dir a little
+    // more every single session (load already-saved copy -> push another
+    // -> save both -> next launch loads two, pushes a third, ...). Only
+    // add it if it isn't already there.
+    std::string cache_dir_str = cache_.cache_dir().string();
+    bool cache_dir_present = std::find(settings_.local_music_paths.begin(), settings_.local_music_paths.end(),
+                                        cache_dir_str) != settings_.local_music_paths.end();
+    if (!cache_dir_present) settings_.local_music_paths.push_back(cache_dir_str);
+
     all_local_tracks_ = local_source_.scan(settings_.local_music_paths);
     local_view_ = all_local_tracks_;
     launch_row_meta_resolver();
@@ -423,7 +394,7 @@ std::string App::hotkey_conflict(const std::string& key_str, const std::string& 
 // off the status line, after a terminal-session switch redraw wiped
 // the screen, or after the session itself has ended.
 void App::log_event(const std::string& msg) {
-    status_line_ = msg;
+    if (settings_.show_status_messages) status_line_ = msg;
     ConsoleLog::instance().log_basic(msg);
 }
 
@@ -737,7 +708,7 @@ void App::launch_lyrics_fetch(std::string title, std::string artist, fs::path pa
     lyrics_ready_ = false;
     int my_epoch = ++lyrics_epoch_;
     std::thread([this, title, artist, path, force_network, my_epoch]() {
-        LyricsResult r = fetch_synced_lyrics(title, artist, lyrics_script_.string(), path, force_network);
+        LyricsResult r = fetch_synced_lyrics(title, artist, path, force_network);
         std::lock_guard<std::mutex> lock(lyrics_mutex_);
         if (my_epoch != lyrics_epoch_.load()) return; // a newer/retried fetch has since started — discard
         lyrics_result_ = std::move(r);
@@ -881,6 +852,23 @@ void App::play_selected() {
     else start_online_track(online_view_[selected_]);
 }
 
+// Plays the track at `idx` in the current list source directly, without
+// touching selected_/scroll_ at all -- the hover cursor is a browsing
+// concept, "what's playing" is a playback concept, and they used to get
+// conflated (play_relative() would drag the cursor along to wherever
+// playback moved). If you're hovering track A while track F plays and
+// you skip forward, the next track (G) should just start playing --
+// your cursor should still be on A, not silently dragged to G. Only
+// play_selected() (an explicit Enter-on-the-hovered-row action) is
+// supposed to make cursor and playback coincide; everything else that
+// moves playback goes through this instead.
+void App::play_at_list_index(int idx) {
+    size_t list_len = (list_source_ == ListSource::Local) ? local_view_.size() : online_view_.size();
+    if (idx < 0 || idx >= static_cast<int>(list_len)) return;
+    if (list_source_ == ListSource::Local) start_local_track(local_view_[idx]);
+    else start_online_track(online_view_[idx]);
+}
+
 int App::current_track_list_index() const {
     if (!has_track_) return -1;
     if (list_source_ == ListSource::Local) {
@@ -898,36 +886,33 @@ int App::current_track_list_index() const {
     }
 }
 
-void App::play_relative(int delta) {
+void App::play_relative(int delta, int precomputed_base) {
     size_t list_len = (list_source_ == ListSource::Local) ? local_view_.size() : online_view_.size();
     if (list_len == 0) return;
     // Relative to what's actually *playing*, not wherever the hover
     // cursor happens to be sitting -- falls back to the hover cursor
     // only when there's no sensible "current" position in this list
     // (nothing playing yet, or what's playing is from a different
-    // source/isn't in this view at all).
-    int base = current_track_list_index();
+    // source/isn't in this view at all). Either way, only playback
+    // moves -- see play_at_list_index()'s comment for why selected_/
+    // scroll_ are deliberately left untouched here.
+    int base = (precomputed_base != kNoPrecomputedBase) ? precomputed_base : current_track_list_index();
     if (base < 0) base = selected_;
-    selected_ = std::clamp(base + delta, 0, static_cast<int>(list_len) - 1);
-    if (selected_ >= scroll_ + list_visible_rows_) scroll_ = selected_ - list_visible_rows_ + 1;
-    if (selected_ < scroll_) scroll_ = selected_;
-    play_selected();
+    int target = std::clamp(base + delta, 0, static_cast<int>(list_len) - 1);
+    play_at_list_index(target);
 }
 
-void App::play_relative_random() {
+void App::play_relative_random(int precomputed_base) {
     size_t list_len = (list_source_ == ListSource::Local) ? local_view_.size() : online_view_.size();
     if (list_len == 0) return;
-    if (list_len == 1) { selected_ = 0; play_selected(); return; }
+    if (list_len == 1) { play_at_list_index(0); return; }
     static std::mt19937 rng(std::random_device{}());
     std::uniform_int_distribution<int> dist(0, static_cast<int>(list_len) - 1);
-    int base = current_track_list_index();
+    int base = (precomputed_base != kNoPrecomputedBase) ? precomputed_base : current_track_list_index();
     if (base < 0) base = selected_;
     int next;
     do { next = dist(rng); } while (next == base);
-    selected_ = next;
-    if (selected_ >= scroll_ + list_visible_rows_) scroll_ = selected_ - list_visible_rows_ + 1;
-    if (selected_ < scroll_) scroll_ = selected_;
-    play_selected();
+    play_at_list_index(next);
 }
 
 void App::play_next_from_queue() {
@@ -961,6 +946,17 @@ void App::play_next_from_queue() {
 }
 
 void App::advance_track() {
+    // Captured *before* clearing has_track_ below: current_track_list_
+    // index() requires has_track_ still be true to identify anything,
+    // and has_track_ has to be cleared here regardless (run()'s main
+    // loop only polls player_.finished() while has_track_ is true --
+    // leaving it set would make this get called again every frame,
+    // repeatedly skipping further, while the next track's async load is
+    // still in flight). Passing this through explicitly is what lets
+    // sequential/shuffle auto-advance still resolve "next" from the
+    // track that actually just finished rather than falling back to
+    // wherever the hover cursor happens to be sitting.
+    int base_idx = current_track_list_index();
     has_track_ = false;
 
     // Repeat: keep replaying whatever just finished -- whether it came
@@ -989,13 +985,13 @@ void App::advance_track() {
 
     switch (settings_.play_mode) {
         case 2: // shuffle
-            play_relative_random();
+            play_relative_random(base_idx);
             break;
         default: // list (sequential) -- also where Repeat Queue (4) lands
                  // once the queue's actually empty; there's nothing left
                  // to "repeat queue" without one, so it just falls back
                  // to normal sequential playback.
-            play_relative(1);
+            play_relative(1, base_idx);
             break;
     }
 }
@@ -1081,6 +1077,15 @@ SnapshotData App::build_snapshot() const {
         t.artist = item.artist;
         snap.queue.push_back(std::move(t));
     }
+
+    // Hover cursor -- independent of now_playing (see
+    // current_track_list_index()'s comment in app.h). Online results
+    // are a fresh search every session, so only a local-list cursor is
+    // actually meaningful to restore -- see restore_snapshot().
+    snap.cursor_is_local = (list_source_ == ListSource::Local);
+    snap.cursor_index = selected_;
+    snap.cursor_scroll = scroll_;
+
     return snap;
 }
 
@@ -1120,6 +1125,21 @@ void App::restore_snapshot(const SnapshotData& snap) {
         } else {
             resume_start_sec_ = 0.0;
         }
+    }
+
+    // Cursor restore happens last and independent of now_playing/queue --
+    // it's a browsing-position concept, not a playback one. Only
+    // restored when it was pointing at the local list (see the field's
+    // comment in snapshot.h); an online-list cursor is left at the
+    // default since there's no saved search to put it back into.
+    // list_visible_rows_ hasn't been computed from the real terminal
+    // yet at this point in startup (that only happens once render_frame
+    // runs its first frame), so scroll_ is clamped against a
+    // conservative bound here -- the normal up/down-key scroll-follow
+    // logic will correct it on the first actual navigation regardless.
+    if (snap.cursor_is_local && !local_view_.empty()) {
+        selected_ = std::clamp(snap.cursor_index, 0, static_cast<int>(local_view_.size()) - 1);
+        scroll_ = std::clamp(snap.cursor_scroll, 0, selected_);
     }
 }
 
@@ -2461,6 +2481,8 @@ std::vector<std::string> App::build_list_panel(int total_width, int height) cons
     std::vector<std::string> out;
     out.push_back(box_top(label, total_width, border_ansi));
 
+    int now_playing_idx = current_track_list_index(); // computed once -- O(list_len), not per-row
+
     const int idx_w = 3;
     for (int row = 0; row < height; ++row) {
         int idx = scroll_ + row;
@@ -2507,8 +2529,11 @@ std::vector<std::string> App::build_list_panel(int total_width, int height) cons
             }
         }
         bool sel = (idx == selected_) && idx < static_cast<int>(total);
-        bool is_playing_row = has_track_ && !online && idx < static_cast<int>(total)
-                               && local_view_[idx].path == current_path_;
+        // Was local-only ("!online && ..."), so a playing *online* track
+        // never highlighted in its own results list at all -- fixed to
+        // use the same source-aware identity match current_track_list_
+        // index() already does (path for local, video_id for online).
+        bool is_playing_row = (idx == now_playing_idx) && idx < static_cast<int>(total);
         std::string bar = border_ansi + settings_.box_vertical + "\x1b[0m";
         std::string padded = pad_right(truncate_str(content, inner), inner);
         if (sel) {
@@ -2563,7 +2588,9 @@ std::vector<std::string> App::build_queue_panel(int total_width, int height) con
                 std::string t_idx = apply_font_map(std::to_string(idx + 1), settings_.font_map);
                 std::string t_title = apply_font_map(q.title, settings_.font_map);
                 content = pad_right(t_idx, 3) + settings_.list_separator + " " + t_title;
-                is_row_playing = has_track_ && q.is_local && q.local_path == current_path_;
+                is_row_playing = has_track_ &&
+                                 (q.is_local ? (current_is_local_ && q.local_path == current_path_)
+                                             : (!current_is_local_ && q.video_id == current_video_id_));
                 is_row_hovering = queue_focus_ && (idx == queue_selected_);
             }
             std::string padded = pad_right(truncate_str(content, inner), inner);
@@ -3262,6 +3289,24 @@ int App::player_view_height(int w) const {
 // ---------------------------------------------------------------------
 
 std::string App::render_frame(TerminalIO& term) {
+    // Notifications ("ui refreshed", "saved session snapshot", ...) are
+    // meant to be a brief pulse, not a permanent fixture. status_line_ is
+    // set from dozens of call sites throughout this file (log_event(),
+    // plus many direct "status_line_ = ..." assignments for errors/
+    // inline feedback) -- rather than requiring every one of them to
+    // remember to also stamp a timestamp, this detects the *change*
+    // itself: whenever status_line_ differs from what was seen last
+    // frame, the clock restarts; once it's held the same text for
+    // kStatusLineLifetimeSec, it's cleared.
+    if (status_line_ != last_seen_status_line_) {
+        status_line_set_at_ = std::chrono::steady_clock::now();
+        last_seen_status_line_ = status_line_;
+    } else if (!status_line_.empty() &&
+               std::chrono::duration<double>(std::chrono::steady_clock::now() - status_line_set_at_).count() >= kStatusLineLifetimeSec) {
+        status_line_.clear();
+        last_seen_status_line_.clear();
+    }
+
     int term_cols = term.cols();
     // Was clamped to a minimum of 80 regardless of the real terminal
     // width -- on a narrower phone terminal (the screenshots suggest
@@ -3285,16 +3330,25 @@ std::string App::render_frame(TerminalIO& term) {
     // Browse/BulkAdd/RetryLyrics all share the same live background (the
     // latter two float a small panel on top of it -- see
     // draw_floating_panel()'s comment in app.h), so switching between
-    // them never needs a full clear, only a redraw. Settings/Console/
-    // Cheatsheet are still genuine full-screen takeovers, so entering or
-    // leaving any of *those* still forces one, same as a real mode
-    // change always has.
+    // them never needs a full clear for the *background* itself, only a
+    // redraw. But the floating panel's own footprint is positioned via
+    // absolute cursor writes that can land on cells the background's
+    // normal top-to-bottom sequential draw never touches at all (rows
+    // below its last line, or columns past what list/queue naturally
+    // fill) -- so entering *or leaving* one of those specifically still
+    // needs a hard clear, or its content (or an old copy of it) is left
+    // on screen forever with nothing ever overwriting it again. Settings/
+    // Console/Cheatsheet are still genuine full-screen takeovers, so
+    // entering or leaving any of *those* still forces one too, same as a
+    // real mode change always has.
     auto mode_family = [](Mode m) {
         switch (m) {
-            case Mode::Browse: case Mode::Search: case Mode::BulkAdd: case Mode::RetryLyrics: return 0;
-            case Mode::Settings: case Mode::ColorEdit: return 1;
-            case Mode::Console: return 2;
-            case Mode::Cheatsheet: return 3;
+            case Mode::Browse: case Mode::Search: return 0;
+            case Mode::BulkAdd: return 1;
+            case Mode::RetryLyrics: return 2;
+            case Mode::Settings: case Mode::ColorEdit: return 3;
+            case Mode::Console: return 4;
+            case Mode::Cheatsheet: return 5;
         }
         return 0;
     };

@@ -64,7 +64,7 @@ static bool json_get_number(const std::string& json, const std::string& key, dou
 
 std::vector<OnlineResult> OnlineSource::search(const std::string& query, int count) {
     std::vector<OnlineResult> results;
-    std::string cmd = "yt-dlp -4 --no-warnings --match-filters \"categories *= 'Music' & duration >= 90\" --flat-playlist -j "
+    std::string cmd = ytdlp_binary() + " -4 --no-warnings --match-filters \"categories *= 'Music' & duration >= 90\" --flat-playlist -j "
                        "\"ytsearch" + std::to_string(count) + ":" + query + "\"";
     ProcResult r = run_capture(cmd);
     if (r.out.empty()) return results;
@@ -107,7 +107,7 @@ std::vector<OnlineResult> OnlineSource::list_playlist(const std::string& url, st
     // approach as search() above. Works for a playlist URL (many
     // entries) and degrades gracefully to a single entry for a plain
     // video URL.
-    std::string cmd = "yt-dlp -4 --no-warnings --flat-playlist -j " + shell_quote(trimmed);
+    std::string cmd = ytdlp_binary() + " -4 --no-warnings --flat-playlist -j " + shell_quote(trimmed);
     ProcResult r = run_capture(cmd);
     if (!r.ok() || r.out.empty()) {
         if (error_out) *error_out = "yt-dlp couldn't list that link (exit " + std::to_string(r.exit_code) + ")";

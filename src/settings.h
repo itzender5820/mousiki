@@ -128,6 +128,11 @@ struct Settings {
     // ffmpeg/lyrics-fetch) + raw output. "verbose" = that, plus internal/
     // OS-level events (resizes, audio device init, spawn failures, ...).
     int console_verbosity = 0; // 0=basic, 1=verbose
+    // Turns off the one-line status notifications at the bottom of the
+    // player view (e.g. "play mode: shuffle", "saved session snapshot")
+    // without affecting the Console overlay ('t') or the on-disk log --
+    // those still get everything via ConsoleLog regardless of this.
+    bool show_status_messages = true;
 
     // --- autosave / session snapshot (config.txt: AutoSave*) -----------
     bool autosave_enabled = true;

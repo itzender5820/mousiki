@@ -28,11 +28,23 @@ struct SnapshotData {
     SnapshotTrack now_playing;
     double position_sec = 0.0;
 
-    int play_mode = 0;      // 0=list 1=loop 2=shuffle 3=stop
+    int play_mode = 0;      // 0=list 1=repeat 2=shuffle 3=stop 4=repeat queue
     bool muted = false;
     int volume = 70;         // the pre-mute/real volume, not the forced-0 muted value
 
     std::vector<SnapshotTrack> queue;
+
+    // Hover cursor position -- deliberately separate from now_playing
+    // (see current_track_list_index()'s comment in app.h: the two are
+    // independent, "now playing" is never supposed to drag the cursor
+    // along with it). Only meaningful/restored when cursor_is_local is
+    // true: an online results list is a fresh search each session, so
+    // restoring an index into it without re-running that exact search
+    // wouldn't point at anything sensible -- a saved online cursor
+    // position is just left at the default (0) on restore instead.
+    bool cursor_is_local = true;
+    int cursor_index = 0;
+    int cursor_scroll = 0;
 };
 
 fs::path snapshot_path();

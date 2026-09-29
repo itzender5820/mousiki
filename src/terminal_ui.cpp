@@ -1,4 +1,5 @@
 #include "terminal_ui.h"
+#include "console_log.h"
 #include "indic_handler.h"
 #include "utf8_util.h"
 #include <algorithm>
@@ -99,13 +100,34 @@ int TerminalIO::poll_key() {
 int TerminalIO::rows() const {
     struct winsize ws{};
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_row > 0) return ws.ws_row;
-    return 40;
+    // ioctl failed or reported 0 rows -- genuinely don't know the real
+    // size. This happens transiently on some Wayland tiling compositors
+    // (Hyprland + kitty/foot/alacritty): the terminal can report its
+    // pre-tiling default size for a frame or two before the compositor
+    // finishes telling the PTY its actual tiled dimensions.
+    //
+    // A generous fallback here is the wrong failure mode: every height
+    // calculation downstream (list_visible_rows_, clamp_output_rows()'s
+    // own truncation ceiling) trusts this number completely, so
+    // over-estimating doesn't just under-fill the list panel, it makes
+    // the overflow safety net itself trust a ceiling taller than the
+    // real viewport -- reintroducing the exact class of scroll/overflow
+    // bug clamp_output_rows() exists to prevent. Under-estimating only
+    // ever wastes a little vertical space, which is the strictly safer
+    // direction to guess wrong in.
+    ConsoleLog::instance().log_verbose("terminal: ioctl(TIOCGWINSZ) failed or reported 0 rows -- falling back to 20");
+    return 20;
 }
 
 int TerminalIO::cols() const {
     struct winsize ws{};
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0) return ws.ws_col;
-    return 155;
+    // Same reasoning as rows()'s fallback above -- err toward the
+    // app's own established minimum safe width (see render_frame()'s
+    // std::clamp(term_cols, 40, 200)) rather than a generous guess that
+    // could be wider than the real terminal and wrap lines mid-word.
+    ConsoleLog::instance().log_verbose("terminal: ioctl(TIOCGWINSZ) failed or reported 0 cols -- falling back to 40");
+    return 40;
 }
 
 static int codepoint_width(uint32_t cp) {

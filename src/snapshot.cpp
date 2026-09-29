@@ -60,6 +60,9 @@ bool load_snapshot(SnapshotData& out) {
     if (auto* p2 = root.find("play_mode")) d.play_mode = static_cast<int>(p2->as_number(0));
     if (auto* p2 = root.find("muted")) d.muted = p2->as_bool(false);
     if (auto* p2 = root.find("volume")) d.volume = static_cast<int>(p2->as_number(70));
+    if (auto* p2 = root.find("cursor_is_local")) d.cursor_is_local = p2->as_bool(true);
+    if (auto* p2 = root.find("cursor_index")) d.cursor_index = static_cast<int>(p2->as_number(0));
+    if (auto* p2 = root.find("cursor_scroll")) d.cursor_scroll = static_cast<int>(p2->as_number(0));
     if (auto* qp = root.find("queue")) {
         if (qp->type == Type::Array) {
             for (const auto& item : qp->arr) d.queue.push_back(track_from_json(item));
@@ -84,6 +87,9 @@ void save_snapshot(const SnapshotData& data) {
     root.set("muted", Value::make_bool(data.muted));
     root.set("volume", Value::make_num(data.volume));
     root.set("position_sec", Value::make_num(data.position_sec));
+    root.set("cursor_is_local", Value::make_bool(data.cursor_is_local));
+    root.set("cursor_index", Value::make_num(data.cursor_index));
+    root.set("cursor_scroll", Value::make_num(data.cursor_scroll));
     if (data.has_now_playing) {
         root.set("now_playing", track_to_json(data.now_playing));
     }

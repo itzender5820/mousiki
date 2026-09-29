@@ -51,7 +51,8 @@ private:
     LocalSource local_source_;
     DiskArt disk_;
     mutable Player player_;
-    fs::path lyrics_script_;
+    // (lyrics_script_ was removed -- lyrics fetching is native C++/libcurl
+    // now, see lyrics_fetcher.cpp/http_client.cpp, no script to locate.)
 
     // --- lists / navigation ---
     Mode mode_ = Mode::Browse;
@@ -141,6 +142,17 @@ private:
     void launch_lyrics_fetch(std::string title, std::string artist, fs::path path, bool force_network = false);
 
     std::string status_line_;
+    // Cleared automatically 5s after last changing (see the check at the
+    // top of render_frame()) -- notifications like "ui refreshed" or
+    // "saved session snapshot" are meant to be a brief pulse, not a
+    // permanent fixture at the bottom of the screen until something else
+    // happens to overwrite them. last_seen_status_line_ is how that
+    // check detects "did this actually just change" across the dozens of
+    // call sites that set status_line_ directly, without requiring each
+    // of them to remember to stamp a timestamp themselves.
+    std::string last_seen_status_line_;
+    std::chrono::steady_clock::time_point status_line_set_at_;
+    static constexpr double kStatusLineLifetimeSec = 5.0;
     bool quit_ = false;
     bool force_redraw_ = false;
     int last_render_w_ = -1;
@@ -398,8 +410,18 @@ private:
     void start_local_track(const LocalTrack& track);
     void start_online_track(const OnlineResult& result);
     void play_selected();
-    void play_relative(int delta);
-    void play_relative_random();
+    // `precomputed_base` lets a caller supply the "advance from" index
+    // directly instead of having this look it up itself via
+    // current_track_list_index() -- needed by advance_track(), which
+    // must clear has_track_ before calling this (see its own comment for
+    // why), but current_track_list_index() requires has_track_ still be
+    // true to identify anything. kNoPrecomputedBase (the default) means
+    // "look it up yourself" -- used by every other caller (the manual
+    // "n"/"b" keys), where has_track_ is still perfectly valid.
+    static constexpr int kNoPrecomputedBase = -2;
+    void play_relative(int delta, int precomputed_base = kNoPrecomputedBase);
+    void play_relative_random(int precomputed_base = kNoPrecomputedBase);
+    void play_at_list_index(int idx); // plays without moving the hover cursor -- see its own comment in app.cpp
     void advance_track();
     // Where the currently-playing track sits within *this list source's*
     // current view (local_view_ or online_view_, whichever list_source_
