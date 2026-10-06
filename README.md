@@ -26,7 +26,7 @@ h spectrum visualizers, synced lyrics, and online streaming, all without leaving
 
 ``Personal preference is not a compromise—it's the design goal.``
 
-[FOR WIN32 CLICK HERE](https://github.com/StSchwerdtfeger/Mousiki-Windows-Native-Port)
+## [FOR WIN32 CLICK HERE](https://github.com/StSchwerdtfeger/Mousiki-Windows-Native-Port)
 
 ## Preview
 
