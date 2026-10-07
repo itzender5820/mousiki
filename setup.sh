@@ -445,7 +445,7 @@ else
     BIN_DIR="/usr/local/bin"
 fi
 
-printf "Want to copy binary to %s? (Y/N) " "$BIN_DIR"
+printf "WANT TO COPY BINARY TO %s? (Y/N) " "$BIN_DIR"
 read -r INSTALL_BINARY
 
 if [[ "$INSTALL_BINARY" =~ ^[Yy]$ ]]; then
