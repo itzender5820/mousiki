@@ -16,9 +16,12 @@
 > You are free to use, modify, fork, re-distribute, and sell the software,
 > subject to the terms of the license.
 
-![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
+![Stars](https://img.shields.io/github/stars/itzender5820/mousiki?style=social)
+![License](https://img.shields.io/badge/License-Apache_2.0-pink.svg)
 ![Language](https://img.shields.io/badge/Language-C++17-orange.svg)
 ![Platform](https://img.shields.io/badge/Platform-Linux_%7C_Android_%7C_MacOS-brightgreen.svg)
+[![깃밥](https://www.gitbap.com/badge/itzender5820/mousiki.svg)](https://www.gitbap.com/r/itzender5820/mousiki)
+![Forks](https://img.shields.io/github/forks/itzender5820/mousiki?style=social)
 
 Mousiki is a terminal music player built from the ground up for people who prefer control, simplicity, and a keyboard. It's a
 fast, focused TUI (Terminal User Interface) without unnecessary interface layers — fully keyboard-driven and configurable, wit
