@@ -250,14 +250,29 @@ LyricsResult fetch_synced_lyrics(const std::string& title, const std::string& ar
     //    logic. Paxsenix and syncedlyrics used to sit in this chain but
     //    were dropped: Paxsenix for being unreliable, syncedlyrics in
     //    favor of calling Better Lyrics/LRCLIB directly.
-    std::string cmd = "python3 " + shell_quote(helper_script_path) +
+    std::string py_bin = "python3";
+#if defined(_WIN32)
+    py_bin = "python";
+#endif
+    std::string cmd = py_bin + " " + shell_quote(helper_script_path) +
                        " " + shell_quote(title) + " " + shell_quote(artist);
     ProcResult r = run_capture(cmd, /*merge_stderr=*/false);
 
+#if defined(_WIN32)
     if (r.exit_code < 0) {
-        // posix_spawnp itself failed — python3 genuinely isn't on PATH.
+        cmd = "python3 " + shell_quote(helper_script_path) + " " + shell_quote(title) + " " + shell_quote(artist);
+        r = run_capture(cmd, /*merge_stderr=*/false);
+    }
+#else
+    if (r.exit_code < 0) {
+        cmd = "python " + shell_quote(helper_script_path) + " " + shell_quote(title) + " " + shell_quote(artist);
+        r = run_capture(cmd, /*merge_stderr=*/false);
+    }
+#endif
+
+    if (r.exit_code < 0) {
         result.status = LyricsStatus::PythonMissing;
-        result.message = "python3 not found on PATH — lyrics unavailable";
+        result.message = "python/python3 not found on PATH — lyrics unavailable";
         return result;
     }
 

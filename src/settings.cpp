@@ -335,6 +335,9 @@ void apply_default_hotkeys(Settings& s) {
 
 fs::path config_path() {
     const char* home = std::getenv("HOME");
+#if defined(_WIN32)
+    if (!home) home = std::getenv("USERPROFILE");
+#endif
     fs::path base = home ? fs::path(home) : fs::path(".");
     return base / ".config" / "mousiki" / "config.txt";
 }
@@ -342,6 +345,9 @@ fs::path config_path() {
 // Legacy path for migration
 static fs::path legacy_settings_path() {
     const char* home = std::getenv("HOME");
+#if defined(_WIN32)
+    if (!home) home = std::getenv("USERPROFILE");
+#endif
     fs::path base = home ? fs::path(home) : fs::path(".");
     return base / ".config" / "mousiki" / "settings.txt";
 }
@@ -667,6 +673,9 @@ static Settings load_from_config(const fs::path& path) {
             if (!path.empty()) {
                 if (path[0] == '~') {
                     const char* home = std::getenv("HOME");
+#if defined(_WIN32)
+                    if (!home) home = std::getenv("USERPROFILE");
+#endif
                     if (home) path = std::string(home) + path.substr(1);
                 }
                 s.local_music_paths.push_back(path);

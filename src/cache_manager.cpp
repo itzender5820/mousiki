@@ -7,6 +7,9 @@ namespace muisc {
 
 CacheManager::CacheManager() {
     const char* home = std::getenv("HOME");
+#if defined(_WIN32)
+    if (!home) home = std::getenv("USERPROFILE");
+#endif
     fs::path base = home ? fs::path(home) : fs::path(".");
     cache_dir_ = base / ".cache" / "mousiki";
     std::error_code ec;
