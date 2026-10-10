@@ -10,8 +10,18 @@
 #include <random>
 #include <sstream>
 #include <thread>
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
 #include <unistd.h>
 #include <sys/utsname.h>
+#endif
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
 #endif
@@ -355,6 +365,16 @@ fs::path find_lyrics_script() {
             if (fs::exists(p)) return p;
         }
     }
+#elif defined(_WIN32)
+    char exe_buf[MAX_PATH];
+    DWORD n = GetModuleFileNameA(nullptr, exe_buf, MAX_PATH);
+    if (n > 0) {
+        fs::path exe_dir = fs::path(exe_buf).parent_path();
+        fs::path p = exe_dir / "scripts" / "fetch_lyrics.py";
+        if (fs::exists(p)) return p;
+        p = exe_dir.parent_path() / "scripts" / "fetch_lyrics.py";
+        if (fs::exists(p)) return p;
+    }
 #else
     char exe_buf[4096];
     ssize_t n = readlink("/proc/self/exe", exe_buf, sizeof(exe_buf) - 1);
@@ -586,6 +606,9 @@ void App::submit_search() {
 void App::write_load_timing_log(const std::string& title, bool is_local, double t_resolve,
                                  double t_probe, double t_total, const std::string& error) {
     const char* home = std::getenv("HOME");
+#if defined(_WIN32)
+    if (!home) home = std::getenv("USERPROFILE");
+#endif
     if (!home) return;
     fs::path dir = fs::path(home) / ".cache" / "mousiki";
     std::error_code ec;
@@ -1828,6 +1851,9 @@ void App::handle_key(int key) {
                         dest_dir = settings_.local_music_paths[0];
                     } else {
                         const char* home = std::getenv("HOME");
+#if defined(_WIN32)
+                        if (!home) home = std::getenv("USERPROFILE");
+#endif
                         dest_dir = home ? std::string(home) + "/Music" : "./Music";
                     }
                     std::error_code ec;
@@ -3445,11 +3471,17 @@ int App::run() {
     {
         // Verbose-only startup facts -- "what the OS provided" at the
         // very start of the session, before anything else has run.
+#if defined(_WIN32)
+        ConsoleLog::instance().log_verbose("os: Windows");
+        const char* h = std::getenv("HOME") ? std::getenv("HOME") : std::getenv("USERPROFILE");
+        ConsoleLog::instance().log_verbose("home: " + std::string(h ? h : "(unset)"));
+#else
         struct utsname uts{};
         if (uname(&uts) == 0) {
             ConsoleLog::instance().log_verbose(std::string("os: ") + uts.sysname + " " + uts.release + " " + uts.machine);
         }
         ConsoleLog::instance().log_verbose("home: " + std::string(std::getenv("HOME") ? std::getenv("HOME") : "(unset)"));
+#endif
     }
 
     // Session snapshot restore -- only when the feature's on. A missing

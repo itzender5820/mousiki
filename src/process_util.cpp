@@ -4,9 +4,117 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <sstream>
+
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <vector>
+
+namespace muisc {
+
+std::string shell_quote(const std::string& s) {
+    std::string out = "\"";
+    for (char c : s) {
+        if (c == '"') out += "\\\"";
+        else out += c;
+    }
+    out += "\"";
+    return out;
+}
+
+ProcResult run_capture(const std::string& cmd, bool merge_stderr) {
+    ProcResult result;
+
+    SECURITY_ATTRIBUTES sa;
+    sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+    sa.bInheritHandle = TRUE;
+    sa.lpSecurityDescriptor = nullptr;
+
+    HANDLE hReadPipe = nullptr;
+    HANDLE hWritePipe = nullptr;
+    if (!CreatePipe(&hReadPipe, &hWritePipe, &sa, 0)) {
+        result.exit_code = -1;
+        return result;
+    }
+    SetHandleInformation(hReadPipe, HANDLE_FLAG_INHERIT, 0);
+
+    HANDLE hNulIn = CreateFileA("NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, 0, nullptr);
+    HANDLE hNulErr = merge_stderr ? nullptr : CreateFileA("NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, 0, nullptr);
+
+    STARTUPINFOW si{};
+    si.cb = sizeof(STARTUPINFOW);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = hNulIn ? hNulIn : GetStdHandle(STD_INPUT_HANDLE);
+    si.hStdOutput = hWritePipe;
+    si.hStdError = merge_stderr ? hWritePipe : (hNulErr ? hNulErr : hWritePipe);
+
+    PROCESS_INFORMATION pi{};
+
+    std::string full_cmd = "cmd.exe /c " + cmd;
+    int len = MultiByteToWideChar(CP_UTF8, 0, full_cmd.c_str(), -1, nullptr, 0);
+    std::vector<wchar_t> wcmd(len);
+    MultiByteToWideChar(CP_UTF8, 0, full_cmd.c_str(), -1, wcmd.data(), len);
+
+    BOOL success = CreateProcessW(
+        nullptr,
+        wcmd.data(),
+        nullptr,
+        nullptr,
+        TRUE,
+        CREATE_NO_WINDOW,
+        nullptr,
+        nullptr,
+        &si,
+        &pi
+    );
+
+    CloseHandle(hWritePipe);
+    if (hNulIn) CloseHandle(hNulIn);
+    if (hNulErr) CloseHandle(hNulErr);
+
+    if (!success) {
+        CloseHandle(hReadPipe);
+        result.exit_code = -1;
+        DWORD err = GetLastError();
+        ConsoleLog::instance().log_command(cmd, "CreateProcess failed with error " + std::to_string(err), result.exit_code);
+        return result;
+    }
+
+    std::array<char, 4096> buf{};
+    std::ostringstream oss;
+    DWORD bytesRead = 0;
+    while (ReadFile(hReadPipe, buf.data(), static_cast<DWORD>(buf.size()), &bytesRead, nullptr) && bytesRead > 0) {
+        oss.write(buf.data(), bytesRead);
+    }
+    CloseHandle(hReadPipe);
+    result.out = oss.str();
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD exitCode = 0;
+    if (GetExitCodeProcess(pi.hProcess, &exitCode)) {
+        result.exit_code = static_cast<int>(exitCode);
+    } else {
+        result.exit_code = -1;
+    }
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+
+    ConsoleLog::instance().log_command(cmd, result.out, result.exit_code);
+    return result;
+}
+
+} // namespace muisc
+
+#else
+
 #include <fcntl.h>
 #include <spawn.h>
-#include <sstream>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -111,3 +219,5 @@ ProcResult run_capture(const std::string& cmd, bool merge_stderr) {
 }
 
 } // namespace muisc
+
+#endif

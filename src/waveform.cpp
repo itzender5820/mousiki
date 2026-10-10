@@ -5,12 +5,22 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
 #include <fcntl.h>
 #include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 extern char** environ;
+#endif
 
 namespace muisc {
 
@@ -159,6 +169,98 @@ static bool stream_decode_miniaudio(const fs::path& file_path, StreamingPcm& pcm
 // see, meaning decode silently never happened. posix_spawnp with a bare
 // "sh" resolves through PATH instead, which finds Termux's shell
 // wherever it actually lives.
+#if defined(_WIN32)
+static void stream_decode_ffmpeg_fallback(const fs::path& file_path, StreamingPcm& pcm,
+                                           const std::function<void(const float*, size_t)>& on_chunk) {
+    std::string cmd = "ffmpeg.exe -nostdin -v error -i " + shell_quote(file_path.string())
+                     + " -f f32le -ac 1 -ar 44100 -";
+
+    SECURITY_ATTRIBUTES sa;
+    sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+    sa.bInheritHandle = TRUE;
+    sa.lpSecurityDescriptor = nullptr;
+
+    HANDLE hReadPipe = nullptr;
+    HANDLE hWritePipe = nullptr;
+    if (!CreatePipe(&hReadPipe, &hWritePipe, &sa, 0)) {
+        pcm.decode_failed.store(true);
+        pcm.decode_done.store(true);
+        return;
+    }
+    SetHandleInformation(hReadPipe, HANDLE_FLAG_INHERIT, 0);
+
+    HANDLE hNulIn = CreateFileA("NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, 0, nullptr);
+    HANDLE hNulErr = CreateFileA("NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, 0, nullptr);
+
+    STARTUPINFOW si{};
+    si.cb = sizeof(STARTUPINFOW);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = hNulIn ? hNulIn : GetStdHandle(STD_INPUT_HANDLE);
+    si.hStdOutput = hWritePipe;
+    si.hStdError = hNulErr ? hNulErr : hWritePipe;
+
+    PROCESS_INFORMATION pi{};
+    std::string full_cmd = "cmd.exe /c " + cmd;
+    int len = MultiByteToWideChar(CP_UTF8, 0, full_cmd.c_str(), -1, nullptr, 0);
+    std::vector<wchar_t> wcmd(len);
+    MultiByteToWideChar(CP_UTF8, 0, full_cmd.c_str(), -1, wcmd.data(), len);
+
+    BOOL success = CreateProcessW(nullptr, wcmd.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+    CloseHandle(hWritePipe);
+    if (hNulIn) CloseHandle(hNulIn);
+    if (hNulErr) CloseHandle(hNulErr);
+
+    if (!success) {
+        CloseHandle(hReadPipe);
+        pcm.decode_failed.store(true);
+        pcm.decode_done.store(true);
+        return;
+    }
+
+    char carry[sizeof(float) - 1];
+    size_t carry_len = 0;
+    std::array<char, 65536> buf{};
+    DWORD n = 0;
+    while (ReadFile(hReadPipe, buf.data(), static_cast<DWORD>(buf.size()), &n, nullptr) && n > 0) {
+        size_t total = carry_len + static_cast<size_t>(n);
+        size_t whole_floats = total / sizeof(float);
+        size_t whole_bytes  = whole_floats * sizeof(float);
+
+        if (whole_floats > 0) {
+            std::vector<float> chunk(whole_floats);
+            size_t out_byte = 0;
+            for (size_t i = 0; i < carry_len && out_byte < whole_bytes; ++i, ++out_byte)
+                reinterpret_cast<char*>(chunk.data())[out_byte] = carry[i];
+            size_t from_buf = whole_bytes - carry_len;
+            std::memcpy(reinterpret_cast<char*>(chunk.data()) + carry_len,
+                        buf.data(), from_buf);
+
+            pcm.append(chunk.data(), chunk.size());
+            if (on_chunk) on_chunk(chunk.data(), chunk.size());
+
+            size_t leftover_start = from_buf;
+            carry_len = static_cast<size_t>(n) - from_buf;
+            for (size_t i = 0; i < carry_len; ++i)
+                carry[i] = buf[leftover_start + i];
+        } else {
+            for (size_t i = 0; i < static_cast<size_t>(n) && carry_len < sizeof(carry); ++i)
+                carry[carry_len++] = buf[i];
+        }
+    }
+    CloseHandle(hReadPipe);
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD exitCode = 0;
+    if (GetExitCodeProcess(pi.hProcess, &exitCode)) {
+        if (exitCode != 0 && pcm.available.load() == 0) {
+            pcm.decode_failed.store(true);
+        }
+    }
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    pcm.decode_done.store(true);
+}
+#else
 static void stream_decode_ffmpeg_fallback(const fs::path& file_path, StreamingPcm& pcm,
                                            const std::function<void(const float*, size_t)>& on_chunk) {
     // -nostdin: tells ffmpeg outright not to expect interactive
@@ -256,6 +358,7 @@ static void stream_decode_ffmpeg_fallback(const fs::path& file_path, StreamingPc
     }
     pcm.decode_done.store(true);
 }
+#endif
 
 void stream_decode_ffmpeg(const fs::path& file_path, StreamingPcm& pcm,
                            const std::function<void(const float*, size_t)>& on_chunk) {

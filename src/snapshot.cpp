@@ -10,6 +10,9 @@ using namespace tinyjson;
 
 fs::path snapshot_path() {
     const char* home = std::getenv("HOME");
+#if defined(_WIN32)
+    if (!home) home = std::getenv("USERPROFILE");
+#endif
     fs::path base = home ? fs::path(home) : fs::path(".");
     return base / ".cache" / "mousiki" / "snapshot" / "snapshot.json";
 }

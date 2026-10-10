@@ -1,7 +1,13 @@
 #include "fft_visualizer.h"
 #include "kiss_fftr.h"
 #include <algorithm>
+#ifndef _USE_MATH_DEFINES
+#define _USE_MATH_DEFINES
+#endif
 #include <cmath>
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 #include <cstdlib>
 
 namespace muisc {
