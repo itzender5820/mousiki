@@ -16,9 +16,9 @@
 > You are free to use, modify, fork, re-distribute, and sell the software,
 > subject to the terms of the license.
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/itzender5820/mousiki/blob/main/LICENSE)
-[![Language](https://img.shields.io/badge/Language-C++17-orange.svg)](https://github.com/itzender5820/mousiki)
-[![Platform](https://img.shields.io/badge/Platform-Linux_%7C_Android_%7C_MacOS-brightgreen.svg)](https://github.com/itzender5820/mousiki)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/Basheer-io/mousiki/blob/main/LICENSE)
+[![Language](https://img.shields.io/badge/Language-C++17-orange.svg)](https://github.com/Basheer-io/mousiki)
+[![Platform](https://img.shields.io/badge/Platform-Windows_%7C_Linux_%7C_MacOS_%7C_Android-brightgreen.svg)](https://github.com/Basheer-io/mousiki)
 
 Mousiki is a terminal music player built from the ground up for people who prefer control, simplicity, and a keyboard. It's a fast, focused TUI (Terminal User Interface) without unnecessary interface layers — fully keyboard-driven and configurable, with spectrum visualizers, synced lyrics, and online streaming, all without leaving your terminal.
 
@@ -40,15 +40,14 @@ Mousiki is a terminal music player built from the ground up for people who prefe
 
 ## 🚀 Supported Platforms
 
-- **Native Support:** **Linux**, **macOS**, and **Android (Termux)**.
-- **Unverified Support:** *Windows*. (Support for Windows is currently not verified because I don't have the hardware access needed to test and debug on that operating system. If you try it out and get it working, feel free to contribute!)
+- **Native Support:** **Windows 10/11** (Windows Terminal & PowerShell), **Linux**, **macOS**, and **Android (Termux)**.
 
 ## 🛠️ Getting Started
 <div align="center">
   
 ## Default Keybindings
 
-Configurable in `$HOME/.config/mousiki/config.txt`.
+Configurable in `$HOME/.config/mousiki/config.txt` (or `%USERPROFILE%\.config\mousiki\config.txt` on Windows).
 
 ### Search & Playback
 | Action | Keybinding | Description |
@@ -77,37 +76,61 @@ Configurable in `$HOME/.config/mousiki/config.txt`.
 
 ### Prerequisites & Installation
 
-Mousiki relies on a few external tools for audio fetching, decoding, and lyrics. The easiest way to get started is by running the setup script on macOS (requires [Homebrew](https://brew.sh)), Debian-based Linux, or Termux:
+Mousiki relies on a few external tools for audio fetching, decoding, and lyrics: `ffmpeg`, `yt-dlp`, and Python with the `requests` package.
+
+#### 🪟 Windows (PowerShell / Windows Terminal)
+
+Make sure you have Visual Studio C++ Build Tools or CMake installed:
+
+```powershell
+# Clone the repository
+git clone https://github.com/Basheer-io/mousiki.git
+cd mousiki
+
+# Run the setup script (checks dependencies, sets up config, and builds mousiki.exe)
+powershell -ExecutionPolicy Bypass -File .\setup.ps1
+```
+
+Start the player:
+```powershell
+.\build\mousiki.exe
+```
+
+*(Recommended: Run inside **Windows Terminal** with **Cascadia Code** or a Nerd Font for crisp box-drawing and visualizer animations).*
+
+#### 🐧 Linux / 🍎 macOS / 📱 Android (Termux)
+
+The setup script handles dependencies on macOS (requires [Homebrew](https://brew.sh)), Debian-based Linux, and Termux:
 
 ```bash
 # Clone the repository
-git clone https://github.com/itzender5820/mousiki.git
+git clone https://github.com/Basheer-io/mousiki.git
 cd mousiki
 
 # Run the setup script (installs dependencies, sets up config, and builds the app)
 bash setup.sh
 ```
 
-If you're building manually, ensure you have `cmake`, a C++17 compiler, `ffmpeg`, `yt-dlp`, and the Python `requests` package installed.
-
-### Running the App
-
-After a successful build, you can start the player with:
+Start the player:
 ```bash
 ./build/mousiki
 ```
 
 ## ⚙️ Configuration
 
-Your configuration file will be automatically generated at `$HOME/.config/mousiki/config.txt`. From there, you have complete freedom to customize Mousiki.
+Your configuration file will be automatically generated at:
+- **Windows:** `%USERPROFILE%\.config\mousiki\config.txt`
+- **Linux / macOS:** `$HOME/.config/mousiki/config.txt`
+
+From there, you have complete freedom to customize Mousiki.
 
 ### Adding Custom Music Paths
 You can easily tell Mousiki where to look for your music. Simply add multiple `LocalMusicPath` entries in your `config.txt`:
 
 ```ini
 # Add as many custom paths as you need:
-LocalMusicPath=/custom/path
-LocalMusicPath=/home/user/Music
+LocalMusicPath=~/Music
+LocalMusicPath=D:\MyMusic
 ```
 
 ## 🙏 Attribution & Dependencies
