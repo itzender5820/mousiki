@@ -13,6 +13,7 @@
 #endif
 #include <windows.h>
 #include <io.h>
+#include <fcntl.h>
 #include <conio.h>
 #else
 #include <sys/ioctl.h>
@@ -93,14 +94,13 @@ TerminalIO::TerminalIO() {
         SetConsoleCP(CP_UTF8);
         SetConsoleOutputCP(CP_UTF8);
 
-        DWORD out_mode = g_orig_out_mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN;
+        DWORD out_mode = g_orig_out_mode | ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN;
         SetConsoleMode(hOut, out_mode);
 
-        DWORD in_mode = g_orig_in_mode;
-        in_mode &= ~(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT);
-        in_mode |= ENABLE_VIRTUAL_TERMINAL_INPUT;
+        DWORD in_mode = ENABLE_VIRTUAL_TERMINAL_INPUT | ENABLE_WINDOW_INPUT | ENABLE_EXTENDED_FLAGS;
         SetConsoleMode(hIn, in_mode);
     }
+    _setmode(_fileno(stdout), _O_BINARY);
     raw_mode_active_ = true;
     std::cout << "\x1b[?1049h" << "\x1b[?25l" << std::flush;
 }
@@ -110,6 +110,8 @@ TerminalIO::~TerminalIO() { restore(); }
 void TerminalIO::restore() {
     if (raw_mode_active_) {
         std::cout << "\x1b[?25h" << "\x1b[?1049l" << std::flush;
+        std::fflush(stdout);
+        _setmode(_fileno(stdout), _O_TEXT);
         if (g_win_modes_saved) {
             SetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), g_orig_in_mode);
             SetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), g_orig_out_mode);
