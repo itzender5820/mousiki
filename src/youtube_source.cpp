@@ -7,9 +7,10 @@ namespace muisc {
 // yt-dlp --print "%(title)s\t%(artist,uploader)s" "ytsearch1:QUERY"
 // gives us a title before we commit to a deterministic cache filename.
 static bool probe_title(const std::string& query, std::string& id, std::string& title, std::string& artist) {
+    std::string search_term = "ytsearch10:" + query;
     std::string cmd = ytdlp_binary() + " -4 --no-warnings --extractor-args \"youtube:player_client=android;player_skip=webpage,configs,js\" --match-filters \"categories *= 'Music' & duration >= 90\" --flat-playlist "
                        "--print \"%(id)s\t%(title)s\t%(uploader)s\" "
-                       "\"ytsearch10:" + query + "\"";
+                       + shell_quote(search_term);
     ProcResult r = run_capture(cmd);
     if (!r.ok() || r.out.empty()) return false;
 

@@ -2,6 +2,7 @@
 #include <array>
 #include <mutex>
 #include <vector>
+#include "kiss_fftr.h"
 
 namespace muisc {
 
@@ -84,6 +85,7 @@ private:
 
     void* cfg_ = nullptr; // kiss_fftr_cfg
     std::array<float, kMaxBands> smooth_bands_{}; // 0..70 (dB-ish range, pre-boost) — render thread only, no lock needed
+    std::vector<kiss_fft_cpx> spectrum_;
 
     void compute_bands_locked(const std::array<float, kFftSize>& ring_copy, int write_pos, int sample_rate);
 
@@ -91,6 +93,8 @@ private:
     // 32-band snapshot when downsampling to `num_bars` in compute_bars().
     std::vector<float> smoothed_bars_;
     std::vector<float> velocity_;
+    std::vector<float> targets_;
+    std::vector<float> blended_;
     float spring_k_ = 50.0f;
     float damping_ = 0.25f;
     float viscosity_ = 0.05f;

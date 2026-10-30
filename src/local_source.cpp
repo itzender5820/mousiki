@@ -21,6 +21,9 @@ std::vector<LocalTrack> LocalSource::scan(const std::vector<std::string>& custom
         }
     } else {
         const char* home = std::getenv("HOME");
+#if defined(_WIN32)
+        if (!home) home = std::getenv("USERPROFILE");
+#endif
         if (home) {
             roots.push_back(fs::path(home) / "Music");
             roots.push_back(fs::path(home) / "disk" / "Music");

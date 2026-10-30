@@ -64,8 +64,9 @@ static bool json_get_number(const std::string& json, const std::string& key, dou
 
 std::vector<OnlineResult> OnlineSource::search(const std::string& query, int count) {
     std::vector<OnlineResult> results;
+    std::string search_term = "ytsearch" + std::to_string(count) + ":" + query;
     std::string cmd = ytdlp_binary() + " -4 --no-warnings --match-filters \"categories *= 'Music' & duration >= 90\" --flat-playlist -j "
-                       "\"ytsearch" + std::to_string(count) + ":" + query + "\"";
+                       + shell_quote(search_term);
     ProcResult r = run_capture(cmd);
     if (r.out.empty()) return results;
 
