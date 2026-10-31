@@ -2,8 +2,8 @@
 [[New Page]]
 WELCOME TO THE MOUSIKI PLUS HELP WIZARD !!! [[Header]]
 
-Mousiki Plus is a terminal UI music and radio player built for lovers
-of the terminal. <3
+Mousiki Plus is a terminal UI music, radio and audio book player built
+for lovers of the terminal. <3
 
 OPEN/CLOSE HELP WIZARD: [[Header]]
 To open/close use [SHIFT+w] and [ESC] for just closing it.
@@ -44,8 +44,8 @@ Version 1.0 — Apache 2.0 license
 [[New Page]]
 WELCOME TO THE MOUSIKI PLUS HELP WIZARD !!! [[Header]]
 
-Mousiki Plus is a terminal UI music and radio player built for lovers
-of the terminal. <3
+Mousiki Plus is a terminal UI music, radio and audio book player built
+for lovers of the terminal. <3
 
 OPEN/CLOSE HELP WIZARD: [[Header]]
 To open/close use [SHIFT+w] and [ESC] for just closing it.

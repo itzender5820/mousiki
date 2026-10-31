@@ -17,7 +17,7 @@ inline const std::vector<std::string>& about_app_text() {
         return std::vector<std::string>{
             "Mousiki",
             "",
-            "A light weight terminal UI music and radio player for lovers of the terminal <3",
+            "A light weight terminal UI music, radio and audio book player for lovers of the terminal <3",
             "",
             "Mousiki Plus ",
             "Windows Port / Modification : Steffen Schwerdtfeger     Github   : StSchwerdtfeger",

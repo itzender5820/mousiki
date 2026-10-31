@@ -4,8 +4,8 @@ R"WIZ(
 [[New Page]]
 WELCOME TO THE MOUSIKI PLUS HELP WIZARD !!! [[Header]]
 
-Mousiki Plus is a terminal UI music and radio player built for lovers
-of the terminal. <3
+Mousiki Plus is a terminal UI music, radio and audio book player built
+for lovers of the terminal. <3
 
 OPEN/CLOSE HELP WIZARD: [[Header]]
 To open/close use [SHIFT+w] and [ESC] for just closing it.
@@ -46,8 +46,8 @@ Version 1.0 — Apache 2.0 license
 [[New Page]]
 WELCOME TO THE MOUSIKI PLUS HELP WIZARD !!! [[Header]]
 
-Mousiki Plus is a terminal UI music and radio player built for lovers
-of the terminal. <3
+Mousiki Plus is a terminal UI music, radio and audio book player built
+for lovers of the terminal. <3
 
 OPEN/CLOSE HELP WIZARD: [[Header]]
 To open/close use [SHIFT+w] and [ESC] for just closing it.
@@ -217,9 +217,9 @@ COVER LOOK:[[Header]] [CTRL+t] one look back, [CTRL+z] one forward: plain disk, 
 with Gradient, Cover behind Disk, v2, Full Anima, Cover ASCII, Cover ASCII with Gradient. In the
 audio book mode: default picture, cover with gradient wave, cover in its own colours. Only while
 Eliment Disk / Cover is on; saved at once. Changeable in Settings -> REFERENCE. An album with
-its own look (meta editor -> Style Option) changes that look instead.
 )WIZ",
-R"WIZ(
+R"WIZ(its own look (meta editor -> Style Option) changes that look instead.
+
 MENUS INDEX:[[Header]] [<] (German keyboard) or [SHIFT+,] (English keyboard) lists all menus
 and overlays with their keys; [ENTER] opens the selected one.
 
@@ -381,10 +381,10 @@ menus switch too (the setting is shared with the music player).
 GENERAL:[[HEADER]]
 [UP] / [DOWN] while typing, then [ENTER] plays the highlighted result
 right away
-[ENTER] without moving keeps the search as the filter
-[ESC] cancel and restore the unfiltered list view
 )WIZ",
-R"WIZ(
+R"WIZ([ENTER] without moving keeps the search as the filter
+[ESC] cancel and restore the unfiltered list view
+
 NOTES ON SEARCH BEHAVIOR: [[HEADER]]
 On a playlist row (/p:) [ENTER] queues all of its tracks.
 On a folder row (/f:) [ENTER] opens that folder in the list, like [f].
@@ -534,9 +534,9 @@ Colors, and the look of its whole ALBUM (no album tag: of that folder). [<-][->]
 [DEL] or [d] puts it back to "as in Settings". [t] switches between a real picture
 (Kitty / Sixel terminals, the default) and braille dots. A wide terminal adds a preview of the cover with the
 chosen look on the right. The track's own values win over the album's look and
-over Settings; while the track plays, [CTRL+t] / [CTRL+z] change its look.
 )WIZ",
-R"WIZ(From the main screen [SHIFT+s] opens the Style Option overlay of the track that plays, on its
+R"WIZ(over Settings; while the track plays, [CTRL+t] / [CTRL+z] change its look.
+From the main screen [SHIFT+s] opens the Style Option overlay of the track that plays, on its
 own ([ESC] closes it); opened that way [m] leads on to the meta data of that very song.
 
 SORT LIBRARY AND ADD TRACK TO FETCH META DATA TAB:[[Header]]
@@ -676,9 +676,9 @@ conversion goes on in the background and reports on the status line.
 
 WHERE THE FILES GO: [[Header]]
 Into the CONVERSION EXPORT PATH ([s] Settings[[Header]] ->> PATHS[[Header]]), by default the 
-folder conversion-export inside the download folder, in the same sub folders as the originals.
 )WIZ",
-R"WIZ(A file that already exists there is skipped. Tags and cover are copied (not to Opus).
+R"WIZ(folder conversion-export inside the download folder, in the same sub folders as the originals.
+A file that already exists there is skipped. Tags and cover are copied (not to Opus).
 NOTE: Needs ffmpeg with libmp3lame and libopus; the installers provide it.[[Legend]]
 
 [[New Page]]
@@ -785,9 +785,9 @@ locked-in panes and the lyrics the locked track has below the lists; the current
 "Added manually; hit DEL to unassign"), [ESC] closes. The overlay is a full-window screen with a bordered pane for each part (search fields, result lists, locked-in
 fields). [CTRL+t] (also while typing in a search field) switches the track list between artist - title and file names
 (the title of the pane says which one is on), [CTRL+f] shows only the tracks without saved lyrics,
-[PgUp]/[PgDn] and [SHIFT+UP/DOWN] turn a page. [CTRL+c] (anywhere) clears the choice: the lyrics file is unlocked and the current
 )WIZ",
-R"WIZ(track is the locked track again. The lyrics in use so far are kept as an older
+R"WIZ([PgUp]/[PgDn] and [SHIFT+UP/DOWN] turn a page. [CTRL+c] (anywhere) clears the choice: the lyrics file is unlocked and the current
+track is the locked track again. The lyrics in use so far are kept as an older
 version. [DEL] (twice) unassigns manually added lyrics of the locked-in track again: the file itself is
 not deleted, the previous lyrics come back. In karaoke mode [a] and in the re-fetch form [CTRL+n] open READ LYRICS with this overlay open.
 
@@ -908,10 +908,10 @@ Beam             CRT: every sample drawn once, light by the time the beam spends
                  (image default) / classic: the old look with a tail (braille default)
 Dwell brightness CRT beam: slow strokes bright, jumps dark; off = every stroke equally bright
 Low-rate blank.  music mode, CRT beam: files below 96 kHz get the jumps between shapes faded out
-Rough mode       not in music mode: loud beats clip along the edges of the square (edge clipping;
-                 braille default on, image default off); not optimal, technically, but looks cool :D
 )WIZ",
-R"WIZ(Image res/detail image style: drawn at full / half / third resolution; detail normal / high =
+R"WIZ(Rough mode       not in music mode: loud beats clip along the edges of the square (edge clipping;
+                 braille default on, image default off); not optimal, technically, but looks cool :D
+Image res/detail image style: drawn at full / half / third resolution; detail normal / high =
                  up to 560 / 1024 pixels wide (high: sharper thin lines, more data per frame)
 Decay            the afterglow, higher = longer trails
 Tail / Glow      bright head with fading tail / line glow
@@ -1050,12 +1050,12 @@ loaded track needs). Turning it off is immediate; turning it on applies from the
 In the radio the footer of the dial then reads MONO.
 
 [[New Page]]
-2.6.3 SAMPLE RATE AND PLAYBACK ENGINE [[Header]]
+)WIZ",
+R"WIZ(2.6.3 SAMPLE RATE AND PLAYBACK ENGINE [[Header]]
 
 SAMPLE RATE: NOTHING IS CONVERTED ON THE WAY: [[Header]]
 Every file plays at its own sample rate (44.1, 48, 88.2, 96 kHz ...): it is decoded at that rate and
-)WIZ",
-R"WIZ(the audio device is opened with it. Above 96 kHz the track is brought down to 96 kHz, unless
+the audio device is opened with it. Above 96 kHz the track is brought down to 96 kHz, unless
 Settings -> GENERAL -> Rate Cap at 96 kHz is switched off (then it plays at its own rate and
 needs more memory). Where a
 conversion cannot be avoided a long, sharp filter is used, not a cheap linear one.
@@ -1212,10 +1212,10 @@ COLOR THEMES: [[Header]]
 The first row, THEME, holds ready-made schemes (the default MeowerShell, Serious MeowerShell and
 30 more, e.g. Catppuccin Mocha, Tokyo Night, Kanagawa, Outrun) and the themes you made yourself,
 which the list shows after the built-in ones, named in the header color.
-[ENTER]        on the theme name: the list; [ENTER] applies a theme
-[↑↓ / SHIFT+↑↓] in that list: one theme / a page (a scrollbar on the right shows where you are)
 )WIZ",
-R"WIZ([SHIFT+d]      in that list: delete a theme of your own (asks first)
+R"WIZ([ENTER]        on the theme name: the list; [ENTER] applies a theme
+[↑↓ / SHIFT+↑↓] in that list: one theme / a page (a scrollbar on the right shows where you are)
+[SHIFT+d]      in that list: delete a theme of your own (asks first)
 [ENTER]        on CREATE THEME: the theme editor
 [e]            edit the theme in use in that editor
 [SHIFT+e / i]  export / import a theme as a .theme file
@@ -1321,11 +1321,11 @@ marquee.
                                                   for Android that can be found on github, which is
                                                   essentially just a small browser app that can be opened
                                                   via an icon.
-
+)WIZ",
+R"WIZ(
 [Update Notice:][[Legend]]                                    a quiet once-a-day look for a newer release; a small
                                                   window, once per version ([ESC] close, [o] open the Github
-)WIZ",
-R"WIZ(                                                  release page).
+                                                  release page).
 
 [Check Update:][[Legend]]                                     [ENTER] on this row asks GitHub for the newest release now
                                                   and writes the answer on this screen (needs Python 3 and a
@@ -1431,11 +1431,11 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
                                                   keeps the disk.
 
 [Cover Mode:][[Legend]]                                       chooses how it is shown (seven ways):
-                                                  1. Just Cover - the cover in its own colours.
+)WIZ",
+R"WIZ(                                                  1. Just Cover - the cover in its own colours.
                                                   2. Cover with Gradient - a grey version of the cover under
                                                   the disk's gradient colours, a slow wave that moves
-)WIZ",
-R"WIZ(                                                  diagonally over the picture, from the upper left to the
+                                                  diagonally over the picture, from the upper left to the
                                                   lower right.
                                                   3. Cover behind Disk - the grey cover in full resolution
                                                   behind the turning disk: the dots of the disk are pinholes
@@ -1520,11 +1520,11 @@ R"WIZ(                                                  diagonally over the pict
 [Volume Indicator:][[Legend]]                                 what the VOLUME BAR is drawn with: # or ⠶ or ⣿ or ⡾⣽ (a
                                                   fixed row of braille characters that does not repeat) or
                                                   two moving braille blocks = uses the braille effect of the
-                                                  disk: the bar follows the disk animation, with the centre
+)WIZ",
+R"WIZ(                                                  disk: the bar follows the disk animation, with the centre
                                                   of the circle two cells in from the left. Right of the
                                                   toggle: gradient / no gradient, where gradient = the VIZ
-)WIZ",
-R"WIZ(                                                  colours gradient from left to right, like the oscilloscope
+                                                  colours gradient from left to right, like the oscilloscope
                                                   is using... [<-/->] switch between the two values of the
                                                   row, [ENTER] changes the options.
                                                   Default: the moving braille blocks (disk), in all modes.
@@ -1639,11 +1639,11 @@ Equalizer [SHIFT+e], oscilloscope [SHIFT+o] / [SHIFT+0], spectrogram [SHIFT+i] /
 spectrogram windows [)] / [(], loudness normalization [v] / [SHIFT+v], sleep timer [SHIFT+z], text fields,
 the cheat sheet [?] and this wizard [SHIFT+w] work with the same keys and overlays as described in
 chapters 2.5 to 2.8. Differences: the radio keeps its own equalizer curve, oscilloscope values and
-settings in radio_config.txt; the sleep timer stops the stream (no "Stop after current song"); the
+)WIZ",
+R"WIZ(settings in radio_config.txt; the sleep timer stops the stream (no "Stop after current song"); the
 visualization field is the scope block right of the station info and [,/.] cycles oscilloscope,
 sphere and spectrogram (there are no lyrics).
-)WIZ",
-R"WIZ(
+
 LETTERS ARE MORE OFTEN CASE SENSITIVE IN THE RADIO: [[Header]]
 [r] recalls a preset slot, [R] reconnects the station.
 
@@ -1803,14 +1803,14 @@ from the oldest audio that is still there.
 
 
 [[New Page]]
-3.3.2 RECORDING [[Header]]
+)WIZ",
+R"WIZ(3.3.2 RECORDING [[Header]]
 
 RECORD, INCLUDING THE MINUTES BEFORE YOU PRESSED: [[Header]]
 [y] opens the RECORD overlay. It freezes the moment you pressed, so no time is lost while you choose:
 -> From now on (when this opened)
 -> The last 1 / 5 / 10 / 15 / 30 minutes
-)WIZ",
-R"WIZ(-> Everything buffered
+-> Everything buffered
 A row says "only m:ss" when the buffer does not reach that far back and then starts at the oldest audio.
 
 [UP]/[DOWN] choose   [ENTER] or [y] start   [ESC] cancel   [y] again while it runs: stop
@@ -1949,10 +1949,10 @@ CHAPTERS (right)  takes the place of the queue: the files of the open book in na
 PLAYBACK: [[Header]]
 [n] / [b]    next / previous chapter, also at the end of a chapter. 
 [m]          cycles the playpack mode: on to the next chapter / repeat the chapter / stop after it. 
-[->] / [<-]  seek: 5 seconds at first, faster and faster the longer the key is held (up to minutes), 
-             so a long book can be crossed quickly. [p] pause, volume, mute and the sleep timer as always.
 )WIZ",
-R"WIZ(
+R"WIZ([->] / [<-]  seek: 5 seconds at first, faster and faster the longer the key is held (up to minutes), 
+             so a long book can be crossed quickly. [p] pause, volume, mute and the sleep timer as always.
+
 PLAYBACK SPEED: [[Header]]
 [SHIFT+->] / [SHIFT+<-]  faster / slower in steps of 0.05, from 0.5x to 3.0x. The voice keeps its pitch
              (the audio is stretched in time, not played faster like a record). A small box left of the
@@ -2064,12 +2064,12 @@ NOTES: [[Header]]
 [SHIFT+t]  sorts: chapter order with highest chapter and furthest time on top, recently edited first.
 [.] / [,]  switch the field between the notes and the visualizations. When a note is open and was just
            saved [.] puts a shown note away: the view from before comes back. [,] on a shown note (e.g. 
-           right after saving it) writes it again.
+)WIZ",
+R"WIZ(           right after saving it) writes it again.
 
 Export / import of notes is possible and use the folder <book folder>/notes.
 Again, a note shows itself in the field (for 20 seconds) when playback passes its time.
-)WIZ",
-R"WIZ(
+
 [[New Page]]
 4.1.4 LIST OF TIME STAMPS, LIBRARY AND READING HISTORY [[Header]]
 
