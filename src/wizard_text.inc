@@ -766,7 +766,30 @@ reverb, remix, other. [TAB]/[DOWN] next field, [UP] previous field, [SPACE] tick
 [CTRL+c/x/v]). Fetching lyrics again does not replace older version, as long 
 there had been timing adjustments or the lyrics differ. Lyrics can be deleted in the re-fetch
 form or in the read/translate lyrics overlay which can be accessed via [Ctrl+l] (see further
-below for details).    
+below for details).
+The form opens with [l] in READ LYRICS (for the track that plays: start it with [p]) and in the
+karaoke mode as well. [ESC] or the fetch brings you back there, and READ LYRICS shows the new
+lyrics as soon as they are loaded.
+
+ADD LYRICS MANUALLY[[Header]]
+Before, own lyrics only worked by name: a file called exactly like the track (Song.mp3 -> Song.lrc) in the
+"lyrics" folder next to the track (an .lrc right next to the track is read too), copied and renamed by hand.
+The overlay does this for you, with any file name (.lrc or .txt) and for any track of the library, and it can be undone.
+You have a .lrc (or .txt) file of your own? [a] in READ LYRICS (also [CTRL+n]) opens an overlay with two
+search bars (left LYRICS FILE, right TRACK) and below each its result list. LYRICS FILE searches every lyrics folder of the library, subfolders included (or type the
+full path of a file). TRACK searches the library; its first entry is always "Current track". [TAB] goes
+search/list left, right, then to the button "Add chosen lyrics to chosen/current song" at the bottom;
+[UP]/[DOWN] pick, [ENTER] in a list LOCKS the highlighted entry in (shown in the header colour, with the
+locked-in panes and the lyrics the locked track has below the lists; the current track is locked in at the start),
+[ENTER] on the button adds (a file already added to the locked track by hand shows as locked in, with the note
+"Added manually; hit DEL to unassign"), [ESC] closes. The overlay is a full-window screen with a bordered pane for each part (search fields, result lists, locked-in
+fields). [CTRL+t] (also while typing in a search field) switches the track list between artist - title and file names
+(the title of the pane says which one is on), [CTRL+f] shows only the tracks without saved lyrics,
+[PgUp]/[PgDn] and [SHIFT+UP/DOWN] turn a page. [CTRL+c] (anywhere) clears the choice: the lyrics file is unlocked and the current
+)WIZ",
+R"WIZ(track is the locked track again. The lyrics in use so far are kept as an older
+version. [DEL] (twice) unassigns manually added lyrics of the locked-in track again: the file itself is
+not deleted, the previous lyrics come back. In karaoke mode [a] and in the re-fetch form [CTRL+n] open READ LYRICS with this overlay open.
 
 LYRICS RUNNING EARLY OR LATE: THE TIMING OVERLAY[[Header]]
 [ALT+L] (macOS: [SHIFT+j]) opens the overlay, on both the main screen and in karaoke mode (only while synced 
@@ -793,14 +816,18 @@ the pinned downloads and says OK / WARN / FAIL for each (--offline, --verify-pin
 
 READING AND TRANSLATING LYRICS:[[Header]]
 [CTRL+L] opens READ LYRICS (playing track, else the hovered one). It shows the lyrics fetched 
-)WIZ",
-R"WIZ(so far and the translations and the text itseld. [TAB] switches between the two top panes, 
+so far and the translations and the text itseld. [TAB] switches between the two top panes, 
 [<-/->] chooses the file or the translation, the scrolling commands are [UP]/[DOWN] for a line,
 [SHIFT+↑/↓] (or [SPACE]/[b]) for a page and [HOME] / [END] for top/bottom. 
 [t] opens the translate overlay (service (Google / MyMemory), translate into, lyrics are in), 
-the command [ENTER] fetches.
+the command [ENTER] fetches. One translation is kept per language
+and per service: a Google and a MyMemory one live side by side,
+the same service again replaces only its own.
 [SHIFT+t] shows / cycles / hides translations (a translation that is there is shown at once),
 [d] or [DEL] deletes a translation.
+[e] exports the lyrics into the folder "export" inside the lyrics folder: the original only, or
+with the translation and / or the transliteration (Latin letters) below each line. If the
+kanji reader is still working, the overlay says so: wait, or press [ENTER] again to export now.
 [p] plays / pauses the track of the reader: while it plays, the lyrics are drawn like in the main
 view (active line, sung words, animation), the view scrolls along ([f] switches that off, any
 scrolling too), the translation of the active line is lit, [SHIFT+<-/->] seeks 5 s.
@@ -883,7 +910,8 @@ Dwell brightness CRT beam: slow strokes bright, jumps dark; off = every stroke e
 Low-rate blank.  music mode, CRT beam: files below 96 kHz get the jumps between shapes faded out
 Rough mode       not in music mode: loud beats clip along the edges of the square (edge clipping;
                  braille default on, image default off); not optimal, technically, but looks cool :D
-Image res/detail image style: drawn at full / half / third resolution; detail normal / high =
+)WIZ",
+R"WIZ(Image res/detail image style: drawn at full / half / third resolution; detail normal / high =
                  up to 560 / 1024 pixels wide (high: sharper thin lines, more data per frame)
 Decay            the afterglow, higher = longer trails
 Tail / Glow      bright head with fading tail / line glow
@@ -924,8 +952,7 @@ audio at once, so you see the difference immediately.
 
 THEIR OWN WINDOWS: [[Header]]
 Both visualizations can leave the terminal and open a real window, redrawn at your monitor's
-)WIZ",
-R"WIZ(refresh rate (60, 120, 165 Hz ...):
+refresh rate (60, 120, 165 Hz ...):
 [)]   scope window            German keyboard SHIFT+9, English keyboard SHIFT+0
 [(]   spectrogram window      German keyboard SHIFT+8, English keyboard SHIFT+9
 In the window: [F] or [F11] switches to fullscreen, [T] always on top, [ESC] or [Q] close.
@@ -1027,7 +1054,8 @@ In the radio the footer of the dial then reads MONO.
 
 SAMPLE RATE: NOTHING IS CONVERTED ON THE WAY: [[Header]]
 Every file plays at its own sample rate (44.1, 48, 88.2, 96 kHz ...): it is decoded at that rate and
-the audio device is opened with it. Above 96 kHz the track is brought down to 96 kHz, unless
+)WIZ",
+R"WIZ(the audio device is opened with it. Above 96 kHz the track is brought down to 96 kHz, unless
 Settings -> GENERAL -> Rate Cap at 96 kHz is switched off (then it plays at its own rate and
 needs more memory). Where a
 conversion cannot be avoided a long, sharp filter is used, not a cheap linear one.
@@ -1078,8 +1106,7 @@ System Default (name)    the output the system uses now (the default: nothing ch
 the devices              every sound output of this computer (speakers, headphones, HDMI, USB, Bluetooth)
 
 [UP]/[DOWN] pick, [ENTER] switches at once, [r] reads the list again (a headset that was just plugged
-)WIZ",
-R"WIZ(in), [ESC] closes. The device in use is marked "in use".
+in), [ESC] closes. The device in use is marked "in use".
 
 SWITCHING: [[Header]]
 A track that plays goes on at the same place on the new device (a paused one stays paused); the radio
@@ -1187,7 +1214,8 @@ The first row, THEME, holds ready-made schemes (the default MeowerShell, Serious
 which the list shows after the built-in ones, named in the header color.
 [ENTER]        on the theme name: the list; [ENTER] applies a theme
 [↑↓ / SHIFT+↑↓] in that list: one theme / a page (a scrollbar on the right shows where you are)
-[SHIFT+d]      in that list: delete a theme of your own (asks first)
+)WIZ",
+R"WIZ([SHIFT+d]      in that list: delete a theme of your own (asks first)
 [ENTER]        on CREATE THEME: the theme editor
 [e]            edit the theme in use in that editor
 [SHIFT+e / i]  export / import a theme as a .theme file
@@ -1230,8 +1258,7 @@ marquee.
 [Use Music Player / Use Radio / Use Audio Books:][[Legend]]   false = the mode is left out of the [SHIFT and +] cycle;
                                                   one mode always stays on, the remaining mode set to true,
                                                   when all others are turned off, can't be turned off...
-)WIZ",
-R"WIZ(
+
 [Mode Order 1-3:][[Legend]]                                   sets the order of the cycle, just like Viz Order 1-4.
                                                   Picking a mode for a place swaps it with the place that
                                                   held it; [SHIFT and +/-] walks cycles through the set
@@ -1297,7 +1324,8 @@ R"WIZ(
 
 [Update Notice:][[Legend]]                                    a quiet once-a-day look for a newer release; a small
                                                   window, once per version ([ESC] close, [o] open the Github
-                                                  release page).
+)WIZ",
+R"WIZ(                                                  release page).
 
 [Check Update:][[Legend]]                                     [ENTER] on this row asks GitHub for the newest release now
                                                   and writes the answer on this screen (needs Python 3 and a
@@ -1328,8 +1356,7 @@ This category is only available in the audio book mode only...
 [Replace Emoji:][[Legend]]                                    All (default) = every emoji in a title is drawn as a ?
                                                   (a single one), so the frame borders stay aligned; Safe
                                                   = plain emoji (note, radio, book ...) are kept and only
-)WIZ",
-R"WIZ(                                                  the risky ones (joined ones like the black cat, flags,
+                                                  the risky ones (joined ones like the black cat, flags,
                                                   skin tones, red heart-style forms, keycaps) become ?;
                                                   Off = every emoji itself is drawn.
 
@@ -1355,6 +1382,13 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
 
 [Latin Wo:][[Legend]]                                         off (default) = the particle を is written "o" (koe o); on
                                                   = "wo". This option is independent of Latin Macrons.
+                                                  The small tsu doubles the next sound (ittemo); a
+                                                  full-size tsu before te / ta, as lyrics sites often
+                                                  write it (いつて), is read the same way (itte). The
+                                                  particle は is written "wa" when it stands alone,
+                                                  after de / ni / to / e / kara at the end of a phrase
+                                                  or before nai, and after a kanji (boku wa); inside
+                                                  words it stays "ha".
 
 [Translit. Kanji:][[Legend]]                                  Leave (default) = characters that could be Japanese or
                                                   Chinese (東京) stay as they are; Chin. = read as Chinese
@@ -1400,7 +1434,8 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
                                                   1. Just Cover - the cover in its own colours.
                                                   2. Cover with Gradient - a grey version of the cover under
                                                   the disk's gradient colours, a slow wave that moves
-                                                  diagonally over the picture, from the upper left to the
+)WIZ",
+R"WIZ(                                                  diagonally over the picture, from the upper left to the
                                                   lower right.
                                                   3. Cover behind Disk - the grey cover in full resolution
                                                   behind the turning disk: the dots of the disk are pinholes
@@ -1432,8 +1467,7 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
                                                   = as it is.
 [Cover Brightness:][[Legend]]                                 0% .. 100% in steps of 5% (default 50%). Cover behind
                                                   Disk looks: the cover is spread over the whole
-)WIZ",
-R"WIZ(                                                  brightness range (bright like the plain disk), its dark
+                                                  brightness range (bright like the plain disk), its dark
                                                   parts are lifted to at least this share and it is
                                                   sharpened. Audio book cover with the wave: a brightness
                                                   curve, 50% = as it is, more = brighter, less = darker.
@@ -1489,7 +1523,8 @@ R"WIZ(                                                  brightness range (bright
                                                   disk: the bar follows the disk animation, with the centre
                                                   of the circle two cells in from the left. Right of the
                                                   toggle: gradient / no gradient, where gradient = the VIZ
-                                                  colours gradient from left to right, like the oscilloscope
+)WIZ",
+R"WIZ(                                                  colours gradient from left to right, like the oscilloscope
                                                   is using... [<-/->] switch between the two values of the
                                                   row, [ENTER] changes the options.
                                                   Default: the moving braille blocks (disk), in all modes.
@@ -1532,8 +1567,7 @@ R"WIZ(                                                  brightness range (bright
                                                   When a Viz. is set to false it leaves that view out of the
                                                   [,/.] cycle entirely. The oscilloscope/spectrogram,
                                                   overlays and their extra window modes remain functional!
-)WIZ",
-R"WIZ(
+
 
 
 
@@ -1608,7 +1642,8 @@ chapters 2.5 to 2.8. Differences: the radio keeps its own equalizer curve, oscil
 settings in radio_config.txt; the sleep timer stops the stream (no "Stop after current song"); the
 visualization field is the scope block right of the station info and [,/.] cycles oscilloscope,
 sphere and spectrogram (there are no lyrics).
-
+)WIZ",
+R"WIZ(
 LETTERS ARE MORE OFTEN CASE SENSITIVE IN THE RADIO: [[Header]]
 [r] recalls a preset slot, [R] reconnects the station.
 
@@ -1671,8 +1706,7 @@ KEYS IN THE PRESETS MENU: [[Header]]
 [ENTER]                in STATIONS: tune in. In SELECT PRESET: open that preset and tune its 
                        first filled slot...
 [1-0], [e r t d f g]   in STATIONS: put the hovered station in that slot; the same key again 
-)WIZ",
-R"WIZ(                       clears it... 
+                       clears it... 
 [SHIFT+n]              new preset              
 [SHIFT+c]              rename the hovered one
 [SHIFT+d]              delete it  
@@ -1775,7 +1809,8 @@ RECORD, INCLUDING THE MINUTES BEFORE YOU PRESSED: [[Header]]
 [y] opens the RECORD overlay. It freezes the moment you pressed, so no time is lost while you choose:
 -> From now on (when this opened)
 -> The last 1 / 5 / 10 / 15 / 30 minutes
--> Everything buffered
+)WIZ",
+R"WIZ(-> Everything buffered
 A row says "only m:ss" when the buffer does not reach that far back and then starts at the oldest audio.
 
 [UP]/[DOWN] choose   [ENTER] or [y] start   [ESC] cancel   [y] again while it runs: stop
@@ -1834,8 +1869,7 @@ FREQUENCY_BAR     the line and ticks of the dial / the numbers and dots
 VOLUME            current / possible part of the volume bar
 PRESETS           inactive slots (FG/BG) and the shortcut letters
 BORDER_COLOR, METADATA, VIZ, LIST, HEADER, LEGEND and TAB_NAMES work as in the player, and so do the
-)WIZ",
-R"WIZ(THEME row, [e], [SHIFT+d] and the unsaved-changes questions.
+THEME row, [e], [SHIFT+d] and the unsaved-changes questions.
 
 GENERAL: [[Header]]
 Playback (shuffle / list, like [m]), Start Mode (player / radio / audiobook), Use Music Player / Use Radio /
@@ -1917,7 +1951,8 @@ PLAYBACK: [[Header]]
 [m]          cycles the playpack mode: on to the next chapter / repeat the chapter / stop after it. 
 [->] / [<-]  seek: 5 seconds at first, faster and faster the longer the key is held (up to minutes), 
              so a long book can be crossed quickly. [p] pause, volume, mute and the sleep timer as always.
-
+)WIZ",
+R"WIZ(
 PLAYBACK SPEED: [[Header]]
 [SHIFT+->] / [SHIFT+<-]  faster / slower in steps of 0.05, from 0.5x to 3.0x. The voice keeps its pitch
              (the audio is stretched in time, not played faster like a record). A small box left of the
@@ -1967,8 +2002,7 @@ File name, Book title, Author, Narrator, Chapter, Publisher, Year and Genre.
 
 [UP]/[DOWN]   pick a row, [ENTER] types into it (a second [ENTER] puts the cursor away), 
 [<-]/[->]     go to the other chapters (unsaved changes have to be saved with [s] or dropped 
-)WIZ",
-R"WIZ(              with [d] first). A changed row is drawn in the header colour) 
+              with [d] first). A changed row is drawn in the header colour) 
 [s]           writes this chapter's changes. The audio is copied bit for bit (ffmpeg -c copy). 
               The File name row edits the name only; the ending (.mp3 ...) stays.
 [a]           writes the changed book rows (book title, author, narrator, publisher + year, genre) 
@@ -2034,7 +2068,8 @@ NOTES: [[Header]]
 
 Export / import of notes is possible and use the folder <book folder>/notes.
 Again, a note shows itself in the field (for 20 seconds) when playback passes its time.
-
+)WIZ",
+R"WIZ(
 [[New Page]]
 4.1.4 LIST OF TIME STAMPS, LIBRARY AND READING HISTORY [[Header]]
 
@@ -2090,8 +2125,7 @@ The marks are saved in the book's .cue after every change (REM CHAPTER lines).
 after one question ffmpeg copies the parts without re-encoding (-c copy) into the book folder 
 as "01 Chapter 1.wav", "02 The Storm.wav" ... with the chapter title as title tag. If anything 
 fails, the new files are removed and the original is untouched. Answer the question with [t] 
-)WIZ",
-R"WIZ(instead of [y] to also trim blank audio at the edges of the parts to 2 seconds (bookmarks, 
+instead of [y] to also trim blank audio at the edges of the parts to 2 seconds (bookmarks, 
 auto-mark and notes are moved accordingly).
 
 THE BACKUP: [[Header]] 

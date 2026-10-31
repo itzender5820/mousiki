@@ -139,6 +139,32 @@ void App::rl_open_from_current_track() {
     rl_fix_scroll();
 }
 
+// Over READ LYRICS and over the karaoke screen: the same overlay, for the track that plays (the lyrics engine belongs to it).
+// Closing returns to the screen it came from; the reader loads the new lyrics when the fetch is done (readlyrics_poll()).
+void App::rl_open_over_reader() {
+    if (!readlyrics_track_plays()) { rd_status_ = "re-fetch: only for the track that plays -- start it with [p]"; rd_status_warn_ = true; return; }
+    rl_open_from_current_track();
+    rl_from_reader_ = true;
+    rl_from_karaoke_ = false;
+    rd_watch_epoch_ = lyrics_epoch_.load();
+    mode_ = Mode::RetryLyrics;
+}
+
+void App::rl_open_over_karaoke() {
+    if (!has_track_) return;
+    rl_open_from_current_track();
+    rl_from_reader_ = false;
+    rl_from_karaoke_ = true;
+    mode_ = Mode::RetryLyrics;
+}
+
+void App::rl_close() {
+    mode_ = rl_from_reader_ ? Mode::ReadLyrics : rl_from_karaoke_ ? Mode::Karaoke : Mode::Browse;
+    rl_from_reader_ = false;
+    rl_from_karaoke_ = false;
+    force_redraw_ = true;
+}
+
 void App::rl_fix_scroll() {
     const int n = static_cast<int>(rl_versions_.size());
     rl_src_sel_ = std::clamp(rl_src_sel_, 0, std::max(0, n - 1));
@@ -214,7 +240,7 @@ void App::rl_submit() {
     launch_lyrics_fetch(query, rl_artist_, current_path_, /*force_network=*/true);
     log_event("retrying lyrics: \"" + query + "\"");
 
-    mode_ = Mode::Browse;
+    rl_close();
 }
 
 // Oscilloscope tuning overlay (SHIFT+o). The rows come from osci_visible_rows() (osci_settings.cpp): which ones are
@@ -1074,7 +1100,7 @@ std::vector<std::string> App::build_retry_lyrics_panel() const {
         }
     }
 
-    lines.push_back(box_bottom(W, rl_confirm_delete_ ? "[y] delete  [n] keep" : "[SPACE] choose version  [d] delete  [ENTER] Refetch  [ESC] cancel", border));
+    lines.push_back(box_bottom(W, rl_confirm_delete_ ? "[y] delete  [n] keep" : "[SPACE] choose  [d] delete  [CTRL+n] Add manually  [ENTER] Refetch  [ESC] cancel", border));
     return lines;
 }
 

@@ -57,6 +57,8 @@ void translit_set_kanji_cache_file(const std::string& path);
 std::vector<std::string> translit_take_kanji_pending(size_t max);
 void translit_kanji_found(const std::string& text, const std::string& reading);
 void translit_kanji_failed(const std::string& text);   // not read for good (the reader gave no reading)
+// How many of `texts` the reader has been asked for (they are queued now if they were not) and has not answered yet.
+size_t translit_kanji_waiting(const std::vector<std::string>& texts);
 void translit_kanji_retry(const std::string& text);    // the reader itself failed: offered again later
 
 // The user's reading dictionary: lines "米津玄師 = Yonezu Kenshi"; "chinese: 周杰倫" / "japanese: 周杰倫" say which language a text is.

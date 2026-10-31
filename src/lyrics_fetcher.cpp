@@ -619,6 +619,76 @@ std::vector<std::string> lyrics_plain_lines(const std::string& raw) {
     return out;
 }
 
+bool assign_lyrics_file(const fs::path& track_path, const fs::path& source_file, std::string* error) {
+    auto fail = [&](const char* why) { if (error) *error = why; return false; };
+    std::error_code ec;
+    if (track_path.empty() || sidecar_path(track_path).empty()) return fail("no track to assign the lyrics to");
+    if (source_file.empty() || !fs::is_regular_file(source_file, ec)) return fail("that lyrics file does not exist");
+    if (fs::file_size(source_file, ec) > 2u * 1024u * 1024u) return fail("that file is too big for a lyrics file (over 2 MB)");
+    std::string text;
+    if (!read_text_file(source_file, text)) return fail("that lyrics file is empty or cannot be read");
+    if (text.compare(0, 3, "\xEF\xBB\xBF") == 0) text.erase(0, 3);   // a UTF-8 byte order mark
+    if (text.find('\0') != std::string::npos) return fail("that is not a text file");
+    if (text.find_first_not_of(" \t\r\n") == std::string::npos) return fail("that lyrics file is empty");
+    // The text is stored with "[re:manual]" as its origin (an origin tag of its own is replaced), so it can be told apart later.
+    {
+        std::istringstream in(text);
+        std::string line, rest;
+        static const std::regex re_line(R"(^\s*\[\s*re\s*:[^\]]*\]\s*$)", std::regex::icase);
+        while (std::getline(in, line)) {
+            if (std::regex_match(line, re_line)) continue;
+            rest += line + "\n";
+        }
+        text = "[re:manual]\n" + rest;
+    }
+    std::string current;
+    const fs::path cur = existing_sidecar_file(track_path);
+    if (!cur.empty()) read_text_file(cur, current);
+    if (!current.empty() && current == text) return true;   // already the copy in use
+    archive_current_sidecar(track_path);
+    save_sidecar(track_path, text, "manual");
+    std::string check;
+    if (!read_text_file(sidecar_path(track_path), check)) return fail("the lyrics folder cannot be written to");
+    return true;
+}
+
+fs::path lyrics_copy_in_use(const fs::path& track_path) { return existing_sidecar_file(track_path); }
+
+bool lyrics_added_manually(const fs::path& track_path) {
+    const fs::path cur = existing_sidecar_file(track_path);
+    std::string text;
+    return !cur.empty() && read_text_file(cur, text) && lrc_source_tag(text) == "manual";
+}
+
+std::string lyrics_in_use_summary(const fs::path& track_path) {
+    const fs::path cur = existing_sidecar_file(track_path);
+    std::string text;
+    if (cur.empty() || !read_text_file(cur, text)) return {};
+    int lines = 0;
+    bool timed = false;
+    std::istringstream in(text);
+    std::string l;
+    static const std::regex ts(R"(^\s*\[\d+:\d+(?:[.:]\d+)?\])");
+    while (std::getline(in, l)) {
+        if (l.find_first_not_of(" \t\r") == std::string::npos) continue;
+        if (std::regex_search(l, ts)) { timed = true; ++lines; }
+        else if (l.find_first_not_of(" \t\r") != std::string::npos && l[l.find_first_not_of(" \t\r")] != '[') ++lines;
+    }
+    const std::string src = lrc_source_tag(text);
+    return (src == "manual" ? std::string("added manually") : src.empty() ? std::string("saved lyrics") : "from " + src) + (timed ? ", synced" : ", plain") + ", " + std::to_string(lines) + " lines";
+}
+
+bool unassign_lyrics_file(const fs::path& track_path, std::string* error) {
+    auto fail = [&](const char* why) { if (error) *error = why; return false; };
+    if (!lyrics_added_manually(track_path)) return fail("the lyrics in use were not added manually");
+    std::error_code ec;
+    fs::remove(existing_sidecar_file(track_path), ec);     // only the copy in the lyrics folder: the file it came from is never touched
+    if (ec) return fail("the lyrics folder cannot be written to");
+    for (const auto& v : list_lyrics_versions(track_path))   // the lyrics that were in use before come back (newest older copy)
+        if (v.kind == LyricsVersion::Kind::Archived) { activate_lyrics_version(track_path, v); break; }
+    return true;
+}
+
 bool activate_lyrics_version(const fs::path& track_path, const LyricsVersion& v) {
     std::error_code ec;
     if (v.active) return true;

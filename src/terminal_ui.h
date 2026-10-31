@@ -101,6 +101,8 @@ constexpr int kKeyCtrlN = 319;
 // 0x14 / 0x1a). On macOS / Linux Ctrl+Z would suspend the program: raw mode switches that off (VSUSP), so it arrives as a key.
 constexpr int kKeyCtrlT = 326;
 constexpr int kKeyCtrlZ = 327;
+// Ctrl+F (control byte 0x06): the "no lyrics" filter of the add-lyrics-manually overlay.
+constexpr int kKeyCtrlF = 328;
 
 // Ctrl+Left / Ctrl+Right (a word to the side) and Ctrl+Shift+Left / Right (mark a word). Only reported while a text field has the
 // keyboard (set_text_entry); everywhere else the keys stay what they were, so no screen loses a key.

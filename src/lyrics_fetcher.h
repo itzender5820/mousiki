@@ -91,6 +91,21 @@ bool activate_lyrics_version(const fs::path& track_path, const LyricsVersion& v)
 // Deletes the saved copy behind `v` (the fetched copy in use or an older one). Lyrics embedded in the audio file are
 // part of the file and are never touched: false for them and on failure.
 bool delete_lyrics_version(const LyricsVersion& v);
+// Assigns a lyrics file (.lrc or plain .txt) to a track by hand: the copy in use is put aside first (never lost, and
+// nothing happens when it already has exactly this text), then the file's text becomes the copy in use, tagged
+// "[re:manual]". `error` (optional) says why it failed (unreadable, empty, too big, not text).
+bool assign_lyrics_file(const fs::path& track_path, const fs::path& source_file, std::string* error = nullptr);
+// One line about the copy in use ("added manually, 42 lines", "fetched from lrclib, synced, 42 lines"); empty when the track has none saved.
+// Cheap (reads the one file, never the audio file).
+std::string lyrics_in_use_summary(const fs::path& track_path);
+// The file of the copy in use (empty when the track has none saved).
+fs::path lyrics_copy_in_use(const fs::path& track_path);
+// True when the copy in use was added by hand (assign_lyrics_file).
+bool lyrics_added_manually(const fs::path& track_path);
+// Takes a manually added copy out of use again (the file it came from is NOT touched or deleted): the newest older copy
+// of the track comes back in its place, or the track has no saved lyrics (it fetches them again as usual). False, with
+// `error`, when the copy in use was not added manually.
+bool unassign_lyrics_file(const fs::path& track_path, std::string* error = nullptr);
 
 // --- reading the saved lyrics (READ LYRICS overlay, CTRL+L) ---------------------------------------------------
 // The raw text behind one version: the .lrc of a fetched / older copy, or the lyrics written into the audio file.

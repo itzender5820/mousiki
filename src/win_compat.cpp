@@ -545,6 +545,7 @@ int win_poll_key() {
             if (k.wVirtualKeyCode == 'N' && (wc_ctrl == 0x0e || wc_ctrl == 0)) { g_last_key_was_arrow = false; return kKeyCtrlN; }
             if (k.wVirtualKeyCode == 'T' && (wc_ctrl == 0x14 || wc_ctrl == 0)) { g_last_key_was_arrow = false; return kKeyCtrlT; }
             if (k.wVirtualKeyCode == 'Z' && (wc_ctrl == 0x1a || wc_ctrl == 0)) { g_last_key_was_arrow = false; return kKeyCtrlZ; }
+            if (k.wVirtualKeyCode == 'F' && (wc_ctrl == 0x06 || wc_ctrl == 0)) { g_last_key_was_arrow = false; return kKeyCtrlF; }
         }
     }
 

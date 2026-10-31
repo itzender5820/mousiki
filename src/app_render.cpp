@@ -326,8 +326,8 @@ std::string App::render_frame(TerminalIO& term) {
     // leaving any of *those* still forces one, same as a real mode
     // change always has.
     auto mode_family = [this](Mode m) {
-        if (m == Mode::LyricsEdit && lyrics_edit_from_reader_) return 9;   // (it is drawn on the READ LYRICS screen)
-        if (m == Mode::LyricsEdit && lyrics_edit_from_karaoke_) return 7;   // (it is drawn on the karaoke screen)
+        if ((m == Mode::LyricsEdit && lyrics_edit_from_reader_) || (m == Mode::RetryLyrics && rl_from_reader_)) return 9;   // (drawn on the READ LYRICS screen)
+        if ((m == Mode::LyricsEdit && lyrics_edit_from_karaoke_) || (m == Mode::RetryLyrics && rl_from_karaoke_)) return 7;   // (drawn on the karaoke screen)
         if (m == Mode::MetaEdit && meta_sty_open_ && meta_sty_from_main_) return 0;   // the Style Option panel over the main screen
         if (m == Mode::AudioDevice) return adev_from_settings_ ? 1 : 0;     // over the settings screen or over the main screen
         switch (m) {
@@ -493,7 +493,7 @@ std::string App::render_frame(TerminalIO& term) {
     }
 
     // The karaoke screen.
-    if (mode_ == Mode::Karaoke || (mode_ == Mode::LyricsEdit && lyrics_edit_from_karaoke_)) {
+    if (mode_ == Mode::Karaoke || (mode_ == Mode::LyricsEdit && lyrics_edit_from_karaoke_) || (mode_ == Mode::RetryLyrics && rl_from_karaoke_)) {
         karaoke_ensure_lyrics();   // the karaoke overlay always has the lyrics engine, whatever the main screen uses
         std::ostringstream frame;
         frame << "\x1b[2J\x1b[H\x1b[?25l";
@@ -505,6 +505,11 @@ std::string App::render_frame(TerminalIO& term) {
         if (mode_ == Mode::LyricsEdit) {
             std::ostringstream floating;
             draw_floating_panel(floating, build_lyrics_edit_panel(), kLyricsEditPanelWidth, W);
+            out += floating.str();
+        }
+        if (mode_ == Mode::RetryLyrics) {
+            std::ostringstream floating;
+            draw_floating_panel(floating, build_retry_lyrics_panel(), kRetryLyricsPanelWidth, W, 0, true);
             out += floating.str();
         }
         return out;
@@ -593,7 +598,19 @@ std::string App::render_frame(TerminalIO& term) {
         return fullscreen_out(frame);
     }
 
-    if (mode_ == Mode::ReadLyrics || (mode_ == Mode::LyricsEdit && lyrics_edit_from_reader_)) {
+    if (mode_ == Mode::ReadLyrics && rd_add_open_) {   // "add lyrics manually": a full-window screen of its own
+        std::ostringstream frame;
+        frame << "\x1b[2J\x1b[H\x1b[?25l";
+        draw_floating_panel(frame, build_readlyrics_add_panel(W), std::max(70, W), W, 1, true, 1);
+        {   // the key legend under the panel
+            const auto legend = build_readlyrics_add_legend(W);
+            const int first_row = std::max(1, term_rows_ - 1 - static_cast<int>(legend.size()) + 1);
+            for (size_t i = 0; i < legend.size(); ++i) frame << "\x1b[" << (first_row + static_cast<int>(i)) << ";1H" << legend[i];
+        }
+        return fullscreen_out(frame);
+    }
+
+    if (mode_ == Mode::ReadLyrics || (mode_ == Mode::LyricsEdit && lyrics_edit_from_reader_) || (mode_ == Mode::RetryLyrics && rl_from_reader_)) {
         std::ostringstream frame;
         frame << "\x1b[2J\x1b[H\x1b[?25l";
         build_readlyrics_screen(frame, W, overlay_budget(W));
@@ -603,9 +620,19 @@ std::string App::render_frame(TerminalIO& term) {
             draw_floating_panel(panel, build_lyrics_edit_panel(), kLyricsEditPanelWidth, W);
             shown += panel.str();
         }
+        if (mode_ == Mode::RetryLyrics) {
+            std::ostringstream panel;
+            draw_floating_panel(panel, build_retry_lyrics_panel(), kRetryLyricsPanelWidth, W, 0, true);
+            shown += panel.str();
+        }
         if (rd_opts_open_) {
             std::ostringstream panel;
             draw_floating_panel(panel, build_readlyrics_options_panel(), 66, W);
+            shown += panel.str();
+        }
+        if (rd_exp_open_) {
+            std::ostringstream panel;
+            draw_floating_panel(panel, build_readlyrics_export_panel(), 74, W);
             shown += panel.str();
         }
         if (rd_search_open_) {

@@ -638,6 +638,42 @@ def read_lyrics_play(binary, root, scripts):
         check_frame(sess, "read lyrics")
         sess.send("p", 3.0)        # the track starts, the reader stays open
         check("READ LYRICS" in sess.text(), "read lyrics: [p] keeps the reader open")
+        sess.send("a", 1.0)        # "Add manually": two search panes, the current track is the first entry of the lower one
+        check("ADD LYRICS MANUALLY" in sess.text() and "Current track" in sess.text() and "Read Song" in sess.text(), "read lyrics: [a] opens the add-manually overlay with both lists")
+        check("LOCKED IN: LYRICS FILE" in sess.text() and "LOCKED IN: TRACK" in sess.text(), "read lyrics: the add-manually overlay shows the locked-in panes")
+        sess.send(b"\t", 0.3)      # to the track search field: CTRL+t / CTRL+f work while typing
+        sess.send(b"\x14", 0.7)    # CTRL+t: the track list shows file names
+        check("TRACKS (file names)" in sess.text() and "Read Song.wav" in sess.text(), "read lyrics: CTRL+t shows file names in the track list")
+        sess.send(b"\x14", 0.7)
+        check("TRACKS (artist - title)" in sess.text() and "- - Read Song" not in sess.text(), "read lyrics: CTRL+t goes back to artist - title (no '- -' in front of a track)")
+        sess.send(b"\x06", 0.7)    # CTRL+f: only tracks without saved lyrics (this one has some)
+        check("0 of 1 tracks" in sess.text(), "read lyrics: CTRL+f lists only the tracks without lyrics")
+        sess.send(b"\x06", 0.7)
+        check("1 of 1 tracks" in sess.text(), "read lyrics: CTRL+f shows all tracks again")
+        sess.send(b"\t", 0.3)
+        sess.send(b"\t", 0.3)
+        sess.send(b"\t", 0.3)      # (round to the lyrics list again)
+        sess.send(b"\r", 0.5)     # ENTER in a list locks the highlighted lyrics file in, it does not assign
+        check("ADD LYRICS MANUALLY" in sess.text() and "none yet" not in sess.text(), "read lyrics: ENTER locks the lyrics file in and keeps the overlay open")
+        sess.send(b"\x03", 0.7)    # CTRL+c clears the choice, also from a search field
+        check("none yet" in sess.text(), "read lyrics: CTRL+c clears the locked-in lyrics file")
+        sess.send(b"\r", 0.5)      # (locked in again)
+        sess.send(b"\t", 0.3)
+        sess.send(b"\t", 0.5)
+        sess.send(b"\r", 1.0)      # on the button: assigns the first file to the current track (it is the same text, so nothing changes)
+        check("ADD LYRICS MANUALLY" not in sess.text() and "READ LYRICS" in sess.text(), "read lyrics: ENTER assigns the lyrics file and closes the overlay")
+        sess.send("a", 1.0)         # the file that was just assigned shows as locked in, with the note
+        check("Added manually;" in sess.text() and "unassign" in sess.text(), "read lyrics: a manually added lyrics file shows as locked in, with the unassign note")
+        sess.send(b"\x1b", 1.0)
+        check("ADD LYRICS MANUALLY" not in sess.text() and "READ LYRICS" in sess.text(), "read lyrics: ESC closes the add-manually overlay")
+        if "[l] Re-fetch" in sess.text() or "Re-fetch" in sess.text():
+            sess.send("l", 1.0)    # the re-fetch / version control form opens over the reader (the track is the loaded one now)
+            if "LYRICS REFETCH AND VERSION CONTROL" in sess.text():
+                check("READ LYRICS" in sess.text(), "read lyrics: [l] opens the re-fetch form over the reader")
+                sess.send(b"\x1b", 1.0)
+                check("LYRICS REFETCH AND VERSION CONTROL" not in sess.text() and "READ LYRICS" in sess.text(), "read lyrics: ESC returns from the re-fetch form to the reader")
+            else:
+                check("only for the track that plays" in sess.text(), "read lyrics: [l] says it is only for the playing track")
         if shutil.which("ffprobe") is None or sess.alive() is False:
             print("  skipped: read lyrics playback (ffmpeg / ffprobe is not installed on this machine)")
             return

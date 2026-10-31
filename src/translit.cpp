@@ -183,6 +183,8 @@ std::atomic<bool> g_macrons{false};
 std::atomic<bool> g_wo{false};
 std::mutex g_mu;
 std::unordered_map<std::string, std::string> g_whole;       // a whole tag text -> what to show ("Anri 杏里" -> "Anri"), learned from the artist tags
+std::unordered_set<std::string> g_reader_keys;               // the keys of g_whole that a kanji reader wrote (their long vowels are marked, see style_reader_text)
+std::unordered_set<std::string> g_kanji_asked;               // texts that were queued for a kanji reader
 std::unordered_set<std::string> g_kanji_done;                // texts a kanji reader answered or failed for
 std::vector<std::string> g_kanji_pending;
 std::unordered_set<std::string> g_kanji_pending_set;
@@ -291,6 +293,7 @@ bool split_pair(const std::string& text, std::string& cjk, std::string& latin) {
     if (latin_i < 0 || cjk_i < 0 || latin_i == cjk_i) return false;
     cjk = segs[static_cast<size_t>(cjk_i)];
     latin = segs[static_cast<size_t>(latin_i)];
+    if (std::count(cjk.begin(), cjk.end(), ' ') >= 2) return false;   // a lyrics line with a Latin remark at its end ("パラッパ パラッパ パラッパ (wow-oh)"), not a name
     return true;
 }
 
@@ -412,6 +415,28 @@ static unsigned g_cache_for = 0;
 static int g_cache_hanzi = 0;
 static int g_cache_style = 0;
 
+// The kanji reader (scripts/kanji_reading.py) marks long vowels with letters of its own: a i u e o with a macron = the vowel doubled,
+// o with a circumflex = o + u. Here they get the style of the settings: macrons (the circumflex one is an o macron as well) or
+// the plain spelling (aa ii uu ee oo, ou).
+static std::string style_reader_text(const std::string& in, bool macrons) {
+    static const char* const kMarked[][2] = {{"\xC4\x81", "aa"}, {"\xC4\xAB", "ii"}, {"\xC5\xAB", "uu"}, {"\xC4\x93", "ee"}, {"\xC5\x8D", "oo"}, {"\xC3\xB4", "ou"}};
+    std::string out;
+    for (size_t i = 0; i < in.size();) {
+        bool hit = false;
+        if (static_cast<unsigned char>(in[i]) >= 0xC3) {
+            for (const auto& m : kMarked)
+                if (in.compare(i, 2, m[0]) == 0) {
+                    out += macrons ? (std::string(m[0]) == "\xC3\xB4" ? std::string("\xC5\x8D") : std::string(m[0])) : std::string(m[1]);
+                    i += 2;
+                    hit = true;
+                    break;
+                }
+        }
+        if (!hit) out += in[i++];
+    }
+    return out;
+}
+
 std::string transliterate(const std::string& text) {
     if (!translit_possible(text)) return text;
     std::lock_guard<std::mutex> lock(g_mu);
@@ -425,13 +450,13 @@ std::string transliterate(const std::string& text) {
     {
         const auto w = g_whole.find(trimmed(text));
         LatinCjk pair;
-        if (w != g_whole.end()) r = w->second;
+        if (w != g_whole.end()) r = g_reader_keys.count(w->first) ? style_reader_text(w->second, g_macrons.load()) : w->second;
         else if (split_latin_cjk(text, pair) && latin_cjk_agree(pair)) r = pair.latin;   // (the pair is written both ways: the Latin one)
         else {
             r = transliterate_impl(text);
             if ((g_ja_kept || g_ja_kana) && text.size() <= 240 && g_kanji_pending.size() < 3000 && text.find_first_of("\n\t\r") == std::string::npos) {   // a kanji reader may know it
                 const std::string key = trimmed(text);
-                if (!g_kanji_done.count(key) && g_kanji_pending_set.insert(key).second) g_kanji_pending.push_back(key);
+                if (!g_kanji_done.count(key) && g_kanji_pending_set.insert(key).second) { g_kanji_pending.push_back(key); g_kanji_asked.insert(key); }
             }
         }
     }
@@ -521,6 +546,36 @@ static std::string transliterate_impl(const std::string& text) {
                 continue;
             }
             if (h == 0x3063) { geminate = true; continue; }
+            // A full-size つ / ツ where a small tsu belongs: lyrics sites and old spelling write いつて for いって (itte, not itsute).
+            // Only before て / た (the verb forms: 行って, 分かった) and after a kana; かつて (formerly) stays katsute.
+            if (h == 0x3064 && i > 0 && i + 1 < v.size() && is_kana(v[i - 1]) && v[i - 1] != 0x30FC && to_hira(v[i - 1]) != 0x3093 && to_hira(v[i - 1]) != 0x3063 &&
+                (to_hira(v[i + 1]) == 0x3066 || to_hira(v[i + 1]) == 0x305F) && !(to_hira(v[i - 1]) == 0x304B && to_hira(v[i + 1]) == 0x3066 && (i < 2 || !is_kana(v[i - 2])))) {
+                geminate = true;
+                continue;
+            }
+            // The particle は is read wa: on its own (は いけない), after a particle at the end of a phrase (では、には、とは、へは、からは) or
+            // before ない (ではない), and after a kanji (僕は). It stays ha inside words. The particle へ on its own is e.
+            if ((c == 0x306F || c == 0x3078) && h == c) {
+                auto in_word = [](char32_t x) { return is_kana(x) || is_hanzi(x) || is_hangul(x) || is_latin_letter(x) || (x >= '0' && x <= '9'); };
+                const bool alone_before = i == 0 || !in_word(v[i - 1]);
+                const bool alone_after = i + 1 >= v.size() || !in_word(v[i + 1]);
+                bool is_particle = alone_before && alone_after;
+                if (c == 0x306F && !is_particle && i > 0) {
+                    const char32_t pv = v[i - 1];
+                    const bool after_particle = pv == 0x3067 || pv == 0x306B || pv == 0x3068 || pv == 0x3078 || pv == 0x3089;   // で に と へ ら (から)
+                    const bool before_nai = i + 2 < v.size() && v[i + 1] == 0x306A && (v[i + 2] == 0x3044 || v[i + 2] == 0x304B);   // ない / なか(った)
+                    if (after_particle && (alone_after || before_nai)) is_particle = true;
+                    else if (is_hanzi(pv)) is_particle = true;
+                }
+                if (is_particle) {
+                    if (!o.empty() && o.back() != ' ' && is_hanzi(i > 0 ? v[i - 1] : 0)) o += ' ';
+                    o += c == 0x306F ? "wa" : "e";
+                    if (i > 0 && is_hanzi(v[i - 1]) && i + 1 < v.size()) particle_break = true;
+                    last_cjk_word = true;
+                    geminate = false;
+                    continue;
+                }
+            }
             size_t used = 1;
             std::string r = mora_at(v, i, used);
             if (h == 0x3093) {   // ん: n, with an apostrophe before a vowel or y
@@ -780,7 +835,7 @@ void translit_set_kanji_cache_file(const std::string& path) {
         if (tab == std::string::npos || tab == 0) continue;
         const std::string text = line.substr(0, tab), reading = line.substr(tab + 1);
         g_kanji_done.insert(text);
-        if (!reading.empty()) g_whole.emplace(text, reading);
+        if (!reading.empty() && g_whole.emplace(text, reading).second) g_reader_keys.insert(text);
     }
     ++g_cache_version;
 }
@@ -802,7 +857,7 @@ void translit_kanji_found(const std::string& text, const std::string& reading) {
     std::lock_guard<std::mutex> lock(g_mu);
     g_kanji_done.insert(text);
     if (reading.empty() || reading == text || reading.find_first_of("\n\t") != std::string::npos) return;
-    if (g_whole.emplace(text, reading).second) ++g_cache_version;
+    if (g_whole.emplace(text, reading).second) { g_reader_keys.insert(text); ++g_cache_version; }
     if (!g_kanji_file.empty()) {
         std::ofstream out(g_kanji_file, std::ios::app | std::ios::binary);
         if (out) out << text << "\t" << reading << "\n";
@@ -813,6 +868,18 @@ void translit_kanji_retry(const std::string& text) {
     std::lock_guard<std::mutex> lock(g_mu);
     if (g_kanji_done.count(text) || g_whole.count(text)) return;
     if (g_kanji_pending_set.insert(text).second) g_kanji_pending.push_back(text);
+}
+
+size_t translit_kanji_waiting(const std::vector<std::string>& texts) {
+    size_t n = 0;
+    for (const std::string& t : texts) {
+        if (t.empty() || !translit_possible(t)) continue;
+        transliterate(t);   // (queues what the reader has not seen yet)
+        std::lock_guard<std::mutex> lock(g_mu);
+        const std::string key = trimmed(t);
+        if (g_kanji_asked.count(key) && !g_kanji_done.count(key) && !g_whole.count(key)) ++n;
+    }
+    return n;
 }
 
 void translit_kanji_failed(const std::string& text) {

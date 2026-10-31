@@ -354,7 +354,7 @@ function showPin(message) {
       "",
       C.text + "Enter the PIN of the remote app:",
       C.legend + "(Mousiki shows it in Settings ->",
-      C.legend + " GENERAL -> REMOTE / UPDATES -> Remote App, and",
+      C.legend + " ON/OFF -> Remote App, and",
       C.legend + " `mousiki --remote-info` prints it)",
       "",
       { t: center(C.field + "  " + shown + "  " + C.R, 36), cmd: "@type" },
@@ -433,6 +433,7 @@ async function poll() {
           if (!picture || picture.key !== s.image.key) {
             const p = { key: s.image.key, img: new Image(), ready: false };
             p.img.onload = () => { p.ready = true; if (picture === p) shown = p; draw(); };
+            p.img.onerror = () => { if (picture === p) picture = null; };   // (asked again with the next screen)
             p.img.src = "/api/image?pin=" + encodeURIComponent(pin) + "&key=" + encodeURIComponent(s.image.key);
             picture = p;
           }
@@ -444,7 +445,7 @@ async function poll() {
     if (++failures >= 3) showLost("Mousiki does not answer.");
   }
   busy = false;
-  timer = setTimeout(poll, document.hidden ? 2000 : (failures ? 1000 : 80));
+  timer = setTimeout(poll, document.hidden ? 2000 : (failures ? 1000 : (screen && screen.image ? 35 : 80)));   // (a turning cover: a new picture every few hundredths of a second)
 }
 
 async function send(cmd, arg) {
@@ -496,15 +497,15 @@ function zoneAt(px, py) {
   return null;
 }
 cv.addEventListener("pointerup", e => {
-  const rect = cv.getBoundingClientRect();
+)WEB",
+R"WEB(  const rect = cv.getBoundingClientRect();
   const z = zoneAt(e.clientX - rect.left, e.clientY - rect.top);
   if (!z) {
     if (overlay && overlay.menu) { overlay = null; draw(); }
     return;
   }
   if (APP && APP.haptic) APP.haptic(); else if (navigator.vibrate) navigator.vibrate(8);
-)WEB",
-R"WEB(  if (!overlay && !z.cmd.startsWith("@")) {
+  if (!overlay && !z.cmd.startsWith("@")) {
     flash = z; draw();
     setTimeout(() => { flash = null; draw(); }, 140);
   }

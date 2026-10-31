@@ -1213,6 +1213,11 @@ private:
     // is on, which is what makes them "dynamically available".
     std::vector<RLField> rl_visible_fields() const;
     void rl_open_from_current_track();     // pre-fill + reset state, called when 'l' opens the panel
+    bool rl_from_reader_ = false;          // opened over READ LYRICS: drawn on it, closing returns to it
+    bool rl_from_karaoke_ = false;         // opened over the karaoke screen: drawn on it, closing returns to it
+    void rl_open_over_reader();            // ... over READ LYRICS (only for the track that plays)
+    void rl_open_over_karaoke();           // ... over the karaoke screen
+    void rl_close();                       // back to the screen it was opened from
     void rl_submit();                       // builds the override query and launches the fetch
     bool* rl_bool_ptr(RLField f);           // nullptr for non-checkbox fields
     std::string* rl_text_ptr(RLField f);
@@ -1834,6 +1839,19 @@ private:
     int rd_opts_row_ = 0;
     bool rd_opts_dirty_ = false;
     std::string rd_opts_warn_;                          // warning inside the translate overlay
+    bool rd_exp_open_ = false;                          // the export overlay ([e]): original only / + translation / + transliteration
+    int rd_exp_choice_ = 0;                             // what the export holds: bit 1 = the translation, bit 2 = the Latin spelling
+    std::string rd_exp_msg_;                            // what the last export did (shown in the overlay, which stays open)
+    bool rd_exp_warn_ = false;
+    int rd_watch_epoch_ = -1;                           // the lyrics fetch the reader waits for after the re-fetch overlay (lyrics_epoch_ at that time), -1 = none
+    bool rd_exp_wait_ = false;                          // the last ENTER only said "the kanji reader is still working": the next one exports anyway
+    bool readlyrics_reader_working() const;             // the kanji reader can still answer (it is on, not broken)
+    std::vector<std::string> build_readlyrics_export_panel() const;
+    void readlyrics_export_key(int key);
+    int readlyrics_export_choices(std::vector<int>& flags, std::vector<std::string>& names) const;   // what can be chosen now
+    fs::path readlyrics_export_dir() const;             // <lyrics folder>/export
+    fs::path readlyrics_export_file(int flags) const;   // the file an export with these contents goes to
+    void readlyrics_export_do();
     std::vector<std::string> build_readlyrics_options_panel() const;
     void readlyrics_options_key(int key);
     bool rd_show_ = false;                              // translation visible
@@ -1854,7 +1872,7 @@ private:
     void readlyrics_open();
     void readlyrics_close();
     void readlyrics_load_version();                     // reads the chosen file (and its saved translation)
-    void readlyrics_refresh_translations(const std::string& prefer_to);   // re-reads the saved translations of the chosen file
+    void readlyrics_refresh_translations(const std::string& prefer_to, const std::string& prefer_svc = std::string());   // re-reads the saved translations of the chosen file
     void readlyrics_select_translation(int index);
     void readlyrics_toggle_translations();              // SHIFT+t: show / next translation / hide
     void readlyrics_delete_translation();
@@ -1876,6 +1894,48 @@ private:
     void readlyrics_search_rebuild();
     void readlyrics_search_key(int key);
     void readlyrics_show_file(const LyricsFileHit& hit);
+    // "Add manually" ([a] / CTRL+n): assigns a .lrc / .txt file to a track by hand. Two search panes: the lyrics files
+    // (every lyrics folder of the library, subfolders included, or a path typed in) and the tracks of the library, whose
+    // first entry is always the current track. TAB changes the pane, ENTER assigns.
+    bool rd_add_open_ = false;
+    int rd_add_pane_ = 0;                               // 0 = lyrics file, 1 = track
+    std::string rd_add_fq_, rd_add_tq_;                 // what is typed in each pane
+    std::vector<LyricsFileHit> rd_add_files_;           // every lyrics file found when the overlay was opened
+    std::vector<int> rd_add_fview_;                     // indices into rd_add_files_ that match; -1 = the typed path
+    LyricsFileHit rd_add_typed_;                        // a path typed into the file pane that names a lyrics file (path empty = none)
+    std::vector<int> rd_add_tview_;                     // tracks that match: -1 = the current track, else an index into all_local_tracks_
+    int rd_add_fsel_ = 0, rd_add_tsel_ = 0;
+    size_t rd_add_dirs_ = 0;
+    fs::path rd_add_cur_;                               // the current track (the one the overlay was opened for), empty = none
+    std::string rd_add_cur_title_;
+    std::string rd_add_msg_;
+    bool rd_add_warn_ = false;
+    void readlyrics_add_open();                         // in READ LYRICS
+    void readlyrics_add_open_from_playing();            // from the re-fetch form and the karaoke screen: the reader opens for the playing track, with the overlay open
+    void readlyrics_add_rebuild();
+    void readlyrics_add_key(int key);
+    void readlyrics_add_do();
+    void readlyrics_add_clear();                        // [c]: clear the locked lyrics file and track
+    void readlyrics_add_unassign();                     // DEL in the overlay: takes the manually added lyrics of the chosen track out of use
+    fs::path readlyrics_add_target() const;             // the track chosen in the lower list
+    LyricsFileHit rd_add_lock_file_;                    // the lyrics file locked in with ENTER (path empty = none yet)
+    bool rd_add_lock_auto_ = false;                     // the locked lyrics file is the manually added copy of the locked track (not picked by hand)
+    bool rd_add_lock_cur_ = true;                       // the locked track is the current track (the default)
+    fs::path rd_add_lock_track_;                        // else the track locked in from the library list
+    std::string rd_add_lock_title_;
+    std::string rd_add_lock_info_;                      // what lyrics the locked track has now ("" = none)
+    void readlyrics_add_lock_refresh();                 // re-reads rd_add_lock_info_ / rd_add_manual_ of the locked track
+    bool rd_add_nolyr_ = false;                         // CTRL+f: the track list holds only tracks without saved lyrics
+    std::vector<char> rd_add_has_lyr_;                  // per library track: it has a saved lyrics copy (read when the filter is switched on)
+    int readlyrics_add_list_rows() const;               // rows of the result lists (the same for both)
+    static std::string readlyrics_add_track_text(const LocalTrack& t);   // "folder - title" (just the title when the folder says nothing)
+    bool rd_add_names_ = false;                         // the track list shows (and searches) file names instead of "folder - title"
+    bool rd_add_manual_ = false;                        // the chosen track has lyrics that were added manually
+    bool rd_add_confirm_ = false;                       // "unassign?" is asked: DEL again confirms
+    std::string readlyrics_add_track_label(int idx) const;
+    std::vector<std::string> build_readlyrics_add_panel(int W) const;
+    std::vector<std::string> build_readlyrics_add_legend(int W) const;   // the key legend under the panel: a small tree table, as in READ LYRICS
+    static constexpr int kAddLegendRows = 4;
     std::vector<std::string> build_readlyrics_search_panel() const;
     void build_readlyrics_screen(std::ostringstream& frame, int W, int target_height);
     fs::path lyrics_path_;                              // track path the current lyrics belong to (sidecar location)

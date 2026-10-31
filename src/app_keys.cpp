@@ -466,6 +466,8 @@ void App::handle_key(int key) {
         // The lyrics timing overlay opens over the karaoke screen (judging an offset is easiest against the big lyrics); closing it
         // brings the karaoke screen back.
         if (!arrow && key_is("HKeyLyricsTiming", key)) { lyrics_edit_open_over_karaoke(); return; }
+        if (key == kKeyCtrlN || (!arrow && (key == 'a' || key == 'A'))) { readlyrics_add_open_from_playing(); return; }   // add a lyrics file by hand (READ LYRICS, overlay open)
+        if (!arrow && key_is("HKeyRetryLyrics", key)) { rl_open_over_karaoke(); return; }   // the re-fetch / version control overlay, as on the main screen
         if (arrow && (key == 'A' || key == 'B')) return;
         // SHIFT and + / SHIFT and - (the characters '*' and '_'): lyrics size 1..5. Fixed keys -- on a US keyboard
         // '*' is SHIFT+8. Only the lyrics change size, the pictures stay as they are.
@@ -604,7 +606,8 @@ void App::handle_key(int key) {
             else rl_confirm_delete_ = false;
             return;
         }
-        if (key == 27) { mode_ = Mode::Browse; return; } // cancel entirely, nothing submitted
+        if (key == 27) { rl_close(); return; } // cancel entirely, nothing submitted
+        if (key == kKeyCtrlN) { readlyrics_add_open_from_playing(); return; }   // CTRL+n: add a lyrics file by hand (plain letters go into the text fields)
 
         std::vector<RLField> fields = rl_visible_fields();
         auto cur_pos = std::find(fields.begin(), fields.end(), rl_focus_);
@@ -1109,6 +1112,7 @@ void App::handle_key(int key) {
     } else if (action == "HKeyRetryLyrics") { // opens the manual title/artist override form
         if (has_track_) {   // also with the lyrics engine off: the fetched lyrics are kept for karaoke / READ LYRICS
             rl_open_from_current_track();
+            rl_from_reader_ = rl_from_karaoke_ = false;
             mode_ = Mode::RetryLyrics;
         }
     } else if (action == "HKeyToggleWaveform") { // toggle waveform style (raw/smooth) directly, without going into Settings

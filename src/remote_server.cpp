@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <deque>
 #include <mutex>
 #include <random>
 #include <thread>
@@ -64,7 +65,10 @@ std::vector<Command> g_commands;
 Clock::time_point g_screen_asked{};
 int g_want_cols = 44, g_want_rows = 30;
 std::string g_screen_json;
-std::string g_pic_key, g_pic_png;   // the picture the phone draws over the screen (a PNG), and what it shows
+// The pictures the phone draws over the screen (PNGs, by key): the last few, because a turning cover makes a new one every few
+// hundredths of a second and the phone asks for a picture a moment after it saw the screen that names it -- with only the newest kept,
+// most of those requests came too late (404) and the disk turned in jerks.
+std::deque<std::pair<std::string, std::string>> g_pics;
 std::string g_pic_json;            // ,"image":{...} for the screen JSON ("" = none)
 std::string g_mode = "player";
 long long g_rev = 0;
@@ -307,8 +311,10 @@ std::string handle_request(const std::string& request_line, const std::string& p
         return json_reply(200, g_screen_json);
     }
     if (path == "/api/image") {
-        if (g_pic_png.empty() || get(q, "key") != g_pic_key) return json_reply(404, "{\"error\":\"no such picture\"}");
-        return reply(200, "image/png", g_pic_png);
+        const std::string want = get(q, "key");
+        for (const auto& p : g_pics)
+            if (p.first == want && !p.second.empty()) return reply(200, "image/png", p.second);
+        return json_reply(404, "{\"error\":\"no such picture\"}");
     }
     if (path == "/api/cmd") {
         Command c;
@@ -572,13 +578,15 @@ void set_screen(const char* mode, int cols, int rows, const std::vector<std::str
 
 bool picture_has(const std::string& key) {
     std::lock_guard<std::mutex> lk(g_mu);
-    return key == g_pic_key && !g_pic_png.empty();
+    for (const auto& p : g_pics) if (p.first == key && !p.second.empty()) return true;
+    return false;
 }
 
 void picture_store(const std::string& key, const std::string& png) {
     std::lock_guard<std::mutex> lk(g_mu);
-    g_pic_key = key;
-    g_pic_png = png;
+    for (const auto& p : g_pics) if (p.first == key) return;
+    g_pics.emplace_back(key, png);
+    while (g_pics.size() > 10) g_pics.pop_front();
 }
 
 void set_picture(bool active, int x, int y, int w, int h, const std::string& key) {

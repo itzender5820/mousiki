@@ -137,6 +137,22 @@ TEST(translit_japanese_styles) {
     CHECK_EQ(transliterate("おおきい"), std::string("\xC5\x8Dkii"));
     translit_set_style(false, false);
 }
+TEST(translit_sokuon_and_particle_wa) {
+    translit_set_style(false, false);
+    CHECK_EQ(transliterate("いって"), std::string("itte"));
+    CHECK_EQ(transliterate("いつて"), std::string("itte"));            // a full-size tsu where a small one belongs (lyrics sites)
+    CHECK_EQ(transliterate("わかつて"), std::string("wakatte"));
+    CHECK_EQ(transliterate("まつたく"), std::string("mattaku"));
+    CHECK_EQ(transliterate("かつて"), std::string("katsute"));         // "formerly" stays
+    CHECK_EQ(transliterate("つて"), std::string("tsute"));
+    CHECK_EQ(transliterate("は いけない"), std::string("wa ikenai"));   // the particle on its own
+    CHECK_EQ(transliterate("ここでは いけない"), std::string("kokodewa ikenai"));
+    CHECK_EQ(transliterate("ここではない"), std::string("kokodewanai"));
+    CHECK_EQ(transliterate("にはとり"), std::string("nihatori"));      // inside a word: ha
+    CHECK_EQ(transliterate("はは"), std::string("haha"));
+    CHECK_EQ(transliterate("へ いく"), std::string("e iku"));
+    CHECK_EQ(transliterate("いて も"), std::string("ite mo"));
+}
 TEST(translit_hanzi_default_modes) {
     // 東京 is the same in Japanese and Chinese: LatinHanziDefault decides
     translit_set_default_hanzi(0);
@@ -257,6 +273,35 @@ TEST(translit_decomposed_kana_marks_and_particles) {
     CHECK_EQ(transliterate("\xE6\x97\xA5\xE6\x9C\xAC\xE3\x81\xAE\xE3\x82\xB7\xE3\x83\x86\xE3\x82\xA3"), std::string("\xE6\x97\xA5\xE6\x9C\xAC no shiti"));   // 日本のシティ
 }
 
+TEST(translit_kanji_waiting_counts_the_lines_the_reader_has_not_answered) {
+    const std::string a = "\xE6\x98\x9F\xE3\x81\x8C\xE9\x99\x8D\xE3\x82\x8A\xE3\x81\xA6\xE3\x81\x8F\xE3\x82\x8B \xE5\xA4\x9C";   // 星が降りてくる 夜
+    const std::vector<std::string> lines = {a, "", "plain latin"};
+    CHECK_EQ(translit_kanji_waiting(lines), static_cast<size_t>(1));      // asked now, not answered
+    CHECK_EQ(translit_kanji_waiting(lines), static_cast<size_t>(1));      // (and not asked twice)
+    translit_take_kanji_pending(50);                                     // taken by the reader: still waiting
+    CHECK_EQ(translit_kanji_waiting(lines), static_cast<size_t>(1));
+    translit_kanji_found(a, "hoshi ga orite kuru yoru");
+    CHECK_EQ(translit_kanji_waiting(lines), static_cast<size_t>(0));
+}
+
+TEST(translit_lyrics_line_with_a_latin_remark_is_not_a_name_pair) {
+    // パラッパ x4 (wow-oh): a line of a song, not "Name (Latin name)": the whole line is spelled
+    const std::string r = transliterate("\xE3\x83\x91\xE3\x83\xA9\xE3\x83\x83\xE3\x83\x91 \xE3\x83\x91\xE3\x83\xA9\xE3\x83\x83\xE3\x83\x91 \xE3\x83\x91\xE3\x83\xA9\xE3\x83\x83\xE3\x83\x91 (wow-oh)");
+    CHECK(r.find("parappa") != std::string::npos);
+    CHECK(r.find("wow-oh") != std::string::npos);
+}
+
+TEST(translit_reader_long_vowels_follow_the_macron_setting) {
+    const std::string t = "\xE4\xBB\x8A\xE6\x97\xA5\xE3\x81\xAF\xE3\x82\xB3\xE3\x83\xBC\xE3\x83\x92\xE3\x83\xBC";   // 今日はコーヒー
+    transliterate(t);
+    translit_kanji_found(t, "ky\xC3\xB4 wa k\xC5\x8Dh\xC4\xAB");   // what the reader writes: ô = o+u, ō ī = doubled vowels
+    translit_set_style(false, false);
+    CHECK_EQ(transliterate(t), std::string("kyou wa koohii"));
+    translit_set_style(true, false);
+    CHECK_EQ(transliterate(t), std::string("ky\xC5\x8D wa k\xC5\x8Dh\xC4\xAB"));
+    translit_set_style(false, false);
+}
+
 TEST(translit_kanji_in_japanese_text_is_offered_to_a_reader_and_its_answer_is_shown) {
     const std::string t = "\xE5\xA4\x9C\xE3\x81\xAB\xE9\xA7\x86\xE3\x81\x91\xE3\x82\x8B \xE3\x83\x86\xE3\x82\xB9\xE3\x83\x88";   // 夜に駆ける テスト
     transliterate(t);
@@ -268,4 +313,111 @@ TEST(translit_kanji_in_japanese_text_is_offered_to_a_reader_and_its_answer_is_sh
     CHECK_EQ(transliterate(t), std::string("yoru ni kakeru tesuto"));
     transliterate("\xE6\x9D\xB1\xE4\xBA\xAC");   // 東京 alone: could be Chinese, never offered
     for (const auto& n : translit_take_kanji_pending(50)) CHECK(n != "\xE6\x9D\xB1\xE4\xBA\xAC");
+}
+
+#include "lyrics_translate.h"
+TEST(lyrics_export_text_layers_original_translit_translation) {
+    const std::vector<std::string> lines = {"さくら", "", "Hello", "hello"};
+    const std::vector<std::string> tr = {"cherry blossom", "", "Hallo", "Hello"};
+    translit_set_style(false, false);
+    CHECK_EQ(muisc::lyrics_export_text(lines, nullptr, false), std::string("さくら\n\nHello\nhello\n"));    // the original only: as it is
+    CHECK_EQ(muisc::lyrics_export_text(lines, &tr, false),
+             std::string("さくら\ncherry blossom\n\nHello\nHallo\n\nhello\n"));                                  // (a translation equal to its line is left out)
+    CHECK_EQ(muisc::lyrics_export_text(lines, &tr, true),
+             std::string("さくら\nsakura\ncherry blossom\n\nHello\nHallo\n\nhello\n"));
+    CHECK(muisc::lyrics_export_translit_differs(lines));
+    CHECK(!muisc::lyrics_export_translit_differs({"Hello", "world"}));
+    const std::vector<std::string> short_tr = {"x"};
+    CHECK_EQ(muisc::lyrics_export_text({"a", "b"}, &short_tr, false), std::string("a\nb\n"));                 // a translation of another length is not used
+}
+
+#include "lyrics_fetcher.h"
+#include <fstream>
+TEST(lyrics_translations_are_kept_per_language_and_service) {
+    const fs::path dir = fs::temp_directory_path() / "mousiki_tr_per_service";
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+    fs::create_directories(dir, ec);
+    const fs::path track = dir / "Song.mp3";
+    { std::ofstream(track) << "x"; }
+    LyricsVersion v;
+    v.kind = LyricsVersion::Kind::Embedded;
+    const std::vector<std::string> plain = {"a", "b"};
+    auto make = [&](const char* svc, const char* l1) {
+        LyricsTranslation t;
+        t.ok = true; t.from = "ja"; t.service = svc; t.lines = {l1, "second"};
+        return t;
+    };
+    CHECK(save_lyrics_translation(track, v, "en", plain, make("google", "G1")));
+    CHECK(save_lyrics_translation(track, v, "en", plain, make("mymemory", "M1")));
+    auto list = list_lyrics_translations(track, v, plain);
+    CHECK_EQ(list.size(), static_cast<size_t>(2));          // both are kept
+    LyricsTranslation got;
+    CHECK(load_lyrics_translation(track, v, "en", plain, got, "google"));
+    CHECK_EQ(got.lines[0], std::string("G1"));
+    CHECK(load_lyrics_translation(track, v, "en", plain, got, "mymemory"));
+    CHECK_EQ(got.lines[0], std::string("M1"));
+    CHECK(save_lyrics_translation(track, v, "en", plain, make("google", "G2")));   // the same service again: only its own is replaced
+    list = list_lyrics_translations(track, v, plain);
+    CHECK_EQ(list.size(), static_cast<size_t>(2));
+    CHECK(load_lyrics_translation(track, v, "en", plain, got, "google"));
+    CHECK_EQ(got.lines[0], std::string("G2"));
+    CHECK(load_lyrics_translation(track, v, "en", plain, got, "mymemory"));
+    CHECK_EQ(got.lines[0], std::string("M1"));
+    // a file in the older naming ("<name>.de.txt", the service only inside) is still found, and a new save of that service replaces it
+    {
+        LyricsTranslation x = make("", "alt");
+        CHECK(save_lyrics_translation(track, v, "de", plain, x));
+        const fs::path legacy = lyrics_translation_file(track, v, "de");
+        std::string body;
+        { std::ifstream f(legacy, std::ios::binary); body.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()); }
+        body.replace(body.find("svc=-"), 5, "svc=google");
+        { std::ofstream f(legacy, std::ios::binary | std::ios::trunc); f << body; }
+        list = list_lyrics_translations(track, v, plain);
+        CHECK_EQ(list.size(), static_cast<size_t>(3));
+        CHECK(load_lyrics_translation(track, v, "de", plain, got, "google"));
+        CHECK_EQ(got.lines[0], std::string("alt"));
+        CHECK(!load_lyrics_translation(track, v, "de", plain, got, "mymemory"));
+        CHECK(save_lyrics_translation(track, v, "de", plain, make("google", "neu")));
+        CHECK(!fs::exists(legacy));
+        CHECK(load_lyrics_translation(track, v, "de", plain, got, "google"));
+        CHECK_EQ(got.lines[0], std::string("neu"));
+        CHECK(delete_lyrics_translation(track, v, "de", "google"));
+        CHECK(!load_lyrics_translation(track, v, "de", plain, got, "google"));
+    }
+    fs::remove_all(dir, ec);
+}
+
+TEST(a_lyrics_file_can_be_assigned_to_a_track_by_hand) {
+    const fs::path dir = fs::temp_directory_path() / "mousiki_assign_lyrics";
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+    fs::create_directories(dir / "other", ec);
+    const fs::path track = dir / "Song.mp3";
+    { std::ofstream(track) << "x"; }
+    const fs::path a = dir / "other" / "mine.lrc", b = dir / "other" / "second.lrc", e = dir / "other" / "empty.lrc";
+    { std::ofstream(a, std::ios::binary) << "[00:01.00]hello\n[00:02.00]world\n"; }
+    { std::ofstream(b, std::ios::binary) << "[00:01.00]other text\n"; }
+    { std::ofstream(e, std::ios::binary) << "  \n"; }
+    std::string err;
+    CHECK(!assign_lyrics_file(track, dir / "nothing.lrc", &err));      // no such file
+    CHECK(!err.empty());
+    CHECK(!assign_lyrics_file(track, e, &err));                        // nothing in it
+    CHECK(assign_lyrics_file(track, a, &err));
+    auto v = list_lyrics_versions(track);
+    CHECK_EQ(v.size(), static_cast<size_t>(1));                        // the copy in use
+    CHECK(v[0].active);
+    CHECK(assign_lyrics_file(track, a, &err));                         // the same text again: nothing changes
+    CHECK_EQ(list_lyrics_versions(track).size(), static_cast<size_t>(1));
+    CHECK(assign_lyrics_file(track, b, &err));                         // another one: the first is put aside, not lost
+    v = list_lyrics_versions(track);
+    CHECK_EQ(v.size(), static_cast<size_t>(2));
+    CHECK(lyrics_added_manually(track));
+    CHECK(unassign_lyrics_file(track, &err));                          // the first one comes back, the source file stays
+    CHECK(fs::exists(b));
+    CHECK(lyrics_added_manually(track));                               // it is the first manual one
+    CHECK(unassign_lyrics_file(track, &err));                          // nothing older: the track has no saved lyrics now
+    CHECK(!lyrics_added_manually(track));
+    CHECK(!unassign_lyrics_file(track, &err));                         // nothing manual left
+    fs::remove_all(dir, ec);
 }

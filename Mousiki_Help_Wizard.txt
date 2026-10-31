@@ -760,7 +760,29 @@ reverb, remix, other. [TAB]/[DOWN] next field, [UP] previous field, [SPACE] tick
 [CTRL+c/x/v]). Fetching lyrics again does not replace older version, as long 
 there had been timing adjustments or the lyrics differ. Lyrics can be deleted in the re-fetch
 form or in the read/translate lyrics overlay which can be accessed via [Ctrl+l] (see further
-below for details).    
+below for details).
+The form opens with [l] in READ LYRICS (for the track that plays: start it with [p]) and in the
+karaoke mode as well. [ESC] or the fetch brings you back there, and READ LYRICS shows the new
+lyrics as soon as they are loaded.
+
+ADD LYRICS MANUALLY[[Header]]
+Before, own lyrics only worked by name: a file called exactly like the track (Song.mp3 -> Song.lrc) in the
+"lyrics" folder next to the track (an .lrc right next to the track is read too), copied and renamed by hand.
+The overlay does this for you, with any file name (.lrc or .txt) and for any track of the library, and it can be undone.
+You have a .lrc (or .txt) file of your own? [a] in READ LYRICS (also [CTRL+n]) opens an overlay with two
+search bars (left LYRICS FILE, right TRACK) and below each its result list. LYRICS FILE searches every lyrics folder of the library, subfolders included (or type the
+full path of a file). TRACK searches the library; its first entry is always "Current track". [TAB] goes
+search/list left, right, then to the button "Add chosen lyrics to chosen/current song" at the bottom;
+[UP]/[DOWN] pick, [ENTER] in a list LOCKS the highlighted entry in (shown in the header colour, with the
+locked-in panes and the lyrics the locked track has below the lists; the current track is locked in at the start),
+[ENTER] on the button adds (a file already added to the locked track by hand shows as locked in, with the note
+"Added manually; hit DEL to unassign"), [ESC] closes. The overlay is a full-window screen with a bordered pane for each part (search fields, result lists, locked-in
+fields). [CTRL+t] (also while typing in a search field) switches the track list between artist - title and file names
+(the title of the pane says which one is on), [CTRL+f] shows only the tracks without saved lyrics,
+[PgUp]/[PgDn] and [SHIFT+UP/DOWN] turn a page. [CTRL+c] (anywhere) clears the choice: the lyrics file is unlocked and the current
+track is the locked track again. The lyrics in use so far are kept as an older
+version. [DEL] (twice) unassigns manually added lyrics of the locked-in track again: the file itself is
+not deleted, the previous lyrics come back. In karaoke mode [a] and in the re-fetch form [CTRL+n] open READ LYRICS with this overlay open.
 
 LYRICS RUNNING EARLY OR LATE: THE TIMING OVERLAY[[Header]]
 [ALT+L] (macOS: [SHIFT+j]) opens the overlay, on both the main screen and in karaoke mode (only while synced 
@@ -791,9 +813,14 @@ so far and the translations and the text itseld. [TAB] switches between the two 
 [<-/->] chooses the file or the translation, the scrolling commands are [UP]/[DOWN] for a line,
 [SHIFT+↑/↓] (or [SPACE]/[b]) for a page and [HOME] / [END] for top/bottom. 
 [t] opens the translate overlay (service (Google / MyMemory), translate into, lyrics are in), 
-the command [ENTER] fetches.
+the command [ENTER] fetches. One translation is kept per language
+and per service: a Google and a MyMemory one live side by side,
+the same service again replaces only its own.
 [SHIFT+t] shows / cycles / hides translations (a translation that is there is shown at once),
 [d] or [DEL] deletes a translation.
+[e] exports the lyrics into the folder "export" inside the lyrics folder: the original only, or
+with the translation and / or the transliteration (Latin letters) below each line. If the
+kanji reader is still working, the overlay says so: wait, or press [ENTER] again to export now.
 [p] plays / pauses the track of the reader: while it plays, the lyrics are drawn like in the main
 view (active line, sung words, animation), the view scrolls along ([f] switches that off, any
 scrolling too), the translation of the active line is lit, [SHIFT+<-/->] seeks 5 s.
@@ -1344,6 +1371,13 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
 
 [Latin Wo:][[Legend]]                                         off (default) = the particle を is written "o" (koe o); on
                                                   = "wo". This option is independent of Latin Macrons.
+                                                  The small tsu doubles the next sound (ittemo); a
+                                                  full-size tsu before te / ta, as lyrics sites often
+                                                  write it (いつて), is read the same way (itte). The
+                                                  particle は is written "wa" when it stands alone,
+                                                  after de / ni / to / e / kara at the end of a phrase
+                                                  or before nai, and after a kanji (boku wa); inside
+                                                  words it stays "ha".
 
 [Translit. Kanji:][[Legend]]                                  Leave (default) = characters that could be Japanese or
                                                   Chinese (東京) stay as they are; Chin. = read as Chinese

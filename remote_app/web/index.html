@@ -429,6 +429,7 @@ async function poll() {
           if (!picture || picture.key !== s.image.key) {
             const p = { key: s.image.key, img: new Image(), ready: false };
             p.img.onload = () => { p.ready = true; if (picture === p) shown = p; draw(); };
+            p.img.onerror = () => { if (picture === p) picture = null; };   // (asked again with the next screen)
             p.img.src = "/api/image?pin=" + encodeURIComponent(pin) + "&key=" + encodeURIComponent(s.image.key);
             picture = p;
           }
@@ -440,7 +441,7 @@ async function poll() {
     if (++failures >= 3) showLost("Mousiki does not answer.");
   }
   busy = false;
-  timer = setTimeout(poll, document.hidden ? 2000 : (failures ? 1000 : 80));
+  timer = setTimeout(poll, document.hidden ? 2000 : (failures ? 1000 : (screen && screen.image ? 35 : 80)));   // (a turning cover: a new picture every few hundredths of a second)
 }
 
 async function send(cmd, arg) {

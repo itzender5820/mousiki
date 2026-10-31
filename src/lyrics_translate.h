@@ -40,17 +40,27 @@ struct LyricsTranslation {
     std::vector<std::string> lines;    // one per original line ("" stays ""); empty when `same`
 };
 
-// Where the translation of one version of the lyrics is kept (the file need not exist yet).
-fs::path lyrics_translation_file(const fs::path& track_path, const LyricsVersion& v, const std::string& to);
-// Reads it back; false when there is none, or when it belongs to other lyrics than `plain`.
+// Export (READ LYRICS, [e]): the text of an export file. Every original line is followed by its Latin spelling (when `transliteration`
+// and it differs) and its translation (when `translation` is given, has one entry per line, and the entry is not empty / the same as
+// the line). With extra lines a blank line closes each group, so the groups stay apart; the stanza breaks of the lyrics are kept.
+std::string lyrics_export_text(const std::vector<std::string>& lines, const std::vector<std::string>* translation, bool transliteration);
+// Does any line change when it is written in Latin letters (kana, Hangul, Chinese characters)?
+bool lyrics_export_translit_differs(const std::vector<std::string>& lines);
+
+// Where the translation of one version of the lyrics is kept (the file need not exist yet). One file per language AND service
+// ("<name>.en.google.txt", "<name>.en.mymemory.txt"): translating again with a service replaces only that service's translation.
+// An empty `service` is the name older versions used ("<name>.en.txt", the service is only inside the file).
+fs::path lyrics_translation_file(const fs::path& track_path, const LyricsVersion& v, const std::string& to, const std::string& service = std::string());
+// Reads it back; false when there is none, or when it belongs to other lyrics than `plain`. With a `service` the older file name
+// is read too when it was made by that service.
 bool load_lyrics_translation(const fs::path& track_path, const LyricsVersion& v, const std::string& to,
-                             const std::vector<std::string>& plain, LyricsTranslation& out);
+                             const std::vector<std::string>& plain, LyricsTranslation& out, const std::string& service = std::string());
 // Every real translation saved for this version of the lyrics (not the "already in that language" notes, and not
-// those of other lyrics), sorted by language name.
+// those of other lyrics), sorted by language name (then by service).
 std::vector<TranslationInfo> list_lyrics_translations(const fs::path& track_path, const LyricsVersion& v,
                                                       const std::vector<std::string>& plain);
 // Deletes one saved translation (also its "already in that language" note); false when there was none.
-bool delete_lyrics_translation(const fs::path& track_path, const LyricsVersion& v, const std::string& to);
+bool delete_lyrics_translation(const fs::path& track_path, const LyricsVersion& v, const std::string& to, const std::string& service = std::string());
 bool save_lyrics_translation(const fs::path& track_path, const LyricsVersion& v, const std::string& to,
                              const std::vector<std::string>& plain, const LyricsTranslation& t);
 // Runs the helper script (blocks until it is done -- call it from a worker thread).

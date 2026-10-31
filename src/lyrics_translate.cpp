@@ -4,6 +4,7 @@
 #include "path_utf8.h"
 #include "process_util.h"
 #include "tiny_json.h"
+#include "translit.h"
 #if defined(_WIN32)
 #include "win_compat.h"
 #endif
@@ -38,18 +39,19 @@ std::string single_line(std::string s) {
 
 } // namespace
 
-fs::path lyrics_translation_file(const fs::path& track_path, const LyricsVersion& v, const std::string& to) {
+fs::path lyrics_translation_file(const fs::path& track_path, const LyricsVersion& v, const std::string& to, const std::string& service) {
     const fs::path dir = lyrics_folder_of(track_path);
     if (dir.empty()) return {};
     std::string name;
     if (v.kind == LyricsVersion::Kind::Embedded || v.file.empty()) name = path_utf8(track_path.stem()) + ".embedded";
     else name = path_utf8(v.file.stem());      // "Song" for the copy in use, "Song.v2026...lrclib" for an older one
-    return dir / "translations" / path_from_utf8(name + "." + to + ".txt");
+    return dir / "translations" / path_from_utf8(name + "." + to + (service.empty() ? std::string() : "." + service) + ".txt");
 }
 
-bool load_lyrics_translation(const fs::path& track_path, const LyricsVersion& v, const std::string& to,
-                             const std::vector<std::string>& plain, LyricsTranslation& out) {
-    const fs::path p = lyrics_translation_file(track_path, v, to);
+namespace {
+
+// Reads one translation file; false when it is missing, damaged, or made for other lyrics than `plain`.
+bool read_translation_file(const fs::path& p, const std::vector<std::string>& plain, LyricsTranslation& out) {
     if (p.empty()) return false;
     std::ifstream in(p, std::ios::binary);
     if (!in.is_open()) return false;
@@ -81,6 +83,33 @@ bool load_lyrics_translation(const fs::path& track_path, const LyricsVersion& v,
     return true;
 }
 
+// The service named in the first line of a file (older versions: the only place it is written), "" when unknown.
+std::string service_in_file(const fs::path& p) {
+    std::ifstream in(p, std::ios::binary);
+    std::string head;
+    if (!in.is_open() || !std::getline(in, head)) return std::string();
+    const size_t i = head.find(" svc=");
+    if (i == std::string::npos) return std::string();
+    const size_t b = i + 5, e = head.find_first_of(" \r\n", b);
+    const std::string v = head.substr(b, e == std::string::npos ? std::string::npos : e - b);
+    return v == "-" ? std::string() : v;
+}
+
+}  // namespace
+
+bool load_lyrics_translation(const fs::path& track_path, const LyricsVersion& v, const std::string& to,
+                             const std::vector<std::string>& plain, LyricsTranslation& out, const std::string& service) {
+    if (!service.empty() && read_translation_file(lyrics_translation_file(track_path, v, to, service), plain, out)) return true;
+    const fs::path legacy = lyrics_translation_file(track_path, v, to);   // the name older versions used
+    if (!service.empty()) {   // only when that file was made by this service
+        LyricsTranslation t;
+        if (!read_translation_file(legacy, plain, t) || t.service != service) return false;
+        out = std::move(t);
+        return true;
+    }
+    return read_translation_file(legacy, plain, out);
+}
+
 std::vector<TranslationInfo> list_lyrics_translations(const fs::path& track_path, const LyricsVersion& v,
                                                       const std::vector<std::string>& plain) {
     std::vector<TranslationInfo> found;
@@ -93,28 +122,50 @@ std::vector<TranslationInfo> list_lyrics_translations(const fs::path& track_path
         const std::string fname = path_utf8(it->path().filename());
         if (fname.size() <= prefix.size() + 4 || fname.compare(0, prefix.size(), prefix) != 0) continue;
         if (fname.compare(fname.size() - 4, 4, ".txt") != 0) continue;
-        const std::string code = fname.substr(prefix.size(), fname.size() - prefix.size() - 4);
-        if (code.empty() || code.size() > 8 || code.find('.') != std::string::npos) continue;   // another version's file
+        std::string code = fname.substr(prefix.size(), fname.size() - prefix.size() - 4);   // "en" (older) or "en.google"
+        std::string svc;
+        const size_t dot = code.find('.');
+        if (dot != std::string::npos) {
+            svc = code.substr(dot + 1);
+            code = code.substr(0, dot);
+            bool known = false;
+            for (const auto& s : translate_services()) if (s.first == svc) known = true;
+            if (!known) continue;   // another version's file ("<name>.v2026....lrclib.en.txt")
+        }
+        if (code.empty() || code.size() > 8 || code.find('.') != std::string::npos) continue;
         LyricsTranslation t;
-        if (!load_lyrics_translation(track_path, v, code, plain, t) || t.same) continue;
-        found.push_back({code, t.from, t.service});
+        if (!read_translation_file(it->path(), plain, t) || t.same) continue;
+        found.push_back({code, t.from, svc.empty() ? t.service : svc});
     }
-    std::sort(found.begin(), found.end(), [](const TranslationInfo& a, const TranslationInfo& b) {
-        return language_name(a.to) < language_name(b.to);
+    // one entry per (language, service) -- an older file and a new one of the same service are the same translation
+    std::vector<TranslationInfo> uniq;
+    for (const auto& a : found) {
+        bool seen = false;
+        for (const auto& u : uniq) if (u.to == a.to && u.service == a.service) { seen = true; break; }
+        if (!seen) uniq.push_back(a);
+    }
+    std::sort(uniq.begin(), uniq.end(), [](const TranslationInfo& a, const TranslationInfo& b) {
+        const std::string la = language_name(a.to), lb = language_name(b.to);
+        return la != lb ? la < lb : a.service < b.service;
     });
-    return found;
+    return uniq;
 }
 
-bool delete_lyrics_translation(const fs::path& track_path, const LyricsVersion& v, const std::string& to) {
-    const fs::path p = lyrics_translation_file(track_path, v, to);
-    if (p.empty()) return false;
+bool delete_lyrics_translation(const fs::path& track_path, const LyricsVersion& v, const std::string& to, const std::string& service) {
     std::error_code ec;
-    return fs::remove(p, ec);
+    bool any = false;
+    if (!service.empty()) {
+        const fs::path p = lyrics_translation_file(track_path, v, to, service);
+        if (!p.empty() && fs::remove(p, ec)) any = true;
+    }
+    const fs::path legacy = lyrics_translation_file(track_path, v, to);
+    if (!legacy.empty() && (service.empty() || service_in_file(legacy) == service) && fs::remove(legacy, ec)) any = true;
+    return any;
 }
 
 bool save_lyrics_translation(const fs::path& track_path, const LyricsVersion& v, const std::string& to,
                              const std::vector<std::string>& plain, const LyricsTranslation& t) {
-    const fs::path p = lyrics_translation_file(track_path, v, to);
+    const fs::path p = lyrics_translation_file(track_path, v, to, t.service);
     if (p.empty() || !t.ok) return false;
     std::error_code ec;
     fs::create_directories(p.parent_path(), ec);
@@ -124,7 +175,13 @@ bool save_lyrics_translation(const fs::path& track_path, const LyricsVersion& v,
         << " svc=" << (t.service.empty() ? "-" : t.service)
         << " lines=" << plain.size() << " hash=" << fingerprint(plain) << (t.same ? " same=1" : "") << "\n";
     if (!t.same) for (const auto& l : t.lines) out << single_line(l) << "\n";
-    return out.good();
+    const bool good = out.good();
+    out.close();
+    if (good && !t.service.empty()) {   // an older "<name>.en.txt" made by this same service is replaced by this file
+        const fs::path legacy = lyrics_translation_file(track_path, v, to);
+        if (service_in_file(legacy) == t.service) fs::remove(legacy, ec);
+    }
+    return good;
 }
 
 LyricsTranslation translate_lyrics_lines(const std::vector<std::string>& plain, const TranslateRequest& request,
@@ -228,3 +285,38 @@ std::string language_name(const std::string& code) {
 }
 
 } // namespace muisc
+
+namespace muisc {
+
+bool lyrics_export_translit_differs(const std::vector<std::string>& lines) {
+    for (const std::string& l : lines)
+        if (!l.empty() && translit_possible(l) && transliterate(l) != l) return true;
+    return false;
+}
+
+std::string lyrics_export_text(const std::vector<std::string>& lines, const std::vector<std::string>* translation, bool transliteration) {
+    auto lower = [](std::string s) { for (char& c : s) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a'); return s; };
+    const bool tr = translation && translation->size() == lines.size();
+    std::string out;
+    bool blank_last = true;   // nothing yet: a blank line is not needed at the start
+    auto blank = [&]() { if (!blank_last) { out += '\n'; blank_last = true; } };
+    for (size_t i = 0; i < lines.size(); ++i) {
+        if (lines[i].empty()) { blank(); continue; }
+        out += lines[i];
+        out += '\n';
+        blank_last = false;
+        if (transliteration && translit_possible(lines[i])) {
+            const std::string t = transliterate(lines[i]);
+            if (!t.empty() && t != lines[i]) { out += t; out += '\n'; }
+        }
+        if (tr) {
+            const std::string& t = (*translation)[i];
+            if (!t.empty() && lower(t) != lower(lines[i])) { out += t; out += '\n'; }
+        }
+        if (transliteration || tr) blank();   // (every group, so the groups stay the same size apart)
+    }
+    while (out.size() >= 2 && out[out.size() - 1] == '\n' && out[out.size() - 2] == '\n') out.pop_back();   // one line break at the end
+    return out;
+}
+
+}  // namespace muisc

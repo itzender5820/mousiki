@@ -454,7 +454,7 @@ const std::string* App::player_phone_png(std::string& key) const {
     const int mode = cover_mode_look();
     const bool turning = mode >= 1;
     // the step of the picture: the turn of the disk (modes 2 to 4) or the phase of the gradient wave (mode 1)
-    const double unit = mode == 1 ? 0.04 : 0.06;
+    const double unit = mode == 1 ? 0.04 : 0.03;
     const int step = turning ? static_cast<int>(std::lround((mode == 1 ? wave_phase_now() : phone_angle_) / unit)) : 0;
     key = "cover|" + cover->key + "|" + std::to_string(eff_cover_contrast()) + "|" + std::to_string(eff_cover_brightness()) + "|" + std::to_string(eff_cover_colors()) + "|" + std::to_string(mode) + "|" + std::to_string(step) + "|" + settings_.disk_color + "|" +
           (settings_.disk_color_gradient ? settings_.disk_color_end : std::string());
