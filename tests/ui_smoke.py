@@ -896,6 +896,9 @@ def narrow_sweep(binary, root, scripts, cols, rows):
     ldir = os.path.join(lib, "Alpha Artist", "First Album", "lyrics")
     with open(os.path.join(ldir, "Alpha Song.lrc"), "w", encoding="utf-8") as f:
         f.write("[00:00.50]%s\n[00:03.00]%s\n[00:06.00]%s\n" % tuple(lines))
+    os.makedirs(os.path.join(lib, "Misc", "lyrics"))
+    with open(os.path.join(lib, "Misc", "lyrics", "\u3055\u304f\u3089.lrc"), "w", encoding="utf-8") as f:
+        f.write("[00:00.50]Sakura line one\n[00:03.00]Sakura line two\n")
     with open(os.path.join(lib, "lyrics", "Other Lyrics.lrc"), "w", encoding="utf-8") as f:
         f.write("[00:00.50]Some other lyrics\n[00:03.00]More other lyrics\n")
     h = 1469598103934665603
@@ -973,42 +976,56 @@ def narrow_sweep(binary, root, scripts, cols, rows):
                 sess.send(b"\x1b", 0.8)
         # READ LYRICS and everything that opens over it
         sess.send(b"\x0c", 1.5)
-        check_fit(sess, tag + "read lyrics")
-        for _ in range(4):
-            see(b"\x1b[1;2B", "read lyrics (scrolled)", 0.2)
-        see(b"\t", "read lyrics (translation pane)", 0.3)
-        see(b"\t", "read lyrics (lyrics pane)", 0.3)
-        see(b"\x13", "read lyrics: search lyrics files", 0.8, "SEARCH LYRICS")
-        for c in "oth":
-            sess.send(c, 0.1)
-        check_fit(sess, tag + "read lyrics: search lyrics files (typed)")
-        sess.send(b"\x1b", 0.6)
-        see("t", "read lyrics: translate overlay", 0.8)
-        sess.send(b"\x1b[B", 0.2)
-        check_fit(sess, tag + "read lyrics: translate overlay (down)")
-        sess.send(b"\x1b", 0.6)
-        see("e", "read lyrics: export overlay", 0.8)
-        sess.send(b"\x1b[C", 0.2)
-        check_fit(sess, tag + "read lyrics: export overlay (right)")
-        sess.send(b"\x1b", 0.6)
-        see("a", "read lyrics: add manually", 1.0, "ADD LYRICS MANUALLY")
-        for k in (b"\t", b"\t", b"\t", b"\t", b"\x14", b"\x06", b"\x0f", b"\x1b[1;2B", b"\x1b[6~"):
-            see(k, "add manually (key %r)" % k, 0.4)
-        sess.send(b"\x03", 0.4)
-        sess.send(b"\r", 0.4)
-        check_fit(sess, tag + "add manually (locked)")
-        sess.send(b"\x1b", 0.8)
-        see("p", "read lyrics: playing", 2.0)
-        see("l", "read lyrics: refetch form", 1.0)
-        sess.send(b"\x1b", 0.8)
-        sess.send(b"\x1b", 0.8)
+        for _ in range(10):
+            if "READ LYRICS" in sess.text():
+                break
+            sess.pump(0.4)
+        opened = "READ LYRICS" in sess.text()
+        check(opened, tag + "READ LYRICS opens on the hovered track")
+        if not opened:
+            sess.dump("READ LYRICS did not open")
+        else:
+            check_fit(sess, tag + "read lyrics")
+            for _ in range(4):
+                see(b"\x1b[1;2B", "read lyrics (scrolled)", 0.2)
+            see(b"\t", "read lyrics (translation pane)", 0.3)
+            see(b"\t", "read lyrics (lyrics pane)", 0.3)
+            see(b"\x13", "read lyrics: search lyrics files", 0.8, "SEARCH LYRICS")
+            for c in "oth":
+                sess.send(c, 0.1)
+            check_fit(sess, tag + "read lyrics: search lyrics files (typed)")
+            sess.send(b"\x1b", 0.6)
+            see("t", "read lyrics: translate overlay", 0.8)
+            sess.send(b"\x1b[B", 0.2)
+            check_fit(sess, tag + "read lyrics: translate overlay (down)")
+            sess.send(b"\x1b", 0.6)
+            see("e", "read lyrics: export overlay", 0.8)
+            sess.send(b"\x1b[C", 0.2)
+            check_fit(sess, tag + "read lyrics: export overlay (right)")
+            sess.send(b"\x1b", 0.6)
+            see("a", "read lyrics: add manually", 1.0, "ADD LYRICS MANUALLY")
+            for k in (b"\t", b"\t", b"\t", b"\t", b"\x14", b"\x06", b"\x0f", b"\x1b[1;2B", b"\x1b[6~"):
+                see(k, "add manually (key %r)" % k, 0.4)
+            sess.send(b"\x03", 0.4)
+            sess.send(b"\r", 0.4)
+            check_fit(sess, tag + "add manually (locked)")
+            sess.send(b"\x1b", 0.8)
+            see("p", "read lyrics: playing", 2.0)
+            see("l", "read lyrics: refetch form", 1.0)
+            if "REFETCH" in sess.text():
+                sess.send(b"\x1b", 0.8)
         # karaoke
+        for _ in range(3):   # (back at the main screen whatever is still open)
+            if "READ LYRICS" in sess.text() or "ADD LYRICS" in sess.text():
+                sess.send(b"\x1b", 0.8)
         see("k", "karaoke", 1.5)
         for i in range(3):
             see(b"\x1b[C", "karaoke (right %d)" % (i + 1), 0.4)
         see("a", "karaoke: add lyrics manually", 1.0)
-        sess.send(b"\x1b", 0.8)
-        sess.send(b"\x1b", 0.8)
+        for _ in range(3):   # (back at the main screen whatever is still open; an ESC there would not be wanted)
+            t = sess.text()
+            if "ADD LYRICS" in t or "READ LYRICS" in t or "KARAOKE" in t:
+                sess.send(b"\x1b", 0.8)
         # radio and the other modes
         for i in range(3):
             see("*", "mode switch %d" % (i + 1), 2.0, frame=False)

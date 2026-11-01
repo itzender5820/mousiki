@@ -18,7 +18,7 @@ std::vector<Case>& registry() { static std::vector<Case> r; return r; }
 
 void fail(const char* file, int line, const std::string& what) {
     ++g_failures;
-    std::cerr << "    FAIL " << file << ":" << line << "  " << what << "\n";
+    std::cerr << "    FAIL " << file << ":" << line << "  " << what << std::endl;   // (flushed: a CI log shows it next to the test it belongs to)
 }
 
 TempHome::TempHome() {
