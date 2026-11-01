@@ -53,7 +53,10 @@ void translit_lookup_retry(const std::string& cjk);   // a temporary problem: ba
 
 // Texts in Japanese context whose kanji stayed (so a reader like pykakasi could name them): up to `max`, each once; the readings that came
 // back are kept in `file` (lines "text<TAB>reading", read again at the next start). A text the reader could not read is not offered again.
-void translit_set_kanji_cache_file(const std::string& path);
+// `rules_id` names the rules the readings were made with (the app passes a fingerprint of scripts/kanji_reading.py): the first line of
+// the file is "#rules <id>"; a file with another id (or none: made by an older version) is emptied and starts again, so a change of the
+// reader's rules refreshes the cache by itself. An empty id keeps whatever the file holds.
+void translit_set_kanji_cache_file(const std::string& path, const std::string& rules_id = std::string());
 std::vector<std::string> translit_take_kanji_pending(size_t max);
 void translit_kanji_found(const std::string& text, const std::string& reading);
 void translit_kanji_failed(const std::string& text);   // not read for good (the reader gave no reading)

@@ -207,7 +207,19 @@ std::string App::box_top(const std::string& label_in, int total_width, const std
     return border_ansi + s + "\x1b[0m";
 }
 
-std::string App::box_bottom(int total_width, const std::string& footer, const std::string& border_ansi) const {
+std::string App::box_bottom(int total_width, const std::string& footer_in, const std::string& border_ansi) const {
+    // A footer wider than the pane would run past the corner and the terminal's edge. The hints are separated by two blanks:
+    // whole hints are dropped from the end until the rest fits (a single hint that is too long is cut with "...").
+    std::string footer = footer_in;
+    const int room = total_width - 1 - display_width(settings_.box_lower_left + settings_.box_horizontal) - 2;
+    if (!footer.empty() && room >= 6 && display_width(strip_csi(footer)) > room) {
+        if (footer.find('\x1b') != std::string::npos) footer = truncate_str(strip_csi(footer), room);
+        else {
+            for (size_t cut = footer.rfind("  "); cut != std::string::npos && cut > 0 && display_width(footer) > room; cut = footer.rfind("  ", cut - 1))
+                footer = footer.substr(0, cut);
+            if (display_width(footer) > room) footer = truncate_str(footer, room);
+        }
+    }
     std::string prefix = footer.empty() ? (settings_.box_lower_left + settings_.box_horizontal) : (settings_.box_lower_left + settings_.box_horizontal + " " + footer + " ");
     int used = display_width(prefix);
     int dashes = std::max(0, total_width - used - 1);
@@ -562,10 +574,30 @@ void export_fpcalc_to_scripts() {
 
 std::filesystem::path locate_script(const std::string& filename) { return find_scripts_file(filename); }
 
+// Names the rules of the kanji reader: a fingerprint of scripts/kanji_reading.py (plus a number for changes in how the program uses it).
+// The readings it made are kept in kanji_readings_cache.txt under this name; when the script changes, the cache is made again by itself.
+// Empty when the script cannot be found (then the cache is kept as it is).
+static std::string kanji_rules_id() {
+    const std::filesystem::path script = find_scripts_file("kanji_reading.py");
+    if (script.empty()) return {};
+    std::ifstream in(script, std::ios::binary);
+    if (!in) return {};
+    unsigned long long h = 1469598103934665603ULL;   // FNV-1a
+    char buf[4096];
+    while (in.read(buf, sizeof buf) || in.gcount() > 0) {
+        for (std::streamsize i = 0; i < in.gcount(); ++i) { h ^= static_cast<unsigned char>(buf[i]); h *= 1099511628211ULL; }
+        if (in.eof()) break;
+    }
+    char out[32];
+    std::snprintf(out, sizeof out, "1-%016llx", h);   // "1": the version of how the program uses the reader
+    return out;
+}
+
 App::App(Settings* shared, bool audiobook) : audiobook_(audiobook), settings_(shared ? *shared : own_settings_) {
     if (!shared) settings_ = load_settings();
     translit_set_learned_file(path_utf8(config_path().parent_path() / "kanji_readings_learned.txt"));   // what was learned before (tags, folders, MusicBrainz)
-    translit_set_kanji_cache_file(path_utf8(config_path().parent_path() / "kanji_readings_cache.txt"));   // what pykakasi read before
+    translit_set_kanji_cache_file(path_utf8(config_path().parent_path() / "kanji_readings_cache.txt"),   // what pykakasi read before ...
+                                  kanji_rules_id());                                                  // ... as long as the reader's rules are the same
     translit_load_readings(path_utf8(config_path().parent_path() / "kanji_readings.txt"));   // the user's reading dictionary (Latin letters display)
     // Still the colours of a built-in theme as an earlier version had them (with terminal-dependent colours 1-15 and empty
     // text colours)? Then the theme's fixed colours, which look the same in every terminal (see themes::renewed_builtins()).

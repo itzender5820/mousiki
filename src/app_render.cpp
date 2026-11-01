@@ -833,7 +833,7 @@ std::string App::render_frame(TerminalIO& term) {
     } else if (mode_ == Mode::LyricsEdit) {
         draw_floating_panel(floating, build_lyrics_edit_panel(), kLyricsEditPanelWidth, W);
     } else if (mode_ == Mode::MenuIndex) {
-        draw_floating_panel(floating, build_menu_index_panel(), kMenuIndexPanelWidth, W, 0, true);
+        draw_floating_panel(floating, build_menu_index_panel(W), std::min(kMenuIndexPanelWidth, std::max(40, W)), W, 0, true);
     } else if (mode_ == Mode::SleepTimer) {
         draw_floating_panel(floating, build_sleep_timer_panel(), kSleepTimerPanelWidth, W);
     } else if (mode_ == Mode::BookOverlay) {

@@ -11,6 +11,10 @@ What it checks (it never needs a sound card, a network or a real library; everyt
   * the Latin-letters toggle really turns Japanese titles into Latin ones and back,
   * the program quits when asked to.
 
+The scenarios run in parallel worker processes (MOUSIKI_SMOKE_JOBS=n, default: the cores, at most 4; 1 = one after the other;
+`--only a,b` runs some of them: main, read_lyrics_play, karaoke_timing, book_speed_and_devices, paging_and_translit_row, mode_keys,
+kitty_cover_options, radio_latin_toggle, selftest_command).
+
 Needs Linux or macOS and the Python package `pyte` (pip install pyte). Without them the test reports "skipped"
 (exit code 77, which CTest treats as skipped).
 """
@@ -62,7 +66,7 @@ def make_png(path, size=64):
 
 
 class Session:
-    def __init__(self, binary, home, scripts, env_extra=None):
+    def __init__(self, binary, home, scripts, env_extra=None, quiet_stderr=False):
         self.raw = b""
         env = dict(os.environ, HOME=home, USERPROFILE=home, TERM="xterm-256color", LANG="C.UTF-8")
         env.pop("KITTY_WINDOW_ID", None)
@@ -78,6 +82,11 @@ class Session:
                 fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack("HHHH", ROWS, COLS, 0, 0))
             except OSError:
                 pass
+            if quiet_stderr:   # (ALSA writes its complaints about a missing sound card onto the screen)
+                try:
+                    os.dup2(os.open(os.devnull, os.O_WRONLY), 2)
+                except OSError:
+                    pass
             os.execve(binary, [binary], env)
         fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", ROWS, COLS, 0, 0))
         self.screen = pyte.Screen(COLS, ROWS)
@@ -689,25 +698,8 @@ def read_lyrics_play(binary, root, scripts):
         sess.kill()
 
 
-def main():
-    args = sys.argv[1:]
-    if not args:
-        print(__doc__)
-        return 2
-    binary = os.path.abspath(args[0])
-    scripts = None
-    keep = "--keep" in args
-    # a hang must not use up the whole CTest timeout without a trace: after this many seconds Python prints where every
-    # thread is stuck and ends the test (MOUSIKI_SMOKE_LIMIT, default 780 s; the CTest timeout is longer)
-    import faulthandler
-    faulthandler.dump_traceback_later(int(os.environ.get("MOUSIKI_SMOKE_LIMIT", "780")), exit=True)
-    if "--scripts" in args:
-        scripts = os.path.abspath(args[args.index("--scripts") + 1])
-    if not os.path.exists(binary):
-        print("skipped: the player is not built (%s); build the target `mousiki` too" % binary)
-        return 77
-
-    root = tempfile.mkdtemp(prefix="mousiki_ui_")
+def make_library(root):
+    """The temporary HOME and the small library every scenario starts from (a worker gets its own copy of it)."""
     home = os.path.join(root, "home")
     lib = os.path.join(root, "music")
     os.makedirs(os.path.join(home, ".config", "mousiki"))
@@ -720,6 +712,12 @@ def main():
     with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
         f.write("LocalMusicPath=%s\n" % lib)
 
+
+
+def main_session(binary, root, scripts):
+    """The long walk through the main screens (first start, settings, meta editor, ..., quit)."""
+    home = os.path.join(root, "home")
+    lib = os.path.join(root, "music")
     sess = Session(binary, home, scripts)
     try:
         progress("main session")
@@ -832,27 +830,280 @@ def main():
     finally:
         sess.kill()
 
-    if not failures:
-        progress("kitty_cover_options")
+
+def _cell_width(ch):
+    import unicodedata
+    if unicodedata.combining(ch) or unicodedata.category(ch) in ("Mn", "Me", "Cf"):
+        return 0
+    return 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+
+
+def overflow_problems(sess):
+    """Reads the last complete frame as the program wrote it (every row starts with ESC[row;colH) and reports a row that is
+    written below the last row or whose text runs past the last column. The screen buffer cannot show that: the terminal wraps
+    or clips it, and a later row overwrites the wrap."""
+    raw = sess.raw
+    end = raw.rfind(b"\x1b[?2026l")
+    if end < 0:
+        return []
+    start = raw.rfind(b"\x1b[?2026h", 0, end)
+    if start < 0:
+        return []
+    text = raw[start:end].decode("utf-8", "replace")
+    text = re.sub(r"\x1b_.*?\x1b\\", "", text, flags=re.S)          # graphics (Kitty)
+    text = re.sub(r"\x1bP.*?\x1b\\", "", text, flags=re.S)           # graphics (Sixel)
+    bad = []
+    parts = re.split(r"\x1b\[(\d+);(\d+)H", text)
+    for i in range(1, len(parts) - 2, 3):
+        row, col, seg = int(parts[i]), int(parts[i + 1]), parts[i + 2]
+        seg = re.sub(r"\x1b\[[0-9;:?]*[A-Za-z]", "", seg)
+        seg = re.sub(r"\x1b\][^\x07\x1b]*(\x07|\x1b\\)", "", seg)
+        if not seg.strip():
+            continue
+        if row > ROWS:
+            bad.append("row %d is below the last row (%d): %r" % (row, ROWS, seg[:30]))
+            continue
+        w = col - 1 + sum(_cell_width(c) for c in seg)
+        if w > COLS:
+            bad.append("row %d is %d wide in a window of %d: %r" % (row, w, COLS, seg[:20] + "..." + seg[-20:]))
+    return bad
+
+
+def check_fit(sess, name, frame=True):
+    """The program runs, the frame holds together, and nothing is written outside the window."""
+    check(sess.alive(), "%s: the program is still running" % name)
+    bad = overflow_problems(sess) + (frame_problems(sess) if frame else [])
+    check(not bad, "%s @%dx%d: does not fit: %s" % (name, COLS, ROWS, "; ".join(bad[:3])))
+    if bad:
+        sess.dump(name)
+
+
+def narrow_sweep(binary, root, scripts, cols, rows):
+    """Every screen and overlay in a small window (80 x 24 and 100 x 30): nothing may be written past its edges."""
+    global COLS, ROWS
+    COLS, ROWS = cols, rows
+    home = os.path.join(root, "nw_home")
+    lib = os.path.join(root, "nw_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    os.makedirs(os.path.join(lib, "lyrics", "translations"))
+    make_wav(os.path.join(lib, "Alpha Artist", "First Album", "Alpha Song.wav"), 20)
+    make_wav(os.path.join(lib, "Misc", "\u3055\u304f\u3089.wav"), 5)
+    make_png(os.path.join(lib, "Alpha Artist", "First Album", "cover.png"))
+    lines = ["First lyric line here, a rather long line that must wrap in a narrow window", "Second lyric line here", "Third lyric line here"]
+    with open(os.path.join(lib, "Alpha Artist", "First Album", "lyrics.dummy"), "w") as f:
+        f.write("x")
+    os.makedirs(os.path.join(lib, "Alpha Artist", "First Album", "lyrics", "translations"))
+    ldir = os.path.join(lib, "Alpha Artist", "First Album", "lyrics")
+    with open(os.path.join(ldir, "Alpha Song.lrc"), "w", encoding="utf-8") as f:
+        f.write("[00:00.50]%s\n[00:03.00]%s\n[00:06.00]%s\n" % tuple(lines))
+    with open(os.path.join(lib, "lyrics", "Other Lyrics.lrc"), "w", encoding="utf-8") as f:
+        f.write("[00:00.50]Some other lyrics\n[00:03.00]More other lyrics\n")
+    h = 1469598103934665603
+    for l in lines:
+        for c in l.encode("utf-8"):
+            h = ((h ^ c) * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+        h = ((h ^ 0x0a) * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+    with open(os.path.join(ldir, "translations", "Alpha Song.en.txt"), "w", encoding="utf-8") as f:
+        f.write("#mousiki-translation to=en from=de svc=google lines=3 hash=%016x\n" % h)
+        f.write("Erste Zeile hier, eine ziemlich lange Zeile die umbrechen muss\nZweite Zeile hier\nDritte Zeile hier\n")
+    with open(os.path.join(home, ".config", "mousiki", "stations.txt"), "w", encoding="utf-8") as f:
+        f.write("# name | genre | country | codec | kbps | url | [*] favorite\nPlain Station | Rock | US | MP3 | 128 | http://127.0.0.1:9/c | *\n")
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\n" % lib)
+    sess = Session(binary, home, scripts, {"MOUSIKI_RADIO_NULL": "1"}, quiet_stderr=True)
+    tag = "%dx%d " % (cols, rows)
+
+    def see(keys, what, wait=0.8, until=None, frame=True):
+        sess.send(keys, wait)
+        if until:
+            for _ in range(10):
+                if until in sess.text():
+                    break
+                sess.pump(0.4)
+        check_fit(sess, tag + what, frame)
+
+    try:
+        progress("narrow sweep %dx%d" % (cols, rows))
+        sess.pump(3)
+        check_fit(sess, tag + "first-run help wizard")
+        for i in range(60):    # every page of the wizard
+            sess.send(b"\x1b[C", 0.25)
+            check_fit(sess, tag + "help wizard page %d" % (i + 2))
+        sess.send(b"\x1b", 1.0)
+        for _ in range(30):
+            sess.pump(0.5)
+            if "Alpha Song" in sess.text():
+                break
+        sess.pump(1.0)
+        check_fit(sess, tag + "main screen", False)   # (its volume row has no right border by design: only the edges count)
+        for key, name in (("?", "cheat sheet"), ("<", "MENUS index"), ("W", "help wizard"), ("t", "console")):
+            see(key, name, 1.0, frame=False)
+            for i in range(6):
+                see(b"\x1b[C", name + " page %d" % (i + 2), 0.3, frame=False)
+            for i in range(3):
+                see(b"\x1b[1;2B", name + " scrolled %d" % (i + 1), 0.3, frame=False)
+            sess.send(b"\x1b", 0.8)
+        see("s", "settings", 1.2)
+        for i in range(13):
+            see(b"\t", "settings tab %d" % (i + 2), 0.4)
+            for _ in range(2):
+                see(b"\x1b[B", "settings tab %d (down)" % (i + 2), 0.15)
+            see(b"\x1b[1;2B", "settings tab %d (page)" % (i + 2), 0.15)
+        sess.send(b"\x1b", 0.8)
+        see("M", "meta editor", 1.5)
+        see(b"\t", "meta editor (fields)", 0.4)
+        for _ in range(12):
+            sess.send(b"\x1b[B", 0.12)
+        check_fit(sess, tag + "meta editor (bottom)")
+        sess.send(b"\x1b[D", 0.3)
+        see(b"\r", "cover options", 1.2, "COVER OPTIONS", frame=False)
+        sess.send(b"\x1b", 0.8)
+        sess.send(b"\x1b[C", 0.3)
+        see(b"\r", "style option", 1.2, "STYLE OPTION", frame=False)
+        sess.send(b"\x1b", 0.8)
+        for _ in range(4):
+            if "META EDITOR" not in sess.text():
+                break
+            sess.send(b"\x1b", 0.8)
+        for key, name in (("O", "oscilloscope tuning"), (".", "lyrics area view 2"), (".", "lyrics area view 3"), (".", "lyrics area view 4"), (".", "lyrics area view 1")):
+            see(key, name, 1.0, frame=False)
+            if name.startswith("osc"):
+                for _ in range(8):
+                    see(b"\x1b[B", name + " (down)", 0.15, frame=False)
+                sess.send(b"\x1b", 0.8)
+        # READ LYRICS and everything that opens over it
+        sess.send(b"\x0c", 1.5)
+        check_fit(sess, tag + "read lyrics")
+        for _ in range(4):
+            see(b"\x1b[1;2B", "read lyrics (scrolled)", 0.2)
+        see(b"\t", "read lyrics (translation pane)", 0.3)
+        see(b"\t", "read lyrics (lyrics pane)", 0.3)
+        see(b"\x13", "read lyrics: search lyrics files", 0.8, "SEARCH LYRICS")
+        for c in "oth":
+            sess.send(c, 0.1)
+        check_fit(sess, tag + "read lyrics: search lyrics files (typed)")
+        sess.send(b"\x1b", 0.6)
+        see("t", "read lyrics: translate overlay", 0.8)
+        sess.send(b"\x1b[B", 0.2)
+        check_fit(sess, tag + "read lyrics: translate overlay (down)")
+        sess.send(b"\x1b", 0.6)
+        see("e", "read lyrics: export overlay", 0.8)
+        sess.send(b"\x1b[C", 0.2)
+        check_fit(sess, tag + "read lyrics: export overlay (right)")
+        sess.send(b"\x1b", 0.6)
+        see("a", "read lyrics: add manually", 1.0, "ADD LYRICS MANUALLY")
+        for k in (b"\t", b"\t", b"\t", b"\t", b"\x14", b"\x06", b"\x0f", b"\x1b[1;2B", b"\x1b[6~"):
+            see(k, "add manually (key %r)" % k, 0.4)
+        sess.send(b"\x03", 0.4)
+        sess.send(b"\r", 0.4)
+        check_fit(sess, tag + "add manually (locked)")
+        sess.send(b"\x1b", 0.8)
+        see("p", "read lyrics: playing", 2.0)
+        see("l", "read lyrics: refetch form", 1.0)
+        sess.send(b"\x1b", 0.8)
+        sess.send(b"\x1b", 0.8)
+        # karaoke
+        see("k", "karaoke", 1.5)
+        for i in range(3):
+            see(b"\x1b[C", "karaoke (right %d)" % (i + 1), 0.4)
+        see("a", "karaoke: add lyrics manually", 1.0)
+        sess.send(b"\x1b", 0.8)
+        sess.send(b"\x1b", 0.8)
+        # radio and the other modes
+        for i in range(3):
+            see("*", "mode switch %d" % (i + 1), 2.0, frame=False)
+            if "HELP WIZARD" in sess.text():
+                sess.send(b"\x1b", 1.0)
+                check_fit(sess, tag + "mode switch %d (after its wizard)" % (i + 1))
+        for key, name in (("s", "settings (mode)"), ("?", "cheat sheet (mode)")):
+            see(key, name, 1.0, frame=False)
+            sess.send(b"\x1b", 0.8)
+        check(sess.alive(), tag + "the program is still running at the end")
+    finally:
+        sess.kill()
+
+
+# The scenarios, longest first. Each one runs in a worker process of its own (own copy of the library, own HOME): they only
+# sleep and read frames, so on a few cores they overlap well. MOUSIKI_SMOKE_JOBS=1 runs them one after the other.
+def run_scenario(name, binary, root, scripts):
+    home = os.path.join(root, "home")
+    if name == "main":
+        main_session(binary, root, scripts)
+    elif name == "kitty_cover_options":
         kitty_cover_options(binary, home, scripts)
-        progress("radio_latin_toggle")
-        radio_latin_toggle(binary, root, scripts)
-        progress("paging_and_translit_row")
-        paging_and_translit_row(binary, root, scripts)
-        progress("mode_keys")
-        mode_keys(binary, root, scripts)
-        progress("book_speed_and_devices")
-        book_speed_and_devices(binary, root, scripts)
-        progress("karaoke_timing")
-        karaoke_timing(binary, root, scripts)
-        progress("read_lyrics_play")
-        read_lyrics_play(binary, root, scripts)
-        progress("selftest_command")
+    elif name == "selftest_command":
         selftest_command(binary, scripts)
+    elif name == "narrow80":
+        narrow_sweep(binary, root, scripts, 80, 24)
+    elif name == "narrow100":
+        narrow_sweep(binary, root, scripts, 100, 30)
+    else:
+        globals()[name](binary, root, scripts)
+
+
+SCENARIOS = ["narrow80", "narrow100", "main", "read_lyrics_play", "karaoke_timing", "book_speed_and_devices", "paging_and_translit_row",
+             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "selftest_command"]
+
+
+def main():
+    args = sys.argv[1:]
+    if not args:
+        print(__doc__)
+        return 2
+    binary = os.path.abspath(args[0])
+    scripts = None
+    keep = "--keep" in args
+    # a hang must not use up the whole CTest timeout without a trace: after this many seconds Python prints where every
+    # thread is stuck and ends the test (MOUSIKI_SMOKE_LIMIT, default 780 s; the CTest timeout is longer)
+    import faulthandler
+    faulthandler.dump_traceback_later(int(os.environ.get("MOUSIKI_SMOKE_LIMIT", "780")), exit=True)
+    if "--scripts" in args:
+        scripts = os.path.abspath(args[args.index("--scripts") + 1])
+    if not os.path.exists(binary):
+        print("skipped: the player is not built (%s); build the target `mousiki` too" % binary)
+        return 77
+
+    if "--worker" in args:   # one scenario, in the folder the parent made for it
+        name = args[args.index("--worker") + 1]
+        root = args[args.index("--root") + 1]
+        run_scenario(name, binary, root, scripts)
+        print("%d checks, %d failed" % (checks, len(failures)))
+        return 1 if failures else 0
+
+    import subprocess
+    import concurrent.futures
+    root = tempfile.mkdtemp(prefix="mousiki_ui_")
+    make_library(root)
+    jobs = int(os.environ.get("MOUSIKI_SMOKE_JOBS", str(max(1, min(4, os.cpu_count() or 1)))))
+    only = args[args.index("--only") + 1].split(",") if "--only" in args else SCENARIOS
+    progress("%d scenarios, %d at a time" % (len(only), jobs))
+
+    def work(name):
+        sub = os.path.join(root, "w_" + name)
+        shutil.copytree(root, sub, ignore=shutil.ignore_patterns("w_*"))
+        cmd = [sys.executable, os.path.abspath(__file__), binary, "--worker", name, "--root", sub]
+        if scripts:
+            cmd += ["--scripts", scripts]
+        t0 = time.time()
+        p = subprocess.run(cmd, capture_output=True, text=True)
+        return name, p.returncode, p.stdout + p.stderr, time.time() - t0
+
+    total_checks, total_failed, bad = 0, 0, []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
+        for name, rc, out, secs in pool.map(work, only):
+            print("--- %s (%ds)" % (name, secs), flush=True)
+            print(out.rstrip(), flush=True)
+            m = re.findall(r"(\d+) checks, (\d+) failed", out)
+            if m:
+                total_checks += int(m[-1][0]); total_failed += int(m[-1][1])
+            if rc not in (0, 1) or not m:
+                total_failed += 1
+                bad.append(name)
+                print("  FAIL: scenario %s did not finish (exit code %d)" % (name, rc), flush=True)
     if not keep:
         shutil.rmtree(root, ignore_errors=True)
-    print("%d checks, %d failed" % (checks, len(failures)))
-    return 1 if failures else 0
+    print("%d checks, %d failed" % (total_checks, total_failed))
+    return 1 if total_failed else 0
 
 
 if __name__ == "__main__":

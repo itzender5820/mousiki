@@ -103,6 +103,8 @@ constexpr int kKeyCtrlT = 326;
 constexpr int kKeyCtrlZ = 327;
 // Ctrl+F (control byte 0x06): the "no lyrics" filter of the add-lyrics-manually overlay.
 constexpr int kKeyCtrlF = 328;
+// Ctrl+O (control byte 0x0f): the add-lyrics overlay shows the original name of the lyrics file / the name of the copy.
+constexpr int kKeyCtrlO = 329;
 
 // Ctrl+Left / Ctrl+Right (a word to the side) and Ctrl+Shift+Left / Right (mark a word). Only reported while a text field has the
 // keyboard (set_text_entry); everywhere else the keys stay what they were, so no screen loses a key.

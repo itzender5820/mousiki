@@ -670,6 +670,7 @@ int TerminalIO::poll_key_raw() {
                 if (mod == 5 && (code == 't' || code == 'T')) { g_last_key_was_arrow = false; return kKeyCtrlT; } // Ctrl+T
                 if (mod == 5 && (code == 'z' || code == 'Z')) { g_last_key_was_arrow = false; return kKeyCtrlZ; } // Ctrl+Z
                 if (mod == 5 && (code == 'f' || code == 'F')) { g_last_key_was_arrow = false; return kKeyCtrlF; } // Ctrl+F
+                if (mod == 5 && (code == 'o' || code == 'O')) { g_last_key_was_arrow = false; return kKeyCtrlO; } // Ctrl+O
                 // "1;<mod> A" -- an arrow (or Home/End) pressed WITH a
                 // modifier, which is how xterm-style terminals report
                 // Shift+Left/Right: "ESC [ 1 ; 2 D". mod is
@@ -729,6 +730,7 @@ int TerminalIO::poll_key_raw() {
     if (c == 0x0e) { g_last_key_was_arrow = false; return kKeyCtrlN; }   // Ctrl+N (audio book mode: small note field <-> big notes overlay)
     if (c == 0x14) { g_last_key_was_arrow = false; return kKeyCtrlT; }   // Ctrl+T: the cover look one step back
     if (c == 0x06) { g_last_key_was_arrow = false; return kKeyCtrlF; }   // Ctrl+F
+    if (c == 0x0f) { g_last_key_was_arrow = false; return kKeyCtrlO; }   // Ctrl+O
     if (c == 0x1a) { g_last_key_was_arrow = false; return kKeyCtrlZ; }   // Ctrl+Z: one step forward (VSUSP is off, see below)
     g_last_key_was_arrow = false;
     return c;

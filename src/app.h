@@ -320,7 +320,7 @@ private:
     // The menus index (HKeyMenus, "<"): a floating panel listing every menu / overlay by category with its key; ENTER opens one.
     static constexpr int kMenuIndexPanelWidth = 100;
     int menu_index_sel_ = 0;                          // the highlighted entry (index into the table in app.cpp)
-    std::vector<std::string> build_menu_index_panel() const;
+    std::vector<std::string> build_menu_index_panel(int window_w) const;
     void menu_index_key(int key);
     // The legend of a big overlay hangs below its frame. With more than one row the block is centred on the main screen's bottom
     // border line (3 rows: the second row lies on it), so it reaches this many rows further down than a one-row legend would.
@@ -1925,11 +1925,20 @@ private:
     std::string rd_add_lock_title_;
     std::string rd_add_lock_info_;                      // what lyrics the locked track has now ("" = none)
     void readlyrics_add_lock_refresh();                 // re-reads rd_add_lock_info_ / rd_add_manual_ of the locked track
+    // The search of both lists: the strings that are compared are made once, and a query that only adds letters to the one before
+    // looks through the matches of the one before, not through the whole library again (a keystroke costs the size of the result).
+    std::vector<std::string> rd_add_thay_;              // per library track: the lowercase text that is searched (artist - title, or the file name)
+    bool rd_add_thay_names_ = false;                    // ... which of the two it is
+    bool rd_add_tprev_ok_ = false, rd_add_fprev_ok_ = false;   // the lists below hold the result of rd_add_*prev_q_ (for the flags in rd_add_tprev_flags_)
+    std::string rd_add_tprev_q_, rd_add_fprev_q_;
+    int rd_add_tprev_flags_ = 0;
     bool rd_add_nolyr_ = false;                         // CTRL+f: the track list holds only tracks without saved lyrics
     std::vector<char> rd_add_has_lyr_;                  // per library track: it has a saved lyrics copy (read when the filter is switched on)
     int readlyrics_add_list_rows() const;               // rows of the result lists (the same for both)
     static std::string readlyrics_add_track_text(const LocalTrack& t);   // "folder - title" (just the title when the folder says nothing)
     bool rd_add_names_ = false;                         // the track list shows (and searches) file names instead of "folder - title"
+    bool rd_add_show_orig_ = true;                      // the locked-in pane names a manually added file by the file it came from (CTRL+o: by its copy)
+    std::string rd_add_orig_name_;                      // ... that file's name, when the copy knows it
     bool rd_add_manual_ = false;                        // the chosen track has lyrics that were added manually
     bool rd_add_confirm_ = false;                       // "unassign?" is asked: DEL again confirms
     std::string readlyrics_add_track_label(int idx) const;

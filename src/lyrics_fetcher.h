@@ -98,6 +98,8 @@ bool assign_lyrics_file(const fs::path& track_path, const fs::path& source_file,
 // One line about the copy in use ("added manually, 42 lines", "fetched from lrclib, synced, 42 lines"); empty when the track has none saved.
 // Cheap (reads the one file, never the audio file).
 std::string lyrics_in_use_summary(const fs::path& track_path);
+// The name of the file the manually added lyrics came from (kept in the copy as "[file:...]"); empty when not known.
+std::string lyrics_manual_origin_name(const fs::path& track_path);
 // The file of the copy in use (empty when the track has none saved).
 fs::path lyrics_copy_in_use(const fs::path& track_path);
 // True when the copy in use was added by hand (assign_lyrics_file).

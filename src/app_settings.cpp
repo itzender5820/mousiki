@@ -1727,6 +1727,34 @@ void App::handle_settings_key(int key) {
     }
 }
 
+// Text that starts at column `x` of a screen drawn with absolute positions, cut so that it ends at column `last` at the latest
+// (escape sequences are kept whole and cost no column, a wide character is not split). Without this a row written for a wide
+// window runs past the right edge of a narrow one and wraps.
+static std::string clip_to_columns(const std::string& s, int x, int last) {
+    const int room = last - x + 1;
+    if (room <= 0) return std::string();
+    std::string out;
+    int used = 0;
+    for (size_t i = 0; i < s.size();) {
+        const unsigned char c = static_cast<unsigned char>(s[i]);
+        if (c == 0x1b && i + 1 < s.size() && s[i + 1] == '[') {   // CSI: ESC [ ... final byte
+            size_t j = i + 2;
+            while (j < s.size() && !(s[j] >= 0x40 && s[j] <= 0x7e)) ++j;
+            out.append(s, i, j + 1 - i);
+            i = j + 1;
+            continue;
+        }
+        size_t len = c < 0x80 ? 1 : c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : 2;
+        len = std::min(len, s.size() - i);
+        const int w = display_width(s.substr(i, len));
+        if (used + w > room) { out += "\x1b[0m"; return out; }
+        out.append(s, i, len);
+        used += w;
+        i += len;
+    }
+    return out;
+}
+
 // template) and the full-size CREATE THEME editor. Drawn with absolute positions like the Settings screen.
 void App::build_theme_screen(std::ostringstream& frame, int W, int player_h) const {
     if (W < 80) W = 80;
@@ -1737,7 +1765,7 @@ void App::build_theme_screen(std::ostringstream& frame, int W, int player_h) con
         return gradient_ansi(settings_.border_color, settings_.border_color_bottom,
                              (MAX_Y > 1) ? static_cast<float>(y - 1) / (MAX_Y - 1) : 0.0f, false);
     };
-    auto pos = [&](int y, int x, const std::string& s) { frame << "\x1b[" << y << ";" << x << "H" << s; };
+    auto pos = [&](int y, int x, const std::string& s) { if (x <= W) frame << "\x1b[" << y << ";" << x << "H" << clip_to_columns(s, x, (x == 1 || x == W) ? W : W - 1); };   // (a row that does not fit is cut before the right border)
     auto repeat = [](const std::string& s, int n) { std::string r; for (int i = 0; i < n; ++i) r += s; return r; };
     auto pad = [](const std::string& s, int width, bool left_align = true) {
         const int ulen = static_cast<int>(display_width(s));
@@ -1991,7 +2019,8 @@ void App::build_settings_screen(std::ostringstream& frame, int W, int player_h) 
         return gradient_ansi(settings_.border_color, settings_.border_color_bottom,
                              (MAX_Y > 1) ? static_cast<float>(y - 1) / (MAX_Y - 1) : 0.0f, false);
     };
-    auto pos = [&](int y, int x, const std::string& s) { frame << "\x1b[" << y << ";" << x << "H" << s; };
+    int clip_rows = 1 << 30;   // the colours tab is longer than a small window: its rows from here on are not drawn
+    auto pos = [&](int y, int x, const std::string& s) { if (x <= W && y < clip_rows) frame << "\x1b[" << y << ";" << x << "H" << clip_to_columns(s, x, (x == 1 || x == W) ? W : W - 1); };   // (a row that does not fit is cut before the right border)
     // The scrollbar of a tab that is longer than the panel, the same as in the help wizard: the last column inside the
     // frame, a thumb as tall as the visible part is of the whole, in the disk gradient. `first` is the first line shown.
     auto scrollbar = [&](int first, int visible, int total) {
@@ -2097,6 +2126,7 @@ void App::build_settings_screen(std::ostringstream& frame, int W, int player_h) 
     // 2. Content.
     int y = 3;
     if (settings_tab_ == 0) {
+        clip_rows = MAX_Y;
         static const char* grp[21]  = {"BORDER_COLOR", "DISK", "METADATA", "VIZ", "PROGRESS_BAR",
                                         "SEARCH", "", "LIST", "", "", "QUEUE", "", "", "LYRICS", "", "", "HEADER", "LEGEND", "TAB_NAMES", "CHANGE", "FOCUS"};
         static const char* l1n[21]  = {"TOP", "TOP", "KEY", "LEFT", "PLAYED",
@@ -2202,6 +2232,8 @@ void App::build_settings_screen(std::ostringstream& frame, int W, int player_h) 
             if (!rt.empty()) pos(y, 72, rt);
             y++;
         }
+        clip_rows = 1 << 30;
+        if (y > MAX_Y) y = MAX_Y;   // (a small window: the bottom border and the hint lines go where the panel ends)
     } else if (settings_tab_ == 1 || settings_tab_ == 2) {
         // GENERAL and ANIMA/VIZ: category headers and their rows (settings_layout()). The list scrolls with the
         // selected row when the terminal is too short for it.

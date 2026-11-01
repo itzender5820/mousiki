@@ -634,12 +634,12 @@ bool assign_lyrics_file(const fs::path& track_path, const fs::path& source_file,
     {
         std::istringstream in(text);
         std::string line, rest;
-        static const std::regex re_line(R"(^\s*\[\s*re\s*:[^\]]*\]\s*$)", std::regex::icase);
+        static const std::regex re_line(R"(^\s*\[\s*(?:re|file)\s*:[^\]]*\]\s*$)", std::regex::icase);
         while (std::getline(in, line)) {
             if (std::regex_match(line, re_line)) continue;
             rest += line + "\n";
         }
-        text = "[re:manual]\n" + rest;
+        text = "[re:manual]\n[file:" + path_utf8(source_file.filename()) + "]\n" + rest;
     }
     std::string current;
     const fs::path cur = existing_sidecar_file(track_path);
@@ -653,6 +653,20 @@ bool assign_lyrics_file(const fs::path& track_path, const fs::path& source_file,
 }
 
 fs::path lyrics_copy_in_use(const fs::path& track_path) { return existing_sidecar_file(track_path); }
+
+std::string lyrics_manual_origin_name(const fs::path& track_path) {
+    const fs::path cur = existing_sidecar_file(track_path);
+    std::string text;
+    if (cur.empty() || !read_text_file(cur, text) || lrc_source_tag(text) != "manual") return {};
+    static const std::regex re(R"(\[\s*file\s*:\s*([^\]\r\n]*)\])", std::regex::icase);
+    std::smatch m;
+    const std::string head = text.substr(0, 600);
+    if (!std::regex_search(head, m, re)) return {};
+    std::string v = m[1].str();
+    while (!v.empty() && v.back() == ' ') v.pop_back();
+    while (!v.empty() && v.front() == ' ') v.erase(v.begin());
+    return v;
+}
 
 bool lyrics_added_manually(const fs::path& track_path) {
     const fs::path cur = existing_sidecar_file(track_path);

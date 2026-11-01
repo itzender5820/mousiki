@@ -27,9 +27,13 @@
 .PARAMETER BuildType
     Release (default) or Debug.
 
+.PARAMETER UpgradeFfmpeg
+    Also run `winget upgrade` on an FFmpeg that is already installed (slow: winget refreshes its sources first). Off by
+    default; an FFmpeg that lacks libopenmpt / libgme (tracker modules, console music) is replaced by the full
+    Gyan.FFmpeg build anyway.
+
 .PARAMETER NoUpgrade
-    Don't upgrade an FFmpeg that is already installed. By default `winget upgrade` is tried on it, and if it still
-    lacks libopenmpt / libgme (tracker modules, console music) the full Gyan.FFmpeg build is installed.
+    Never touch an FFmpeg that is already installed, not even when it lacks libopenmpt / libgme.
 
 .PARAMETER WithKanji
     (Every download of this script -- CMake, FFmpeg, yt-dlp, Python, pykakasi -- needs an internet connection.)
@@ -48,6 +52,7 @@ param(
     [string]$BuildType = 'Release',
     [switch]$NoInstall,
     [switch]$NoUpgrade,
+    [switch]$UpgradeFfmpeg,
     [switch]$WithKanji
 )
 
@@ -63,10 +68,11 @@ function Write-Step([string]$Message) {
 }
 
 # Tracker modules and console music are read through FFmpeg's libopenmpt / libgme demuxers.
+$script:demuxerList = $null   # ffmpeg is asked once (and again after it was installed or upgraded)
 function Test-FfmpegDemuxer([string]$Name) {
     if (-not (Test-Command ffmpeg)) { return $false }
-    $out = & ffmpeg -hide_banner -demuxers 2>$null
-    return [bool]($out | Select-String -Pattern "\s$Name\s" -Quiet)
+    if ($null -eq $script:demuxerList) { $script:demuxerList = (& ffmpeg -hide_banner -demuxers 2>$null) -join "`n" }
+    return $script:demuxerList -match "\s$Name\s"
 }
 
 function Update-SessionPath {
@@ -98,8 +104,8 @@ if (-not $SkipDeps) {
         if (-not (Test-Command ffmpeg)) {
             Write-Step "Installing FFmpeg (the full build: it includes libopenmpt and libgme)"
             winget install --id Gyan.FFmpeg --accept-source-agreements --accept-package-agreements --silent
-        } elseif (-not $NoUpgrade) {
-            # Already installed: upgrade it (quietly does nothing when it is current or was not installed by winget).
+        } elseif ($UpgradeFfmpeg -and -not $NoUpgrade) {
+            # Already installed: upgrade it on request (quietly does nothing when it is current or was not installed by winget).
             Write-Step "Upgrading FFmpeg (already installed)"
             winget upgrade --id Gyan.FFmpeg --accept-source-agreements --accept-package-agreements --silent
         }
@@ -136,6 +142,7 @@ if (-not $SkipDeps) {
         Write-Step "Your FFmpeg lacks libopenmpt / libgme -- installing the full build (Gyan.FFmpeg)"
         winget install --id Gyan.FFmpeg --accept-source-agreements --accept-package-agreements --silent
         Update-SessionPath
+        $script:demuxerList = $null
     }
     if (Test-Command ffmpeg) {
         foreach ($d in @(@('libopenmpt','tracker modules (.mod .xm .it .s3m ...)'), @('libgme','console music (.nsf .spc .vgm ...)'))) {
@@ -147,12 +154,12 @@ if (-not $SkipDeps) {
 
     # --- sidplayfp (Commodore 64 SID tunes) must be on the PATH ---
     if (-not (Test-Command sidplayfp)) {
-        $roots = @("$env:LOCALAPPDATA\Mousiki\bin", "$env:ProgramFiles", "${env:ProgramFiles(x86)}", "$env:USERPROFILE\scoop\apps",
+        $roots = @("$env:LOCALAPPDATA\Mousiki\bin", "$env:USERPROFILE\scoop\apps",
                    "$env:USERPROFILE\Downloads", "$env:USERPROFILE\Desktop", "$env:USERPROFILE\sidplayfp", 'C:\tools', 'C:\sidplayfp') |
                  Where-Object { $_ -and (Test-Path $_) }
         $found = $null
         foreach ($r in $roots) {
-            $found = Get-ChildItem -Path $r -Filter 'sidplayfp.exe' -Recurse -Depth 3 -ErrorAction SilentlyContinue | Select-Object -First 1
+            $found = Get-ChildItem -Path $r -Filter 'sidplayfp.exe' -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($found) { break }
         }
         if ($found) {
@@ -214,7 +221,7 @@ cmake -S $root -B $build -DCMAKE_BUILD_TYPE=$BuildType
 if ($LASTEXITCODE -ne 0) { throw "cmake configure failed" }
 
 Write-Step "Building"
-cmake --build $build --config $BuildType --parallel
+cmake --build $build --config $BuildType --parallel $env:NUMBER_OF_PROCESSORS
 if ($LASTEXITCODE -ne 0) { throw "cmake build failed" }
 
 # Single-config generators put the exe in build\, multi-config (Visual Studio)

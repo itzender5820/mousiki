@@ -413,6 +413,7 @@ TEST(a_lyrics_file_can_be_assigned_to_a_track_by_hand) {
     v = list_lyrics_versions(track);
     CHECK_EQ(v.size(), static_cast<size_t>(2));
     CHECK(lyrics_added_manually(track));
+    CHECK_EQ(lyrics_manual_origin_name(track), b.filename().string());   // the copy remembers the file it came from
     CHECK(unassign_lyrics_file(track, &err));                          // the first one comes back, the source file stays
     CHECK(fs::exists(b));
     CHECK(lyrics_added_manually(track));                               // it is the first manual one
@@ -420,4 +421,30 @@ TEST(a_lyrics_file_can_be_assigned_to_a_track_by_hand) {
     CHECK(!lyrics_added_manually(track));
     CHECK(!unassign_lyrics_file(track, &err));                         // nothing manual left
     fs::remove_all(dir, ec);
+}
+
+#include <sstream>
+TEST(the_kanji_cache_starts_again_when_the_readers_rules_change) {
+    const fs::path file = fs::temp_directory_path() / "mousiki_kanji_cache_rules.txt";
+    std::error_code ec;
+    fs::remove(file, ec);
+    const std::string k1 = "\xE6\x9C\xAA\xE6\x9D\xA5\xE3\x81\xAE\xE7\xA9\xBA\xE4\xB8\x80";   // 未来の空一
+    const std::string k2 = "\xE6\x9C\xAA\xE6\x9D\xA5\xE3\x81\xAE\xE7\xA9\xBA\xE4\xBA\x8C";   // 未来の空二
+    const std::string k3 = "\xE6\x9C\xAA\xE6\x9D\xA5\xE3\x81\xAE\xE7\xA9\xBA\xE4\xB8\x89";   // 未来の空三
+    auto content = [&] { std::ifstream in(file, std::ios::binary); std::ostringstream o; o << in.rdbuf(); return o.str(); };
+    { std::ofstream(file, std::ios::binary) << k1 << "\tmirai no sora ichi\n"; }                 // an older file: no rules line
+    translit_set_kanji_cache_file(file.string(), "rules-A");
+    CHECK_EQ(content(), std::string("#rules rules-A\n"));                                         // emptied, now named
+    CHECK(transliterate(k1) != "mirai no sora ichi");                                             // (its reading is gone)
+    translit_kanji_found(k2, "mirai no sora ni");                                                 // a new reading is kept under the rules line
+    CHECK_EQ(content(), "#rules rules-A\n" + k2 + "\tmirai no sora ni\n");
+    translit_set_kanji_cache_file(file.string(), "rules-A");                                      // the same rules: kept
+    CHECK_EQ(content(), "#rules rules-A\n" + k2 + "\tmirai no sora ni\n");
+    translit_set_kanji_cache_file(file.string(), "rules-B");                                      // other rules: made again
+    CHECK_EQ(content(), std::string("#rules rules-B\n"));
+    fs::remove(file, ec);
+    translit_kanji_found(k3, "mirai no sora san");                                                // a file that is not there yet starts with its rules line
+    CHECK_EQ(content(), "#rules rules-B\n" + k3 + "\tmirai no sora san\n");
+    translit_set_kanji_cache_file(std::string());
+    fs::remove(file, ec);
 }

@@ -671,6 +671,8 @@ void App::readlyrics_add_open() {
     rd_add_msg_.clear();
     rd_add_warn_ = false;
     rd_add_confirm_ = false;
+    rd_add_tprev_ok_ = rd_add_fprev_ok_ = false;   // (a fresh search; the texts below are made again for the library as it is now)
+    rd_add_thay_.clear();
     rd_add_lock_file_ = LyricsFileHit();
     rd_add_lock_auto_ = false;
     rd_add_lock_cur_ = true;
@@ -716,32 +718,53 @@ void App::readlyrics_add_rebuild() {
             }
         }
     }
+    // files: a query that continues the one before is looked for among the matches of the one before
     const auto fw = words_of(rd_add_fq_);
+    std::vector<int> fcand;
+    const bool f_narrow = rd_add_fprev_ok_ && rd_add_fq_.compare(0, rd_add_fprev_q_.size(), rd_add_fprev_q_) == 0;
+    if (f_narrow) { for (int v : rd_add_fview_) if (v >= 0) fcand.push_back(v); }
+    else { fcand.resize(rd_add_files_.size()); for (size_t i = 0; i < fcand.size(); ++i) fcand[i] = static_cast<int>(i); }
     rd_add_fview_.clear();
     if (!rd_add_typed_.path.empty()) rd_add_fview_.push_back(-1);
-    for (size_t i = 0; i < rd_add_files_.size(); ++i) {
+    for (int i : fcand) {
         bool ok = true;
-        for (const auto& w : fw) if (rd_add_files_[i].lname.find(w) == std::string::npos) { ok = false; break; }
-        if (ok) rd_add_fview_.push_back(static_cast<int>(i));
+        for (const auto& w : fw) if (rd_add_files_[static_cast<size_t>(i)].lname.find(w) == std::string::npos) { ok = false; break; }
+        if (ok) rd_add_fview_.push_back(i);
     }
+    rd_add_fprev_q_ = rd_add_fq_;
+    rd_add_fprev_ok_ = true;
     rd_add_fsel_ = std::clamp(rd_add_fsel_, 0, std::max(0, static_cast<int>(rd_add_fview_.size()) - 1));
     // tracks: the current track is always the first entry
     const auto tw = words_of(rd_add_tq_);
-    rd_add_tview_.assign(1, -1);
     if (rd_add_nolyr_ && rd_add_has_lyr_.size() != all_local_tracks_.size()) {   // which tracks have saved lyrics (one look at each lyrics folder entry)
         rd_add_has_lyr_.assign(all_local_tracks_.size(), 0);
         for (size_t i = 0; i < all_local_tracks_.size(); ++i) rd_add_has_lyr_[i] = lyrics_copy_in_use(all_local_tracks_[i].path).empty() ? 0 : 1;
     }
-    for (size_t i = 0; i < all_local_tracks_.size(); ++i) {
-        if (rd_add_nolyr_ && rd_add_has_lyr_[i]) continue;
-        if (!tw.empty()) {
-            const std::string hay = ascii_lower_str(rd_add_names_ ? path_utf8(all_local_tracks_[i].path.filename()) : all_local_tracks_[i].folder_artist + " " + all_local_tracks_[i].title);
-            bool ok = true;
-            for (const auto& w : tw) if (hay.find(w) == std::string::npos) { ok = false; break; }
-            if (!ok) continue;
+    if (rd_add_thay_.size() != all_local_tracks_.size() || rd_add_thay_names_ != rd_add_names_) {   // the searched texts, made once
+        rd_add_thay_.resize(all_local_tracks_.size());
+        for (size_t i = 0; i < all_local_tracks_.size(); ++i) {
+            const LocalTrack& t = all_local_tracks_[i];
+            rd_add_thay_[i] = ascii_lower_str(rd_add_names_ ? path_utf8(t.path.filename()) : t.folder_artist + " " + t.title);
         }
-        rd_add_tview_.push_back(static_cast<int>(i));
+        rd_add_thay_names_ = rd_add_names_;
+        rd_add_tprev_ok_ = false;
     }
+    const int flags = (rd_add_names_ ? 2 : 0) | (rd_add_nolyr_ ? 1 : 0);
+    std::vector<int> tcand;
+    const bool t_narrow = rd_add_tprev_ok_ && flags == rd_add_tprev_flags_ && rd_add_tq_.compare(0, rd_add_tprev_q_.size(), rd_add_tprev_q_) == 0;
+    if (t_narrow) { for (int v : rd_add_tview_) if (v >= 0) tcand.push_back(v); }
+    else { tcand.resize(all_local_tracks_.size()); for (size_t i = 0; i < tcand.size(); ++i) tcand[i] = static_cast<int>(i); }
+    rd_add_tview_.assign(1, -1);
+    for (int i : tcand) {
+        if (rd_add_nolyr_ && rd_add_has_lyr_[static_cast<size_t>(i)]) continue;
+        const std::string& hay = rd_add_thay_[static_cast<size_t>(i)];
+        bool ok = true;
+        for (const auto& w : tw) if (hay.find(w) == std::string::npos) { ok = false; break; }
+        if (ok) rd_add_tview_.push_back(i);
+    }
+    rd_add_tprev_q_ = rd_add_tq_;
+    rd_add_tprev_flags_ = flags;
+    rd_add_tprev_ok_ = true;
     rd_add_tsel_ = std::clamp(rd_add_tsel_, 0, static_cast<int>(rd_add_tview_.size()) - 1);
 }
 
@@ -757,12 +780,14 @@ void App::readlyrics_add_lock_refresh() {
     if (rd_add_manual_ && (rd_add_lock_file_.path.empty() || rd_add_lock_auto_)) {
         LyricsFileHit h;
         h.path = lyrics_copy_in_use(t);
-        h.name = path_utf8(h.path.stem());
+        rd_add_orig_name_ = lyrics_manual_origin_name(t);
+        h.name = (rd_add_show_orig_ && !rd_add_orig_name_.empty()) ? rd_add_orig_name_ : path_utf8(h.path.filename());
         h.lname = ascii_lower_str(h.name);
         h.folder = "lyrics";
         rd_add_lock_file_ = h;
         rd_add_lock_auto_ = true;
     } else if (rd_add_lock_auto_) {
+        rd_add_orig_name_.clear();
         rd_add_lock_file_ = LyricsFileHit();
         rd_add_lock_auto_ = false;
     }
@@ -849,6 +874,13 @@ void App::readlyrics_add_key(int key) {
         rd_add_tsel_ = 0;
         rd_add_msg_ = rd_add_nolyr_ ? "the track list shows only the tracks without saved lyrics" : "the track list shows all tracks";
         readlyrics_add_rebuild();
+        return;
+    }
+    if (key == kKeyCtrlO) {   // the locked-in lyrics file: the name it was picked with / the name of the copy in the lyrics folder
+        rd_add_show_orig_ = !rd_add_show_orig_;
+        readlyrics_add_lock_refresh();
+        rd_add_warn_ = false;
+        rd_add_msg_ = rd_add_show_orig_ ? "locked-in lyrics file: shown by the name of the file it came from" : "locked-in lyrics file: shown by the name of the copy in the lyrics folder";
         return;
     }
     if (key == kKeyCtrlT) {
@@ -993,7 +1025,7 @@ std::vector<std::string> App::build_readlyrics_add_panel(int W) const {
     }
     both(box_bottom(pw_l, "", border), box_bottom(pw_r, "", border));
     // --- the locked-in fields
-    both(box_top("LOCKED IN: LYRICS FILE", pw_l, border), box_top("LOCKED IN: TRACK", pw_r, border));
+    both(box_top(std::string("LOCKED IN: LYRICS FILE") + (rd_add_lock_auto_ && !rd_add_orig_name_.empty() ? (rd_add_show_orig_ ? " (original)" : " (copy)") : ""), pw_l, border), box_top("LOCKED IN: TRACK", pw_r, border));
     {
         const bool has_f = !rd_add_lock_file_.path.empty();
         const auto l1 = cut(has_f ? rd_add_lock_file_.name : "(none yet -- highlight a file, press [ENTER])", pw_l, has_f ? hdr : std::string());
@@ -1002,7 +1034,7 @@ std::vector<std::string> App::build_readlyrics_add_panel(int W) const {
         both(pline(l1.first, l1.second, pw_l), pline(r1.first, r1.second, pw_r));
         // the path of the file, then the note for lyrics that were added by hand; on a narrow pane the note wraps over both rows
         const std::string note = "Added manually; hit DEL to unassign";
-        std::string row2 = has_f ? path_utf8(rd_add_lock_file_.path) : std::string(), row3;
+        std::string row2 = has_f ? (rd_add_lock_auto_ ? "In the lyrics folder: " : std::string()) + path_utf8(rd_add_lock_file_.path) : std::string(), row3;
         std::string sgr2 = leg, sgr3 = hdr;
         if (rd_add_manual_) {
             if (display_width(note) <= pw_l - 4) row3 = note;
@@ -1045,7 +1077,7 @@ std::vector<std::string> App::build_readlyrics_add_legend(int W) const {
     const std::vector<LegendGroup> groups = {
         {"Move", {"[TAB] Focus", "[\u2190\u2192\u2191\u2193] Pick\001Pick", "[PgUp/PgDn] Page up/down\001Page", "[HOME/END] Top/Bottom"}},
         {"Choose", {"[ENTER] Lock in / press button\001Lock in", "[CTRL+c] Clear current choice\001Clear", "[DEL] Unassign manual lyrics\001Unassign"}},
-        {"Tracks", {"[CTRL+t] File names / artist - title\001File names", "[CTRL+f] Only tracks without lyrics\001No lyrics"}},
+        {"Tracks", {"[CTRL+t] File names / artist - title\001File names", "[CTRL+f] Only tracks without lyrics\001No lyrics", "[CTRL+o] Original / copy name\001Orig/copy"}},
         {"Session", {"[ESC] Close"}},
     };
     std::vector<std::string> out;

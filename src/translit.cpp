@@ -189,6 +189,7 @@ std::unordered_set<std::string> g_kanji_done;                // texts a kanji re
 std::vector<std::string> g_kanji_pending;
 std::unordered_set<std::string> g_kanji_pending_set;
 std::string g_kanji_file;
+std::string g_kanji_rules;                                   // the rules id written as the first line of that file (empty = none)
 bool g_ja_kana = false;                                      // the last transliterate_impl() text has a run of kana (five or more): word spacing needs the reader (janome)
 bool g_ja_kept = false;                                      // the last transliterate_impl() left kanji of a Japanese text as they are
 unsigned g_cache_version = 0;                               // bumped by everything that can change an answer (the cache of transliterate())
@@ -824,13 +825,31 @@ std::string shown_text(const std::string& s) { return translit_enabled() ? trans
 
 namespace muisc {
 
-void translit_set_kanji_cache_file(const std::string& path) {
+void translit_set_kanji_cache_file(const std::string& path, const std::string& rules_id) {
     std::lock_guard<std::mutex> lock(g_mu);
     g_kanji_file = path;
+    g_kanji_rules = rules_id;
     std::ifstream in(path, std::ios::binary);
     std::string line;
+    if (in.is_open() && !rules_id.empty()) {
+        // the first line says which rules made the readings below it
+        const std::streampos start = in.tellg();
+        std::string first;
+        const bool has_content = static_cast<bool>(std::getline(in, first));
+        while (!first.empty() && (first.back() == '\r' || first.back() == '\n')) first.pop_back();
+        if (has_content && first != "#rules " + rules_id) {   // other rules, or an older file without the line: start again
+            in.close();
+            std::ofstream out(path, std::ios::binary | std::ios::trunc);
+            if (out) out << "#rules " << rules_id << "\n";
+            ++g_cache_version;
+            return;
+        }
+        in.clear();
+        in.seekg(start);
+    }
     while (std::getline(in, line)) {
         while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+        if (line.compare(0, 7, "#rules ") == 0) continue;
         const size_t tab = line.find('\t');
         if (tab == std::string::npos || tab == 0) continue;
         const std::string text = line.substr(0, tab), reading = line.substr(tab + 1);
@@ -860,7 +879,10 @@ void translit_kanji_found(const std::string& text, const std::string& reading) {
     if (g_whole.emplace(text, reading).second) { g_reader_keys.insert(text); ++g_cache_version; }
     if (!g_kanji_file.empty()) {
         std::ofstream out(g_kanji_file, std::ios::app | std::ios::binary);
-        if (out) out << text << "\t" << reading << "\n";
+        if (out) {
+            if (!g_kanji_rules.empty() && out.tellp() == std::streampos(0)) out << "#rules " << g_kanji_rules << "\n";   // a new file starts with its rules
+            out << text << "\t" << reading << "\n";
+        }
     }
 }
 

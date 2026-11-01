@@ -8,6 +8,22 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
+# A quicker build for development: cmake -DCMAKE_BUILD_TYPE=Dev ..  (-O1 instead of -O3: a file compiles in about 2/3 of the
+# time; the program is a little slower, which the tests and the UI smoke test do not mind). Release stays the default.
+if(MSVC)
+  set(CMAKE_CXX_FLAGS_DEV "/O1" CACHE STRING "C++ flags for the Dev build type")
+  set(CMAKE_C_FLAGS_DEV "/O1" CACHE STRING "C flags for the Dev build type")
+else()
+  set(CMAKE_CXX_FLAGS_DEV "-O1" CACHE STRING "C++ flags for the Dev build type")
+  set(CMAKE_C_FLAGS_DEV "-O1" CACHE STRING "C flags for the Dev build type")
+endif()
+
+# Visual Studio generators compile the files of one project one after the other unless cl.exe is told to use all cores (/MP).
+# (Ninja and Makefiles start several compilers by themselves, so they do not need it.)
+if(MSVC AND CMAKE_GENERATOR MATCHES "Visual Studio")
+  add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:/MP>)
+endif()
+
 # ---------------------------------------------------------------------------
 # Third-party code — vendored in third_party/, so configuring needs no network.
 #   miniaudio.h         : single-file audio library (public domain / MIT-0), v0.11.25
@@ -74,11 +90,19 @@ endif()
 set(MINIZ_SOURCES "${MINIZ_DIR}/miniz.c")
 set_source_files_properties(${MINIZ_SOURCES} PROPERTIES LANGUAGE C)
 
-add_executable(mousiki ${MUISC_SOURCES} ${KISSFFT_SOURCES} ${MINIZ_SOURCES})
-target_include_directories(mousiki PRIVATE "${CMAKE_SOURCE_DIR}/src" "${MINIAUDIO_DIR}" "${KISSFFT_DIR}" "${MINIZ_DIR}")
+# Everything but main() is one OBJECT library, compiled once and linked into the player AND into the test program
+# (mousiki_tests), which used to compile all of it a second time. Include paths, definitions and libraries are PUBLIC on it,
+# so main.cpp and the tests are built with the same settings.
+set(MOUSIKI_MAIN_SOURCE "${CMAKE_SOURCE_DIR}/src/main.cpp")
+set(MUISC_CORE_SOURCES ${MUISC_SOURCES})
+list(REMOVE_ITEM MUISC_CORE_SOURCES "${MOUSIKI_MAIN_SOURCE}")
+add_library(mousiki_core OBJECT ${MUISC_CORE_SOURCES} ${KISSFFT_SOURCES} ${MINIZ_SOURCES})
+add_executable(mousiki "${MOUSIKI_MAIN_SOURCE}")
+target_link_libraries(mousiki PRIVATE mousiki_core)
+target_include_directories(mousiki_core PUBLIC "${CMAKE_SOURCE_DIR}/src" "${MINIAUDIO_DIR}" "${KISSFFT_DIR}" "${MINIZ_DIR}")
 # The version shown on the ABOUT APP tabs (src/version.h) comes from project(... VERSION ...) above,
 # so a release only has to change that one line.
-target_compile_definitions(mousiki PRIVATE MOUSIKI_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(mousiki_core PUBLIC MOUSIKI_VERSION="${PROJECT_VERSION}")
 
 # ---------------------------------------------------------------------------
 # App icon (Windows only): mousiki.rc + mousiki.ico in the source root -- the
@@ -132,7 +156,7 @@ endif()
 # Platform-specific audio backend wiring (compile-time selected)
 # ---------------------------------------------------------------------------
 find_package(Threads REQUIRED)
-target_link_libraries(mousiki PRIVATE Threads::Threads)
+target_link_libraries(mousiki_core PUBLIC Threads::Threads)
 
 # The lyrics / metadata / search helpers are invoked as script paths, so
 # scripts/ has to sit next to the executable (on every platform -- the Linux
@@ -148,16 +172,16 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/scripts")
 endif()
 
 if(ANDROID)
-  target_compile_definitions(mousiki PRIVATE MUISC_PLATFORM_ANDROID=1 MA_ENABLE_ONLY_SPECIFIC_BACKENDS=1 MA_ENABLE_OPENSL=1)
-  target_link_libraries(mousiki PRIVATE OpenSLES log android)
+  target_compile_definitions(mousiki_core PUBLIC MUISC_PLATFORM_ANDROID=1 MA_ENABLE_ONLY_SPECIFIC_BACKENDS=1 MA_ENABLE_OPENSL=1)
+  target_link_libraries(mousiki_core PUBLIC OpenSLES log android)
 elseif(WIN32)
-  target_compile_definitions(mousiki PRIVATE MUISC_PLATFORM_WINDOWS=1 MA_ENABLE_ONLY_SPECIFIC_BACKENDS=1 MA_ENABLE_WASAPI=1)
-  target_link_libraries(mousiki PRIVATE ole32 winmm ws2_32 iphlpapi shell32 gdi32 user32)   # gdi32 / user32: the font list (terminal_font.cpp)
+  target_compile_definitions(mousiki_core PUBLIC MUISC_PLATFORM_WINDOWS=1 MA_ENABLE_ONLY_SPECIFIC_BACKENDS=1 MA_ENABLE_WASAPI=1)
+  target_link_libraries(mousiki_core PUBLIC ole32 winmm ws2_32 iphlpapi shell32 gdi32 user32)   # gdi32 / user32: the font list (terminal_font.cpp)
   if(NOT MOUSIKI_WINDOWS_SMTC)
-    target_compile_definitions(mousiki PRIVATE MOUSIKI_NO_SMTC=1)
+    target_compile_definitions(mousiki_core PUBLIC MOUSIKI_NO_SMTC=1)
   endif()   # ws2_32: the remote app's web server
 
-  target_compile_definitions(mousiki PRIVATE
+  target_compile_definitions(mousiki_core PUBLIC
       # <windows.h> otherwise defines min/max as macros, which collide with
       # std::min/std::max all over app.cpp.
       NOMINMAX
@@ -175,22 +199,22 @@ elseif(WIN32)
     # literals should stay UTF-8. Without it the box-drawing and block
     # characters baked into the UI get re-encoded to the build machine's ANSI
     # code page and render as mojibake at runtime.
-    target_compile_options(mousiki PRIVATE /utf-8 /EHsc /W3
+    target_compile_options(mousiki_core PUBLIC /utf-8 /EHsc /W3
                            # the app_*.cpp files are big and full of templates / string tables and exceed the
                            # default section limit in debug builds.
                            /bigobj)
   endif()
 elseif(APPLE)
-  target_compile_definitions(mousiki PRIVATE MUISC_PLATFORM_MACOS=1 MA_ENABLE_ONLY_SPECIFIC_BACKENDS=1 MA_ENABLE_COREAUDIO=1)
-  target_link_libraries(mousiki PRIVATE "-framework CoreAudio" "-framework AudioToolbox" "-framework CoreFoundation" "-framework AudioUnit"
+  target_compile_definitions(mousiki_core PUBLIC MUISC_PLATFORM_MACOS=1 MA_ENABLE_ONLY_SPECIFIC_BACKENDS=1 MA_ENABLE_COREAUDIO=1)
+  target_link_libraries(mousiki_core PUBLIC "-framework CoreAudio" "-framework AudioToolbox" "-framework CoreFoundation" "-framework AudioUnit"
                         "-framework Foundation" "-framework MediaPlayer")
-  target_sources(mousiki PRIVATE "${MEDIA_MAC_SOURCE}")
+  target_sources(mousiki_core PRIVATE "${MEDIA_MAC_SOURCE}")
 elseif(UNIX AND NOT APPLE)
-  target_compile_definitions(mousiki PRIVATE MUISC_PLATFORM_LINUX=1 MA_ENABLE_ONLY_SPECIFIC_BACKENDS=1 MA_ENABLE_PULSEAUDIO=1 MA_ENABLE_ALSA=1)
+  target_compile_definitions(mousiki_core PUBLIC MUISC_PLATFORM_LINUX=1 MA_ENABLE_ONLY_SPECIFIC_BACKENDS=1 MA_ENABLE_PULSEAUDIO=1 MA_ENABLE_ALSA=1)
   # Note: miniaudio talks to PipeWire through its PulseAudio *and* ALSA
   # compatibility shims (pipewire-pulse / pipewire-alsa) — there is no
   # separate native "ma_backend_pipewire" enum in upstream miniaudio.
-  target_link_libraries(mousiki PRIVATE dl m)
+  target_link_libraries(mousiki_core PUBLIC dl m)
 endif()
 
 # fetch_meta.py looks for fpcalc in its own directory first, so the freshly
@@ -219,10 +243,10 @@ list(FILTER RADIO_MODE_SOURCES EXCLUDE REGEX "radio_standalone\\.cpp$")
 if(NOT RADIO_MODE_SOURCES)
   message(FATAL_ERROR "src_radio/ is missing: the radio mode's sources belong in src_radio/ (see CMakeLists.txt).")
 endif()
-target_sources(mousiki PRIVATE ${RADIO_MODE_SOURCES})
-target_include_directories(mousiki PRIVATE "${CMAKE_SOURCE_DIR}/src_radio")
+target_sources(mousiki_core PRIVATE ${RADIO_MODE_SOURCES})
+target_include_directories(mousiki_core PUBLIC "${CMAKE_SOURCE_DIR}/src_radio")
 # MA_ENABLE_NULL: lets MOUSIKI_RADIO_NULL=1 run the radio headless (tests, CI).
-target_compile_definitions(mousiki PRIVATE MA_ENABLE_NULL=1)
+target_compile_definitions(mousiki_core PUBLIC MA_ENABLE_NULL=1)
 if(EXISTS "${CMAKE_SOURCE_DIR}/stations.txt")
   add_custom_command(TARGET mousiki POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/stations.txt"
@@ -243,8 +267,8 @@ file(GLOB AUDIO_BOOK_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/src_audio_bo
 if(NOT AUDIO_BOOK_SOURCES)
   message(FATAL_ERROR "src_audio_book/ is missing: the audio book mode's sources belong in src_audio_book/ (see CMakeLists.txt).")
 endif()
-target_sources(mousiki PRIVATE ${AUDIO_BOOK_SOURCES})
-target_include_directories(mousiki PRIVATE "${CMAKE_SOURCE_DIR}/src_audio_book")
+target_sources(mousiki_core PRIVATE ${AUDIO_BOOK_SOURCES})
+target_include_directories(mousiki_core PUBLIC "${CMAKE_SOURCE_DIR}/src_audio_book")
 
 # Compiler warnings for GCC / Clang (MinGW included; MSVC has /W3 above): -Wall -Wextra on Mousiki's own sources only,
 # so the vendored libraries (miniaudio, kissfft, miniz, chromaprint) stay quiet. Warnings never stop the build.
@@ -313,16 +337,12 @@ option(MOUSIKI_BUILD_TESTS "Build the automated tests (mousiki_tests)" OFF)
 if(MOUSIKI_BUILD_TESTS)
   enable_testing()
   file(GLOB MOUSIKI_TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/tests/*.cpp")
-  get_target_property(MOUSIKI_ALL_SOURCES mousiki SOURCES)
-  list(FILTER MOUSIKI_ALL_SOURCES EXCLUDE REGEX "(^|/)src/main\\.cpp$")
-  add_executable(mousiki_tests ${MOUSIKI_TEST_SOURCES} ${MOUSIKI_ALL_SOURCES})
+  add_executable(mousiki_tests ${MOUSIKI_TEST_SOURCES})
+  target_link_libraries(mousiki_tests PRIVATE mousiki_core)   # the player's objects, compiled once (see mousiki_core above)
   if(MOUSIKI_WARNINGS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     set_property(SOURCE ${MOUSIKI_TEST_SOURCES} APPEND PROPERTY COMPILE_OPTIONS -Wall -Wextra)
   endif()
-  target_include_directories(mousiki_tests PRIVATE "${CMAKE_SOURCE_DIR}/tests" $<TARGET_PROPERTY:mousiki,INCLUDE_DIRECTORIES>)
-  target_compile_definitions(mousiki_tests PRIVATE $<TARGET_PROPERTY:mousiki,COMPILE_DEFINITIONS>)
-  target_compile_options(mousiki_tests PRIVATE $<TARGET_PROPERTY:mousiki,COMPILE_OPTIONS>)
-  target_link_libraries(mousiki_tests PRIVATE $<TARGET_PROPERTY:mousiki,LINK_LIBRARIES>)
+  target_include_directories(mousiki_tests PRIVATE "${CMAKE_SOURCE_DIR}/tests")
   add_test(NAME mousiki_tests COMMAND mousiki_tests)
 
   # Python tests (Linux / macOS; need `pip install pyte` for the UI test, else CTest reports them as skipped).

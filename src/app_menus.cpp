@@ -735,8 +735,8 @@ std::vector<std::vector<MenuIdxCell>> menu_idx_layout(bool book) {
 }
 } // namespace
 
-std::vector<std::string> App::build_menu_index_panel() const {
-    const int W = kMenuIndexPanelWidth;
+std::vector<std::string> App::build_menu_index_panel(int window_w) const {
+    const int W = std::min(kMenuIndexPanelWidth, std::max(40, window_w));   // (a window narrower than 100 columns gets a narrower index)
     const int inner = W - 4;
     const int cw = (inner - 3) / 2, cw2 = inner - 3 - cw;   // the right column takes the odd column
     const std::string border = ansi_for(settings_.border_color, false);
@@ -770,7 +770,18 @@ std::vector<std::string> App::build_menu_index_panel() const {
     std::vector<std::string> lines;
     lines.push_back(box_top("MENUS & OVERLAYS", W, border));
     lines.push_back(bar + " " + pad_right("", inner) + " " + bar);
-    for (size_t r = 0; r < rows; ++r)
+    // A window with fewer rows than the index shows the part around the selected entry.
+    const size_t room = static_cast<size_t>(std::max(5, term_rows_ - 2 - 4));
+    size_t first = 0, last = rows;
+    if (rows > room) {
+        size_t sel_row = 0;
+        for (int c = 0; c < 2; ++c)
+            for (size_t r = 0; r < cols[c].size(); ++r) if (cols[c][r].entry == sel) sel_row = r;
+        first = sel_row > room / 2 ? sel_row - room / 2 : 0;
+        if (first + room > rows) first = rows - room;
+        last = first + room;
+    }
+    for (size_t r = first; r < last; ++r)
         lines.push_back(bar + " " + cell(cols[0], r, cw) + " " + border + settings_.box_vertical + R + " " + cell(cols[1], r, cw2) + " " + bar);
     lines.push_back(bar + " " + pad_right("", inner) + " " + bar);
     lines.push_back(box_bottom(W, "[↑↓←→] Select  [ENTER] Open  [ESC / " + hotkey_text("HKeyMenus", "<") + "] Close", border_bottom));

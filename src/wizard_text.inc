@@ -786,7 +786,8 @@ locked-in panes and the lyrics the locked track has below the lists; the current
 fields). [CTRL+t] (also while typing in a search field) switches the track list between artist - title and file names
 (the title of the pane says which one is on), [CTRL+f] shows only the tracks without saved lyrics,
 )WIZ",
-R"WIZ([PgUp]/[PgDn] and [SHIFT+UP/DOWN] turn a page. [CTRL+c] (anywhere) clears the choice: the lyrics file is unlocked and the current
+R"WIZ([CTRL+o] shows the locked-in lyrics file by the name of the file you picked (the copy remembers it) or by the name of the copy in the lyrics folder,
+[PgUp]/[PgDn] and [SHIFT+UP/DOWN] turn a page. [CTRL+c] (anywhere) clears the choice: the lyrics file is unlocked and the current
 track is the locked track again. The lyrics in use so far are kept as an older
 version. [DEL] (twice) unassigns manually added lyrics of the locked-in track again: the file itself is
 not deleted, the previous lyrics come back. In karaoke mode [a] and in the re-fetch form [CTRL+n] open READ LYRICS with this overlay open.
@@ -907,9 +908,9 @@ Osci music mode  for oscilloscope music: the unprocessed signal and a fixed scal
 Beam             CRT: every sample drawn once, light by the time the beam spends on a spot
                  (image default) / classic: the old look with a tail (braille default)
 Dwell brightness CRT beam: slow strokes bright, jumps dark; off = every stroke equally bright
-Low-rate blank.  music mode, CRT beam: files below 96 kHz get the jumps between shapes faded out
 )WIZ",
-R"WIZ(Rough mode       not in music mode: loud beats clip along the edges of the square (edge clipping;
+R"WIZ(Low-rate blank.  music mode, CRT beam: files below 96 kHz get the jumps between shapes faded out
+Rough mode       not in music mode: loud beats clip along the edges of the square (edge clipping;
                  braille default on, image default off); not optimal, technically, but looks cool :D
 Image res/detail image style: drawn at full / half / third resolution; detail normal / high =
                  up to 560 / 1024 pixels wide (high: sharper thin lines, more data per frame)
@@ -1047,11 +1048,11 @@ measured since you tuned in and the gain glides in over a second.
 STEREO OR MONO: [[Header]]
 Settings ->> GENERAL ->> Stereo Sound. Off folds left and right together (and halves the memory a
 loaded track needs). Turning it off is immediate; turning it on applies from the next track.
-In the radio the footer of the dial then reads MONO.
+)WIZ",
+R"WIZ(In the radio the footer of the dial then reads MONO.
 
 [[New Page]]
-)WIZ",
-R"WIZ(2.6.3 SAMPLE RATE AND PLAYBACK ENGINE [[Header]]
+2.6.3 SAMPLE RATE AND PLAYBACK ENGINE [[Header]]
 
 SAMPLE RATE: NOTHING IS CONVERTED ON THE WAY: [[Header]]
 Every file plays at its own sample rate (44.1, 48, 88.2, 96 kHz ...): it is decoded at that rate and
@@ -1211,9 +1212,9 @@ The border can fade from the top to the bottom color line by line (BorderGradien
 COLOR THEMES: [[Header]]
 The first row, THEME, holds ready-made schemes (the default MeowerShell, Serious MeowerShell and
 30 more, e.g. Catppuccin Mocha, Tokyo Night, Kanagawa, Outrun) and the themes you made yourself,
-which the list shows after the built-in ones, named in the header color.
 )WIZ",
-R"WIZ([ENTER]        on the theme name: the list; [ENTER] applies a theme
+R"WIZ(which the list shows after the built-in ones, named in the header color.
+[ENTER]        on the theme name: the list; [ENTER] applies a theme
 [↑↓ / SHIFT+↑↓] in that list: one theme / a page (a scrollbar on the right shows where you are)
 [SHIFT+d]      in that list: delete a theme of your own (asks first)
 [ENTER]        on CREATE THEME: the theme editor
@@ -1320,9 +1321,9 @@ marquee.
                                                   browser version of Mousiki. You can also install the .apk
                                                   for Android that can be found on github, which is
                                                   essentially just a small browser app that can be opened
-                                                  via an icon.
 )WIZ",
-R"WIZ(
+R"WIZ(                                                  via an icon.
+
 [Update Notice:][[Legend]]                                    a quiet once-a-day look for a newer release; a small
                                                   window, once per version ([ESC] close, [o] open the Github
                                                   release page).
