@@ -63,6 +63,7 @@ int main(int argc, char** argv) {
 #endif
     const std::string filter = argc > 1 ? argv[1] : "";
     int ran = 0, bad = 0;
+    std::vector<std::string> bad_names;   // listed again at the very end, where a CI log is read first
     for (const mt::Case& c : mt::registry()) {
         if (!filter.empty() && std::string(c.name).find(filter) == std::string::npos) continue;
         const int before = mt::g_failures;
@@ -71,10 +72,11 @@ int main(int argc, char** argv) {
         catch (const std::exception& e) { mt::fail(__FILE__, __LINE__, std::string("exception: ") + e.what()); }
         catch (...) { mt::fail(__FILE__, __LINE__, "unknown exception"); }
         ++ran;
-        if (mt::g_failures != before) { ++bad; std::cerr << "[ NOT OK ] " << c.name << std::endl; }
+        if (mt::g_failures != before) { ++bad; bad_names.push_back(c.name); std::cerr << "[ NOT OK ] " << c.name << std::endl; }
         else std::cerr << "[  OK  ] " << c.name << std::endl;
     }
-    std::cerr << "\n" << ran << " tests, " << bad << " failed\n";
+    std::cerr << "\n" << ran << " tests, " << bad << " failed" << std::endl;
+    for (const auto& n : bad_names) std::cerr << "  NOT OK: " << n << std::endl;
     if (ran == 0) { std::cerr << "no test matches '" << filter << "'\n"; return 2; }
     return bad == 0 ? 0 : 1;
 }
