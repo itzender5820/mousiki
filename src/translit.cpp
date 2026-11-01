@@ -878,9 +878,15 @@ void translit_kanji_found(const std::string& text, const std::string& reading) {
     if (reading.empty() || reading == text || reading.find_first_of("\n\t") != std::string::npos) return;
     if (g_whole.emplace(text, reading).second) { g_reader_keys.insert(text); ++g_cache_version; }
     if (!g_kanji_file.empty()) {
+        // (the size is asked before opening: on Windows tellp() of a file opened for appending says 0 whatever it holds)
+        bool fresh = true;
+        {
+            std::ifstream probe(g_kanji_file, std::ios::binary | std::ios::ate);
+            fresh = !probe.is_open() || probe.tellg() <= std::streampos(0);
+        }
         std::ofstream out(g_kanji_file, std::ios::app | std::ios::binary);
         if (out) {
-            if (!g_kanji_rules.empty() && out.tellp() == std::streampos(0)) out << "#rules " << g_kanji_rules << "\n";   // a new file starts with its rules
+            if (!g_kanji_rules.empty() && fresh) out << "#rules " << g_kanji_rules << "\n";   // a new file starts with its rules
             out << text << "\t" << reading << "\n";
         }
     }
