@@ -18,7 +18,7 @@ std::vector<Case>& registry() { static std::vector<Case> r; return r; }
 
 void fail(const char* file, int line, const std::string& what) {
     ++g_failures;
-    std::cerr << "    FAIL " << file << ":" << line << "  " << what << std::endl;   // (flushed: a CI log shows it next to the test it belongs to)
+    std::cerr << "    CHECK WRONG at " << file << ":" << line << "  " << what << std::endl;   // (flushed: a CI log shows it next to the test it belongs to)
 }
 
 TempHome::TempHome() {
@@ -71,8 +71,8 @@ int main(int argc, char** argv) {
         catch (const std::exception& e) { mt::fail(__FILE__, __LINE__, std::string("exception: ") + e.what()); }
         catch (...) { mt::fail(__FILE__, __LINE__, "unknown exception"); }
         ++ran;
-        if (mt::g_failures != before) { ++bad; std::cerr << "[ FAIL ] " << c.name << "\n"; }
-        else std::cerr << "[  OK  ] " << c.name << "\n";
+        if (mt::g_failures != before) { ++bad; std::cerr << "[ NOT OK ] " << c.name << std::endl; }
+        else std::cerr << "[  OK  ] " << c.name << std::endl;
     }
     std::cerr << "\n" << ran << " tests, " << bad << " failed\n";
     if (ran == 0) { std::cerr << "no test matches '" << filter << "'\n"; return 2; }
