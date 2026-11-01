@@ -1894,6 +1894,7 @@ private:
     void readlyrics_search_rebuild();
     void readlyrics_search_key(int key);
     void readlyrics_show_file(const LyricsFileHit& hit);
+    LyricsFileHit rd_opened_hit_;                       // the reader shows this lyrics file, opened from the search (empty: it shows the lyrics of a track)
     // "Add manually" ([a] / CTRL+n): assigns a .lrc / .txt file to a track by hand. Two search panes: the lyrics files
     // (every lyrics folder of the library, subfolders included, or a path typed in) and the tracks of the library, whose
     // first entry is always the current track. TAB changes the pane, ENTER assigns.

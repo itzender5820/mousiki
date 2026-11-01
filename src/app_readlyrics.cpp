@@ -67,6 +67,7 @@ void App::readlyrics_open() {
     }
     if (track.empty()) { status_line_ = "no track to read lyrics of -- play or hover a track first"; return; }
     rd_track_ = track;
+    rd_opened_hit_ = LyricsFileHit();
     rd_title_ = title.empty() ? path_utf8(track.stem()) : title;
     rd_versions_ = list_lyrics_versions(track);
     rd_sel_ = 0;
@@ -509,6 +510,7 @@ void App::readlyrics_show_file(const LyricsFileHit& hit) {
     v.active = true;
     rd_track_ = hit.path.parent_path().parent_path() / path_from_utf8(hit.name + ".audio");
     rd_title_ = hit.name;
+    rd_opened_hit_ = hit;
     rd_versions_.assign(1, v);
     rd_sel_ = 0;
     rd_first_ = 0;
@@ -597,7 +599,7 @@ std::vector<std::string> App::build_readlyrics_search_panel() const {
 // --- [a] / CTRL+n: add a lyrics file to a track by hand ---------------------------------------------------------
 std::string App::readlyrics_add_track_label(int idx) const {
     if (idx < 0) {
-        if (rd_add_cur_.empty()) return "Current track:  (none -- play or open a track first)";
+        if (rd_add_cur_.empty()) return rd_opened_hit_.path.empty() ? "Current track:  (none -- play or open a track first)" : "Current track:  (none -- no track is named like the opened lyrics)";
         return "Current track:  " + (rd_add_names_ ? path_utf8(rd_add_cur_.filename()) : rd_add_cur_title_);
     }
     const LocalTrack& t = all_local_tracks_[static_cast<size_t>(idx)];
@@ -621,7 +623,20 @@ void App::readlyrics_add_open() {
     std::error_code ec;
     rd_add_cur_.clear();
     rd_add_cur_title_.clear();
-    if (!rd_track_.empty() && fs::exists(rd_track_, ec)) { rd_add_cur_ = rd_track_; rd_add_cur_title_ = rd_title_; }
+    if (!rd_opened_hit_.path.empty()) {
+        // A lyrics file was opened from the search: the song it belongs to (the track named like it, preferably in the folder
+        // above its lyrics folder) is the current one. Nothing else stands in for it: the playing song is only the current one
+        // when no lyrics file was opened.
+        const fs::path home = rd_opened_hit_.path.parent_path().parent_path();
+        const LocalTrack* found = nullptr;
+        for (const LocalTrack& t : all_local_tracks_) {
+            if (ascii_lower_str(path_utf8(t.path.stem())) != rd_opened_hit_.lname) continue;
+            if (!found) found = &t;
+            if (t.path.parent_path() == home) { found = &t; break; }
+        }
+        if (found) { rd_add_cur_ = found->path; rd_add_cur_title_ = readlyrics_add_track_text(*found); }
+    }
+    else if (!rd_track_.empty() && fs::exists(rd_track_, ec)) { rd_add_cur_ = rd_track_; rd_add_cur_title_ = rd_title_; }
     else if (has_track_ && !current_path_.empty()) {
         rd_add_cur_ = current_path_;
         rd_add_cur_title_ = (metadata_.artist == "-" || metadata_.artist.empty()) ? metadata_.name : metadata_.artist + " - " + metadata_.name;
@@ -677,6 +692,7 @@ void App::readlyrics_add_open() {
     rd_add_lock_auto_ = false;
     rd_add_lock_cur_ = true;
     rd_add_lock_track_.clear();
+    if (!rd_opened_hit_.path.empty()) rd_add_lock_file_ = rd_opened_hit_;   // the lyrics that are open are the ones to add
     readlyrics_add_rebuild();
     readlyrics_add_lock_refresh();
     rd_add_open_ = true;
@@ -1029,7 +1045,7 @@ std::vector<std::string> App::build_readlyrics_add_panel(int W) const {
     {
         const bool has_f = !rd_add_lock_file_.path.empty();
         const auto l1 = cut(has_f ? rd_add_lock_file_.name : "(none yet -- highlight a file, press [ENTER])", pw_l, has_f ? hdr : std::string());
-        const std::string tt = rd_add_lock_cur_ ? (rd_add_cur_.empty() ? std::string("(no current track -- lock one from the list)") : "Current track:  " + rd_add_cur_title_) : rd_add_lock_title_;
+        const std::string tt = rd_add_lock_cur_ ? (rd_add_cur_.empty() ? std::string(rd_opened_hit_.path.empty() ? "(no current track -- lock one from the list)" : "(no track is named like the opened lyrics -- lock one from the list)") : "Current track:  " + rd_add_cur_title_) : rd_add_lock_title_;
         const auto r1 = cut(tt, pw_r, hdr);
         both(pline(l1.first, l1.second, pw_l), pline(r1.first, r1.second, pw_r));
         // the path of the file, then the note for lyrics that were added by hand; on a narrow pane the note wraps over both rows

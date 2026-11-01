@@ -780,7 +780,7 @@ locked-in panes and the lyrics the locked track has below the lists; the current
 fields). [CTRL+t] (also while typing in a search field) switches the track list between artist - title and file names
 (the title of the pane says which one is on), [CTRL+f] shows only the tracks without saved lyrics,
 [CTRL+o] shows the locked-in lyrics file by the name of the file you picked (the copy remembers it) or by the name of the copy in the lyrics folder,
-[PgUp]/[PgDn] and [SHIFT+UP/DOWN] turn a page. [CTRL+c] (anywhere) clears the choice: the lyrics file is unlocked and the current
+[PgUp]/[PgDn] and [SHIFT+UP/DOWN] turn a page. A lyrics file opened with [CTRL+s] in the reader is locked in at once and its song (the track named like it) is the current track; only without such a file the playing song is. [CTRL+c] (anywhere) clears the choice: the lyrics file is unlocked and the current
 track is the locked track again. The lyrics in use so far are kept as an older
 version. [DEL] (twice) unassigns manually added lyrics of the locked-in track again: the file itself is
 not deleted, the previous lyrics come back. In karaoke mode [a] and in the re-fetch form [CTRL+n] open READ LYRICS with this overlay open.

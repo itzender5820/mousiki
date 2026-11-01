@@ -787,7 +787,7 @@ fields). [CTRL+t] (also while typing in a search field) switches the track list 
 (the title of the pane says which one is on), [CTRL+f] shows only the tracks without saved lyrics,
 )WIZ",
 R"WIZ([CTRL+o] shows the locked-in lyrics file by the name of the file you picked (the copy remembers it) or by the name of the copy in the lyrics folder,
-[PgUp]/[PgDn] and [SHIFT+UP/DOWN] turn a page. [CTRL+c] (anywhere) clears the choice: the lyrics file is unlocked and the current
+[PgUp]/[PgDn] and [SHIFT+UP/DOWN] turn a page. A lyrics file opened with [CTRL+s] in the reader is locked in at once and its song (the track named like it) is the current track; only without such a file the playing song is. [CTRL+c] (anywhere) clears the choice: the lyrics file is unlocked and the current
 track is the locked track again. The lyrics in use so far are kept as an older
 version. [DEL] (twice) unassigns manually added lyrics of the locked-in track again: the file itself is
 not deleted, the previous lyrics come back. In karaoke mode [a] and in the re-fetch form [CTRL+n] open READ LYRICS with this overlay open.
@@ -906,10 +906,10 @@ Osci style       braille (works in any terminal) / image (pixels, needs Kitty gr
 Frame rate       30 / 45 / 60 / 90 / 120 / 165 fps
 Osci music mode  for oscilloscope music: the unprocessed signal and a fixed scale
 Beam             CRT: every sample drawn once, light by the time the beam spends on a spot
-                 (image default) / classic: the old look with a tail (braille default)
-Dwell brightness CRT beam: slow strokes bright, jumps dark; off = every stroke equally bright
 )WIZ",
-R"WIZ(Low-rate blank.  music mode, CRT beam: files below 96 kHz get the jumps between shapes faded out
+R"WIZ(                 (image default) / classic: the old look with a tail (braille default)
+Dwell brightness CRT beam: slow strokes bright, jumps dark; off = every stroke equally bright
+Low-rate blank.  music mode, CRT beam: files below 96 kHz get the jumps between shapes faded out
 Rough mode       not in music mode: loud beats clip along the edges of the square (edge clipping;
                  braille default on, image default off); not optimal, technically, but looks cool :D
 Image res/detail image style: drawn at full / half / third resolution; detail normal / high =
@@ -1046,10 +1046,10 @@ when Max boost is holding a quiet track back. In the radio a stream has no end, 
 measured since you tuned in and the gain glides in over a second.
 
 STEREO OR MONO: [[Header]]
-Settings ->> GENERAL ->> Stereo Sound. Off folds left and right together (and halves the memory a
-loaded track needs). Turning it off is immediate; turning it on applies from the next track.
 )WIZ",
-R"WIZ(In the radio the footer of the dial then reads MONO.
+R"WIZ(Settings ->> GENERAL ->> Stereo Sound. Off folds left and right together (and halves the memory a
+loaded track needs). Turning it off is immediate; turning it on applies from the next track.
+In the radio the footer of the dial then reads MONO.
 
 [[New Page]]
 2.6.3 SAMPLE RATE AND PLAYBACK ENGINE [[Header]]
@@ -1208,12 +1208,12 @@ BORDER_COLOR, DISK, METADATA, VIZ, PROGRESS_BAR, LIST, QUEUE, LYRICS, HEADER, LE
 CHANGE (a field you type in) and FOCUS (the [◀] behind the title of an active pane).
 [<-/->] pick the cell, then [ENTER] to type a number.
 The border can fade from the top to the bottom color line by line (BorderGradient smooth / rough).
-
+)WIZ",
+R"WIZ(
 COLOR THEMES: [[Header]]
 The first row, THEME, holds ready-made schemes (the default MeowerShell, Serious MeowerShell and
 30 more, e.g. Catppuccin Mocha, Tokyo Night, Kanagawa, Outrun) and the themes you made yourself,
-)WIZ",
-R"WIZ(which the list shows after the built-in ones, named in the header color.
+which the list shows after the built-in ones, named in the header color.
 [ENTER]        on the theme name: the list; [ENTER] applies a theme
 [↑↓ / SHIFT+↑↓] in that list: one theme / a page (a scrollbar on the right shows where you are)
 [SHIFT+d]      in that list: delete a theme of your own (asks first)
@@ -1319,10 +1319,10 @@ marquee.
                                                   allow local network access in order to make the remote
                                                   function available. When set, the QR opens a smartphone
                                                   browser version of Mousiki. You can also install the .apk
-                                                  for Android that can be found on github, which is
-                                                  essentially just a small browser app that can be opened
 )WIZ",
-R"WIZ(                                                  via an icon.
+R"WIZ(                                                  for Android that can be found on github, which is
+                                                  essentially just a small browser app that can be opened
+                                                  via an icon.
 
 [Update Notice:][[Legend]]                                    a quiet once-a-day look for a newer release; a small
                                                   window, once per version ([ESC] close, [o] open the Github
@@ -1428,12 +1428,12 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
 [Disk Speed:][[Legend]]                                       with range between 0.01 - 1.00.
 
 [Album Cover (music player):][[Legend]]                       Album Cover (false by default) shows the cover of the
-                                                  playing track in the disk's place; a track without a cover
+)WIZ",
+R"WIZ(                                                  playing track in the disk's place; a track without a cover
                                                   keeps the disk.
 
 [Cover Mode:][[Legend]]                                       chooses how it is shown (seven ways):
-)WIZ",
-R"WIZ(                                                  1. Just Cover - the cover in its own colours.
+                                                  1. Just Cover - the cover in its own colours.
                                                   2. Cover with Gradient - a grey version of the cover under
                                                   the disk's gradient colours, a slow wave that moves
                                                   diagonally over the picture, from the upper left to the
@@ -1519,10 +1519,10 @@ R"WIZ(                                                  1. Just Cover - the cove
 
 
 [Volume Indicator:][[Legend]]                                 what the VOLUME BAR is drawn with: # or ⠶ or ⣿ or ⡾⣽ (a
-                                                  fixed row of braille characters that does not repeat) or
-                                                  two moving braille blocks = uses the braille effect of the
 )WIZ",
-R"WIZ(                                                  disk: the bar follows the disk animation, with the centre
+R"WIZ(                                                  fixed row of braille characters that does not repeat) or
+                                                  two moving braille blocks = uses the braille effect of the
+                                                  disk: the bar follows the disk animation, with the centre
                                                   of the circle two cells in from the left. Right of the
                                                   toggle: gradient / no gradient, where gradient = the VIZ
                                                   colours gradient from left to right, like the oscilloscope
@@ -1638,10 +1638,10 @@ are in it. Files added to your music folders meanwhile are found after [SHIFT+r]
 WHAT THE RADIO SHARES WITH THE PLAYER: [[Header]]
 Equalizer [SHIFT+e], oscilloscope [SHIFT+o] / [SHIFT+0], spectrogram [SHIFT+i] / [SHIFT+u], scope and
 spectrogram windows [)] / [(], loudness normalization [v] / [SHIFT+v], sleep timer [SHIFT+z], text fields,
-the cheat sheet [?] and this wizard [SHIFT+w] work with the same keys and overlays as described in
-chapters 2.5 to 2.8. Differences: the radio keeps its own equalizer curve, oscilloscope values and
 )WIZ",
-R"WIZ(settings in radio_config.txt; the sleep timer stops the stream (no "Stop after current song"); the
+R"WIZ(the cheat sheet [?] and this wizard [SHIFT+w] work with the same keys and overlays as described in
+chapters 2.5 to 2.8. Differences: the radio keeps its own equalizer curve, oscilloscope values and
+settings in radio_config.txt; the sleep timer stops the stream (no "Stop after current song"); the
 visualization field is the scope block right of the station info and [,/.] cycles oscilloscope,
 sphere and spectrogram (there are no lyrics).
 
@@ -1798,14 +1798,14 @@ The size is [s] Settings[[Header]] ->> GENERAL[[Header]] ->> Timeshift buffer (5
 default 30). The file is radio_timeshift.pcm in ~/.cache/mousiki/ and takes about 11.5 MB per minute
 (about 345 MB for 30 minutes). It is written by the stream thread and never touched by the screen
 loop, so the interface stays as fast as without it. It is deleted when the radio closes.
-If a pause lasts longer than the buffer, the oldest part is overwritten and playback continues
+)WIZ",
+R"WIZ(If a pause lasts longer than the buffer, the oldest part is overwritten and playback continues
 from the oldest audio that is still there.
 
 
 
 [[New Page]]
-)WIZ",
-R"WIZ(3.3.2 RECORDING [[Header]]
+3.3.2 RECORDING [[Header]]
 
 RECORD, INCLUDING THE MINUTES BEFORE YOU PRESSED: [[Header]]
 [y] opens the RECORD overlay. It freezes the moment you pressed, so no time is lost while you choose:
@@ -1946,12 +1946,12 @@ BOOKS (left)      only folders: one row per book with its number of chapters. [E
 CHAPTERS (right)  takes the place of the queue: the files of the open book in natural order
                   ("Chapter 2" before "Chapter 10"). [ENTER] plays a chapter. [TAB] moves the focus.
                   Hitting [ESC] moves back to the library/books pane. 
-
+)WIZ",
+R"WIZ(
 PLAYBACK: [[Header]]
 [n] / [b]    next / previous chapter, also at the end of a chapter. 
 [m]          cycles the playpack mode: on to the next chapter / repeat the chapter / stop after it. 
-)WIZ",
-R"WIZ([->] / [<-]  seek: 5 seconds at first, faster and faster the longer the key is held (up to minutes), 
+[->] / [<-]  seek: 5 seconds at first, faster and faster the longer the key is held (up to minutes), 
              so a long book can be crossed quickly. [p] pause, volume, mute and the sleep timer as always.
 
 PLAYBACK SPEED: [[Header]]
@@ -2064,9 +2064,9 @@ NOTES: [[Header]]
            import adds only new notes).
 [SHIFT+t]  sorts: chapter order with highest chapter and furthest time on top, recently edited first.
 [.] / [,]  switch the field between the notes and the visualizations. When a note is open and was just
-           saved [.] puts a shown note away: the view from before comes back. [,] on a shown note (e.g. 
 )WIZ",
-R"WIZ(           right after saving it) writes it again.
+R"WIZ(           saved [.] puts a shown note away: the view from before comes back. [,] on a shown note (e.g. 
+           right after saving it) writes it again.
 
 Export / import of notes is possible and use the folder <book folder>/notes.
 Again, a note shows itself in the field (for 20 seconds) when playback passes its time.

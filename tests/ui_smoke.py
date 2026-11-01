@@ -1039,6 +1039,64 @@ def narrow_sweep(binary, root, scripts, cols, rows):
     finally:
         sess.kill()
 
+def opened_lyrics_is_current(binary, root, scripts):
+    """A lyrics file opened from the search in READ LYRICS is what "Add manually" works on: its song is the current track
+    (and the file is locked in); a file without a song of that name leaves no current track. Without a search it is the playing song."""
+    home = os.path.join(root, "ol_home")
+    lib = os.path.join(root, "ol_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    os.makedirs(os.path.join(lib, "Zed Artist", "lyrics"))
+    os.makedirs(os.path.join(lib, "lyrics"))
+    make_wav(os.path.join(lib, "Aaa First.wav"), 5)
+    make_wav(os.path.join(lib, "Zed Artist", "Zzz Last.wav"), 5)
+    with open(os.path.join(lib, "lyrics", "Aaa First.lrc"), "w", encoding="utf-8") as f:
+        f.write("[00:00.50]first song lyrics\n")
+    with open(os.path.join(lib, "Zed Artist", "lyrics", "Zzz Last.lrc"), "w", encoding="utf-8") as f:
+        f.write("[00:00.50]last song lyrics\n")
+    with open(os.path.join(lib, "lyrics", "Nobody Home.lrc"), "w", encoding="utf-8") as f:
+        f.write("[00:00.50]lyrics of no song\n")
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+
+    def reader_with_search(query):
+        sess.send(b"\x0c", 1.2)                       # READ LYRICS on the hovered track (the first one)
+        sess.send(b"\x13", 0.8)                       # CTRL+s: search the lyrics files
+        for c in query:
+            sess.send(c, 0.1)
+        sess.send(b"\r", 0.8)                         # open the first match
+
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Aaa First" in sess.text():
+                break
+        reader_with_search("zzz")
+        check("last song lyrics" in sess.text(), "opened lyrics: the search opened the lyrics file")
+        sess.send("a", 1.0)
+        check("ADD LYRICS MANUALLY" in sess.text() and "Zzz Last" in sess.text() and "Aaa First" not in sess.text().split("TRACKS")[0],
+              "opened lyrics: the song of the opened lyrics file is the current track")
+        check("Zzz Last.lrc" in sess.text() or "Zzz Last" in sess.text().split("LOCKED IN: LYRICS FILE")[-1], "opened lyrics: the opened file is locked in")
+        sess.send(b"\x1b", 0.8)
+        sess.send(b"\x1b", 0.8)                       # leave the reader
+        reader_with_search("nobody")
+        sess.send("a", 1.0)
+        check("no track is named like the opened lyrics" in sess.text(), "opened lyrics: a file without a song leaves no current track")
+        sess.send(b"\x1b", 0.8)
+        sess.send(b"\x1b", 0.8)
+        sess.send(b"\x0c", 1.2)                       # an ordinary reader again: the hovered track is the current one
+        sess.send("a", 1.0)
+        check("Current track" in sess.text() and "Aaa First" in sess.text().split("TRACKS")[0] + sess.text(), "opened lyrics: without a search the reader's track is the current one")
+        check("no track is named" not in sess.text(), "opened lyrics: the earlier choice does not stay")
+        check(sess.alive(), "opened lyrics: the program is still running")
+    finally:
+        sess.kill()
+
 
 # The scenarios, longest first. Each one runs in a worker process of its own (own copy of the library, own HOME): they only
 # sleep and read frames, so on a few cores they overlap well. MOUSIKI_SMOKE_JOBS=1 runs them one after the other.
@@ -1050,6 +1108,8 @@ def run_scenario(name, binary, root, scripts):
         kitty_cover_options(binary, home, scripts)
     elif name == "selftest_command":
         selftest_command(binary, scripts)
+    elif name == "opened_lyrics_is_current":
+        opened_lyrics_is_current(binary, root, scripts)
     elif name == "narrow80":
         narrow_sweep(binary, root, scripts, 80, 24)
     elif name == "narrow100":
@@ -1059,7 +1119,7 @@ def run_scenario(name, binary, root, scripts):
 
 
 SCENARIOS = ["narrow80", "narrow100", "main", "read_lyrics_play", "karaoke_timing", "book_speed_and_devices", "paging_and_translit_row",
-             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "selftest_command"]
+             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "selftest_command", "opened_lyrics_is_current"]
 
 
 def main():

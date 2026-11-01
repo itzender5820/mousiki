@@ -624,6 +624,7 @@ Assigns a `.lrc` / `.txt` file to a track by hand. The overlay fills the whole w
 - `ENTER` in a list **locks** the highlighted lyrics file or track in (marked `»` in the header colour). The **Current track** is locked in by default. `ENTER` on the button adds.
 - `PgUp` / `PgDn` and `SHIFT+↑↓` turn a page in the list that has the focus.
 - `ESC` closes.
+- **Current track:** the track the reader shows. When the reader shows a lyrics file you opened with `CTRL+s` (search), that file is locked in at once and the current track is the song named like it (preferably the one in the folder above its `lyrics` folder). If no track has that name, there is no current track (lock one from the list). Only when no lyrics file was opened from the search is the playing song the current track.
 
 **Keys that also work while typing in a search field**
 - `CTRL+t` switches the track list between *artist - title* and **file names**. The pane title says which is on (`TRACKS (file names)`) and the search follows the shown form.
