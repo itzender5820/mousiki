@@ -300,7 +300,7 @@ TerminalIO::TerminalIO() {
     struct termios raw;
     tcgetattr(STDIN_FILENO, &g_orig_termios);
     raw = g_orig_termios;
-    raw.c_lflag &= ~(ECHO | ICANON);
+    raw.c_lflag &= ~(ECHO | ICANON | IEXTEN);   // (IEXTEN off: macOS' terminal driver eats Ctrl+V (literal-next) and Ctrl+O (discard) otherwise, so they never reached the app as keys)
     raw.c_iflag &= ~(IXON | IXOFF);   // Ctrl+S / Ctrl+Q reach the app as keys (Ctrl+S = save), not as flow control
 #ifdef _POSIX_VDISABLE
     raw.c_cc[VSUSP] = _POSIX_VDISABLE;   // Ctrl+Z is a key (the cover look), it does not stop the program
@@ -377,7 +377,7 @@ void TerminalIO::reassert_raw_mode() {
     win_raw_mode_enter();
 #else
     struct termios raw = g_orig_termios;
-    raw.c_lflag &= ~(ECHO | ICANON);
+    raw.c_lflag &= ~(ECHO | ICANON | IEXTEN);   // (IEXTEN off: macOS' terminal driver eats Ctrl+V (literal-next) and Ctrl+O (discard) otherwise, so they never reached the app as keys)
     raw.c_iflag &= ~(IXON | IXOFF);   // see the constructor: Ctrl+S is a key here
 #ifdef _POSIX_VDISABLE
     raw.c_cc[VSUSP] = _POSIX_VDISABLE;   // see the constructor: Ctrl+Z is a key here
