@@ -128,6 +128,7 @@ TABLE OF CONTENT: [[Header]]
    2.8.2 Colors and Color Themes
    2.8.3 GENERAL, ANIMA/VIZ and PATHS
    2.8.4 Hotkeys, Reference and About
+   2.8.5 Console, Logs and Status Messages
 
 3 RADIO PLAYER MODE[[Header]]
 
@@ -1626,6 +1627,35 @@ those, and it always shows the default keys.
 
 ABOUT APP TAB: [[Header]]
 The credits and versions, centred on the tab and placed in its vertical middle, two rows higher; [UP]/[DOWN] scroll it only when the window is too small.
+
+
+[[New Page]]
+2.8.5 CONSOLE, LOGS AND STATUS MESSAGES [[Header]]
+
+OPEN: [[Header]]
+[t] on the main screen opens the console, a read-only view with two panes. [ESC], [t] or [T] close it.
+
+CONSOLE / LOGS: [[Header]]
+The top pane shows what the app has been doing: the commands it ran with their output (yt-dlp, ffmpeg,
+lyrics and cover fetches ...), sort and filter changes, queue messages, load timings and why a cover
+or a lyrics file was (not) found. It keeps the last 1500 lines of this session, and the end of the
+last session's log stands above them, after a line "the last session". The files are
+~/.cache/mousiki/logs/console.log and console_previous.log.
+
+STATUS MESSAGES: [[Header]]
+The pane below (8 rows) keeps every status message with its time, e.g. [14:03:22] Latin letters: on.
+The messages of the Settings screen and the overlays are kept too; the main screen shows none of
+them. It keeps the last 500 messages. On a small terminal this pane gets what is left after three
+log rows.
+
+KEYS: [[Header]]
+[TAB] switches the pane (a small triangle marks it). [UP]/[DOWN] scroll the pane one line,
+[SHIFT+UP]/[SHIFT+DOWN] a page, [HOME] goes to the oldest line, [END] back to the newest (a pane
+at the newest line follows new lines).
+[v] Verbose log for this session: switches the verbose level on and off, for this session only
+(nothing is saved; the title then reads CONSOLE / LOGS (verbose)). Verbose adds internal and
+OS-level events (resizes, audio device events ...). The setting ConsoleVerbosity (config.txt) sets
+the level at the start.
 
 
 [[New Page]]

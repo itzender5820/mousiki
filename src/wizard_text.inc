@@ -130,6 +130,7 @@ TABLE OF CONTENT: [[Header]]
    2.8.2 Colors and Color Themes
    2.8.3 GENERAL, ANIMA/VIZ and PATHS
    2.8.4 Hotkeys, Reference and About
+   2.8.5 Console, Logs and Status Messages
 
 3 RADIO PLAYER MODE[[Header]]
 
@@ -1643,6 +1644,35 @@ The credits and versions, centred on the tab and placed in its vertical middle, 
 
 
 [[New Page]]
+2.8.5 CONSOLE, LOGS AND STATUS MESSAGES [[Header]]
+
+OPEN: [[Header]]
+[t] on the main screen opens the console, a read-only view with two panes. [ESC], [t] or [T] close it.
+
+CONSOLE / LOGS: [[Header]]
+The top pane shows what the app has been doing: the commands it ran with their output (yt-dlp, ffmpeg,
+lyrics and cover fetches ...), sort and filter changes, queue messages, load timings and why a cover
+or a lyrics file was (not) found. It keeps the last 1500 lines of this session, and the end of the
+last session's log stands above them, after a line "the last session". The files are
+~/.cache/mousiki/logs/console.log and console_previous.log.
+
+STATUS MESSAGES: [[Header]]
+The pane below (8 rows) keeps every status message with its time, e.g. [14:03:22] Latin letters: on.
+The messages of the Settings screen and the overlays are kept too; the main screen shows none of
+them. It keeps the last 500 messages. On a small terminal this pane gets what is left after three
+log rows.
+
+KEYS: [[Header]]
+[TAB] switches the pane (a small triangle marks it). [UP]/[DOWN] scroll the pane one line,
+[SHIFT+UP]/[SHIFT+DOWN] a page, [HOME] goes to the oldest line, [END] back to the newest (a pane
+at the newest line follows new lines).
+[v] Verbose log for this session: switches the verbose level on and off, for this session only
+(nothing is saved; the title then reads CONSOLE / LOGS (verbose)). Verbose adds internal and
+OS-level events (resizes, audio device events ...). The setting ConsoleVerbosity (config.txt) sets
+the level at the start.
+
+
+[[New Page]]
 RADIO PLAYER MODE: [[Header]]
 
 The radio player is the second of the three modes of Mousiki Plus. [SHIFT and +] (German keyboard) or
@@ -1742,7 +1772,8 @@ instead of duplicating it.[[Legend]]
 SEARCHING YOUR OWN STATIONS: [[Header]]
 [/] opens the search box under the frequency band. The STATIONS pane filters live as you type; 
 [ENTER] tunes the highlighted station and [ESC] clears the search.
-(a name, genre or country)   filters your stations
+)WIZ",
+R"WIZ((a name, genre or country)   filters your stations
 [s:]                         back to searching stations
 [p:]                         your saved STATION LISTS; [ENTER] fills the pane with that list and tunes
                              its first station
@@ -1773,8 +1804,7 @@ Named, ordered collections of stations (a "jazz" list, a "morning" list), built 
 playlist editor of the music player.
 
 OPEN AND CHANGE TABS: [[Header]] 
-)WIZ",
-R"WIZ([SHIFT+k] opens the menu, [<-/->] switch the two tabs (<-/->] from every pane, also while typing). 
+[SHIFT+k] opens the menu, [<-/->] switch the two tabs (<-/->] from every pane, also while typing). 
 Lists are stored in stationlists.txt.
 
 KEYS IN THE STATION LISTS MENU: [[Header]]
@@ -1897,7 +1927,8 @@ Black Background, On air ascii,
 Pulse wave, Dummy buttons, Volume indicator (the look of the VOLUME BAR, like in the player),
 Spectrum Bars, Stereo sound, Normalize volume, Tuning noise (static while
 tuning, off by default and never recorded), Timeshift buffer (5 / 15 / 30 / 45 / 60 minutes),
-Use oscilloscope / Use spectrogram.
+)WIZ",
+R"WIZ(Use oscilloscope / Use spectrogram.
 
 ANIMA/VIZ: [[Header]]
 Gradient wave speed and Pulse wave speed (the ON AIR sign), Bars Fluidity / Degradation / Viscosity,
@@ -1925,8 +1956,7 @@ A key that is already in use is refused, and the fixed keys count too: the 16 pr
 e r t d f g) and the vi-style [j] / [k]. The cheat sheet [?] always lists the default keys.
 
 THE FILES OF THE RADIO: [[Header]]
-)WIZ",
-R"WIZ(radio_config.txt   settings, colors, equalizer, oscilloscope (keys as HKey<Action>= lines)
+radio_config.txt   settings, colors, equalizer, oscilloscope (keys as HKey<Action>= lines)
 stations.txt       your station list                    presets.txt       the presets and the active one
 stationlists.txt   the saved station lists              preset_names.txt  the short names of the PRESETS pane
 radio_history/     history_radio.txt and archive_radio.txt
@@ -2028,7 +2058,8 @@ File name, Book title, Author, Narrator, Chapter, Publisher, Year and Genre.
               to every chapter of the book; the chapter title stays each chapter's own. The chapter 
               number always goes in FRONT of the name (01 Dune, 02 Dune ...): the folder is sorted 
               by name, so the number keeps the track order whatever the titles are.
-
+)WIZ",
+R"WIZ(
 A number that is there already is not added twice; numbers at the END of every name (Dune 01) are moved 
 to the front of every file - the editor says why and asks [y] / [n] first. [s] puts the number in front 
 of the renamed chapter.Bookmarks, auto-mark, chapter marks and notes follow the new file names. 
@@ -2050,8 +2081,7 @@ NOTE       a bookmark with a text (SHIFT+n, below); without a title it is number
 The chapter with the newest bookmark is lit in the header colour with a diamond.
 [d] in the chapter pane deletes the bookmark of the chosen chapter (a small question first).
 Before the chapter changes ([n], [b], [ENTER] on another one), the mode switches or Mousiki quits, a
-)WIZ",
-R"WIZ(question asks "Set a bookmark here?" with the exact time: [y]/[ENTER] yes, [n] no, [ESC] stay.
+question asks "Set a bookmark here?" with the exact time: [y]/[ENTER] yes, [n] no, [ESC] stay.
 The audio is paused while the question is open. Settings -> GENERAL -> BOOKMARKS -> Ask for Bookmark 
 turns it off, since it can become annoying and auto-mark is always on anyways.
 
@@ -2157,7 +2187,8 @@ with the time inside that part (a note at 0:25:00, a chapter starting at 0:10:00
 of the new chapter).
 
 [[New Page]]
-5.1.1 REMOTE CONTROL AND KEY BINDINGS [[Header]]
+)WIZ",
+R"WIZ(5.1.1 REMOTE CONTROL AND KEY BINDINGS [[Header]]
 
 A running player or radio can be controlled with the same program:
   mousiki --cmd next | prev | play-pause | pause | stop | shuffle | mute | live  
@@ -2188,8 +2219,7 @@ ANDROID APP: [[Header]] Mousiki Remote (remote_app/android): enter the address a
 or let it find Mousiki in the network.
 
 PHONE BROWSER: [[Header]] open the address and enter the PIN.
-)WIZ",
-R"WIZ(The phone shows the disk, the meta data, the progress bar, the dummy buttons (working: seek,
+The phone shows the disk, the meta data, the progress bar, the dummy buttons (working: seek,
 play/pause) and boxes for prev, random, next, volume, mute, playback mode, LISTS and manual --
 drawn by Mousiki in the colours of your theme. In the radio: the ON AIR sign, the station,
 prev/next station, pause, live, stop.

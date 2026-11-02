@@ -101,9 +101,20 @@ void App::build_console_screen(std::ostringstream& frame, int W, int target_heig
         if (up > 0) foot = hint.empty() ? "scrolled up " + std::to_string(up) : "scrolled up " + std::to_string(up) + " | " + hint;
         frame << box_bottom(W, foot, border) << "\n";
     };
-    pane("CONSOLE / LOGS", ConsoleLog::instance().lines(), log_rows, 0,
-         two ? "" : "UP/DOWN scroll | HOME / END | [t / ESC] close");   // (with two panes the one legend sits under the second)
-    if (two) pane("STATUS MESSAGES", status_history_, status_rows, 1, W >= 90 ? "[TAB] other pane | UP/DOWN scroll (SHIFT: page) | HOME / END | [t / ESC] close" : "[TAB] pane | UP/DOWN | HOME/END | [t] close");
+    // the longest legend that fits
+    auto legend = [&](const std::vector<std::string>& options) {
+        for (const std::string& o : options) if (display_width(o) <= W - 4) return o;
+        return options.back();
+    };
+    const bool verbose = ConsoleLog::instance().level() == LogVerbosity::Verbose;
+    const std::string log_title = std::string("CONSOLE / LOGS") + (verbose ? " (verbose)" : "");
+    pane(log_title, ConsoleLog::instance().lines(), log_rows, 0,
+         two ? "" : legend({"UP/DOWN scroll | HOME / END | [v] Verbose log for this session | [t / ESC] close", "UP/DOWN | HOME/END | [v] verbose | [t] close"}));   // (with two panes the one legend sits under the second)
+    if (two) pane("STATUS MESSAGES", status_history_, status_rows, 1,
+                  legend({"[TAB] other pane | UP/DOWN scroll (SHIFT: page) | HOME / END | [v] Verbose log for this session | [t / ESC] close",
+                          "[TAB] pane | UP/DOWN scroll | HOME / END | [v] Verbose log for this session | [t] close",
+                          "[TAB] pane | UP/DOWN | [v] Verbose log for this session | [t] close",
+                          "[TAB] pane | [v] verbose log | [t] close"}));
 }
 
 // ---------------------------------------------------------------------

@@ -47,21 +47,47 @@ void ConsoleLog::init(LogVerbosity level) {
     std::lock_guard<std::mutex> lk(mutex_);
     level_ = level;
     lines_.clear();
+    prev_lines_.clear();
 
     std::error_code ec;
     fs::path dir = log_dir();
     fs::create_directories(dir, ec);
     log_path_ = dir / "console.log";
+    const fs::path prev_path = dir / "console_previous.log";
 
-    // Truncate (std::ios::trunc, not append) -- this is exactly the
-    // "previous session's log gets cleaned, a new one starts" behavior:
-    // whatever the last session wrote here is gone the instant a new
-    // session launches.
-    std::ofstream out(log_path_, std::ios::trunc);
-    if (out.is_open()) {
-        out << "===== mousiki session started " << now_hms()
-            << " (level=" << (level_ == LogVerbosity::Verbose ? "verbose" : "basic") << ") =====\n";
+    // The last session's log is kept (console_previous.log) and its end is shown above this session's lines in the console.
+    if (fs::exists(log_path_, ec)) {
+        {
+            std::ifstream in(log_path_);
+            std::string ln;
+            while (std::getline(in, ln)) {
+                if (!ln.empty() && ln.back() == '\r') ln.pop_back();
+                prev_lines_.push_back(ln);
+                if (prev_lines_.size() > kMaxLines) prev_lines_.erase(prev_lines_.begin(), prev_lines_.begin() + (prev_lines_.size() - kMaxLines));
+            }
+        }
+        fs::remove(prev_path, ec);
+        fs::rename(log_path_, prev_path, ec);
     }
+
+    // A fresh file for this session.
+    std::ofstream out(log_path_, std::ios::trunc);
+    const std::string head = "===== mousiki session started " + now_hms() + " (level=" +
+                             std::string(level_ == LogVerbosity::Verbose ? "verbose" : "basic") + ") =====";
+    if (out.is_open()) out << head << "\n";
+    lines_.push_back(head);
+}
+
+LogVerbosity ConsoleLog::toggle_level() {
+    LogVerbosity now;
+    {
+        std::lock_guard<std::mutex> lk(mutex_);
+        level_ = level_ == LogVerbosity::Verbose ? LogVerbosity::Basic : LogVerbosity::Verbose;
+        now = level_;
+    }
+    log_basic(now == LogVerbosity::Verbose ? "verbose log: on for this session (internal and OS-level events are logged too)"
+                                           : "verbose log: off");
+    return now;
 }
 
 void ConsoleLog::set_level(LogVerbosity level) {
@@ -131,7 +157,14 @@ void ConsoleLog::log_basic(const std::string& line) {
 
 std::vector<std::string> ConsoleLog::lines() const {
     std::lock_guard<std::mutex> lk(mutex_);
-    return lines_;
+    if (prev_lines_.empty()) return lines_;
+    std::vector<std::string> all;
+    all.reserve(prev_lines_.size() + lines_.size() + 2);
+    all.push_back("===== the last session (console_previous.log) =====");
+    all.insert(all.end(), prev_lines_.begin(), prev_lines_.end());
+    all.push_back("");
+    all.insert(all.end(), lines_.begin(), lines_.end());
+    return all;
 }
 
 } // namespace muisc

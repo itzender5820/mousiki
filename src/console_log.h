@@ -26,15 +26,17 @@ public:
     static ConsoleLog& instance();
 
     // Called once, as the very first thing App::run() does, before
-    // anything else can log a single line. Truncates/creates a fresh
-    // console.log at $HOME/.cache/mousiki/logs/console.log -- whatever
-    // the previous session left in there is wiped -- and clears the
-    // in-memory buffer, so logging genuinely starts from the very start
-    // of this session with nothing left over from the last one.
+    // anything else can log a single line. Starts a fresh console.log at
+    // $HOME/.cache/mousiki/logs/console.log; what the last session left
+    // there is kept as console_previous.log (the one before that is
+    // gone), and its last lines are shown above this session's in the
+    // console (lines()).
     void init(LogVerbosity level);
 
     void set_level(LogVerbosity level);
     LogVerbosity level() const;
+    // [v] in the console: Basic <-> Verbose for this session only (nothing is saved). Returns the new level.
+    LogVerbosity toggle_level();
 
     // Tier 1: an external command mousiki ran. Always recorded (both
     // Basic and Verbose show these) in exactly the "==> cmd" + raw
@@ -61,13 +63,14 @@ private:
     ConsoleLog() = default;
     mutable std::mutex mutex_;
     std::vector<std::string> lines_;
+    std::vector<std::string> prev_lines_;   // the end of the last session's log
     LogVerbosity level_ = LogVerbosity::Basic;
     // fs::path, not std::string: std::ofstream(std::string) opens the
     // file through the ANSI code page on Windows, so a user profile
     // containing a non-ASCII character (C:\\Users\\Jürgen\\...) could not
     // be opened at all. The fs::path overload uses the native wide path.
     fs::path log_path_;
-    static constexpr size_t kMaxLines = 800;
+    static constexpr size_t kMaxLines = 1500;   // this session's lines kept in memory (the last session's tail: the same number)
 
     void push_line_locked(const std::string& line);
     void append_to_file(const std::string& text);

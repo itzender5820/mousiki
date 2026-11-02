@@ -173,7 +173,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "HKeyCoverPrev", "Cover look one step back: plain disk, Just Cover, Cover with Gradient, the Cover behind Disk looks, the ASCII looks (audio books: default picture, cover with gradient wave, cover). Only with Eliment Disk / Cover on; saved at once"},
         {nullptr, "HKeyCoverNext", "Cover look one step forward (the same looks the other way round)"},
         {nullptr, "HKeySetting", "Open Settings panel, hit again to save and quit"},
-        {nullptr, "HKeyConsole", "Console: logs and status messages (TAB pane, arrows scroll)"},
+        {nullptr, "HKeyConsole", "Console: logs and status messages (TAB pane, arrows scroll; v Verbose log for this session; the log keeps 1500 lines and the end of the last session)"},
         {nullptr, "HKeyAudioDevice", "Choose the audio device: the sound outputs of this computer, the one in use marked (UP/DOWN, ENTER switches at once, ESC closes); also Settings -> GENERAL -> AUDIO"},
         {nullptr, "HKeyWizard", "Help wizard: the user guide as tutorial pages (arrow keys turn them)"},
         {nullptr, "HKeyCheatsheet", "This cheatsheet"},

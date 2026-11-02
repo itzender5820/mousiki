@@ -188,6 +188,9 @@ int spectro_window_main() {
     std::vector<int> idx;
     sdl::Texture* ptex = nullptr;        // the waterfall's palette: one row of 256 colours
     std::string ptex_key;
+    sdl::Texture* btex = nullptr; int btex_w = 0, btex_h = 0;
+    std::vector<uint8_t> bimg;
+    std::vector<uint32_t> bpx;
     std::vector<SpectroAnalyzer::WfGraph> wgraphs;
     std::vector<sdl::Vertex> wverts;
     std::vector<int> widx;
@@ -272,6 +275,7 @@ int spectro_window_main() {
         if (s.view == 1) {
             const int strip = s.labels ? 8 * sc : 0;                       // frequencies under the picture
             const int wpw = std::max(16, ow), wph = std::max(16, oh - strip);
+            const bool braille = s.style == 0;      // SHIFT+i style braille: coloured lines of dots on black, image: the filled graphs with a black outline
             // The graphs are drawn by the graphics card (filled triangles coloured from a one-row palette texture, the outline as lines):
             // the processor only works out where the corners are, which is a few thousand points, so a full-screen window costs the
             // same as a small one and even an integrated chip keeps up with the monitor's refresh rate.
@@ -291,7 +295,42 @@ int spectro_window_main() {
                     ptex_key = pk;
                 }
             }
+            if (braille) {
+                // The braille look, the same picture as in the terminal (outlines only, a line of dots in the colour of its height): the
+                // dot grid of braille_cells (2 x 4 dots to a cell, every dot a square of `dot` pixels), one colour for each cell.
+                const int dot = std::max(3, wph / 270);
+                const int bw = std::max(2, wpw / dot / 2 * 2), bh = std::max(4, wph / dot / 4 * 4);
+                if (!btex || btex_w != bw || btex_h != bh) {
+                    if (btex) A.DestroyTexture(btex);
+                    btex = A.CreateTexture(R, sdl::kFmtARGB8888, sdl::kTexStatic, bw, bh);
+                    if (!btex) { write_error(std::string("spectrogram window: cannot create a texture: ") + A.GetError()); break; }
+                    A.SetTextureBlendMode(btex, sdl::kBlendNone);
+                    if (A.SetTextureScaleMode) A.SetTextureScaleMode(btex, sdl::kScaleNearest);
+                    btex_w = bw; btex_h = bh;
+                }
+                SpectroSettings sb = s;
+                sb.wf_smooth = false;   // the dot grid moves a graph back one place at a time, as in the terminal (the glide, rounded to dots, made the rows shake back and forth)
+                an.waterfall(sb, bw, bh, true, bimg);
+                bpx.assign(static_cast<size_t>(bw) * bh, 0xFF000000u);
+                for (int cy = 0; cy < bh; cy += 4)
+                    for (int cx = 0; cx < bw; cx += 2) {
+                        int mx = 0;
+                        for (int dy = 0; dy < 4; ++dy)
+                            for (int dx = 0; dx < 2; ++dx) mx = std::max<int>(mx, bimg[static_cast<size_t>(cy + dy) * bw + cx + dx]);
+                        if (mx == 0) continue;
+                        const uint32_t col = 0xFF000000u | (static_cast<uint32_t>(cfg.pal[mx][0]) << 16) | (static_cast<uint32_t>(cfg.pal[mx][1]) << 8) | cfg.pal[mx][2];
+                        for (int dy = 0; dy < 4; ++dy)
+                            for (int dx = 0; dx < 2; ++dx)
+                                if (bimg[static_cast<size_t>(cy + dy) * bw + cx + dx]) bpx[static_cast<size_t>(cy + dy) * bw + cx + dx] = col;
+                    }
+                A.UpdateTexture(btex, nullptr, bpx.data(), bw * 4);
+                A.SetRenderDrawColor(R, 0, 0, 0, 255);
+                A.RenderClear(R);
+                const sdl::Rect dst{0, 0, bw * dot, bh * dot};
+                A.RenderCopy(R, btex, nullptr, &dst);
+            }
             int fwp = 0, amp = 1;
+            if (!braille) {
             an.waterfall_layout(s, wpw, wph, wgraphs, fwp, amp);
             A.SetRenderDrawColor(R, 0, 0, 0, 255);
             A.RenderClear(R);
@@ -306,9 +345,10 @@ int spectro_window_main() {
                     const float fr = std::clamp(static_cast<float>(G.baseline - top) / amp, 0.0f, 1.0f);
                     const float ut = (48.0f + fr * 207.0f + 0.5f) / 256.0f;
                     const int vi = static_cast<int>(wverts.size());
-                    wverts.push_back({px, static_cast<float>(top), 255, 255, 255, 255, ut, 0.5f});
-                    wverts.push_back({px, static_cast<float>(G.baseline), 255, 255, 255, 255, u0, 0.5f});
-                    wverts.push_back({px, static_cast<float>(G.bottom + 1), 255, 255, 255, 255, u0, 0.5f});
+                    const uint8_t cc = 255;
+                    wverts.push_back({px, static_cast<float>(top), cc, cc, cc, 255, ut, 0.5f});
+                    wverts.push_back({px, static_cast<float>(G.baseline), cc, cc, cc, 255, u0, 0.5f});
+                    wverts.push_back({px, static_cast<float>(G.bottom + 1), cc, cc, cc, 255, u0, 0.5f});
                     if (x > 0) {
                         const int p = vi - 3;
                         const int q[12] = {p, p + 1, vi, p + 1, vi + 1, vi, p + 1, p + 2, vi + 1, p + 2, vi + 2, vi + 1};
@@ -326,6 +366,7 @@ int spectro_window_main() {
                     A.RenderDrawLines(R, wpts.data(), static_cast<int>(wpts.size()));
                     if (k + 1 < thick) for (auto& pt : wpts) pt.y += 1;
                 }
+            }
             }
             if (s.labels && rate > 0) {   // the frequencies of the front graph, under it
                 A.SetRenderDrawColor(R, 190, 190, 190, 255);
@@ -484,6 +525,7 @@ int spectro_window_main() {
     save_geometry(geo);
     if (tex) A.DestroyTexture(tex);
     if (ptex) A.DestroyTexture(ptex);
+    if (btex) A.DestroyTexture(btex);
     A.DestroyRenderer(R);
     A.DestroyWindow(win);
     A.Quit();

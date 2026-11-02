@@ -511,6 +511,7 @@ std::string clipboard_get() {
     // clipboard" (empty, or an image) as well as "no display reachable"; either
     // way the text last copied inside this app is the best answer left.
     if (child->wait() != 0) return g_clipboard;
+    if (out.empty() && !g_clipboard.empty()) return g_clipboard;   // (a tool that took the copy without error but gives nothing back, as on a session without a desktop)
     return out;
 #endif
 }

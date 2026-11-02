@@ -78,7 +78,7 @@ TEST(wizard_chapter_of_a_part_opens_the_part_page) {
     const std::vector<std::string> disk;
     wizard::handle_key(st, wizard::Key::Contents);
     wizard::render(st, 120, 26, disk);
-    for (int i = 0; i < 41; ++i) wizard::handle_key(st, wizard::Key::Down);   // entry 41 = "3.1 The Radio Main UI"
+    for (int i = 0; i < 42; ++i) wizard::handle_key(st, wizard::Key::Down);   // entry 42 = "3.1 The Radio Main UI"
     wizard::handle_key(st, wizard::Key::Enter);
     const wizard::View v = wizard::render(st, 120, 26, disk);
     CHECK(v.title.find("3.1.1") == std::string::npos);

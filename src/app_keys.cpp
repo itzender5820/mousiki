@@ -100,6 +100,7 @@ void App::handle_key(int key) {
         const bool arrow = last_key_was_arrow();
         if (!arrow && (key == 27 || key == 't' || key == 'T')) mode_ = Mode::Browse;
         else if (!arrow && key == 9) console_pane_ ^= 1;
+        else if (!arrow && (key == 'v' || key == 'V')) { ConsoleLog::instance().toggle_level(); status_line_ = ConsoleLog::instance().level() == LogVerbosity::Verbose ? "verbose log: on (this session)" : "verbose log: off"; }
         else if (arrow && (key == 'A' || key == 'B')) {
             const int step = last_key_was_shifted() ? 8 : 1;
             console_up_[console_pane_] = std::max(0, console_up_[console_pane_] + (key == 'A' ? step : -step));   // (the upper end is clamped while drawing)

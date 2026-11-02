@@ -445,6 +445,13 @@ def mode_keys(binary, root, scripts):
             if "Alpha Song" in sess.text():
                 break
         check(not re.search(rb"\x1b\[8;\d+;\d+t", sess.raw), "use terminal settings: true leaves the terminal alone")
+        sess.send("t", 1.0)   # the console: [v] switches the verbose log on for this session
+        check("CONSOLE / LOGS" in sess.text() and "Verbose log" in sess.text(), "console: the legend names [v] Verbose log for this session")
+        sess.send("v", 1.0)
+        check("(verbose)" in sess.text(), "console: [v] switches the verbose log on (shown in the title)")
+        sess.send("v", 1.0)
+        check("(verbose)" not in sess.text(), "console: [v] again switches it off")
+        sess.send(b"\x1b", 1.0)
         sess.send("*", 1.5)
         check("Alpha Song" in sess.text() and "Plain Station" not in sess.text(), "mode keys: the old key (*) does nothing after the rebinding")
         sess.send("J", 2.5)
@@ -1238,6 +1245,7 @@ def translation_lines(binary, root, scripts):
             if "pasted" in t: break
             sess.pump(0.4); t = sess.text()
         check("pasted 1 line" in t or "pasted 2 lines" in t, "translation lines: CTRL+v pastes whole lines (%r)" % [l for l in t.split("\n") if "pasted" in l][:1])
+        if not ("pasted 1 line" in t or "pasted 2 lines" in t): print("  screen at the failure:\n" + "\n".join("    | " + l.rstrip() for l in t.split("\n") if l.strip()), flush=True)
         sess.send(b"\x1b[A", 0.3)
         sess.send(b"\x1b[A", 0.3)
         sess.send(b"\x1b[1;2B", 0.4)
@@ -1368,7 +1376,7 @@ def queue_shuffle(binary, root, scripts):
             sess.send(b"\x1b[B", 0.3)
         sess.send("K", 1.2)
         check("Shuffle" in sess.text(), "queue shuffle: the overlay legend names SHIFT+s")
-        names = ["Alpha Song", "Beta Song", "\u3055\u304f\u3089", "\uc0ac\ub791\ud574"]
+        names = ["Alpha Song", "Beta Song"]   # (the Japanese / Korean names are left out: a terminal without wide-character support does not show them, and the order would be offsets)
 
         def order():
             t = sess.text()
@@ -1504,6 +1512,7 @@ def shrinking_window(binary, root, scripts):
             if "File      :" in t and "No sync" in t.replace("hron", ""): break
             sess.pump(0.5); t = sess.text()
         check("File      :" in t and "No sync" in t.replace("hron", ""), "shrinking: the full window shows the meta data and the lyrics / oscilloscope field")
+        if not ("File      :" in t and "No sync" in t.replace("hron", "")): print("  screen at the failure:\n" + "\n".join("    | " + l.rstrip() for l in t.split("\n") if l.strip()), flush=True)
         check_fit(sess, "shrinking 140x45", False)
         resize(100, 45)
         lines = sess.screen.display
