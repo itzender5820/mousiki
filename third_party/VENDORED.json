@@ -22,7 +22,7 @@
       "license": "BSD-3-Clause",
       "path": "third_party/kissfft",
       "use": "spectrum analysis",
-      "version": "unknown",
+      "version": "131.2.0+master",
       "readme_name": "KISS FFT",
       "readme_use": "spectrum / spectrogram"
     },
