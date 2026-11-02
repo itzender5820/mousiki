@@ -783,7 +783,7 @@ fields). [CTRL+t] (also while typing in a search field) switches the track list 
 [PgUp]/[PgDn] and [SHIFT+UP/DOWN] turn a page. A lyrics file opened with [CTRL+s] in the reader is locked in at once and its song (the track named like it) is the current track; only without such a file the playing song is. [CTRL+c] (anywhere) clears the choice: the lyrics file is unlocked and the current
 track is the locked track again. The lyrics in use so far are kept as an older
 version. [DEL] (twice) unassigns manually added lyrics of the locked-in track again: the file itself is
-not deleted, the previous lyrics come back. In karaoke mode [a] and in the re-fetch form [CTRL+n] open READ LYRICS with this overlay open.
+not deleted, the previous lyrics come back. A re-fetch never replaces lyrics added by hand: the fetched ones are saved as an older version you can switch to. In karaoke mode [a] and in the re-fetch form [CTRL+n] open READ LYRICS with this overlay open.
 
 LYRICS RUNNING EARLY OR LATE: THE TIMING OVERLAY[[Header]]
 [ALT+L] (macOS: [SHIFT+j]) opens the overlay, on both the main screen and in karaoke mode (only while synced 

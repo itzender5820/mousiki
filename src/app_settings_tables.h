@@ -176,6 +176,8 @@ inline const std::vector<SetLine>& settings_layout(int tab) {
         {true, -1, ""},
         {true, -1, "DISK"},
         {false, kSidDisk, "Eliment Disk / Cover"}, {false, kSidDiskSpeed, "Disk Speed"},
+        {true, -1, ""},
+        {true, -1, "DISK / COVER OPTIONS"},
         {false, kSidAlbumCover, "Album Cover"}, {false, kSidCoverMode, "Cover Mode"},
         {false, kSidCoverContrast, "Cover Contrast"}, {false, kSidCoverBrightness, "Cover Brightness"},
         {false, kSidCoverColors, "Cover Colors"}, {false, kSidCoverSearch, "Cover Search"},

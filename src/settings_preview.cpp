@@ -283,6 +283,10 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
     }
     case kPvDisk:
     case kPvCover: {
+        if (!settings_.element_disk) {   // the field is removed: no disk and no cover
+            out.caption = "Disk / Cover field removed";
+            break;
+        }
         const int dc = std::min(30, cw), dr = std::min(15, body_h);
         std::vector<std::string> rows;
         P.angle = std::fmod(P.angle + kAngularVelocity * settings_.disk_rotation_speed * P.dt, kTwoPi);

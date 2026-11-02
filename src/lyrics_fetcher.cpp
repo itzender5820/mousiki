@@ -479,6 +479,42 @@ LyricsResult fetch_synced_lyrics(const std::string& title, const std::string& ar
     result.message = (enhanced ? "word-synced lyrics" : "line-synced lyrics") + std::string(" (") + result.source + ")" +
                      (variant.empty() ? std::string() : " found with: " + variant);
 
+    // Lyrics that were added by hand stay in use: the fetched ones are only saved as an older version (they show in LYRICS IN
+    // USE and SPACE switches to them), the way a refetch saves its result, without taking the place of the copy in use.
+    {
+        std::string manual_text;
+        const fs::path cur = existing_sidecar_file(track_path);
+        if (!cur.empty() && read_text_file(cur, manual_text) && lrc_source_tag(manual_text) == "manual") {
+            std::error_code ec;
+            std::string stored = lrc;
+            if (lrc_source_tag(stored).empty()) stored = "[re:" + result.source + "]\n" + stored;
+            bool known = (stored == manual_text || lrc == manual_text);
+            for (const auto& a : list_archived(track_path)) {
+                std::string other;
+                if (read_text_file(a.file, other) && (other == stored || other == lrc)) { known = true; break; }
+            }
+            if (!known) {
+                const fs::path dir = archive_dir(track_path);
+                fs::create_directories(dir, ec);
+                char stamp[40];
+                const std::time_t now = std::time(nullptr);
+                std::strftime(stamp, sizeof stamp, "%Y%m%d-%H%M%S", std::localtime(&now));
+                std::ofstream out(dir / path_from_utf8(archive_prefix(track_path) + stamp + "." + safe_name_part(result.source) + ".lrc"),
+                                  std::ios::binary | std::ios::trunc);
+                if (out.is_open()) out << stored;
+                out.close();
+                auto all = list_archived(track_path);   // keep the ten newest
+                for (size_t i = 10; i < all.size(); ++i) fs::remove(all[i].file, ec);
+            }
+            result.lines = parse_lrc(manual_text, /*enhanced=*/true);
+            result.raw_lrc = manual_text;
+            result.delay = parse_lrc_delay(manual_text);
+            result.source = "manual";
+            result.message = std::string("your lyrics (added manually) stay in use; the fetched ones are saved as an older version (SPACE in LYRICS IN USE switches to them)");
+            return result;
+        }
+    }
+
     // A refetch never loses work: the copy in use is put aside as an older version first when its text differs from the
     // new one OR when its saved timing offset differs from the offset of the new one. Only a copy with the same text
     // AND the same offset is simply overwritten -- there is nothing to keep.

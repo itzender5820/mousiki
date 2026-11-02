@@ -1097,6 +1097,42 @@ def opened_lyrics_is_current(binary, root, scripts):
     finally:
         sess.kill()
 
+def disk_field_setting(binary, root, scripts):
+    """ANIMA/VIZ: DISK holds Eliment Disk / Cover and Disk Speed, the cover rows are DISK / COVER OPTIONS; Remove Field empties the preview."""
+    home = os.path.join(root, "df_home")
+    lib = os.path.join(root, "music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Alpha Song" in sess.text():
+                break
+        sess.send("s", 1.2)
+        sess.send(b"\t", 0.5)
+        sess.send(b"\t", 0.8)                               # ANIMA/VIZ
+        t = sess.text()
+        check("DISK / COVER OPTIONS" in t and "Eliment Disk / Cover" in t and "Album Cover" in t, "disk field: the tab has DISK and DISK / COVER OPTIONS")
+        check(t.index("Disk Speed") < t.index("DISK / COVER OPTIONS") < t.index("Album Cover"), "disk field: Disk Speed is under DISK, Album Cover under DISK / COVER OPTIONS")
+        for _ in range(4):                                  # to Eliment Disk / Cover
+            sess.send(b"\x1b[B", 0.2)
+        sess.pump(0.6)
+        check("Show Disk / Cover" in sess.text(), "disk field: the row says Show Disk / Cover")
+        sess.send(b"\x1b[C", 1.0)
+        check("Remove Field" in sess.text() and "Disk / Cover field removed" in sess.text(), "disk field: Remove Field empties the preview")
+        sess.send(b"\x1b[C", 1.0)
+        check("Show Disk / Cover" in sess.text() and "Disk / Cover field removed" not in sess.text(), "disk field: Show Disk / Cover brings the preview back")
+        check(sess.alive(), "disk field: the program is still running")
+    finally:
+        sess.kill()
+
 
 # The scenarios, longest first. Each one runs in a worker process of its own (own copy of the library, own HOME): they only
 # sleep and read frames, so on a few cores they overlap well. MOUSIKI_SMOKE_JOBS=1 runs them one after the other.
@@ -1110,6 +1146,8 @@ def run_scenario(name, binary, root, scripts):
         selftest_command(binary, scripts)
     elif name == "opened_lyrics_is_current":
         opened_lyrics_is_current(binary, root, scripts)
+    elif name == "disk_field_setting":
+        disk_field_setting(binary, root, scripts)
     elif name == "narrow80":
         narrow_sweep(binary, root, scripts, 80, 24)
     elif name == "narrow100":
@@ -1119,7 +1157,7 @@ def run_scenario(name, binary, root, scripts):
 
 
 SCENARIOS = ["narrow80", "narrow100", "main", "read_lyrics_play", "karaoke_timing", "book_speed_and_devices", "paging_and_translit_row",
-             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "selftest_command", "opened_lyrics_is_current"]
+             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "selftest_command", "opened_lyrics_is_current", "disk_field_setting"]
 
 
 def main():

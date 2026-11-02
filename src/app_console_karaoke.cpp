@@ -504,7 +504,7 @@ void App::build_karaoke_screen(std::ostringstream& frame, int W, int H) {
     // The legend takes the last TWO terminal rows (no information line here): this overlay's own keys first, then
     // what still works from the main player underneath.
     std::vector<LegendGroup> groups = {
-        {"Overlay", {"[ESC/" + hotkey_text("HKeyKaraoke", "k") + "] Close", "[" + size_keys + "] Lyrics size\001Size", "[" + hotkey_text("HKeyLyricsTiming", "ALT+L") + "] Lyrics timing\001Timing", "[" + hotkey_text("HKeyRetryLyrics", "l") + "] Re-fetch lyrics\001Re-fetch", "[a] Add lyrics manually"}},
+        {"Overlay", {"[ESC/" + hotkey_text("HKeyKaraoke", "k") + "] Close", "[" + size_keys + "] Lyrics size\001Size", "[" + hotkey_text("HKeyLyricsTiming", "ALT+L") + "] Lyrics timing\001Timing", "[" + hotkey_text("HKeyRetryLyrics", "l") + "] Re-fetch lyrics\001Re-fetch", "[a] Add / Assign lyrics manually\001Add / Assign"}},
         {"Player", {"[" + hotkey_text("HKeyTogglePlayPause", "p") + "] Play/Pause", "[" + hotkey_text("HKeyPlayNextSong", "n") + "/" + hotkey_text("HKeyPlayPreviousSong", "b") + "] Next/Prev",
                     "[\u2190\u2192] Seek", "[" + hotkey_text("HKeyIncreaseVolume", "+") + "/" + hotkey_text("HKeyDecreaseVolume", "-") + "] Volume", "[" + hotkey_text("HKeyToggleMute", "x") + "] Mute"}},
     };

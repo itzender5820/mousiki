@@ -699,7 +699,7 @@ std::string App::settings_get_value(int row, int col) const {
         // The toggle rows read straight off their bool; the pick rows return the name of their choice.
         bool v = false;
         switch (settings_item_id(settings_tab_, row)) {
-            case kSidDisk: v = settings_.element_disk; break;
+            case kSidDisk: return settings_.element_disk ? "Show Disk / Cover" : "Remove Field";
             case kSidDummy: v = settings_.element_dummy_buttons; break;
             case kSidQueue: v = settings_.element_queue; break;
             case kSidWave: v = settings_.element_waveform; break;
@@ -821,6 +821,7 @@ std::vector<std::string> App::settings_options_for(int tab, int row) const {
         // Bool toggles cycle true / false; the pick rows have lists of their own.
         switch (settings_item_id(tab, row)) {
             case -1: return {};
+            case kSidDisk: return {"Show Disk / Cover", "Remove Field"};   // (true / false)
             case kSidLyricViz: return {"sphere", "osci", "spectro", viz_row_name(3), "last used"};   // the view the field starts with, not a bool
             case kSidNoLyricsViz: return {"sphere", "osci", "spectro", "none"};
             case kSidOrder1: case kSidOrder2: case kSidOrder3: case kSidOrder4: return {"sphere", "osci", "spectro", viz_row_name(3)};
@@ -1010,6 +1011,7 @@ void App::settings_commit_edit_impl() {
             }
             case kSidVisDegr: try { settings_.visualizer_degradation_speed = std::stoi(buf); } catch (...) {} return;
             case kSidVisVisc: try { settings_.visualizer_viscosity = std::stoi(buf); } catch (...) {} return;
+            case kSidDisk: if (v == "show disk / cover" || v == "true") settings_.element_disk = true; else if (v == "remove field" || v == "false") settings_.element_disk = false; return;
             case kSidLyrAlign: settings_.lyrics_alignment = (v == "left") ? 1 : (v == "right") ? 2 : 0; return;
             case kSidLyrAnim:
                 if (v == "word by word") settings_.lyrics_animation = 1;

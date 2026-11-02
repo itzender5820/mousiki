@@ -1363,7 +1363,7 @@ void App::build_readlyrics_screen(std::ostringstream& frame, int W, int target_h
             {"Move", {"[\u2190\u2192] Choose file/Translation\001Choose", "[TAB] Focus", "[\u2191\u2193] Scroll", "[SHIFT+\u2191\u2193] Page up/down\001Page", "[HOME/END] Top/Bottom"}},
             {"Play", {"[p] Play/Pause", "[SHIFT+\u2190\u2192] Seek 5 s\001Seek", "[f] Follow the song\001Follow", "[" + hotkey_text("HKeyLyricsTiming", "ALT+L") + "] Lyrics timing\001Timing"}},
             {"Translate", {"[t] Translate", "[SHIFT+t] Show/Hide translations\001Show/Hide", "[d/DEL] Delete translation\001Delete", "[e] Export"}},
-            {"Session", {"[CTRL+s] Search", "[" + hotkey_text("HKeyRetryLyrics", "l") + "] Re-fetch lyrics\001Re-fetch", "[a] Add manually\001Add", "[ESC] Close"}},
+            {"Session", {"[CTRL+s] Search", "[" + hotkey_text("HKeyRetryLyrics", "l") + "] Re-fetch lyrics\001Re-fetch", "[a] Add / Assign lyrics manually\001Add / Assign", "[ESC] Close"}},
         };
         const auto lrows = layout_legend_tree(groups, W - 1);
         for (size_t i = 0; i < lrows.size(); ++i) hint_lines.push_back(" " + paint_legend(settings_, lrows, i, border, 0, true));

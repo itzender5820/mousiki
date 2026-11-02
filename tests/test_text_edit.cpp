@@ -423,6 +423,36 @@ TEST(a_lyrics_file_can_be_assigned_to_a_track_by_hand) {
     fs::remove_all(dir, ec);
 }
 
+TEST(a_refetch_keeps_lyrics_that_were_added_by_hand) {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "mousiki_refetch_manual";
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+    fs::create_directories(dir, ec);
+    const fs::path track = dir / "Song.mp3";
+    { std::ofstream(track) << "x"; }
+    const fs::path mine = dir / "mine.lrc";
+    { std::ofstream(mine, std::ios::binary) << "[00:01.00]my own line\n"; }
+    const fs::path script = dir / "fake_fetch.py";
+    { std::ofstream(script) << "import json\nprint(json.dumps({'ok': True, 'lrc': '[00:01.00]fetched line\\n', 'source': 'lrclib'}))\n"; }
+    std::string err;
+    CHECK(assign_lyrics_file(track, mine, &err));
+    const LyricsResult r = fetch_synced_lyrics("Song", "Artist", script.string(), track, /*force_network=*/true, 10.0);
+    if (r.status == LyricsStatus::PythonMissing) { fs::remove_all(dir, ec); return; }   // (no Python here: nothing to test)
+    CHECK(r.status == LyricsStatus::Ok);
+    CHECK(lyrics_added_manually(track));                                                     // still the copy in use
+    CHECK(r.raw_lrc.find("my own line") != std::string::npos);                               // and what the reader gets
+    bool older = false;
+    for (const auto& v : list_lyrics_versions(track)) if (!v.active && v.detail.find("lrclib") != std::string::npos) older = true;
+    CHECK(older);                                                                            // the fetched lyrics wait as an older version
+    const LyricsResult again = fetch_synced_lyrics("Song", "Artist", script.string(), track, true, 10.0);
+    CHECK(again.status == LyricsStatus::Ok);
+    size_t n = 0;
+    for (const auto& v : list_lyrics_versions(track)) if (!v.active) ++n;
+    CHECK_EQ(n, static_cast<size_t>(1));                                                     // the same text is not saved twice
+    fs::remove_all(dir, ec);
+}
+
 #include <sstream>
 TEST(the_kanji_cache_starts_again_when_the_readers_rules_change) {
     const fs::path file = fs::temp_directory_path() / "mousiki_kanji_cache_rules.txt";
