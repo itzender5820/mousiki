@@ -127,7 +127,7 @@ Everything below is in the current version (v4.8.0) and works the same on Window
 
 <p align="center"><img width="850" alt="Synchronized lyrics on the main screen" src="readme_images/lyrics_main_ui.png" /></p>
 
-- **Read lyrics** with **translations** (`CTRL+L`) and a full-screen **karaoke mode** with big braille letters (also Japanese, Chinese and Korean).
+- **Read lyrics** with **translations** (`CTRL+L`; `SHIFT+e` writes or corrects a translation by hand, saved as "Manual Translation") and a full-screen **karaoke mode** with big braille letters (also Japanese, Chinese and Korean).
 
 - **Karaoke mode** open via `k`.
   
@@ -426,7 +426,7 @@ Keep the `scripts/` folder next to the binary if you move it, otherwise lyrics, 
 | Listening history | `~/.cache/mousiki/history/history.json` (one folder, changeable: `HistoryPath=` or Settings → PATHS → HISTORY PATH) |
 | Meta editor session (pending edits) | `~/.cache/mousiki/meta_session/session.json` |
 | Playlists (default) | `<first LocalMusicPath>/playlists/`; falls back to `~/.cache/mousiki/playlists/` if no `LocalMusicPath` is set |
-| Fetched lyrics | `<folder of the track>/lyrics/<name>.lrc`; older versions next to it as `<name>.v<YYYYmmdd-HHMMSS>.<source>.lrc` (max 10 kept); translations (READ LYRICS) in `<folder of the track>/lyrics/translations/<name>.<lang>.txt` |
+| Fetched lyrics | `<folder of the track>/lyrics/<name>.lrc`; older versions next to it as `<name>.v<YYYYmmdd-HHMMSS>.<source>.lrc` (max 10 kept); translations (READ LYRICS) in `<folder of the track>/lyrics/translations/<name>.<lang>.<service>.txt` (`manual`, `manual2` … for the ones written by hand) |
 | Radio settings | `~/.config/mousiki/radio_config.txt` (its own file; the radio never reads `config.txt`) |
 | Radio stations, presets, station lists | `~/.config/mousiki/` — `stations.txt`, `presets.txt`, `stationlists.txt`, `preset_names.txt` (defaults, changeable in the radio's Settings → PATHS) |
 | Radio listening history | `~/.config/mousiki/radio_history/` — `history_radio.txt`, `archive_radio.txt` |

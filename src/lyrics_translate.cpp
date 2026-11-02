@@ -130,6 +130,7 @@ std::vector<TranslationInfo> list_lyrics_translations(const fs::path& track_path
             code = code.substr(0, dot);
             bool known = false;
             for (const auto& s : translate_services()) if (s.first == svc) known = true;
+            if (translate_service_is_manual(svc)) known = true;
             if (!known) continue;   // another version's file ("<name>.v2026....lrclib.en.txt")
         }
         if (code.empty() || code.size() > 8 || code.find('.') != std::string::npos) continue;
@@ -145,6 +146,9 @@ std::vector<TranslationInfo> list_lyrics_translations(const fs::path& track_path
         if (!seen) uniq.push_back(a);
     }
     std::sort(uniq.begin(), uniq.end(), [](const TranslationInfo& a, const TranslationInfo& b) {
+        const int ma = translate_manual_number(a.service), mb = translate_manual_number(b.service);
+        if ((ma > 0) != (mb > 0)) return ma == 0;               // the machine translations first, the manual ones after them
+        if (ma > 0) return ma < mb;                              // ... in the order they were numbered
         const std::string la = language_name(a.to), lb = language_name(b.to);
         return la != lb ? la < lb : a.service < b.service;
     });
@@ -268,7 +272,32 @@ const std::vector<std::pair<std::string, std::string>>& translate_services() {
     return kList;
 }
 
+bool translate_service_is_manual(const std::string& id) {
+    return translate_manual_number(id) > 0;
+}
+
+int translate_manual_number(const std::string& id) {
+    if (id.compare(0, 6, "manual") != 0) return 0;
+    if (id.size() == 6) return 1;
+    int n = 0;
+    for (size_t i = 6; i < id.size(); ++i) {
+        if (id[i] < '0' || id[i] > '9' || n > 100000) return 0;
+        n = n * 10 + (id[i] - '0');
+    }
+    return n >= 2 ? n : 0;   // ("manual1" is not a name this program gives)
+}
+
+std::string translate_next_manual_service(const std::vector<TranslationInfo>& have) {
+    for (int n = 1;; ++n) {
+        bool used = false;
+        for (const auto& t : have) if (translate_manual_number(t.service) == n) used = true;
+        if (!used) return n == 1 ? std::string("manual") : "manual" + std::to_string(n);
+    }
+}
+
 std::string translate_service_name(const std::string& id) {
+    const int mn = translate_manual_number(id);
+    if (mn > 0) return mn == 1 ? std::string("Manual Translation") : "Manual Translation " + std::to_string(mn);
     for (const auto& s : translate_services()) if (s.first == id) return s.second;
     return id.empty() ? std::string("unknown service") : id;
 }

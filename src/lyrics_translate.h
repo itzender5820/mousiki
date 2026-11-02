@@ -72,5 +72,11 @@ std::string language_name(const std::string& code);
 const std::vector<std::pair<std::string, std::string>>& translate_languages();
 const std::vector<std::pair<std::string, std::string>>& translate_services();
 std::string translate_service_name(const std::string& id);
+// Translations written by hand (READ LYRICS, [SHIFT+e]) are kept under the service ids "manual", "manual2", "manual3" ...
+// and are called "Manual Translation", "Manual Translation 2" ... on screen.
+bool translate_service_is_manual(const std::string& id);
+int translate_manual_number(const std::string& id);          // "manual" -> 1, "manual3" -> 3, anything else -> 0
+// The first id of that kind that none of `have` uses ("manual", then "manual2" ...).
+std::string translate_next_manual_service(const std::vector<TranslationInfo>& have);
 
 } // namespace muisc

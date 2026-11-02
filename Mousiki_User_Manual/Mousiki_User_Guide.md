@@ -597,6 +597,7 @@ NOTE/LIMITATION: Some tracks may show some words split into syllables. This is d
 | `↑` / `↓` | Scroll one row. `SHIFT+↑` / `SHIFT+↓` (or `SPACE` / `b`): one page up / down. `HOME` / `END`: top / bottom |
 | `t` | Opens the **translate overlay**: service, language to translate into, language of the lyrics. `ENTER` there **fetches** the translation, `ESC` closes it. This is the only place that fetches and may take a bit to complete. |
 | `SHIFT+t` | **Show / toggle / hide** the saved translations (a translation that exists is shown at once when a file is opened or finished). It never fetches: hidden → first translation → next translation … → hidden |
+| `SHIFT+e` | **Edit / Add translation**: a full-window editor (see *Edit / Add translation* below) in which a translation is written or changed by hand. What is saved there is called **Manual Translation** in the TRANSLATION pane (**Manual Translation 2**, **3** … when there are more) |
 | `e` | **Export** the lyrics to a text file in the `export` folder (a small overlay, see *Export* below) |
 | `p` | **Play / pause** the track of the reader: it starts when it is not the loaded one (the reader stays open), otherwise it pauses / resumes |
 | `SHIFT+←` / `SHIFT+→` | Seek 5 s back / forward (only while this track is the loaded one) |
@@ -641,6 +642,22 @@ Assigns a `.lrc` / `.txt` file to a track by hand. The overlay fills the whole w
 - The lyrics in use so far are put aside as an older version (nothing is lost). The text becomes the copy in use, tagged `manual`, with the name of the picked file kept in a `[file:…]` line. For the track that plays it loads at once.
 - **`DEL`** (twice, the second press confirms) **unassigns** the manually added lyrics of the locked-in track: the copy is taken out of use and the newest older copy comes back. The lyrics file itself is never touched or deleted.
 - A **refetch** (`l`) never replaces lyrics you added by hand: the fetched lyrics are saved as an **older version** (the same `.lrc` as always, listed in LYRICS IN USE), your copy stays in use, and `SPACE` there switches to the fetched ones if you prefer them.
+
+#### Edit / Add translation (`SHIFT+e`)
+
+A full-window editor for a translation you write yourself: to correct a machine translation, to translate a song from scratch, or to make a second version next to another one. The original lyrics are on the left, your text on the right, **one line of translation for every line of the lyrics** (that is how a translation is stored, so the reader can show each line right below its original). The empty lines between the stanzas are skipped; they stay empty.
+
+| Key | What it does |
+|---|---|
+| `↑` / `↓` / `ENTER` | The previous / next line. `PgUp` / `PgDn`: ten lines |
+| typing, `←` `→`, `HOME` `END`, `CTRL+←` `CTRL+→`, `DEL`, `BACKSPACE` | Write and move in the line, like in every text field. `CTRL+c` / `CTRL+x` / `CTRL+v` copy, cut and paste |
+| `CTRL+o` | Copies the **original line** into the translation (names, "oh oh oh", lines that need no translation) |
+| `TAB` | The language of the translation (`←` `→` or a first letter choose it; `TAB` / `ENTER` go back to the lines) |
+| `CTRL+n` | **Start from scratch**: empties all lines and makes the text a new Manual Translation (asks `y` first, because what is written here is dropped) |
+| `CTRL+s` | **Saves** and returns to the reader, which shows the new translation |
+| `ESC` | Closes; with unsaved changes it asks `y` / any other key |
+
+What is saved: when a translation is shown in the TRANSLATION pane, the editor starts with its text. A **machine translation** (Google, MyMemory) is never changed: your version is saved as a **new Manual Translation**. A **Manual Translation** is changed in place. Without a translation the editor starts empty. The names are *Manual Translation*, *Manual Translation 2*, *Manual Translation 3* … (a number that became free after a delete is used again) and are listed after the machine translations; the file is `<name>.<language>.manual.txt` (`manual2` …) in the `translations` folder next to the lyrics. Like every translation it belongs to the lyrics file it was written for: it is ignored when the lyrics change, and `d` / `DEL` in the TRANSLATION pane deletes it (asks first).
 
 #### Export (`e`)
 

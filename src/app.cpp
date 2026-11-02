@@ -1069,6 +1069,7 @@ int App::run() {
                        (mode_ == Mode::QueueToPlaylist && qtp_stage_ >= 1) ||
                        (mode_ == Mode::RetryLyrics && rl_text_ptr(rl_focus_) != nullptr) ||
                        (mode_ == Mode::ReadLyrics && rd_add_open_) ||   // add lyrics manually: the search fields (and CTRL+c clears the choice)
+                       (mode_ == Mode::ReadLyrics && rd_te_open_ && rd_te_focus_ == 0 && !rd_te_ask_ && !rd_te_new_ask_) ||   // the translation editor (CTRL+c copies)
                        (audiobook_ && book_note_edit_ && book_note_typing_ && !book_note_discard_ask_) ||   // the note editor (CTRL+c copies)
                        (audiobook_ && book_note_shown_ && !book_note_edit_) ||                            // a note in the field: CTRL+c copies it
                        (audiobook_ && mode_ == Mode::BookOverlay && book_ov_kind_ == BookOv::Notes) ||     // the notes overlay (list, path fields, editor)

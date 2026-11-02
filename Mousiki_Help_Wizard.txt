@@ -820,6 +820,11 @@ and per service: a Google and a MyMemory one live side by side,
 the same service again replaces only its own.
 [SHIFT+t] shows / cycles / hides translations (a translation that is there is shown at once),
 [d] or [DEL] deletes a translation.
+[SHIFT+e] opens the translation editor: the original on the left, your own line on the right for
+every line of the lyrics (empty lines are skipped). [UP]/[DOWN]/[ENTER] change the line, [TAB] chooses
+the language, [CTRL+o] copies the original line, [CTRL+n] starts from scratch, [CTRL+s] saves,
+[ESC] closes. A machine translation that is edited is kept as it was: your version is saved as a new
+"Manual Translation" ("Manual Translation 2" ... for more), which the TRANSLATION pane lists.
 [e] exports the lyrics into the folder "export" inside the lyrics folder: the original only, or
 with the translation and / or the transliteration (Latin letters) below each line. If the
 kanji reader is still working, the overlay says so: wait, or press [ENTER] again to export now.

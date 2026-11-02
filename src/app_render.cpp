@@ -610,6 +610,18 @@ std::string App::render_frame(TerminalIO& term) {
         return fullscreen_out(frame);
     }
 
+    if (mode_ == Mode::ReadLyrics && rd_te_open_) {   // "edit / add translation": a full-window screen of its own
+        std::ostringstream frame;
+        frame << "\x1b[2J\x1b[H\x1b[?25l";
+        draw_floating_panel(frame, build_readlyrics_te_panel(W), std::max(70, W), W, 1, true, 1);
+        {
+            const auto legend = build_readlyrics_te_legend(W);
+            const int first_row = std::max(1, term_rows_ - 1 - static_cast<int>(legend.size()) + 1);
+            for (size_t i = 0; i < legend.size(); ++i) frame << "\x1b[" << (first_row + static_cast<int>(i)) << ";1H" << legend[i];
+        }
+        return fullscreen_out(frame);
+    }
+
     if (mode_ == Mode::ReadLyrics || (mode_ == Mode::LyricsEdit && lyrics_edit_from_reader_) || (mode_ == Mode::RetryLyrics && rl_from_reader_)) {
         std::ostringstream frame;
         frame << "\x1b[2J\x1b[H\x1b[?25l";

@@ -1947,6 +1947,26 @@ private:
     std::vector<std::string> build_readlyrics_add_panel(int W) const;
     std::vector<std::string> build_readlyrics_add_legend(int W) const;   // the key legend under the panel: a small tree table, as in READ LYRICS
     static constexpr int kAddLegendRows = 4;
+    // --- READ LYRICS, [SHIFT+e]: edit a translation by hand / write a new one from scratch ("Manual Translation")
+    bool rd_te_open_ = false;
+    std::vector<std::string> rd_te_lines_;              // the translation being written: exactly one entry per lyrics line
+    int rd_te_first_ = 0;                               // (kept for the drawing: the first line shown)
+    int rd_te_row_ = 0;                                 // the line with the caret (never a line that is empty in the original)
+    std::string rd_te_to_, rd_te_svc_;                  // language it is in and the id it is saved under ("manual", "manual2" ...)
+    std::string rd_te_orig_to_;                         // when a manual translation is edited: its language when opened (a changed language moves the file)
+    bool rd_te_editing_ = false;                        // an existing manual translation is changed (else a new "Manual Translation" is made)
+    int rd_te_focus_ = 0;                               // 0 the lines, 1 the language
+    bool rd_te_dirty_ = false, rd_te_ask_ = false, rd_te_new_ask_ = false, rd_te_warn_ = false;
+    std::string rd_te_msg_;
+    void readlyrics_te_open();
+    void readlyrics_te_key(int key);
+    bool readlyrics_te_save();
+    void readlyrics_te_step(int dir);                   // to the next / previous line that has an original text
+    int readlyrics_te_body_rows() const;
+    bool readlyrics_te_blank(size_t i) const { return i >= rd_lines_.size() || rd_lines_[i].find_first_not_of(" \t\r") == std::string::npos; }
+    std::vector<std::string> build_readlyrics_te_panel(int W) const;
+    std::vector<std::string> build_readlyrics_te_legend(int W) const;
+    static constexpr int kTeLegendRows = 4;
     std::vector<std::string> build_readlyrics_search_panel() const;
     void build_readlyrics_screen(std::ostringstream& frame, int W, int target_height);
     fs::path lyrics_path_;                              // track path the current lyrics belong to (sidecar location)

@@ -1003,6 +1003,17 @@ def narrow_sweep(binary, root, scripts, cols, rows):
             sess.send(b"\x1b[C", 0.2)
             check_fit(sess, tag + "read lyrics: export overlay (right)")
             sess.send(b"\x1b", 0.6)
+            see("E", "read lyrics: edit / add translation", 1.0, "EDIT / ADD TRANSLATION")
+            for c in "Dies ist eine sehr lange uebersetzte Zeile die nicht in das Fenster passt":
+                sess.send(c, 0.02)
+            check_fit(sess, tag + "translation editor (typed)")
+            for k in (b"\r", b"\x1b[B", b"\t", b"\x1b[C", b"\x1b[6~", b"\x0f", b"\t", b"\x0e", b"\x1b"):
+                see(k, "translation editor (key %r)" % k, 0.3)
+            sess.send(b"\x1b", 0.4)
+            sess.send(b"y", 0.6)
+            if "EDIT / ADD TRANSLATION" in sess.text():
+                sess.send(b"\x1b", 0.6)
+            check_fit(sess, tag + "translation editor closed")
             see("a", "read lyrics: add manually", 1.0, "ADD LYRICS MANUALLY")
             for k in (b"\t", b"\t", b"\t", b"\t", b"\x14", b"\x06", b"\x0f", b"\x1b[1;2B", b"\x1b[6~"):
                 see(k, "add manually (key %r)" % k, 0.4)
@@ -1105,6 +1116,76 @@ def opened_lyrics_is_current(binary, root, scripts):
     finally:
         sess.kill()
 
+def translation_editor(binary, root, scripts):
+    """READ LYRICS, SHIFT+e: a translation written by hand is saved as "Manual Translation", the next one as "Manual Translation 2";
+    a machine translation that is edited stays as it was."""
+    home = os.path.join(root, "te_home")
+    lib = os.path.join(root, "te_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    os.makedirs(os.path.join(lib, "lyrics"))
+    make_wav(os.path.join(lib, "Aaa First.wav"), 5)
+    with open(os.path.join(lib, "lyrics", "Aaa First.lrc"), "w", encoding="utf-8") as f:
+        f.write("[00:00.50]first line\n[00:02.00]\n[00:03.00]second line\n")
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    tdir = os.path.join(lib, "lyrics", "translations")
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Aaa First" in sess.text():
+                break
+        sess.send(b"\x0c", 1.5)
+        check("READ LYRICS" in sess.text() and "[SHIFT+e] Edit/Add translation" in sess.text(), "translation editor: the legend names SHIFT+e")
+        sess.send("E", 1.0)
+        t = sess.text()
+        check("EDIT / ADD TRANSLATION" in t and "Manual Translation" in t and "first line" in t, "translation editor: opens, new translation named Manual Translation")
+        for c in "erste Zeile":
+            sess.send(c, 0.05)
+        sess.send(b"\r", 0.4)                              # the empty line between the stanzas is skipped
+        for c in "zweite Zeile":
+            sess.send(c, 0.05)
+        sess.send(b"\x13", 1.0)                            # CTRL+s
+        t = sess.text()
+        check("EDIT / ADD TRANSLATION" not in t and "Manual Translation" in t and "erste Zeile" in t, "translation editor: saved, shown in the reader as Manual Translation")
+        files = sorted(os.listdir(tdir)) if os.path.isdir(tdir) else []
+        check(len(files) == 1 and ".manual." in files[0], "translation editor: one file with the manual service id (%r)" % files)
+        if files:
+            body = open(os.path.join(tdir, files[0]), encoding="utf-8").read().split("\n")
+            check(body[1:4] == ["erste Zeile", "", "zweite Zeile"], "translation editor: one translation line per lyrics line, the gap stays empty (%r)" % body[1:4])
+        sess.send("E", 1.0)                                  # edit it again: changed in place
+        sess.send(b"!", 0.3)
+        sess.send(b"\x13", 1.0)
+        files = sorted(os.listdir(tdir))
+        check(len(files) == 1, "translation editor: editing a manual translation changes it in place")
+        sess.send("E", 1.0)
+        sess.send(b"\x0e", 0.5)                             # CTRL+n: start from scratch (asks)
+        check("Start over" in sess.text(), "translation editor: CTRL+n asks before it drops the text")
+        sess.send("y", 0.5)
+        check("Manual Translation 2" in sess.text(), "translation editor: the scratch translation is Manual Translation 2")
+        for c in "other":
+            sess.send(c, 0.05)
+        sess.send(b"\x13", 1.0)
+        files = sorted(os.listdir(tdir))
+        check(len(files) == 2, "translation editor: the second manual translation is a file of its own (%r)" % files)
+        check("Manual Translation 2" in sess.text(), "translation editor: the pane lists Manual Translation 2")
+        sess.send("E", 1.0)
+        sess.send(b"x", 0.3)
+        sess.send(b"\x1b", 0.5)
+        check("Leave without saving" in sess.text(), "translation editor: ESC with changes asks")
+        sess.send("n", 0.4)
+        sess.send(b"\x1b", 0.4)
+        sess.send(b"y", 0.6)
+        check("EDIT / ADD TRANSLATION" not in sess.text(), "translation editor: y leaves without saving")
+        check(sess.alive(), "translation editor: the program is still running")
+    finally:
+        sess.kill()
+
 def disk_field_setting(binary, root, scripts):
     """ANIMA/VIZ: DISK holds Eliment Disk / Cover and Disk Speed, the cover rows are DISK / COVER OPTIONS; Remove Field empties the preview."""
     home = os.path.join(root, "df_home")
@@ -1193,6 +1274,8 @@ def run_scenario(name, binary, root, scripts):
         kitty_cover_options(binary, home, scripts)
     elif name == "selftest_command":
         selftest_command(binary, scripts)
+    elif name == "translation_editor":
+        translation_editor(binary, root, scripts)
     elif name == "opened_lyrics_is_current":
         opened_lyrics_is_current(binary, root, scripts)
     elif name == "disk_field_setting":
@@ -1208,7 +1291,7 @@ def run_scenario(name, binary, root, scripts):
 
 
 SCENARIOS = ["narrow80", "narrow100", "main", "read_lyrics_play", "karaoke_timing", "book_speed_and_devices", "paging_and_translit_row",
-             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle"]
+             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "translation_editor"]
 
 
 def main():

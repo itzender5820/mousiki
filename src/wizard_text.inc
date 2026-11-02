@@ -827,6 +827,11 @@ and per service: a Google and a MyMemory one live side by side,
 the same service again replaces only its own.
 [SHIFT+t] shows / cycles / hides translations (a translation that is there is shown at once),
 [d] or [DEL] deletes a translation.
+[SHIFT+e] opens the translation editor: the original on the left, your own line on the right for
+every line of the lyrics (empty lines are skipped). [UP]/[DOWN]/[ENTER] change the line, [TAB] chooses
+the language, [CTRL+o] copies the original line, [CTRL+n] starts from scratch, [CTRL+s] saves,
+[ESC] closes. A machine translation that is edited is kept as it was: your version is saved as a new
+"Manual Translation" ("Manual Translation 2" ... for more), which the TRANSLATION pane lists.
 [e] exports the lyrics into the folder "export" inside the lyrics folder: the original only, or
 with the translation and / or the transliteration (Latin letters) below each line. If the
 kanji reader is still working, the overlay says so: wait, or press [ENTER] again to export now.
@@ -898,7 +903,8 @@ TUNING AND EXTRA VIEWS: [[Header]]
 
 THE XY OSCILLOSCOPE: [[Header]]
 Like a real scope in X-Y mode. Wide stereo fills the area, a phase-shifted tone draws an ellipse.
-A nearly mono track fades over to a phase portrait instead of a flat line.
+)WIZ",
+R"WIZ(A nearly mono track fades over to a phase portrait instead of a flat line.
 
 TUNING OVERLAY:[[Header]] [SHIFT+o] opens it, the picture changes live while the music plays.
 [SHIFT+i] / [SHIFT+u] switch straight to the spectrogram options / full screen.
@@ -906,8 +912,7 @@ Scope mode       XY, YT, XY + YT (overlap), XY + YT (row), XY + YT (column)
 Osci style       braille (works in any terminal) / image (pixels, needs Kitty graphics or Sixel)
 Frame rate       30 / 45 / 60 / 90 / 120 / 165 fps
 Osci music mode  for oscilloscope music: the unprocessed signal and a fixed scale
-)WIZ",
-R"WIZ(Beam             CRT: every sample drawn once, light by the time the beam spends on a spot
+Beam             CRT: every sample drawn once, light by the time the beam spends on a spot
                  (image default) / classic: the old look with a tail (braille default)
 Dwell brightness CRT beam: slow strokes bright, jumps dark; off = every stroke equally bright
 Low-rate blank.  music mode, CRT beam: files below 96 kHz get the jumps between shapes faded out
@@ -1034,7 +1039,8 @@ NOTE:[[Header]] The radio keeps its own curve and its own presets (in radio_conf
 
 LOUDNESS NORMALIZATION: [[Header]]
 Plays every track at the same perceived loudness, so a quiet album does not disappear after a loud one.
-[v]        on / off, without opening anything
+)WIZ",
+R"WIZ([v]        on / off, without opening anything
 [SHIFT+v]  the overlay: on/off, target level, max boost
 
 Normalize     off / on                      (default on)
@@ -1044,8 +1050,7 @@ Max boost     0 .. 24 dB                    (default 9)
 -16 LUFS leaves headroom, -14 matches YouTube and Spotify. The grey live line under the rows shows
 the measured loudness of the playing track and the gain actually applied, so you can see at once
 when Max boost is holding a quiet track back. In the radio a stream has no end, so the loudness is
-)WIZ",
-R"WIZ(measured since you tuned in and the gain glides in over a second.
+measured since you tuned in and the gain glides in over a second.
 
 STEREO OR MONO: [[Header]]
 Settings ->> GENERAL ->> Stereo Sound. Off folds left and right together (and halves the memory a
@@ -1197,7 +1202,8 @@ TEXT EDITING, IN EVERY FIELD: [[Header]]
 [DEL] [BACKSPACE] delete [CTRL+c] [CTRL+x] [CTRL+v]  copy, cut, paste
 [ENTER] confirm          [ESC] cancel the edit
 [TAB] and the arrows never leave a field that is being edited.
-
+)WIZ",
+R"WIZ(
 [[New Page]]
 2.8.2 COLORS AND COLOR THEMES [[Header]]
 
@@ -1208,8 +1214,7 @@ Colors are numbers of the 256-color terminal palette (1-255) in every field, tex
 BORDER_COLOR, DISK, METADATA, VIZ, PROGRESS_BAR, LIST, QUEUE, LYRICS, HEADER, LEGEND, TAB_NAMES,
 CHANGE (a field you type in) and FOCUS (the [◀] behind the title of an active pane).
 [<-/->] pick the cell, then [ENTER] to type a number.
-)WIZ",
-R"WIZ(The border can fade from the top to the bottom color line by line (BorderGradient smooth / rough).
+The border can fade from the top to the bottom color line by line (BorderGradient smooth / rough).
 
 COLOR THEMES: [[Header]]
 The first row, THEME, holds ready-made schemes (the default MeowerShell, Serious MeowerShell and
@@ -1312,15 +1317,15 @@ marquee.
 
 [Full Screen:][[Legend]]                                      true = the terminal is asked for full screen at every
                                                   start; settings in Terminal Size are then ignored.
-
+)WIZ",
+R"WIZ(
 [REMOTE / UPDATES:][[Header]]
 [Remote App:][[Legend]]                                       [ENTER] opens the REMOTE APP overlay (on/off, address, QR
                                                   code for the phone, port, and a PIN that can be
                                                   set/changed). When using a VPN you might neet to manually
                                                   allow local network access in order to make the remote
                                                   function available. When set, the QR opens a smartphone
-)WIZ",
-R"WIZ(                                                  browser version of Mousiki. You can also install the .apk
+                                                  browser version of Mousiki. You can also install the .apk
                                                   for Android that can be found on github, which is
                                                   essentially just a small browser app that can be opened
                                                   via an icon.
@@ -1419,7 +1424,8 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
 [LYRICS:][[Header]]                          
 [Lyrics Alignment][[Legend]]                                  Aligned left / center / right
 [Lyrics Animation][[Legend]]                                  Style full,word by word, letter by letter, active line
-                                                  only, active word only, line by line.
+)WIZ",
+R"WIZ(                                                  only, active word only, line by line.
 
 [DISK:][[Header]]
 [Eliment Disk / Cover:][[Legend]]                             shows or hides the disk field in the player area: the
@@ -1427,8 +1433,7 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
                                                   (see below).
 
 [Disk Speed:][[Legend]]                                       with range between 0.01 - 1.00.
-)WIZ",
-R"WIZ(
+
 [Album Cover (music player):][[Legend]]                       Album Cover (false by default) shows the cover of the
                                                   playing track in the disk's place; a track without a cover
                                                   keeps the disk.
@@ -1509,7 +1514,8 @@ R"WIZ(
                                                   jp2, ico, tga, ppm pgm pnm, pcx: every regular format read
                                                   by ffmpeg; avif, heic and jxl only if your ffmpeg can
                                                   decode them; no camera RAW or other very large formats.
-                                                  The name only has to be close.
+)WIZ",
+R"WIZ(                                                  The name only has to be close.
 
 
 [SEEK AND VOLUME:][[Header]]
@@ -1517,8 +1523,7 @@ R"WIZ(
                                                   progress bar. When you seek with the arrow keys, the << or
                                                   >> label takes the BORDER_COLOR BOTTOM colour for a
                                                   moment. The same happens in the audio book mode.
-)WIZ",
-R"WIZ(
+
 
 [Volume Indicator:][[Legend]]                                 what the VOLUME BAR is drawn with: # or ⠶ or ⣿ or ⡾⣽ (a
                                                   fixed row of braille characters that does not repeat) or
@@ -1629,7 +1634,8 @@ RADIO PLAYER MODE: [[Header]]
 
 The radio player is the second of the three modes of Mousiki Plus. [SHIFT and +] (German keyboard) or
 ['] (English keyboard) go to the next mode, [SHIFT and -] (German) or [;] (English) to the
-previous one (order and used modes: Settings -> GENERAL -> MODES).
+)WIZ",
+R"WIZ(previous one (order and used modes: Settings -> GENERAL -> MODES).
 
 PLAYER -> RADIO:[[Header]] the player is paused and kept in memory (queue, position and screen).
 RADIO -> OTHER MODE:[[Header]] the radio is closed completely, so it only uses resources while you 
@@ -1637,8 +1643,7 @@ are in it. Files added to your music folders meanwhile are found after [SHIFT+r]
 [q] (or [CTRL+c]) in the radio quits the program, both modes end.
 
 WHAT THE RADIO SHARES WITH THE PLAYER: [[Header]]
-)WIZ",
-R"WIZ(Equalizer [SHIFT+e], oscilloscope [SHIFT+o] / [SHIFT+0], spectrogram [SHIFT+i] / [SHIFT+u], scope and
+Equalizer [SHIFT+e], oscilloscope [SHIFT+o] / [SHIFT+0], spectrogram [SHIFT+i] / [SHIFT+u], scope and
 spectrogram windows [)] / [(], loudness normalization [v] / [SHIFT+v], sleep timer [SHIFT+z], text fields,
 the cheat sheet [?] and this wizard [SHIFT+w] work with the same keys and overlays as described in
 chapters 2.5 to 2.8. Differences: the radio keeps its own equalizer curve, oscilloscope values and
@@ -1790,15 +1795,15 @@ the square bracket keys (left / right)   back / forward 30 seconds
 the curly bracket keys (left / right)    back 5 minutes / back to live
                                          (German keyboard: [ALT GR+7] / [ALT GR+0])
 Every jump is shown for 4 seconds under the scope block, e.g. -0:30 | 2:30 behind live.
-You can never go back before the moment you tuned in: internet radio only delivers from "now".
+)WIZ",
+R"WIZ(You can never go back before the moment you tuned in: internet radio only delivers from "now".
 Catching up with the forward key hands back to the live stream without a gap. Tuning another
 station, [x] or quitting clears the buffer.
 
 THE BUFFER: [[Header]]
 The size is [s] Settings[[Header]] ->> GENERAL[[Header]] ->> Timeshift buffer (5, 15, 30, 45 or 60 minutes,
 default 30). The file is radio_timeshift.pcm in ~/.cache/mousiki/ and takes about 11.5 MB per minute
-)WIZ",
-R"WIZ((about 345 MB for 30 minutes). It is written by the stream thread and never touched by the screen
+(about 345 MB for 30 minutes). It is written by the stream thread and never touched by the screen
 loop, so the interface stays as fast as without it. It is deleted when the radio closes.
 If a pause lasts longer than the buffer, the oldest part is overwritten and playback continues
 from the oldest audio that is still there.
@@ -1938,15 +1943,15 @@ the first row [<- ..] ENTER goes back up or hitting [ESC]. A search shows all bo
 
 [[New Page]]
 4.1.1 THE AUDIO BOOK SCREEN AND ITS KEYS [[Header]]
-
+)WIZ",
+R"WIZ(
 PANES: [[Header]]
 BOOKS (left)      only folders: one row per book with its number of chapters. [ENTER] opens the book.
                   [/] searches the books, [ESC] shows all books again; in the chapter pane [ESC] goes 
                   back to the library pane; in a folder of the library pane [<-] and [ESC] go one step 
                   up in the folder hierarchy.
 CHAPTERS (right)  takes the place of the queue: the files of the open book in natural order
-)WIZ",
-R"WIZ(                  ("Chapter 2" before "Chapter 10"). [ENTER] plays a chapter. [TAB] moves the focus.
+                  ("Chapter 2" before "Chapter 10"). [ENTER] plays a chapter. [TAB] moves the focus.
                   Hitting [ESC] moves back to the library/books pane. 
 
 PLAYBACK: [[Header]]
@@ -2058,12 +2063,12 @@ NOTES: [[Header]]
            time stamp is passed.
            [CTRL+n] goes on in the big notes overlay (same text, same caret), there [CTRL+n] comes back.
            A shown note: [CTRL+n] opens it there for editing. The time stamp (@ h:mm:ss) always stays whole.
-[SHIFT+l]  all notes in a full-screen overlay: the list left (chapter, time, title), the note right.
+)WIZ",
+R"WIZ([SHIFT+l]  all notes in a full-screen overlay: the list left (chapter, time, title), the note right.
            [ENTER] (or [t]) edits it right there, [f] shows it in the field, [SHIFT+p] plays from that 
            point (the note is in the field after the overlay is closed), the right pane becomes the editor, 
            [n] writes a new note at the playing point, [x] deletes, [SHIFT+e] / [SHIFT+i] export / import (an
-)WIZ",
-R"WIZ(           import adds only new notes).
+           import adds only new notes).
 [SHIFT+t]  sorts: chapter order with highest chapter and furthest time on top, recently edited first.
 [.] / [,]  switch the field between the notes and the visualizations. When a note is open and was just
            saved [.] puts a shown note away: the view from before comes back. [,] on a shown note (e.g. 

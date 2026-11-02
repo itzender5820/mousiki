@@ -478,3 +478,48 @@ TEST(the_kanji_cache_starts_again_when_the_readers_rules_change) {
     translit_set_kanji_cache_file(std::string());
     fs::remove(file, ec);
 }
+
+TEST(manual_translations_are_numbered_and_listed_after_the_machine_ones) {
+    CHECK(translate_service_is_manual("manual"));
+    CHECK(translate_service_is_manual("manual12"));
+    CHECK(!translate_service_is_manual("google"));
+    CHECK(!translate_service_is_manual("manual1"));
+    CHECK_EQ(translate_service_name("manual"), std::string("Manual Translation"));
+    CHECK_EQ(translate_service_name("manual3"), std::string("Manual Translation 3"));
+    CHECK_EQ(translate_next_manual_service({}), std::string("manual"));
+    CHECK_EQ(translate_next_manual_service({{"en", "", "google"}, {"en", "", "manual"}}), std::string("manual2"));
+    CHECK_EQ(translate_next_manual_service({{"en", "", "manual"}, {"de", "", "manual3"}}), std::string("manual2"));   // a gap is filled
+
+    const fs::path dir = fs::temp_directory_path() / "mousiki_tr_manual";
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+    fs::create_directories(dir, ec);
+    const fs::path track = dir / "Song.mp3";
+    { std::ofstream(track) << "x"; }
+    LyricsVersion v;
+    v.kind = LyricsVersion::Kind::Embedded;
+    const std::vector<std::string> plain = {"a", "", "b"};
+    auto make = [&](const char* svc, const char* l1) {
+        LyricsTranslation t;
+        t.ok = true; t.service = svc; t.lines = {l1, "", "second"};
+        return t;
+    };
+    CHECK(save_lyrics_translation(track, v, "en", plain, make("manual2", "M2")));
+    CHECK(save_lyrics_translation(track, v, "fr", plain, make("manual", "M1")));
+    CHECK(save_lyrics_translation(track, v, "en", plain, make("google", "G")));
+    const auto list = list_lyrics_translations(track, v, plain);
+    CHECK_EQ(list.size(), static_cast<size_t>(3));
+    if (list.size() == 3) {
+        CHECK_EQ(list[0].service, std::string("google"));
+        CHECK_EQ(list[1].service, std::string("manual"));
+        CHECK_EQ(list[2].service, std::string("manual2"));
+        CHECK_EQ(list[1].to, std::string("fr"));
+    }
+    LyricsTranslation got;
+    CHECK(load_lyrics_translation(track, v, "en", plain, got, "manual2"));
+    CHECK_EQ(got.lines[0], std::string("M2"));
+    CHECK(!load_lyrics_translation(track, v, "en", {"a", "", "other"}, got, "manual2"));   // other lyrics: ignored
+    CHECK(delete_lyrics_translation(track, v, "fr", "manual"));
+    CHECK_EQ(list_lyrics_translations(track, v, plain).size(), static_cast<size_t>(2));
+    fs::remove_all(dir, ec);
+}

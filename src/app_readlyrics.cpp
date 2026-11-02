@@ -79,6 +79,7 @@ void App::readlyrics_open() {
     rd_exp_open_ = false;
     rd_search_open_ = false;
     rd_add_open_ = false;
+    rd_te_open_ = false;
     rd_opts_warn_.clear();
     rd_status_.clear();
     rd_status_warn_ = false;
@@ -95,6 +96,7 @@ void App::readlyrics_close() {
     rd_exp_open_ = false;
     rd_search_open_ = false;
     rd_add_open_ = false;
+    rd_te_open_ = false;
     rd_confirm_del_ = false;
     // A translation that is still running is NOT stopped: it is saved when done (readlyrics_poll() tells).
     mode_ = Mode::Browse;
@@ -366,6 +368,7 @@ void App::handle_readlyrics_key(int key) {
     if (rd_exp_open_) { readlyrics_export_key(key); return; }
     if (rd_search_open_) { readlyrics_search_key(key); return; }
     if (rd_add_open_) { readlyrics_add_key(key); return; }
+    if (rd_te_open_) { readlyrics_te_key(key); return; }
     const bool arrow = last_key_was_arrow();
     if (!arrow && key_is("HKeyTranslit", key)) { toggle_latin_letters(); return; }   // Latin letters on / off, also here
     if (!arrow && key_is("HKeyLyricsTiming", key)) { lyrics_edit_open_over_reader(); return; }   // the lyrics timing overlay, as on the main screen
@@ -390,7 +393,8 @@ void App::handle_readlyrics_key(int key) {
         if (readlyrics_track_plays()) player_.seek_relative(key == kKeyShiftLeft ? -5.0 : 5.0);
         return;
     }
-    if (!arrow && (key == 'e' || key == 'E')) {   // [e]: export these lyrics
+    if (!arrow && key == 'E' && !rd_confirm_del_) { readlyrics_te_open(); return; }   // SHIFT+e: edit / add a translation by hand
+    if (!arrow && key == 'e') {   // [e]: export these lyrics
         if (rd_lines_.empty()) { rd_status_ = "there are no lyrics to export"; rd_status_warn_ = true; return; }
         std::vector<int> fl; std::vector<std::string> nm;
         readlyrics_export_choices(fl, nm);
@@ -1336,8 +1340,9 @@ void App::build_readlyrics_screen(std::ostringstream& frame, int W, int target_h
             std::vector<std::string> items;
             for (size_t i = 0; i < rd_tlist_.size(); ++i) {
                 const TranslationInfo& t = rd_tlist_[i];
-                items.push_back(std::string(show && static_cast<int>(i) == rd_tsel_ ? "● " : "") + language_name(t.to) +
-                                (t.service.empty() ? std::string() : " (" + translate_service_name(t.service) + ")"));
+                items.push_back(std::string(show && static_cast<int>(i) == rd_tsel_ ? "● " : "") +
+                                (translate_service_is_manual(t.service) ? translate_service_name(t.service)
+                                 : language_name(t.to) + (t.service.empty() ? std::string() : " (" + translate_service_name(t.service) + ")")));
             }
             line = chooser(items, rd_tsel_, rd_tfirst_);
         }
@@ -1362,7 +1367,7 @@ void App::build_readlyrics_screen(std::ostringstream& frame, int W, int target_h
         std::vector<LegendGroup> groups = {
             {"Move", {"[\u2190\u2192] Choose file/Translation\001Choose", "[TAB] Focus", "[\u2191\u2193] Scroll", "[SHIFT+\u2191\u2193] Page up/down\001Page", "[HOME/END] Top/Bottom"}},
             {"Play", {"[p] Play/Pause", "[SHIFT+\u2190\u2192] Seek 5 s\001Seek", "[f] Follow the song\001Follow", "[" + hotkey_text("HKeyLyricsTiming", "ALT+L") + "] Lyrics timing\001Timing"}},
-            {"Translate", {"[t] Translate", "[SHIFT+t] Show/Hide translations\001Show/Hide", "[d/DEL] Delete translation\001Delete", "[e] Export"}},
+            {"Translate", {"[t] Translate", "[SHIFT+t] Show/Hide translations\001Show/Hide", "[d/DEL] Delete translation\001Delete", "[SHIFT+e] Edit/Add translation\001Edit/Add", "[e] Export"}},
             {"Session", {"[CTRL+s] Search", "[" + hotkey_text("HKeyRetryLyrics", "l") + "] Re-fetch lyrics\001Re-fetch", "[a] Add / Assign lyrics manually\001Add / Assign", "[ESC] Close"}},
         };
         const auto lrows = layout_legend_tree(groups, W - 1);
@@ -1431,7 +1436,8 @@ void App::build_readlyrics_screen(std::ostringstream& frame, int W, int target_h
     if (plays) info += std::string(info.empty() ? "" : "  ") + (player_.is_paused() ? "paused " : "playing ") + fmt_mmss(elapsed) + " / " + fmt_mmss(static_cast<double>(total_sec_)) +
                        (rd_follow_ ? "" : "  (follow off: [f])");
     const std::string sep2 = info.empty() ? "" : "  ";
-    if (show) info += sep2 + "translation: " + language_name(rd_from_) + " > " + language_name(rd_to_) +
+    if (show && translate_service_is_manual(rd_svc_)) info += sep2 + "translation: " + translate_service_name(rd_svc_) + " (" + language_name(rd_to_) + ")";
+    else if (show) info += sep2 + "translation: " + language_name(rd_from_) + " > " + language_name(rd_to_) +
                       (rd_svc_.empty() ? std::string() : " (" + translate_service_name(rd_svc_) + ")");
     else if (rd_same_ && rd_tlist_.empty()) info += sep2 + "already " + language_name(settings_.translate_to);
     else if (!rd_tlist_.empty()) info += sep2 + "translation hidden -- [SHIFT+t] shows it";
@@ -1461,6 +1467,259 @@ void App::build_readlyrics_screen(std::ostringstream& frame, int W, int target_h
     frame << box_bottom(W, truncate_str(info, std::max(4, W - 6)), border_bottom) << "\n";
 
     for (const auto& l : hint_lines) frame << l << "\n";
+}
+
+
+// --- SHIFT+e: edit a translation by hand / write a new one from scratch -------------------------------------------------
+// One translation line per lyrics line, side by side with the original. A machine translation that is edited is saved as a NEW
+// "Manual Translation" (the original of the service stays as it was); a manual translation that is edited is changed in place.
+// The language can be chosen (TAB). The lines that are empty in the lyrics (the gaps between stanzas) are not edited.
+int App::readlyrics_te_body_rows() const {
+    return std::max(3, std::max(20, term_rows_ - 1) - kTeLegendRows - 5);   // top border, header, column titles, status, bottom border
+}
+
+void App::readlyrics_te_step(int dir) {
+    int i = rd_te_row_;
+    const int n = static_cast<int>(rd_te_lines_.size());
+    for (i += dir; i >= 0 && i < n; i += dir) if (!readlyrics_te_blank(static_cast<size_t>(i))) { rd_te_row_ = i; return; }
+}
+
+void App::readlyrics_te_open() {
+    rd_status_warn_ = true;
+    bool any = false;
+    for (size_t i = 0; i < rd_lines_.size(); ++i) if (!readlyrics_te_blank(i)) any = true;
+    if (!any) { rd_status_ = "there are no lyrics to translate"; return; }
+    rd_status_warn_ = false;
+    rd_te_lines_.assign(rd_lines_.size(), std::string());
+    rd_te_editing_ = false;
+    rd_te_to_ = settings_.translate_to;
+    rd_te_orig_to_.clear();
+    rd_te_msg_.clear();
+    rd_te_warn_ = false;
+    const bool have = rd_tsel_ >= 0 && rd_tsel_ < static_cast<int>(rd_tlist_.size()) && rd_trans_.size() == rd_lines_.size();
+    if (have) {
+        const TranslationInfo& t = rd_tlist_[static_cast<size_t>(rd_tsel_)];
+        rd_te_lines_ = rd_trans_;
+        rd_te_to_ = t.to;
+        if (translate_service_is_manual(t.service)) {
+            rd_te_editing_ = true;
+            rd_te_svc_ = t.service;
+            rd_te_orig_to_ = t.to;
+            rd_te_msg_ = "changing " + translate_service_name(t.service);
+        } else {
+            rd_te_svc_ = translate_next_manual_service(rd_tlist_);
+            rd_te_msg_ = "a copy of the " + translate_service_name(t.service) + " text: it is saved as a new " + translate_service_name(rd_te_svc_);
+        }
+    } else {
+        rd_te_svc_ = translate_next_manual_service(rd_tlist_);
+        rd_te_msg_ = "a new translation from scratch: it is saved as " + translate_service_name(rd_te_svc_);
+    }
+    for (size_t i = 0; i < rd_te_lines_.size(); ++i) if (readlyrics_te_blank(i)) rd_te_lines_[i].clear();
+    rd_te_row_ = -1;
+    readlyrics_te_step(+1);
+    rd_te_focus_ = 0;
+    rd_te_dirty_ = rd_te_ask_ = rd_te_new_ask_ = false;
+    edit_owner_.clear();
+    rd_te_open_ = true;
+    force_redraw_ = true;
+}
+
+bool App::readlyrics_te_save() {
+    rd_te_warn_ = true;
+    bool filled = false;
+    for (const std::string& l : rd_te_lines_) if (l.find_first_not_of(" \t\r") != std::string::npos) filled = true;
+    if (!filled) { rd_te_msg_ = "nothing is written yet -- nothing to save"; return false; }
+    if (rd_sel_ < 0 || rd_sel_ >= static_cast<int>(rd_versions_.size())) { rd_te_msg_ = "no lyrics file is chosen"; return false; }
+    const LyricsVersion& v = rd_versions_[static_cast<size_t>(rd_sel_)];
+    LyricsTranslation t;
+    t.ok = true;
+    t.service = rd_te_svc_;
+    t.lines = rd_te_lines_;
+    for (size_t i = 0; i < t.lines.size(); ++i) if (readlyrics_te_blank(i)) t.lines[i].clear();
+    if (!save_lyrics_translation(rd_track_, v, rd_te_to_, rd_lines_, t)) { rd_te_msg_ = "could not save the translation (is the lyrics folder writable?)"; return false; }
+    if (rd_te_editing_ && !rd_te_orig_to_.empty() && rd_te_orig_to_ != rd_te_to_) delete_lyrics_translation(rd_track_, v, rd_te_orig_to_, rd_te_svc_);   // the language changed: the file moves
+    const std::string svc = rd_te_svc_, to = rd_te_to_;
+    rd_te_open_ = false;
+    rd_te_dirty_ = false;
+    text_disengage();
+    readlyrics_refresh_translations(to, svc);
+    rd_show_ = !rd_tlist_.empty();
+    rd_pane_ = 1;
+    rd_status_warn_ = false;
+    rd_status_ = "saved: " + translate_service_name(svc) + " (" + language_name(to) + ") -- in the lyrics folder (translations)";
+    log_event("manual translation saved: " + translate_service_name(svc) + " " + to);
+    force_redraw_ = true;
+    return true;
+}
+
+void App::readlyrics_te_key(int key) {
+    const bool arrow = last_key_was_arrow();
+    auto close_editor = [&]() { rd_te_open_ = false; rd_te_ask_ = rd_te_new_ask_ = false; text_disengage(); force_redraw_ = true; };
+    if (rd_te_ask_) {   // "leave without saving?"
+        if (!arrow && (key == 'y' || key == 'Y')) close_editor();
+        else rd_te_ask_ = false;
+        return;
+    }
+    if (rd_te_new_ask_) {   // "start over with an empty translation?"
+        if (!arrow && (key == 'y' || key == 'Y')) {
+            std::fill(rd_te_lines_.begin(), rd_te_lines_.end(), std::string());
+            rd_te_svc_ = translate_next_manual_service(rd_tlist_);
+            rd_te_editing_ = false;
+            rd_te_orig_to_.clear();
+            rd_te_dirty_ = false;
+            rd_te_row_ = -1;
+            readlyrics_te_step(+1);
+            edit_owner_.clear();
+            rd_te_warn_ = false;
+            rd_te_msg_ = "empty translation: it is saved as " + translate_service_name(rd_te_svc_);
+        }
+        rd_te_new_ask_ = false;
+        return;
+    }
+    if (key == 27) {
+        if (rd_te_focus_ == 1) { rd_te_focus_ = 0; return; }
+        if (rd_te_dirty_) { rd_te_ask_ = true; return; }
+        close_editor();
+        return;
+    }
+    if (key == kKeyCtrlS) { if (readlyrics_te_save()) text_disengage(); return; }
+    if (key == kKeyCtrlN) {
+        bool filled = false;
+        for (const std::string& l : rd_te_lines_) if (l.find_first_not_of(" \t\r") != std::string::npos) filled = true;
+        if (!filled && !rd_te_editing_) { rd_te_msg_ = "this translation is empty already"; rd_te_warn_ = false; return; }
+        rd_te_new_ask_ = true;
+        return;
+    }
+    if (!arrow && key == '\t') { rd_te_focus_ = rd_te_focus_ == 0 ? 1 : 0; return; }
+    if (rd_te_focus_ == 1) {   // the language: LEFT / RIGHT (or the first letter) choose, ENTER goes back to the lines
+        if (key == '\r' || key == '\n') { rd_te_focus_ = 0; return; }
+        const auto& langs = translate_languages();
+        int idx = 0;
+        for (size_t i = 0; i < langs.size(); ++i) if (langs[i].first == rd_te_to_) idx = static_cast<int>(i);
+        const int n = static_cast<int>(langs.size());
+        int next = idx;
+        if (arrow && (key == 'C' || key == 'B')) next = (idx + 1) % n;
+        else if (arrow && (key == 'D' || key == 'A')) next = (idx + n - 1) % n;
+        else if (!arrow && key < 128 && std::isalpha(key)) {
+            const char want = static_cast<char>(std::tolower(key));
+            for (int k = 1; k <= n; ++k) {
+                const int i = (idx + k) % n;
+                if (!langs[static_cast<size_t>(i)].second.empty() && std::tolower(static_cast<unsigned char>(langs[static_cast<size_t>(i)].second[0])) == want) { next = i; break; }
+            }
+        }
+        if (next != idx) { rd_te_to_ = langs[static_cast<size_t>(next)].first; rd_te_dirty_ = true; rd_te_msg_.clear(); }
+        return;
+    }
+    const int last = static_cast<int>(rd_te_lines_.size()) - 1;
+    rd_te_row_ = std::clamp(rd_te_row_, 0, last);
+    if (arrow && last_key_was_page() && (key == 'A' || key == 'B')) {
+        for (int i = 0; i < 10; ++i) readlyrics_te_step(key == 'A' ? -1 : +1);
+        return;
+    }
+    if (arrow && key == 'A') { readlyrics_te_step(-1); return; }
+    if (arrow && key == 'B') { readlyrics_te_step(+1); return; }
+    if (!arrow && (key == '\r' || key == '\n')) { readlyrics_te_step(+1); return; }
+    std::string& cur = rd_te_lines_[static_cast<size_t>(rd_te_row_)];
+    const std::string owner = "rd-te-" + std::to_string(rd_te_row_);
+    edit_focus(owner, cur);
+    if (key == kKeyCtrlO) {   // the original line as the translation (names, "oh oh oh" ...)
+        cur = rd_lines_[static_cast<size_t>(rd_te_row_)];
+        edit_caret_ = edit_anchor_ = cur.size();
+        rd_te_dirty_ = true;
+        rd_te_msg_ = "the original line copied";
+        rd_te_warn_ = false;
+        return;
+    }
+    std::string st;
+    if (edit_text_key(cur, edit_caret_, edit_anchor_, key, 1000, &st)) { rd_te_dirty_ = true; rd_te_msg_.clear(); }
+    else if (!st.empty()) { rd_te_msg_ = st; rd_te_warn_ = false; }
+}
+
+std::vector<std::string> App::build_readlyrics_te_panel(int W) const {
+    const int PW = std::max(70, W), inner = PW - 4;
+    const std::string border = ansi_for(settings_.border_color, false);
+    const std::string border_bottom = ansi_for(settings_.border_color_bottom, false);
+    const std::string R = "\x1b[0m";
+    const std::string bar = border + settings_.box_vertical + R;
+    const std::string hdr = header_sgr(settings_);
+    const std::string leg = legend_sgr(settings_);
+    const std::string ink = ansi_for(settings_.list_color, false);
+    std::vector<std::string> out;
+    out.push_back(box_top("EDIT / ADD TRANSLATION", PW, border));
+    auto row = [&](const std::string& painted, int used) { out.push_back(bar + " " + painted + std::string(static_cast<size_t>(std::max(0, inner - used)), ' ') + " " + bar); };
+    // header: the language (TAB chooses it) and the name the translation is saved under
+    {
+        const std::string lang = language_name(rd_te_to_);
+        const std::string saved = "Saved as: " + translate_service_name(rd_te_svc_);
+        const std::string lab = "Language: ";
+        const std::string lang_txt = truncate_str(lang, std::max(4, inner / 2 - display_width(lab)));
+        const std::string sh = truncate_str(saved, std::max(0, inner - display_width(lab) - display_width(lang_txt) - 3));
+        const std::string lpart = rd_te_focus_ == 1 ? cursor_sgr(settings_.list_cursor_color, settings_.list_cursor_bg_color) + lang_txt + R : ink + lang_txt + R;
+        row(hdr + lab + R + lpart + "   " + leg + sh + R, display_width(lab) + display_width(lang_txt) + 3 + display_width(sh));
+    }
+    const int half = (inner - 3) / 2;                 // the original's column; the translation gets the rest
+    const int rw = inner - half - 3;
+    {
+        const std::string a = truncate_str("ORIGINAL", half), b = truncate_str("TRANSLATION", rw);
+        row(hdr + pad_right(a, half) + R + "   " + hdr + b + R, half + 3 + display_width(b));
+    }
+    const int body = readlyrics_te_body_rows();
+    const int n = static_cast<int>(rd_te_lines_.size());
+    const int cur = std::clamp(rd_te_row_, 0, std::max(0, n - 1));
+    int first = std::clamp(rd_te_first_, 0, std::max(0, n - 1));
+    if (cur < first) first = cur;
+    if (cur >= first + body) first = cur - body + 1;
+    first = std::clamp(first, 0, std::max(0, n - body));
+    const bool typing = rd_te_focus_ == 0 && !rd_te_ask_ && !rd_te_new_ask_;
+    for (int r = 0; r < body; ++r) {
+        const int i = first + r;
+        if (i >= n) { row("", 0); continue; }
+        const bool here = i == cur;
+        const std::string left = pad_right(truncate_str(rd_lines_[static_cast<size_t>(i)], half), half);
+        std::string right;
+        int rused = 0;
+        if (here && typing) {
+            const EditPaint pt = paint_edit_field(rd_te_lines_[static_cast<size_t>(i)], edit_owner_ == "rd-te-" + std::to_string(i) ? edit_caret_ : rd_te_lines_[static_cast<size_t>(i)].size(),
+                                                  edit_owner_ == "rd-te-" + std::to_string(i) ? edit_anchor_ : rd_te_lines_[static_cast<size_t>(i)].size(), rw, change_sgr(settings_), true);
+            right = change_sgr(settings_) + pt.s + R;
+            rused = pt.cols;
+        } else {
+            const std::string t = truncate_str(rd_te_lines_[static_cast<size_t>(i)], rw);
+            right = (here ? "\x1b[1m" : std::string()) + ink + t + R;
+            rused = display_width(t);
+        }
+        row((here ? "\x1b[1m" : std::string()) + ink + left + R + border + " " + settings_.box_vertical + " " + R + right, half + 3 + rused);
+    }
+    // status: what happened / what is asked / where the caret is
+    {
+        std::string s;
+        std::string sgr = leg;
+        if (rd_te_ask_) s = "Leave without saving?  [y] Yes | [any other key] No";
+        else if (rd_te_new_ask_) s = "Start over with an empty translation? What is written here is dropped.  [y] Yes | [any other key] No";
+        else if (!rd_te_msg_.empty()) { s = rd_te_msg_; if (rd_te_warn_) sgr = std::string("\x1b[31m"); }
+        else {
+            int filled = 0, total = 0;
+            for (int i = 0; i < n; ++i) if (!readlyrics_te_blank(static_cast<size_t>(i))) { ++total; if (rd_te_lines_[static_cast<size_t>(i)].find_first_not_of(" \t\r") != std::string::npos) ++filled; }
+            s = "line " + std::to_string(cur + 1) + "/" + std::to_string(n) + "   " + std::to_string(filled) + " of " + std::to_string(total) + " lines written" + (rd_te_dirty_ ? "   (not saved)" : "");
+        }
+        s = truncate_str(s, inner);
+        row(sgr + s + R, display_width(s));
+    }
+    out.push_back(box_bottom(PW, "[CTRL+s] Save  [ESC] Close", border_bottom));
+    return out;
+}
+
+std::vector<std::string> App::build_readlyrics_te_legend(int W) const {
+    const std::string border = ansi_for(settings_.border_color, false);
+    const std::vector<LegendGroup> groups = {
+        {"Move", {"[↑↓/ENTER] Line", "[PgUp/PgDn] Page up/down\001Page", "[TAB] Language / Lines\001Language"}},
+        {"Edit", {"[CTRL+o] Copy original line\001Copy line", "[CTRL+n] Start from scratch\001Scratch", "[CTRL+c/x/v] Copy/Cut/Paste\001Clipboard"}},
+        {"Session", {"[CTRL+s] Save", "[ESC] Close"}},
+    };
+    std::vector<std::string> out;
+    const auto lrows = layout_legend_tree(groups, std::max(20, W - 1));
+    for (size_t i = 0; i < lrows.size(); ++i) out.push_back(" " + paint_legend(settings_, lrows, i, border, 0, true));
+    return out;
 }
 
 
