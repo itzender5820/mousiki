@@ -1014,6 +1014,14 @@ def narrow_sweep(binary, root, scripts, cols, rows):
             see("l", "read lyrics: refetch form", 1.0)
             if "REFETCH" in sess.text():
                 sess.send(b"\x1b", 0.8)
+        # the big queue overlay and its legend
+        for _ in range(3):
+            if "READ LYRICS" in sess.text() or "ADD LYRICS" in sess.text():
+                sess.send(b"\x1b", 0.8)
+        see("e", "queue: add a track", 0.4, frame=False)
+        see("K", "big queue overlay", 1.2, frame=False)
+        see("S", "big queue overlay (shuffled)", 0.5, frame=False)
+        see(b"\x1b", "big queue overlay closed", 0.8, frame=False)
         # karaoke
         for _ in range(3):   # (back at the main screen whatever is still open)
             if "READ LYRICS" in sess.text() or "ADD LYRICS" in sess.text():
@@ -1133,6 +1141,47 @@ def disk_field_setting(binary, root, scripts):
     finally:
         sess.kill()
 
+def queue_shuffle(binary, root, scripts):
+    """The big queue overlay (SHIFT+k): SHIFT+s shuffles the order of the queue."""
+    home = os.path.join(root, "qs_home")
+    lib = os.path.join(root, "music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Alpha Song" in sess.text():
+                break
+        for i in range(4):                       # the four tracks to the end of the queue
+            sess.send("e", 0.4)
+            sess.send(b"\x1b[B", 0.3)
+        sess.send("K", 1.2)
+        check("Shuffle" in sess.text(), "queue shuffle: the overlay legend names SHIFT+s")
+        names = ["Alpha Song", "Beta Song", "\u3055\u304f\u3089", "\uc0ac\ub791\ud574"]
+
+        def order():
+            t = sess.text()
+            return tuple(t.find(n) for n in names)
+        before = order()
+        changed = False
+        for _ in range(12):
+            sess.send("S", 0.5)
+            if order() != before:
+                changed = True
+                break
+        check(changed, "queue shuffle: SHIFT+s changes the order of the queue")
+        check(sess.alive(), "queue shuffle: the program is still running")
+        sess.send(b"\x1b", 0.8)
+    finally:
+        sess.kill()
+
 
 # The scenarios, longest first. Each one runs in a worker process of its own (own copy of the library, own HOME): they only
 # sleep and read frames, so on a few cores they overlap well. MOUSIKI_SMOKE_JOBS=1 runs them one after the other.
@@ -1148,6 +1197,8 @@ def run_scenario(name, binary, root, scripts):
         opened_lyrics_is_current(binary, root, scripts)
     elif name == "disk_field_setting":
         disk_field_setting(binary, root, scripts)
+    elif name == "queue_shuffle":
+        queue_shuffle(binary, root, scripts)
     elif name == "narrow80":
         narrow_sweep(binary, root, scripts, 80, 24)
     elif name == "narrow100":
@@ -1157,7 +1208,7 @@ def run_scenario(name, binary, root, scripts):
 
 
 SCENARIOS = ["narrow80", "narrow100", "main", "read_lyrics_play", "karaoke_timing", "book_speed_and_devices", "paging_and_translit_row",
-             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "selftest_command", "opened_lyrics_is_current", "disk_field_setting"]
+             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle"]
 
 
 def main():

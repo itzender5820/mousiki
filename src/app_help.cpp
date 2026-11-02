@@ -240,6 +240,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {"BIG OVERLAYS (MAIN UI)", "HKeyFolderOverlay", "Big folder overlay: tree of the library's folders (ENTER opens, f shows the folder in the list, / searches)"},
         {nullptr, "HKeyListOverlay", "Big list overlay: larger LOCAL AUDIO FILES pane (toggle)"},
         {nullptr, "HKeyQueueOverlay", "Big queue overlay: larger QUEUE pane (toggle; replaces the list overlay)"},
+        {nullptr, "#SHIFT+s", "Big queue overlay only: shuffle the order of the queue"},
         {nullptr, "#SHIFT+UP/DOWN", "Every list and scrolling page (also the big overlays): previous / next page (faster scrolling)"},
         {nullptr, "#PGUP/PGDN", "The same as SHIFT+UP/DOWN. Not every keyboard has them without FN: SHIFT+UP/DOWN works everywhere"},
         {nullptr, "#ESC", "Big list / queue / folder / conversion overlay: close (playback, queue and list keys keep working)"},

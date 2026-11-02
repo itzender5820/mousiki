@@ -1213,6 +1213,7 @@ The same idea as the big list overlay, for the queue: a large window that shows 
 | `4` / `5` (default) | Move the hovered track up / down in the queue |
 | `SHIFT+4` / `SHIFT+5` (default) | Move the hovered track to the top / bottom of the queue |
 | `!` (default) | Lock / unlock the queue |
+| `SHIFT+s` | **Shuffle order**: puts the queue in a random order (on a locked queue the track that plays now stays at the end). Only inside the big queue overlay; on the main screen `SHIFT+s` is still the Style Option overlay |
 | `d` | Remove the hovered track from the queue |
 | `a` | Does nothing while the queue is focused: it only adds a track from the library pane. Use `SHIFT+g` (rebindable: **Bulk Add**) to open the bulk-add panel from any pane |
 | `SHIFT+x` | Clear the whole queue (asks first) |

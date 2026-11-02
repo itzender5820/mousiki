@@ -173,7 +173,8 @@ std::vector<LegendRow> App::queue_overlay_legend(int panel_w) const {
                   "[" + hotkey_text("HKeyQueueUndoClear", "CTRL+SHIFT+Z") + "] Undo clear"}},
         {"Order", {"[" + join_keys(hotkey_text("HKeyQueueMoveUp", "4"), hotkey_text("HKeyQueueMoveDown", "5")) + "] Move up/down",
                    "[" + join_keys(hotkey_text("HKeyQueueMoveTop", "$"), hotkey_text("HKeyQueueMoveBottom", "%")) + "] Move to top/bottom\001Top/Bottom",
-                   "[" + hotkey_text("HKeyQueueLock", "!") + "] " + (queue_locked_ ? "Unlock" : "Lock")}},
+                   "[" + hotkey_text("HKeyQueueLock", "!") + "] " + (queue_locked_ ? "Unlock" : "Lock"),
+                   "[SHIFT+s] Shuffle order\001Shuffle"}},
         {"Other", {"[" + hotkey_text("HKeyQueueToPlaylist", "CTRL+SHIFT+U") + "] Queue to playlist\001To playlist",
                    "[SHIFT+\u2191\u2193] Next/Prev. page\001Page", "[" + hotkey_text("HKeySearch", "/") + "] Search\001Search", "[ESC] Close"}},
     };

@@ -270,6 +270,7 @@ the associated folder. Use [c] or [ESC] to clear folder filter.
 [SHIFT+l] opens a BIG LIST OVERLAY[[HEADER]] for a better overview.
 [SHIFT+f] opens the BIG FOLDER OVERLAY[[Header]].
 [SHIFT+k] opens the BIG QUEUE OVERLAY[[Header]].
+In the big queue overlay [SHIFT+s] shuffles the order of the queue.
 The three big overlays switch directly: with one open, press the key of another
 ([SHIFT+l], [SHIFT+k], [SHIFT+f]) - no need to close it first.
 
@@ -380,9 +381,9 @@ menus switch too (the setting is shared with the music player).
 
 GENERAL:[[HEADER]]
 [UP] / [DOWN] while typing, then [ENTER] plays the highlighted result
-right away
 )WIZ",
-R"WIZ([ENTER] without moving keeps the search as the filter
+R"WIZ(right away
+[ENTER] without moving keeps the search as the filter
 [ESC] cancel and restore the unfiltered list view
 
 NOTES ON SEARCH BEHAVIOR: [[HEADER]]

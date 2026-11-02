@@ -939,6 +939,24 @@ void App::queue_move_hovering(int dir) {
     clamp_queue_selected();
 }
 
+// SHIFT+s in the big queue overlay: the queue is put in a random order. On a locked queue the track that plays now sits at its
+// end (the played tracks do): that one stays there, so "previous" still finds it.
+void App::queue_shuffle_order() {
+    if (queue_.size() < 2) { status_line_ = "shuffle order: the queue needs at least two items"; return; }
+    size_t n = queue_.size();
+    if (queue_locked_ && has_track_) {
+        const QueueItem& last = queue_.back();
+        if (last.is_local == current_is_local_ && (last.is_local ? last.local_path == current_path_ : last.video_id == current_video_id_)) --n;
+    }
+    std::random_device rd;
+    std::mt19937 rng(rd());
+    std::shuffle(queue_.begin(), queue_.begin() + static_cast<std::ptrdiff_t>(n), rng);
+    queue_after_move(0, 0);
+    queue_selected_ = 0;
+    clamp_queue_selected();
+    status_line_ = "queue shuffled: " + std::to_string(queue_.size()) + " items in a new random order";
+}
+
 // Shift+4 / Shift+5: the hovering item to the very top / bottom.
 void App::queue_move_to_edge(int dir) {
     if (queue_.empty()) return;

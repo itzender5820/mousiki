@@ -380,6 +380,7 @@ private:
     std::vector<QueueItem> queue_undo_;
     void queue_toggle_lock();
     void queue_add_selected_end();       // "e": hovering track to the END of the queue
+    void queue_shuffle_order();          // SHIFT+s in the big queue overlay: the queue gets a random order
     void queue_move_to_edge(int dir);    // Shift+4 / Shift+5: dir=-1 top, +1 bottom
     void queue_reset_lap(); // clears every item's "played in this pass" flag (queue-then-stop)
     void queue_after_move(int from, int to); // a manual move just ends the current "a" run

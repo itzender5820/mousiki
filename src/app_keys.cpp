@@ -772,6 +772,7 @@ void App::handle_key(int key) {
             queue_overlay_page(key == 'A' ? -1 : 1);
             return;
         }
+        if (!last_key_was_arrow() && key == 'S') { queue_shuffle_order(); return; }   // SHIFT+s: shuffle the order
         if (key == 27) {
             if (!queue_find_.empty()) { queue_find_.clear(); return; }   // the first ESC takes the search away
             queue_overlay_close();
