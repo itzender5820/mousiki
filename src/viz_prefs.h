@@ -57,6 +57,36 @@ struct VizPrefs {
     std::string gfx_protocol = "auto";  // image style: auto | kitty | sixel | off
     std::string cell_pixels;            // image style: pixels of one terminal cell "WxH"; empty = ask the terminal
     SpectroSettings spectro;            // the spectrogram (SHIFT+i overlay, SHIFT+u full screen), Audacity's defaults
+    // Each look has its own values (colours, scale, frequencies, gain ...): spectrogram and waterfall, each as image and as braille.
+    // `spectro` holds the ones in use; spectro_sync() (call it after every edit) stores them in their slot and, when the view or the
+    // style was switched, loads the slot of the new look. A look that was never used starts with a copy of the values in use.
+    SpectroSettings spectro_slot[4];
+    bool spectro_have[4] = {false, false, false, false};
+    int spectro_active = -1;
+    static int spectro_slot_of(const SpectroSettings& s) { return (s.view == 1 ? 2 : 0) + (s.style == 1 ? 1 : 0); }
+    void spectro_sync() {
+        const int now = spectro_slot_of(spectro);
+        if (spectro_active < 0 || now == spectro_active) {
+            spectro_active = now;
+            spectro_slot[now] = spectro;
+            spectro_have[now] = true;
+            return;
+        }
+        SpectroSettings leaving = spectro;   // (the view and style row of the old look are the ones it had)
+        leaving.view = spectro_active / 2;
+        leaving.style = spectro_active % 2;
+        spectro_slot[spectro_active] = leaving;
+        spectro_have[spectro_active] = true;
+        if (spectro_have[now]) {
+            spectro = spectro_slot[now];
+            spectro.view = now / 2;
+            spectro.style = now % 2;
+        } else {
+            spectro_slot[now] = spectro;
+            spectro_have[now] = true;
+        }
+        spectro_active = now;
+    }
     int image_scale = 2;                // image style: 1 = full, 2 = half, 3 = a third of the screen resolution (enlarged on output)
     int image_detail = 0;               // image style: 0 = normal (picture up to 560 px wide), 1 = high (up to 1024 px)
     OsciSet& osci() { return osci_set[osci_style == 1 ? 1 : 0]; }
@@ -86,5 +116,9 @@ void osci_reset(VizPrefs& s);                                   // the parameter
 bool osci_config_key(VizPrefs& s, const std::string& key, const std::string& value);
 // Writes the oscilloscope block of the config file; `c` is the comment prefix ("##" in config.txt, "#" in radio_config.txt).
 void osci_config_write(std::ostream& out, const VizPrefs& s, const char* c);
+// The spectrogram looks that are not in use (SpectroProfile<n>... keys: n = 2 * view + style, view 0 spectrogram / 1 waterfall, style 0 braille / 1 image)
+bool spectro_profile_key(VizPrefs& s, const std::string& key, const std::string& value);
+void spectro_profiles_write(std::ostream& out, const VizPrefs& s, const char* comment_prefix);
+void spectro_profiles_finish(VizPrefs& s);   // after reading a file: the values in use go into their slot
 
 } // namespace muisc

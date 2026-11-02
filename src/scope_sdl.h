@@ -29,6 +29,7 @@ constexpr uint32_t kFmtARGB8888 = 0x16362004;
 constexpr int kTexStatic = 0, kTexTarget = 2;
 constexpr int kBlendNone = 0, kBlendBlend = 1, kBlendAdd = 2;
 constexpr int kFactorOne = 2, kOpRevSubtract = 3;
+constexpr int kScaleNearest = 0;
 constexpr int kScaleLinear = 1;
 // events
 constexpr uint32_t kEvQuit = 0x100, kEvWindow = 0x200, kEvKeyDown = 0x300, kEvMouseDown = 0x401;

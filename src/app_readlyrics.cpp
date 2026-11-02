@@ -373,7 +373,7 @@ void App::handle_readlyrics_key(int key) {
     if (!arrow && key_is("HKeyTranslit", key)) { toggle_latin_letters(); return; }   // Latin letters on / off, also here
     if (!arrow && key_is("HKeyLyricsTiming", key)) { lyrics_edit_open_over_reader(); return; }   // the lyrics timing overlay, as on the main screen
     if (!arrow && key_is("HKeyRetryLyrics", key) && !rd_confirm_del_) { rl_open_over_reader(); return; }   // the re-fetch / version control overlay
-    if (key == kKeyCtrlS && !rd_confirm_del_) { readlyrics_search_open(); return; }
+    if (!arrow && key_is("HKeySearch", key) && !rd_confirm_del_) { readlyrics_search_open(); return; }   // "/" (SHIFT+7 on a German keyboard): search the lyrics files
     if (!rd_confirm_del_ && (key == kKeyCtrlN || (!arrow && (key == 'a' || key == 'A')))) { readlyrics_add_open(); return; }   // add a lyrics file by hand
     if (rd_confirm_del_) {   // "delete this translation?" -- only y confirms
         if (!arrow && (key == 'y' || key == 'Y')) readlyrics_delete_translation();
@@ -527,7 +527,7 @@ void App::readlyrics_show_file(const LyricsFileHit& hit) {
 void App::readlyrics_search_key(int key) {
     const bool arrow = last_key_was_arrow();
     const int n = static_cast<int>(rd_search_view_.size());
-    if (key == 27 || key == kKeyCtrlS) { rd_search_open_ = false; return; }
+    if (key == 27) { rd_search_open_ = false; return; }
     if (key == '\r' || key == '\n') {
         if (n == 0) return;
         const LyricsFileHit hit = rd_search_all_[static_cast<size_t>(rd_search_view_[static_cast<size_t>(rd_search_sel_)])];
@@ -1368,7 +1368,7 @@ void App::build_readlyrics_screen(std::ostringstream& frame, int W, int target_h
             {"Move", {"[\u2190\u2192] Choose file/Translation\001Choose", "[TAB] Focus", "[\u2191\u2193] Scroll", "[SHIFT+\u2191\u2193] Page up/down\001Page", "[HOME/END] Top/Bottom"}},
             {"Play", {"[p] Play/Pause", "[SHIFT+\u2190\u2192] Seek 5 s\001Seek", "[f] Follow the song\001Follow", "[" + hotkey_text("HKeyLyricsTiming", "ALT+L") + "] Lyrics timing\001Timing"}},
             {"Translate", {"[t] Translate", "[SHIFT+t] Show/Hide translations\001Show/Hide", "[d/DEL] Delete translation\001Delete", "[SHIFT+e] Edit/Add translation\001Edit/Add", "[e] Export"}},
-            {"Session", {"[CTRL+s] Search", "[" + hotkey_text("HKeyRetryLyrics", "l") + "] Re-fetch lyrics\001Re-fetch", "[a] Add / Assign lyrics manually\001Add / Assign", "[ESC] Close"}},
+            {"Session", {"[" + hotkey_text("HKeySearch", "/") + "] Search", "[" + hotkey_text("HKeyRetryLyrics", "l") + "] Re-fetch lyrics\001Re-fetch", "[a] Add / Assign lyrics manually\001Add / Assign", "[ESC] Close"}},
         };
         const auto lrows = layout_legend_tree(groups, W - 1);
         for (size_t i = 0; i < lrows.size(); ++i) hint_lines.push_back(" " + paint_legend(settings_, lrows, i, border, 0, true));
@@ -1517,6 +1517,9 @@ void App::readlyrics_te_open() {
     for (size_t i = 0; i < rd_te_lines_.size(); ++i) if (readlyrics_te_blank(i)) rd_te_lines_[i].clear();
     rd_te_row_ = -1;
     readlyrics_te_step(+1);
+    rd_te_mark_ = -1;
+    rd_te_undo_.clear();
+    rd_te_first_ = 0;
     rd_te_focus_ = 0;
     rd_te_dirty_ = rd_te_ask_ = rd_te_new_ask_ = false;
     edit_owner_.clear();
@@ -1569,6 +1572,8 @@ void App::readlyrics_te_key(int key) {
             rd_te_dirty_ = false;
             rd_te_row_ = -1;
             readlyrics_te_step(+1);
+            rd_te_mark_ = -1;
+            rd_te_undo_.clear();
             edit_owner_.clear();
             rd_te_warn_ = false;
             rd_te_msg_ = "empty translation: it is saved as " + translate_service_name(rd_te_svc_);
@@ -1577,6 +1582,7 @@ void App::readlyrics_te_key(int key) {
         return;
     }
     if (key == 27) {
+        if (rd_te_mark_ >= 0) { rd_te_mark_ = -1; rd_te_msg_.clear(); return; }   // first ESC: the marking goes
         if (rd_te_focus_ == 1) { rd_te_focus_ = 0; return; }
         if (rd_te_dirty_) { rd_te_ask_ = true; return; }
         close_editor();
@@ -1588,6 +1594,14 @@ void App::readlyrics_te_key(int key) {
         for (const std::string& l : rd_te_lines_) if (l.find_first_not_of(" \t\r") != std::string::npos) filled = true;
         if (!filled && !rd_te_editing_) { rd_te_msg_ = "this translation is empty already"; rd_te_warn_ = false; return; }
         rd_te_new_ask_ = true;
+        return;
+    }
+    // Latin letters on / off (the original column shows kana / Hangul / Chinese in Latin letters). CTRL+T works everywhere (T for transliteration; CTRL+2 is the same, but many terminals and keyboard layouts send nothing for it); the
+    // " sign (the main key of it) only while the language is chosen, because in a line it is a character that can be typed.
+    if (key == kKeyCtrlT || key == kKeyCtrl2 || (!arrow && key == '"' && rd_te_focus_ == 1)) {
+        toggle_latin_letters();
+        rd_te_msg_ = translit_enabled() ? "Latin letters: on -- the original is shown in Latin letters (your text is not changed)" : "Latin letters: off";
+        rd_te_warn_ = false;
         return;
     }
     if (!arrow && key == '\t') { rd_te_focus_ = rd_te_focus_ == 0 ? 1 : 0; return; }
@@ -1616,9 +1630,108 @@ void App::readlyrics_te_key(int key) {
         for (int i = 0; i < 10; ++i) readlyrics_te_step(key == 'A' ? -1 : +1);
         return;
     }
+    // ---- whole lines: SHIFT+up/down marks, CTRL+c / x / v copy, cut and paste them, DEL clears them, CTRL+z undoes ----
+    auto marked_from = [&]() { return rd_te_mark_ < 0 ? rd_te_row_ : std::min(rd_te_mark_, rd_te_row_); };
+    auto marked_to = [&]() { return rd_te_mark_ < 0 ? rd_te_row_ : std::max(rd_te_mark_, rd_te_row_); };
+    auto remember = [&]() { rd_te_undo_ = rd_te_lines_; };
+    auto lines_text = [&](int a, int b) {   // one clipboard line per row, so the rows keep their place (gaps between stanzas stay empty lines)
+        std::string t;
+        for (int i = a; i <= b; ++i) { if (i > a) t += '\n'; if (!readlyrics_te_blank(static_cast<size_t>(i))) t += rd_te_lines_[static_cast<size_t>(i)]; }
+        return t;
+    };
+    auto count_word = [](int n) { return std::to_string(n) + (n == 1 ? " line" : " lines"); };
+    // text with several lines (clipboard) goes into the rows one after the other from `from` on; the rows that are empty in the original
+    // take their line of the text but stay empty (so a text copied with its stanza gaps lines up)
+    auto paste_lines = [&](int from, const std::string& clip) {
+        std::vector<std::string> in;
+        size_t pos = 0;
+        while (true) {
+            size_t nl = clip.find('\n', pos);
+            std::string l = clip.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos);
+            while (!l.empty() && l.back() == '\r') l.pop_back();
+            in.push_back(l);
+            if (nl == std::string::npos) break;
+            pos = nl + 1;
+        }
+        while (in.size() > 1 && in.back().empty()) in.pop_back();   // the line break at the very end of a copied text
+        remember();
+        int put = 0;
+        for (size_t k = 0; k < in.size() && from + static_cast<int>(k) <= last; ++k) {
+            const size_t i = static_cast<size_t>(from) + k;
+            if (readlyrics_te_blank(i)) continue;
+            std::string l = in[k];
+            if (l.size() > 1000) l.resize(1000);
+            rd_te_lines_[i] = l;
+            ++put;
+        }
+        rd_te_dirty_ = true;
+        rd_te_warn_ = false;
+        rd_te_msg_ = "pasted " + count_word(put) + " from line " + std::to_string(from + 1);
+    };
+    if (key == kKeyCtrlZ) {
+        if (rd_te_undo_.empty()) { rd_te_msg_ = "nothing to undo"; rd_te_warn_ = false; return; }
+        std::swap(rd_te_lines_, rd_te_undo_);
+        rd_te_dirty_ = true;
+        edit_owner_.clear();
+        rd_te_msg_ = "the last whole-line change is undone (CTRL+z again: back)";
+        rd_te_warn_ = false;
+        return;
+    }
+    if (arrow && (key == 'A' || key == 'B') && last_key_was_shifted() && !last_key_was_page()) {   // SHIFT+up / down: mark lines
+        if (rd_te_mark_ < 0) rd_te_mark_ = rd_te_row_;
+        readlyrics_te_step(key == 'A' ? -1 : +1);
+        const int n = marked_to() - marked_from() + 1;
+        rd_te_msg_ = count_word(n) + " marked (CTRL+c copy, CTRL+x cut, CTRL+v paste, DEL clear)";
+        rd_te_warn_ = false;
+        edit_owner_.clear();
+        return;
+    }
+    if (rd_te_mark_ >= 0) {
+        const int a = marked_from(), b = marked_to();
+        if (key == kKeyCtrlC || key == kKeyCtrlX) {
+            clipboard_set(lines_text(a, b));
+            if (key == kKeyCtrlX) {
+                remember();
+                for (int i = a; i <= b; ++i) rd_te_lines_[static_cast<size_t>(i)].clear();
+                rd_te_dirty_ = true;
+            }
+            rd_te_msg_ = std::string(key == kKeyCtrlX ? "cut " : "copied ") + count_word(b - a + 1);
+            rd_te_warn_ = false;
+            rd_te_mark_ = -1;
+            return;
+        }
+        if (key == kKeyCtrlV) { paste_lines(a, clipboard_get()); rd_te_mark_ = -1; rd_te_row_ = a; edit_owner_.clear(); return; }
+        if (key == kKeyDelete || key == 127) {
+            remember();
+            for (int i = a; i <= b; ++i) rd_te_lines_[static_cast<size_t>(i)].clear();
+            rd_te_dirty_ = true;
+            rd_te_msg_ = "cleared " + count_word(b - a + 1);
+            rd_te_warn_ = false;
+            rd_te_mark_ = -1;
+            edit_owner_.clear();
+            return;
+        }
+        if (key == kKeyCtrlO) {
+            remember();
+            int put = 0;
+            for (int i = a; i <= b; ++i) if (!readlyrics_te_blank(static_cast<size_t>(i))) { rd_te_lines_[static_cast<size_t>(i)] = rd_lines_[static_cast<size_t>(i)]; ++put; }
+            rd_te_dirty_ = true;
+            rd_te_msg_ = "the original copied into " + count_word(put);
+            rd_te_warn_ = false;
+            rd_te_mark_ = -1;
+            edit_owner_.clear();
+            return;
+        }
+        rd_te_mark_ = -1;   // anything else ends the marking and does what it normally does
+        edit_owner_.clear();
+    }
     if (arrow && key == 'A') { readlyrics_te_step(-1); return; }
     if (arrow && key == 'B') { readlyrics_te_step(+1); return; }
     if (!arrow && (key == '\r' || key == '\n')) { readlyrics_te_step(+1); return; }
+    if (key == kKeyCtrlV) {   // text with line breaks (a whole translation copied from somewhere): it goes into the lines from here on
+        const std::string clip = clipboard_get();
+        if (clip.find('\n') != std::string::npos) { paste_lines(rd_te_row_, clip); edit_owner_.clear(); return; }
+    }
     std::string& cur = rd_te_lines_[static_cast<size_t>(rd_te_row_)];
     const std::string owner = "rd-te-" + std::to_string(rd_te_row_);
     edit_focus(owner, cur);
@@ -1666,30 +1779,119 @@ std::vector<std::string> App::build_readlyrics_te_panel(int W) const {
     const int body = readlyrics_te_body_rows();
     const int n = static_cast<int>(rd_te_lines_.size());
     const int cur = std::clamp(rd_te_row_, 0, std::max(0, n - 1));
+    // A line that does not fit its column is broken into several rows -- in both columns at once, so a translation always stays beside
+    // its original line. (One column is kept free in the translation for the caret.)
+    const int tw = std::max(1, rw - 1);
+    auto wrap_at = [](const std::string& t, int w) {   // byte ranges of the rows: at a space when there is one, else in the word
+        std::vector<std::pair<size_t, size_t>> r;
+        const std::vector<size_t> cuts = utf8_cuts(t);
+        size_t start = 0;
+        while (true) {
+            int cw = 0;
+            size_t end = t.size(), lastsp = std::string::npos;
+            bool broke = false;
+            for (size_t k = 0; k + 1 < cuts.size(); ++k) {
+                if (cuts[k] < start) continue;
+                const size_t from = cuts[k], to = cuts[k + 1];
+                const int gw = display_width(t.substr(from, to - from));
+                if (cw + gw > w) {
+                    end = (lastsp != std::string::npos && lastsp > start) ? lastsp : (from > start ? from : to);
+                    broke = true;
+                    break;
+                }
+                cw += gw;
+                if (t[from] == ' ') lastsp = to;
+            }
+            r.push_back({start, end});
+            if (!broke || end >= t.size()) break;
+            start = end;
+        }
+        return r;
+    };
+    std::vector<std::vector<std::pair<size_t, size_t>>> orow(static_cast<size_t>(n)), trow(static_cast<size_t>(n));
+    std::vector<std::string> oshown(static_cast<size_t>(n));
+    std::vector<int> hgt(static_cast<size_t>(n), 1);
+    for (int i = 0; i < n; ++i) {
+        oshown[static_cast<size_t>(i)] = shown_text(rd_lines_[static_cast<size_t>(i)]);
+        orow[static_cast<size_t>(i)] = wrap_at(oshown[static_cast<size_t>(i)], half);
+        trow[static_cast<size_t>(i)] = wrap_at(rd_te_lines_[static_cast<size_t>(i)], tw);
+        hgt[static_cast<size_t>(i)] = static_cast<int>(std::max(orow[static_cast<size_t>(i)].size(), trow[static_cast<size_t>(i)].size()));
+    }
     int first = std::clamp(rd_te_first_, 0, std::max(0, n - 1));
     if (cur < first) first = cur;
-    if (cur >= first + body) first = cur - body + 1;
-    first = std::clamp(first, 0, std::max(0, n - body));
-    const bool typing = rd_te_focus_ == 0 && !rd_te_ask_ && !rd_te_new_ask_;
-    for (int r = 0; r < body; ++r) {
-        const int i = first + r;
-        if (i >= n) { row("", 0); continue; }
-        const bool here = i == cur;
-        const std::string left = pad_right(truncate_str(rd_lines_[static_cast<size_t>(i)], half), half);
-        std::string right;
-        int rused = 0;
-        if (here && typing) {
-            const EditPaint pt = paint_edit_field(rd_te_lines_[static_cast<size_t>(i)], edit_owner_ == "rd-te-" + std::to_string(i) ? edit_caret_ : rd_te_lines_[static_cast<size_t>(i)].size(),
-                                                  edit_owner_ == "rd-te-" + std::to_string(i) ? edit_anchor_ : rd_te_lines_[static_cast<size_t>(i)].size(), rw, change_sgr(settings_), true);
-            right = change_sgr(settings_) + pt.s + R;
-            rused = pt.cols;
-        } else {
-            const std::string t = truncate_str(rd_te_lines_[static_cast<size_t>(i)], rw);
-            right = (here ? "\x1b[1m" : std::string()) + ink + t + R;
-            rused = display_width(t);
-        }
-        row((here ? "\x1b[1m" : std::string()) + ink + left + R + border + " " + settings_.box_vertical + " " + R + right, half + 3 + rused);
+    for (;;) {   // the caret's line (all its rows) has to be inside the window
+        int used = 0;
+        for (int i = first; i <= cur; ++i) used += hgt[static_cast<size_t>(i)];
+        if (used <= body || first >= cur) break;
+        ++first;
     }
+    rd_te_first_ = first;
+    const bool typing = rd_te_focus_ == 0 && !rd_te_ask_ && !rd_te_new_ask_;
+    const int mlo = rd_te_mark_ < 0 ? -1 : std::min(rd_te_mark_, cur), mhi = rd_te_mark_ < 0 ? -1 : std::max(rd_te_mark_, cur);
+    const std::string sel = cursor_sgr(settings_.list_cursor_color, settings_.list_cursor_bg_color);
+    int shown_rows = 0;
+    for (int i = first; i < n && shown_rows < body; ++i) {
+        const bool here = i == cur;
+        const bool marked = i >= mlo && i <= mhi && mlo >= 0;
+        const std::string& orig = oshown[static_cast<size_t>(i)];
+        const std::string& tr = rd_te_lines_[static_cast<size_t>(i)];
+        const bool edit_here = here && typing && !marked;
+        const bool mine = edit_owner_ == "rd-te-" + std::to_string(i);
+        size_t caret = mine ? std::min(edit_caret_, tr.size()) : tr.size();
+        size_t anchor = mine ? std::min(edit_anchor_, tr.size()) : tr.size();
+        const size_t slo = std::min(caret, anchor), shi = std::max(caret, anchor);
+        for (int k = 0; k < hgt[static_cast<size_t>(i)] && shown_rows < body; ++k, ++shown_rows) {
+            std::string left, right;
+            int lused = 0, rused = 0;
+            const std::string weight = (here || marked) ? "\x1b[1m" : std::string();
+            if (k < static_cast<int>(orow[static_cast<size_t>(i)].size())) {
+                const auto& rg = orow[static_cast<size_t>(i)][static_cast<size_t>(k)];
+                std::string t = orig.substr(rg.first, rg.second - rg.first);
+                while (!t.empty() && t.back() == ' ') t.pop_back();
+                lused = display_width(t);
+                left = (marked ? sel : weight + ink) + t + R;
+            }
+            left += std::string(static_cast<size_t>(std::max(0, half - lused)), ' ');
+            if (k < static_cast<int>(trow[static_cast<size_t>(i)].size())) {
+                const auto& rg = trow[static_cast<size_t>(i)][static_cast<size_t>(k)];
+                if (edit_here) {
+                    // the caret goes where it belongs; at the end of a row that has a successor it belongs to the start of the successor
+                    const bool last_row = k + 1 == static_cast<int>(trow[static_cast<size_t>(i)].size());
+                    std::string o = change_sgr(settings_);
+                    int cols = 0;
+                    const std::vector<size_t> cuts = utf8_cuts(tr);
+                    auto in_row = [&](size_t off) { return off >= rg.first && (off < rg.second || (off == rg.second && last_row)); };
+                    for (size_t c = 0; c + 1 < cuts.size() || (c < cuts.size() && cuts[c] == tr.size()); ++c) {
+                        const size_t from = cuts[c];
+                        if (from < rg.first) continue;
+                        if (from > rg.second || (from == rg.second && !last_row)) break;
+                        const bool is_caret = from == caret && in_row(from);
+                        const bool is_sel = from >= slo && from < shi;
+                        if (from == tr.size() || from >= rg.second) {   // the caret behind the last character
+                            if (is_caret) { o += "\xe2\x96\x88" + R + change_sgr(settings_); cols += 1; }
+                            break;
+                        }
+                        const std::string g = tr.substr(from, cuts[c + 1] - from);
+                        if (is_caret) { o += "\xe2\x96\x88"; cols += 1; if (!is_sel) { o += g; cols += display_width(g); } else { o += "\x1b[7m" + g + "\x1b[0m" + change_sgr(settings_); cols += display_width(g); } }
+                        else if (is_sel) { o += "\x1b[7m" + g + "\x1b[0m" + change_sgr(settings_); cols += display_width(g); }
+                        else { o += g; cols += display_width(g); }
+                    }
+                    right = o + R;
+                    rused = cols;
+                } else {
+                    std::string t = tr.substr(rg.first, rg.second - rg.first);
+                    while (!t.empty() && t.back() == ' ') t.pop_back();
+                    rused = display_width(t);
+                    right = (marked ? sel : weight + ink) + t + R;
+                }
+            } else if (edit_here && k == 0) {   // an empty line that has the caret
+                right = change_sgr(settings_) + "\xe2\x96\x88" + R;
+                rused = 1;
+            }
+            row(left + border + " " + settings_.box_vertical + " " + R + right, half + 3 + rused);
+        }
+    }
+    for (; shown_rows < body; ++shown_rows) row("", 0);
     // status: what happened / what is asked / where the caret is
     {
         std::string s;
@@ -1700,7 +1902,8 @@ std::vector<std::string> App::build_readlyrics_te_panel(int W) const {
         else {
             int filled = 0, total = 0;
             for (int i = 0; i < n; ++i) if (!readlyrics_te_blank(static_cast<size_t>(i))) { ++total; if (rd_te_lines_[static_cast<size_t>(i)].find_first_not_of(" \t\r") != std::string::npos) ++filled; }
-            s = "line " + std::to_string(cur + 1) + "/" + std::to_string(n) + "   " + std::to_string(filled) + " of " + std::to_string(total) + " lines written" + (rd_te_dirty_ ? "   (not saved)" : "");
+            s = "line " + std::to_string(cur + 1) + "/" + std::to_string(n) + "   " + std::to_string(filled) + " of " + std::to_string(total) + " lines written" + (rd_te_dirty_ ? "   (not saved)" : "") +
+                (translit_enabled() ? "   [Latin letters on]" : "");
         }
         s = truncate_str(s, inner);
         row(sgr + s + R, display_width(s));
@@ -1714,7 +1917,8 @@ std::vector<std::string> App::build_readlyrics_te_legend(int W) const {
     const std::vector<LegendGroup> groups = {
         {"Move", {"[↑↓/ENTER] Line", "[PgUp/PgDn] Page up/down\001Page", "[TAB] Language / Lines\001Language"}},
         {"Edit", {"[CTRL+o] Copy original line\001Copy line", "[CTRL+n] Start from scratch\001Scratch", "[CTRL+c/x/v] Copy/Cut/Paste\001Clipboard"}},
-        {"Session", {"[CTRL+s] Save", "[ESC] Close"}},
+        {"Lines", {"[SHIFT+↑↓] Mark lines\001Mark", "[CTRL+c/x/v] Copy/Cut/Paste lines\001Clipboard", "[DEL] Clear", "[CTRL+z] Undo"}},
+        {"Session", {"[CTRL+t] Latin letters\001Latin", "[CTRL+s] Save", "[ESC] Close"}},
     };
     std::vector<std::string> out;
     const auto lrows = layout_legend_tree(groups, std::max(20, W - 1));

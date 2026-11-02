@@ -31,7 +31,7 @@ namespace muisc {
 namespace {
 
 constexpr double kTwoPi = 6.28318530717958647692;
-constexpr int kPreviewX = 73;      // the column of the box's left border
+constexpr int kPreviewX = 71;      // the column of the box's left border
 constexpr int kPreviewMinW = 107;  // narrower terminals have no room: no preview
 
 enum PvKind { kPvNone, kPvLyrics, kPvDisk, kPvCover, kPvVolume, kPvBars, kPvWave, kPvScope, kPvSpectro, kPvSphere,
@@ -177,7 +177,7 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
     const std::string R = "\x1b[0m";
     const int iw = W - 77;                                        // inside the box
     const int visible = std::max(1, MAX_Y - 3);
-    const int bh = std::min(visible, 19);                         // the box, borders included
+    const int bh = std::min(visible - 1, 19);                         // the box, borders included
     const int ih = bh - 2;                                        // rows inside
     if (ih < 6 || iw < 30) return;
     const int body_h = ih - 1;                                    // the last row is the caption
@@ -454,6 +454,7 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
         SpectroSettings sp = settings_.spectro;
         sp.motion = 1;   // scrolling, so the small picture is full at once; span: a short stretch of time across the box
         sp.span = 10;
+        sp.view = 0;     // always the regular spectrogram: the waterfall (own analysis span, own picture) made the small preview flicker and stick
         P.spec.update(sp);
         const int srows = std::min(body_h, 12);
         if (gfx_proto_ != GfxProto::None) {   // the picture wherever the terminal can show one, braille only without Kitty / Sixel
@@ -617,7 +618,7 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
         }
     }
     if (display_width(label) > iw - 2) label = "Preview";
-    const int top = 3;
+    const int top = 4;                                            // one row below the first option row
     const int bottom = top + bh - 1;
     const int x0 = kPreviewX, x1 = kPreviewX + iw + 1;
     pos(top, x0, B(top) + "┌─ " + R + ansi_for(settings_.tab_current_color, false) + label + R + B(top) + " ");

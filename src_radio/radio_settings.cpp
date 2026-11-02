@@ -885,7 +885,8 @@ RadioSettings load_radio_settings(std::string* source_out) {
     if (auto v = get("VolumeGradient")) s.volume_gradient = as_bool(*v, s.volume_gradient);
     if (auto v = get("VolumeIndicator")) { const int st = muisc::volume_style_from_name(*v); if (st >= 0) s.volume_indicator = st; }
     if (auto v = get("OsciSphere")) { const std::string l = ascii_lower_str(*v); s.scope_mode = l == "sphere" ? 1 : l == "off" ? 2 : (l == "spectro" || l == "spectrogram") ? 3 : 0; }
-    for (const auto& [k, v] : kv) spectro_config_key(s.spectro, k, v);
+    for (const auto& [k, v] : kv) { if (!spectro_profile_key(s, k, v)) spectro_config_key(s.spectro, k, v); }
+    spectro_profiles_finish(s);
     if (auto v = get("TuneNoise")) s.tune_noise = as_bool(*v, s.tune_noise);
     if (auto v = get("MarqueeScrolling")) s.marquee = as_bool(*v, s.marquee);
     if (auto v = get("TimeshiftMinutes")) {
@@ -1111,6 +1112,7 @@ static void write_radio_file(std::ostream& o, const RadioSettings& s) {
          "BoxVertical=" << s.box_vertical << "\nBoxHorizontal=" << s.box_horizontal << "\n"
          "ListSeparator=" << s.list_separator << "\n";
     spectro_config_write(o, s.spectro, "#");
+    spectro_profiles_write(o, s, "#");
     o << "\n";
 }
 
@@ -1121,6 +1123,7 @@ static std::string viz_text(const VizPrefs& v) {
     std::ostringstream o;
     osci_config_write(o, t, "#");
     spectro_config_write(o, t.spectro, "#");
+    spectro_profiles_write(o, t, "#");
     return o.str();
 }
 

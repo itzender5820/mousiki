@@ -135,7 +135,7 @@ void App::build_wizard_screen(std::ostringstream& frame, int W) {
         frame << lead << box_bottom(v.box_w, bottom, border_bottom) << trail << "\n";
         return;
     }
-    bottom += "  [t] TOC  [SHIFT+s] search";
+    bottom += "  [t] TOC  [" + hotkey_text("HKeySearch", "/") + "] search";
     if (v.can_back) bottom += "  [<-] back";
     if (v.can_next) bottom += "  [->] next";
     if (v.toc_page) bottom += "  [\xE2\x86\x91\xE2\x86\x93] select  [SHIFT+\xE2\x86\x91\xE2\x86\x93] jump  [ENTER] open";
@@ -241,6 +241,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "HKeyListOverlay", "Big list overlay: larger LOCAL AUDIO FILES pane (toggle)"},
         {nullptr, "HKeyQueueOverlay", "Big queue overlay: larger QUEUE pane (toggle; replaces the list overlay)"},
         {nullptr, "#SHIFT+s", "Big queue overlay only: shuffle the order of the queue"},
+        {nullptr, "#SHIFT+u", "Big queue overlay only: undo the last shuffle (one level; tracks added since stay behind the others)"},
         {nullptr, "#SHIFT+UP/DOWN", "Every list and scrolling page (also the big overlays): previous / next page (faster scrolling)"},
         {nullptr, "#PGUP/PGDN", "The same as SHIFT+UP/DOWN. Not every keyboard has them without FN: SHIFT+UP/DOWN works everywhere"},
         {nullptr, "#ESC", "Big list / queue / folder / conversion overlay: close (playback, queue and list keys keep working)"},
@@ -261,7 +262,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "HKeyOscMenu", "Oscilloscope overlay: style, frame rate, music mode, decay, dot threshold, tail, glow, Z axis ... live -- braille and image keep their own values (toggle)"},
         {nullptr, "#UP/DOWN  LEFT/RIGHT", "Oscilloscope overlay: pick a value / change it   [R] reset the style in use   [ESC] close"},
         {nullptr, "#OSCI MUSIC MODE", "Oscilloscope overlay row: unprocessed signal, fixed scale, no phase portrait -- for oscilloscope music (lossless files)"},
-        {nullptr, "HKeySpectroMenu", "Spectrogram options overlay: style, motion, scale, frequencies, gain, range, window, colors, time span ... (toggle)"},
+        {nullptr, "HKeySpectroMenu", "Spectrogram options overlay: view (spectrogram / waterfall), style, motion, scale, frequencies, gain, range, window, colors, time span ... (toggle)"},
         {nullptr, "#UP/DOWN  LEFT/RIGHT", "Spectrogram overlay: pick a value / change it   [R] Audacity defaults   [ESC] close"},
         {nullptr, "HKeySpectroFull", "Spectrogram full screen with frequency labels and time ruler (toggle; ESC closes)"},
         {nullptr, "HKeyScopeBig", "Oscilloscope full screen: YT mode left, XY mode right, braille or image style (toggle; ESC closes; the options overlay opens on top of it)"},
@@ -274,9 +275,9 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "HKeyLyricsTiming", "Lyrics timing overlay: shift the lyrics earlier / later (toggle; only while synced lyrics are loaded)"},
         {nullptr, "#LEFT/RIGHT  UP/DOWN", "Lyrics timing overlay: -/+ 0.1 s / -/+ 0.5 s   [R] reset   [ENTER] save to the .lrc   [ESC] cancel"},
         {nullptr, "HKeyReadLyrics", "READ LYRICS: the saved lyrics of the playing (else hovered) track as plain text; two top lines list the lyrics files (embedded / fetched / older) and the saved translations, which are shown in ( ) below each line"},
-        {nullptr, "#CTRL+s", "READ LYRICS: search EVERY lyrics file by name (all lyrics folders of the library) instead of the playing track's lyrics: type to filter, UP/DOWN pick, ENTER shows the file, ESC closes the search (CTRL+L opens the playing track's lyrics again)"},
+        {nullptr, "HKeySearch", "READ LYRICS: search EVERY lyrics file by name (all lyrics folders of the library) instead of the playing track's lyrics: type to filter, UP/DOWN pick, ENTER shows the file, ESC closes the search (CTRL+L opens the playing track's lyrics again)"},
         {nullptr, "#a  CTRL+n", "ADD LYRICS MANUALLY: assign a .lrc / .txt file to a track by hand. Two search bars with a result list each: the lyrics files (all lyrics folders, subfolders too, or a typed path) and the library tracks (first entry: Current track). TAB goes list / list / the button at the bottom, ENTER in a list locks the highlighted entry in (current track by default), ENTER on the button adds, CTRL+c clears the choice, CTRL+t toggles file names in the track list, CTRL+f only tracks without lyrics, CTRL+o original / copy name of the locked file, PgUp/PgDn turn a page, DEL (twice) unassigns manually added lyrics again (the file stays). ESC closes. [a] in READ LYRICS and karaoke, CTRL+n also in the re-fetch form; the old lyrics are kept as an older version"},
-        {nullptr, "#LEFT/RIGHT  TAB  UP/DOWN  t  SHIFT+t  d  e", "READ LYRICS: choose the file / translation, TAB switches the pane, scroll (SPACE, b, HOME, END too)   [t] translate overlay (ENTER fetches)   [SHIFT+t] show / next / hide translations   [d] delete a translation   [SHIFT+e] edit / add a translation by hand (saved as Manual Translation, Manual Translation 2 ...; TAB language, CTRL+o copy original line, CTRL+n from scratch, CTRL+s save)   [e] export the lyrics (original, + translation, + transliteration) into lyrics/export   [ESC] close"},
+        {nullptr, "#LEFT/RIGHT  TAB  UP/DOWN  t  SHIFT+t  d  e", "READ LYRICS: choose the file / translation, TAB switches the pane, scroll (SPACE, b, HOME, END too)   [t] translate overlay (ENTER fetches)   [SHIFT+t] show / next / hide translations   [d] delete a translation   [SHIFT+e] edit / add a translation by hand (saved as Manual Translation, Manual Translation 2 ...; TAB language, CTRL+o copy original line, CTRL+n from scratch, SHIFT+UP/DOWN mark whole lines (CTRL+c/x/v, DEL, CTRL+z), CTRL+t (or CTRL+2) Latin letters, CTRL+s save)   [e] export the lyrics (original, + translation, + transliteration) into lyrics/export   [ESC] close"},
         {nullptr, "HKeyKaraoke", "Karaoke overlay: the lyrics over the whole screen, sung words highlighted (toggle; fetches the lyrics even with the lyrics engine off; playback keys keep working)"},
         {nullptr, "#@KARAOKESIZE", "Karaoke overlay: lyrics bigger / smaller, sizes 1-5 (saved when the overlay closes)"},
         // --- Search ---
@@ -608,7 +609,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
     }
     while (shown < visible) { frame << box_line("", W, border) << "\n"; ++shown; }
 
-    std::string bottom = "[" + hotkey_text("HKeyCheatsheet", "?") + " / ESC] close  [SHIFT+s] search";
+    std::string bottom = "[" + hotkey_text("HKeyCheatsheet", "?") + " / ESC] close  [" + hotkey_text("HKeySearch", "/") + "] search";
     if (max_scroll > 0) bottom += "  [\u2191\u2193] scroll  [SHIFT+\u2191\u2193] Page  " + std::to_string(cheatsheet_scroll_ + 1) + "/"
                                 + std::to_string(total);
     frame << box_bottom(W, bottom, border) << "\n";

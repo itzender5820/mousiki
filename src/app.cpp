@@ -1221,7 +1221,11 @@ int App::run() {
         const bool main_frame = frame_main_len_ != std::string::npos;
         const bool sp_img = main_frame && spectro_area_[0] >= 0 && sp_proto != 0 && !list_overlay_active() && !queue_overlay_active();
         const bool sp_creator = sp_img && creator_show_;   // the creator's preview has its own spectrogram, settings and picture
-        if (!spectro_used_ || !main_frame) spectro().set_visible(false);
+        // The spectrogram's analysis keeps running while a track is loaded, shown or not (a menu or another view over it, a pause): it
+        // is cheap, and the history is there when the picture is opened again -- before, the feed was switched off whenever a frame did not
+        // draw it, so what was played meanwhile was missing (gaps after an overlay, an empty picture when opened during a pause).
+        if (has_track_) spectro().update(settings_.spectro);
+        else if (!spectro_used_ || !main_frame) spectro().set_visible(false);
         // the Settings preview box: its spectrogram is a picture too (settings_preview.cpp)
         const bool pv_img = (mode_ == Mode::Settings || mode_ == Mode::ColorEdit) && pv_spectro_area_[0] >= 0 && sp_proto != 0 && settings_preview_spectro();
         if (frame_str.find("\x1b[2J") != std::string::npos) { spectro_gfx_.invalidate(); creator_spectro_gfx_.invalidate(); pv_spectro_gfx_.invalidate(); }
@@ -1265,6 +1269,14 @@ int App::run() {
             // the picture is sent again in the same write (nothing shows in between).
             // (under the Style Option overlay a change inside the panel -- another row selected -- leaves the picture's cells as they are)
             const bool floating_changed = floating != last_floating && !(sty_frozen && !floating.empty() && !last_floating.empty());
+            // A panel came, went or moved over the main screen (the spectrogram options, a menu ...): the spectrogram picture is drawn again
+            // completely in this same write. The tiles it touches are sent anyway, but a terminal may also drop parts of a picture next
+            // to the text that was rewritten, and a tile that did not change (a paused track) would never be sent again.
+            {
+                static int last_rect[4] = {0, 0, 0, 0};
+                if ((floating_changed && std::memcmp(last_rect, float_rect_, sizeof(last_rect)) != 0) || (heal && !floating.empty() && !sty_frozen)) { spectro_gfx_.invalidate(); creator_spectro_gfx_.invalidate(); }
+                std::memcpy(last_rect, float_rect_, sizeof(last_rect));
+            }
             if (sixel_on && floating_changed && gfx_.active) { gfx_.fresh = true; if (gfx2_.active) gfx2_.fresh = true; }   // (the second picture's cells are blanked too: it goes out again in the same write)
             last_floating = floating;
             last_frame_str = std::move(frame_str);
@@ -1347,7 +1359,14 @@ int App::run() {
         // visualizer's motion generally. Text-frame rendering is cheap
         // enough that doubling the rate here is not a meaningful CPU/
         // battery concern.
-        std::this_thread::sleep_until(frame_start + std::chrono::microseconds(1000000 / std::max(1, settings_.osci().frame_rate)));
+        {   // sleep in short slices so a changed terminal size is picked up at once, not after a whole frame
+            const auto until = frame_start + std::chrono::microseconds(1000000 / std::max(1, settings_.osci().frame_rate));
+            const int r0 = term.rows(), c0 = term.cols();
+            while (std::chrono::steady_clock::now() < until) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                if (term.rows() != r0 || term.cols() != c0) break;
+            }
+        }
     }
 
     if (gfx_shown) { write_frame(gfx_clear(gfx_proto_)); gfx_shown = false; }   // the picture must not outlive the mode

@@ -109,6 +109,7 @@ void freq_bounds(const SpectroSettings& s, int rate, double& lo, double& hi) {
 const int kPads[4] = {1, 2, 4, 8};
 const int kMinFreqs[9] = {0, 20, 50, 100, 200, 300, 500, 1000, 2000};
 const int kMaxFreqs[10] = {1000, 2000, 4000, 5000, 8000, 10000, 12000, 16000, 20000, 24000};
+const int kWfSpacings[14] = {20, 30, 40, 50, 60, 80, 100, 120, 150, 200, 250, 300, 400, 500};
 const char* const kScaleNames[6] = {"linear", "logarithmic", "mel", "bark", "erb", "period"};
 const char* const kSchemeNames[4] = {"roseus", "classic", "grayscale", "gradient"};
 
@@ -128,14 +129,15 @@ inline float dq_db(uint8_t q) { return static_cast<float>(q) * (150.0f / 255.0f)
 
 // ---- settings ------------------------------------------------------------------------------------------------------
 const char* spectro_row_label(int row) {
-    static const char* const L[kSpectroRowCount] = {"Display", "Style", "Motion", "Scale", "Min frequency", "Max frequency",
+    static const char* const L[kSpectroRowCount] = {"Display", "View", "Style", "Motion", "Scale", "Min frequency", "Max frequency",
         "Gain (dB)", "Range (dB)", "Frequency gain", "Window size", "Zero padding", "Colors", "Channels",
-        "Time span", "Frequency labels"};
+        "Time span", "Frequency labels", "Graphs", "Graph spacing", "Slant", "Peak height", "Resolution"};
     return row >= 0 && row < kSpectroRowCount ? L[row] : "";
 }
 
 std::string spectro_row_value(const SpectroSettings& s, int row) {
     switch (row) {
+        case kSrView: return s.view == 1 ? "waterfall" : "spectrogram";
         case kSrStyle: return s.style == 1 ? "image" : "braille";
         case kSrMotion: return s.motion == 1 ? "scroll" : "sweep";
         case kSrScale: return kScaleNames[std::clamp(s.scale, 0, 5)];
@@ -150,6 +152,11 @@ std::string spectro_row_value(const SpectroSettings& s, int row) {
         case kSrChannels: return s.channels == 1 ? "mix" : "left + right";
         case kSrSpan: return std::to_string(s.span) + " s";
         case kSrLabels: return s.labels ? "on" : "off";
+        case kSrWfGraphs: return std::to_string(s.wf_graphs);
+        case kSrWfSpacing: return std::to_string(s.wf_spacing) + " ms";
+        case kSrWfSlant: return std::to_string(s.wf_slant) + " %";
+        case kSrWfHeight: return std::to_string(s.wf_height) + " %";
+        case kSrWfDetail: return s.wf_detail == 1 ? "high" : "normal";
     }
     return "";
 }
@@ -157,6 +164,7 @@ std::string spectro_row_value(const SpectroSettings& s, int row) {
 void spectro_adjust(SpectroSettings& s, int row, int dir) {
     const int d = dir > 0 ? 1 : -1;
     switch (row) {
+        case kSrView: s.view = dir > 0 ? 1 : 0; break;
         case kSrStyle: s.style = dir > 0 ? 1 : 0; break;
         case kSrMotion: s.motion = dir > 0 ? 1 : 0; break;
         case kSrScale: s.scale = std::clamp(s.scale + d, 0, 5); break;
@@ -171,13 +179,33 @@ void spectro_adjust(SpectroSettings& s, int row, int dir) {
         case kSrChannels: s.channels = dir > 0 ? 1 : 0; break;
         case kSrSpan: s.span = std::clamp(d > 0 ? (s.span / 5 + 1) * 5 : ((s.span + 4) / 5 - 1) * 5, 5, 60); break;   // steps of 5 s
         case kSrLabels: s.labels = dir > 0; break;
+        case kSrWfGraphs: s.wf_graphs = std::clamp(s.wf_graphs + 4 * d, 8, 100); break;
+        case kSrWfSpacing: s.wf_spacing = step_list(kWfSpacings, s.wf_spacing, d); break;
+        case kSrWfSlant: s.wf_slant = std::clamp(s.wf_slant + 5 * d, 0, 40); break;
+        case kSrWfHeight: s.wf_height = std::clamp(s.wf_height + 5 * d, 10, 60); break;
+        case kSrWfDetail: s.wf_detail = dir > 0 ? 1 : 0; break;
     }
+}
+
+bool spectro_row_visible(const SpectroSettings& s, int row) {
+    if (row == kSrDisplay) return false;   // the caller's row, not listed here
+    const bool wf = s.view == 1;
+    if (row == kSrMotion || row == kSrChannels || row == kSrSpan) return !wf;
+    if (row >= kSrWfGraphs) return wf;
+    return true;
+}
+
+std::vector<int> spectro_visible_rows(const SpectroSettings& s) {
+    std::vector<int> r;
+    for (int i = kSrView; i < kSpectroRowCount; ++i) if (spectro_row_visible(s, i)) r.push_back(i);
+    return r;
 }
 
 void spectro_reset(SpectroSettings& s) {
     SpectroSettings d;
     d.style = s.style;
     d.motion = s.motion;
+    d.view = s.view;
     s = d;
 }
 
@@ -204,29 +232,50 @@ bool spectro_config_key(SpectroSettings& s, const std::string& key, const std::s
     else if (n == "colors") s.scheme = v == "inverse grayscale" ? 2 : pick(kSchemeNames, 4, s.scheme);
     else if (n == "channels") s.channels = v == "mix" ? 1 : 0;
     else if (n == "timespan") s.span = std::clamp((to_int(v, s.span) + 2) / 5 * 5, 5, 60);   // 5 .. 60 in steps of 5
+    else if (n == "view") s.view = v == "waterfall" ? 1 : 0;
+    else if (n == "waterfallgraphs") s.wf_graphs = std::clamp(to_int(v, s.wf_graphs), 8, 100);
+    else if (n == "waterfallspacing") s.wf_spacing = std::clamp(to_int(v, s.wf_spacing), 20, 500);
+    else if (n == "waterfallslant") s.wf_slant = std::clamp(to_int(v, s.wf_slant), 0, 40);
+    else if (n == "waterfallheight") s.wf_height = std::clamp(to_int(v, s.wf_height), 10, 60);
+    else if (n == "waterfallresolution") s.wf_detail = v == "high" ? 1 : 0;
     else if (n == "labels") s.labels = !(v == "false" || v == "off" || v == "0");
     else return false;
     return true;
 }
 
-void spectro_config_write(std::ostream& out, const SpectroSettings& s, const char* c) {
-    out << c << " Spectrogram (SHIFT+i overlay, SHIFT+u full screen). The defaults are Audacity's: mel scale 0-20000 Hz, gain 20,\n"
+void spectro_config_write(std::ostream& out, const SpectroSettings& s, const char* c, const char* p) {
+    std::ostringstream o;
+    o << c << " Spectrogram (SHIFT+i overlay, SHIFT+u full screen). The defaults are Audacity's: mel scale 0-20000 Hz, gain 20,\n"
         << c << " range 80, window 2048 (hann), zero padding 2, colors roseus. Style braille|image, Motion sweep|scroll,\n"
         << c << " Scale linear|logarithmic|mel|bark|erb|period, Colors roseus|classic|grayscale|gradient, Channels both|mix, TimeSpan 5-60 s (steps of 5)\n";
-    out << "SpectroStyle=" << (s.style == 1 ? "image" : "braille") << "\n"
-        << "SpectroMotion=" << (s.motion == 1 ? "scroll" : "sweep") << "\n"
-        << "SpectroScale=" << kScaleNames[std::clamp(s.scale, 0, 5)] << "\n"
-        << "SpectroMinFreq=" << s.min_freq << "\n"
-        << "SpectroMaxFreq=" << s.max_freq << "\n"
-        << "SpectroGain=" << s.gain << "\n"
-        << "SpectroRange=" << s.range << "\n"
-        << "SpectroFrequencyGain=" << s.freq_gain << "\n"
-        << "SpectroWindowSize=" << (1 << std::clamp(s.window_log2, 8, 13)) << "\n"
-        << "SpectroZeroPadding=" << s.zero_pad << "\n"
-        << "SpectroColors=" << kSchemeNames[std::clamp(s.scheme, 0, 3)] << "\n"
-        << "SpectroChannels=" << (s.channels == 1 ? "mix" : "both") << "\n"
-        << "SpectroTimeSpan=" << s.span << "\n"
-        << "SpectroLabels=" << (s.labels ? "true" : "false") << "\n";
+    o << p << "Style=" << (s.style == 1 ? "image" : "braille") << "\n"
+        << p << "Motion=" << (s.motion == 1 ? "scroll" : "sweep") << "\n"
+        << p << "Scale=" << kScaleNames[std::clamp(s.scale, 0, 5)] << "\n"
+        << p << "MinFreq=" << s.min_freq << "\n"
+        << p << "MaxFreq=" << s.max_freq << "\n"
+        << p << "Gain=" << s.gain << "\n"
+        << p << "Range=" << s.range << "\n"
+        << p << "FrequencyGain=" << s.freq_gain << "\n"
+        << p << "WindowSize=" << (1 << std::clamp(s.window_log2, 8, 13)) << "\n"
+        << p << "ZeroPadding=" << s.zero_pad << "\n"
+        << p << "Colors=" << kSchemeNames[std::clamp(s.scheme, 0, 3)] << "\n"
+        << p << "Channels=" << (s.channels == 1 ? "mix" : "both") << "\n"
+        << p << "TimeSpan=" << s.span << "\n"
+        << p << "Labels=" << (s.labels ? "true" : "false") << "\n"
+        << c << " View spectrogram|waterfall: the waterfall is a stack of spectra (newest in front, each graph outlined in black). Graphs 8-100,\n"
+        << c << " Spacing 20-500 ms between two graphs, Slant 0-40 % of the width, Height 10-60 % of the picture\n"
+        << p << "View=" << (s.view == 1 ? "waterfall" : "spectrogram") << "\n"
+        << p << "WaterfallGraphs=" << s.wf_graphs << "\n"
+        << p << "WaterfallSpacing=" << s.wf_spacing << "\n"
+        << p << "WaterfallSlant=" << s.wf_slant << "\n"
+        << p << "WaterfallHeight=" << s.wf_height << "\n"
+        << c << " WaterfallResolution normal|high: high draws the graphs at twice the resolution and scales them down (finer, shaded outlines; more work)\n"
+        << p << "WaterfallResolution=" << (s.wf_detail == 1 ? "high" : "normal") << "\n";
+    // a profile's block (SpectroProfile<n>...) carries no comments
+    if (std::strcmp(p, "Spectro") == 0) { out << o.str(); return; }
+    std::istringstream in(o.str());
+    for (std::string line; std::getline(in, line);)
+        if (line.compare(0, std::strlen(c), c) != 0) out << line << "\n";
 }
 
 namespace {
@@ -237,6 +286,36 @@ unsigned g_grad_gen = 0;   // the gradient colours changed: pictures in that sch
 }
 
 const std::array<std::array<uint8_t, 3>, 256>& spectro_palette(int scheme) { return g_pal[std::clamp(scheme, 0, 3)]; }
+
+const std::array<std::array<uint8_t, 3>, 256>& spectro_palette_view(const SpectroSettings& s) {
+    if (s.view != 1) return spectro_palette(s.scheme);
+    // The waterfall: background and outline are black whatever the scheme (entries 0 .. 3 too: Sixel takes the colour of a group of 4
+    // entries from its third). The gradient scheme changes, so the copy is made again when it did.
+    // "high" resolution: index = register * 4 (64 registers, so it survives Sixel's 64 colours): 0 black, 1 .. 40 the fill by height,
+    // 41 .. 63 the fill with a half dark outline over it (a line that only half covers a pixel).
+    static std::array<std::array<uint8_t, 3>, 256> wf[2][4];
+    static unsigned gen[2][4] = {{~0u, ~0u, ~0u, ~0u}, {~0u, ~0u, ~0u, ~0u}};
+    const int k = std::clamp(s.scheme, 0, 3), hi = s.wf_detail == 1 ? 1 : 0;
+    if (gen[hi][k] != g_grad_gen) {
+        if (!hi) {
+            wf[0][k] = g_pal[k];
+            for (int i = 0; i < 4; ++i) wf[0][k][static_cast<size_t>(i)] = {0, 0, 0};
+        } else {
+            for (int i = 0; i < 256; ++i) {
+                const int r = i >> 2;
+                std::array<uint8_t, 3> c{0, 0, 0};
+                if (r >= 1 && r <= 40) c = g_pal[k][static_cast<size_t>(48 + (r - 1) * 207 / 39)];
+                else if (r >= 41) {
+                    c = g_pal[k][static_cast<size_t>(48 + (r - 41) * 207 / 22)];
+                    for (auto& v : c) v = static_cast<uint8_t>(v / 2);
+                }
+                wf[1][k][static_cast<size_t>(i)] = c;
+            }
+        }
+        gen[hi][k] = g_grad_gen;
+    }
+    return wf[hi][k];
+}
 
 void spectro_set_gradient(const std::array<uint8_t, 3>& from, const std::array<uint8_t, 3>& to) {
     if (g_grad_set && from == g_grad_a && to == g_grad_b) return;
@@ -415,8 +494,15 @@ void SpectroAnalyzer::column(uint64_t c) {
     cache_tag_[slot] = ~0ull;
 }
 
-bool SpectroAnalyzer::update(const SpectroSettings& s) {
+bool SpectroAnalyzer::update(const SpectroSettings& s_in) {
     set_visible(true);
+    SpectroSettings s = s_in;
+    if (s.view == 1) {
+        // the waterfall looks back graphs * spacing: the history is kept for twice the time span, and one mix of both channels is enough
+        const double need = std::clamp(s.wf_graphs, 8, 100) * std::clamp(s.wf_spacing, 20, 500) / 1000.0;
+        s.span = std::clamp(static_cast<int>(std::ceil(need / 1.9 / 5.0)) * 5, 5, 60);
+        s.channels = 1;
+    }
     configure(s, std::max(8000, feed_rate_.load(std::memory_order_relaxed)));
     const size_t w = fw_.load(std::memory_order_acquire);
     size_t r = fr_.load(std::memory_order_relaxed);
@@ -511,6 +597,16 @@ int SpectroAnalyzer::value_at(uint64_t col, int ch, int y) {
 void SpectroAnalyzer::render(const SpectroSettings& s, int w, int h, int x0, int cols, std::vector<uint8_t>& idx, bool playhead) {
     idx.assign(static_cast<size_t>(std::max(0, cols)) * static_cast<size_t>(std::max(0, h)), 0);
     if (w <= 0 || h <= 0 || cols <= 0 || cap_ == 0) return;
+    if (s.view == 1) {   // waterfall: the whole picture is made once, the tiles are slices of it
+        std::vector<uint8_t> whole;
+        waterfall(s, w, h, false, whole);
+        for (int y = 0; y < h; ++y)
+            for (int xi = 0; xi < cols; ++xi) {
+                const int x = x0 + xi;
+                if (x >= 0 && x < w) idx[static_cast<size_t>(y) * static_cast<size_t>(cols) + static_cast<size_t>(xi)] = whole[static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x)];
+            }
+        return;
+    }
     const int nch = shape_.ch;
     // stereo: two channels, one dark pixel row between them
     const int ch_h = nch == 2 ? std::max(1, (h - 1) / 2) : h;
@@ -580,9 +676,11 @@ std::vector<std::string> SpectroAnalyzer::braille(const SpectroSettings& s, int 
     std::vector<uint8_t> v;
     const int step = scroll_step_;
     scroll_step_ = 1;   // braille is small and cheap: every pixel step
-    render(s, W, H, 0, W, v, true);
+    if (s.view == 1) waterfall(s, W, H, true, v);   // outlines only: a lit dot is a line, the black outline of the picture has no braille
+    else render(s, W, H, 0, W, v, true);
     scroll_step_ = step;
     const auto& pal = spectro_palette(s.scheme);
+    const bool wf = s.view == 1;
     // dot order inside a braille cell: bit of (row, column)
     static const int kBit[4][2] = {{0x01, 0x08}, {0x02, 0x10}, {0x04, 0x20}, {0x40, 0x80}};
     // ordered dither: louder = more dots
@@ -595,13 +693,13 @@ std::vector<std::string> SpectroAnalyzer::braille(const SpectroSettings& s, int 
                 for (int dx = 0; dx < 2; ++dx) {
                     const int val = v[static_cast<size_t>(r * 4 + dy) * static_cast<size_t>(W) + static_cast<size_t>(c * 2 + dx)];
                     mx = std::max(mx, val);
-                    if (val > kThr[dy][dx]) bits |= kBit[dy][dx];
+                    if (wf ? val > 0 : val > kThr[dy][dx]) bits |= kBit[dy][dx];
                 }
             if (bits == 0) { line += ' '; continue; }
             int sum = 0;
             for (int dy = 0; dy < 4; ++dy)
                 for (int dx = 0; dx < 2; ++dx) sum += v[static_cast<size_t>(r * 4 + dy) * static_cast<size_t>(W) + static_cast<size_t>(c * 2 + dx)];
-            const auto& p = pal[static_cast<size_t>((mx + sum / 8) / 2)];   // between the loudest and the average dot
+            const auto& p = pal[static_cast<size_t>(wf ? mx : (mx + sum / 8) / 2)];   // between the loudest and the average dot (waterfall: the line's own colour)
             const std::string a = "\x1b[38;2;" + std::to_string(p[0]) + ";" + std::to_string(p[1]) + ";" + std::to_string(p[2]) + "m";
             if (a != last) { line += a; last = a; }
             const int cp = 0x2800 + bits;
@@ -624,6 +722,12 @@ uint64_t SpectroAnalyzer::scroll_offset(int w) const {
 void SpectroAnalyzer::changed_columns(const SpectroSettings& s, int w, int& first, int& last) {
     first = last = 0;
     if (w <= 0) return;
+    if (s.view == 1) {   // waterfall: every new column moves the front graph, the others when a step is full: all of it
+        const bool changed = w != cw_last_w_ || ncols_ != cw_last_cols_ || rebuilt_;
+        cw_last_w_ = w; cw_last_cols_ = ncols_; rebuilt_ = false;
+        if (changed) { first = 0; last = w; }
+        return;
+    }
     if (w != cw_last_w_ || ncols_ < cw_last_cols_ || rebuilt_) {
         cw_last_w_ = w; cw_last_cols_ = ncols_; cw_last_off_ = scroll_offset(w); rebuilt_ = false; first = 0; last = w; return;
     }
@@ -642,6 +746,157 @@ void SpectroAnalyzer::changed_columns(const SpectroSettings& s, int w, int& firs
         last = std::min(w, x_new + 2 + std::max(2, w / 80));   // the gap ahead of the playhead moves along
     }
     cw_last_cols_ = ncols_;
+}
+
+// ---- the waterfall ---------------------------------------------------------------------------------------------------------
+int spectro_waterfall_plot_width(const SpectroSettings& s, int w_px) {
+    const int shear = static_cast<int>(w_px * std::clamp(s.wf_slant, 0, 40) / 100.0);
+    return std::max(8, w_px - shear - 1);
+}
+
+std::vector<std::pair<int, std::string>> spectro_axis_x(const SpectroSettings& s, int rate, int w_px, int unit_px) {
+    std::vector<std::pair<int, std::string>> out;
+    const int cells = w_px / std::max(1, unit_px);
+    if (cells < 8) return out;
+    double lo, hi;
+    freq_bounds(s, rate, lo, hi);
+    const int fw = spectro_waterfall_plot_width(s, w_px);
+    std::vector<double> cand;
+    const double first = hi >= 2000 ? 100 : 10;
+    for (double dec = first; dec <= 100000; dec *= 10) cand.push_back(dec);
+    for (int m : {5, 2, 3, 4, 6, 8, 7, 9})
+        for (double dec = first; dec <= 100000; dec *= 10) cand.push_back(m * dec);
+    std::vector<char> used(static_cast<size_t>(cells) + 8, 0);
+    for (double f : cand) {
+        if (f < lo || f > hi) continue;
+        const int x = static_cast<int>(std::lround(spectro_pos_of(s, rate, f) * (fw - 1)));
+        const int c = x / std::max(1, unit_px);
+        const std::string t = f >= 1000 && std::fmod(f, 1000.0) == 0.0 ? std::to_string(static_cast<long long>(f / 1000)) + "k" : std::to_string(static_cast<long long>(f));
+        const int tw = static_cast<int>(t.size());
+        if (c < 0 || c + tw > cells) continue;
+        bool free = true;
+        for (int k = std::max(0, c - 1); k <= std::min(cells - 1, c + tw); ++k) if (used[static_cast<size_t>(k)]) free = false;
+        if (!free) continue;
+        for (int k = c; k < c + tw; ++k) used[static_cast<size_t>(k)] = 1;
+        out.push_back({c, t});
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+// The graphs drawn into a W x H picture (palette indices of the normal resolution: 0 background, 1 outline, 48 .. 255 fill by
+// height). `R` is the supersampling factor the caller scales the picture down by afterwards: sizes that are meant in output pixels
+// (the minimum row pitch) are multiplied by it.
+void SpectroAnalyzer::waterfall_raw(const SpectroSettings& s, int w, int h, int R, bool lines_only, std::vector<uint8_t>& img) {
+    img.assign(static_cast<size_t>(std::max(0, w)) * static_cast<size_t>(std::max(0, h)), 0);
+    if (w < 16 || h < 8 || cap_ == 0 || ncols_ == 0) return;
+    const int N0 = std::clamp(s.wf_graphs, 8, 100);
+    const int A = std::max(2, h * std::clamp(s.wf_height, 10, 60) / 100);   // the loudest peak
+    const int shear = static_cast<int>(w * std::clamp(s.wf_slant, 0, 40) / 100.0);
+    const int fw = spectro_waterfall_plot_width(s, w);
+    const int S = std::max(2, h - A - 3 * R);                               // the whole stack from the front baseline to the back one
+    // In a small picture the graphs would lie closer together than their own outline is thick (just black lines). Then fewer, evenly
+    // spaced graphs are drawn -- a row pitch of 4 pixels at least (braille: 2 dots) -- and the time between them grows to keep the span.
+    const int N = std::clamp(std::min(N0, S / ((lines_only ? 2 : 4) * R) + 1), 2, N0);
+    prepare(s, fw);
+    const double cps = columns_per_second();
+    const int step = std::max(1, static_cast<int>(std::lround(std::clamp(s.wf_spacing, 20, 500) / 1000.0 * cps * N0 / N)));
+    const long long newest = static_cast<long long>(ncols_) - 1;
+    // smooth: the older graphs sit at (slot + phase) and glide back as the clock runs; the phase is the part of a step that has passed
+    double phase = 0.0;
+    long long base = newest / step * step;
+    if (s.wf_smooth) {
+        const double nf = std::clamp(disp_cols_ - 1.0, 0.0, static_cast<double>(newest));
+        base = static_cast<long long>(std::floor(nf / step)) * step;
+        phase = std::clamp((nf - static_cast<double>(base)) / step, 0.0, 0.999);
+    }
+    auto put = [&](int x, int y, uint8_t v) { if (x >= 0 && x < w && y >= 0 && y < h) img[static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x)] = v; };
+    auto line = [&](int x0, int y0, int x1, int y1, uint8_t v) {   // Bresenham
+        const int dx = std::abs(x1 - x0), dy = -std::abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+        int err = dx + dy;
+        for (;;) {
+            put(x0, y0, v);
+            if (x0 == x1 && y0 == y1) break;
+            const int e2 = 2 * err;
+            if (e2 >= dy) { err += dy; x0 += sx; }
+            if (e2 <= dx) { err += dx; y0 += sy; }
+        }
+    };
+    std::vector<int> top(static_cast<size_t>(fw)), vv(static_cast<size_t>(fw));
+    for (int g = N - 1; g >= 0; --g) {
+        const long long col = g == 0 ? newest : base - static_cast<long long>(g - 1) * step;
+        if (col < 0 || static_cast<uint64_t>(newest - col) + 2 >= cap_) continue;   // no data that old
+        auto pos_of = [&](int gg) { return gg == 0 ? 0.0 : static_cast<double>(gg) + phase; };
+        if (pos_of(g) > N - 1 + 1e-9) continue;                                      // glided off the back
+        const double f = N > 1 ? pos_of(g) / (N - 1) : 0.0;
+        const int baseline = h - 2 * R - static_cast<int>(std::lround(f * S));
+        const int ox = static_cast<int>(std::lround(f * shear));
+        for (int x = 0; x < fw; ++x) {
+            const int v = value_at(static_cast<uint64_t>(col), 0, fw - 1 - x);   // rows run from the top (high frequency) down
+            vv[static_cast<size_t>(x)] = v;
+            top[static_cast<size_t>(x)] = baseline - static_cast<int>(std::lround(static_cast<double>(v) * A / 255.0));
+        }
+        // the body: down to the baseline of the graph in front of it (the front graph: to the bottom), so nothing of the graphs
+        // behind shows through below the curve and the stack ends in a slanted edge, not in a block
+        const int next_base = g == 0 ? h - 1 : h - 2 * R - static_cast<int>(std::lround(pos_of(g - 1) / (N - 1) * S));
+        const int bottom = std::min(h - 1, std::max(baseline, next_base) + 1);
+        for (int x = 0; x < fw; ++x) {
+            const int px = ox + x;
+            if (px < 0 || px >= w) continue;
+            for (int y = std::max(0, top[static_cast<size_t>(x)]); y <= bottom; ++y) {
+                uint8_t c = 0;
+                if (!lines_only) {
+                    const double frac = y <= baseline ? static_cast<double>(baseline - y) / A : 0.0;
+                    c = static_cast<uint8_t>(48 + std::clamp(static_cast<int>(std::lround(frac * 207.0)), 0, 207));
+                }
+                img[static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(px)] = c;
+            }
+        }
+        // the outline: a fine black line along the curve and down both ends (braille: lit dots in the colour of their height)
+        auto ink = [&](int x) { return lines_only ? static_cast<uint8_t>(std::max(48, 48 + vv[static_cast<size_t>(x)] * 207 / 255)) : static_cast<uint8_t>(1); };
+        for (int x = 0; x + 1 < fw; ++x) line(ox + x, top[static_cast<size_t>(x)], ox + x + 1, top[static_cast<size_t>(x + 1)], ink(x));
+        line(ox, top[0], ox, bottom, ink(0));
+        line(ox + fw - 1, top[static_cast<size_t>(fw - 1)], ox + fw - 1, bottom, ink(fw - 1));
+        line(ox, bottom, ox + fw - 1, bottom, ink(0));   // the lower edge: shows as the steps of the slanted side (the graph in front covers the rest)
+    }
+}
+
+void SpectroAnalyzer::waterfall(const SpectroSettings& s, int w, int h, bool lines_only, std::vector<uint8_t>& img) {
+    const bool hi = s.wf_detail == 1 && !lines_only;   // braille already has 2 x 4 dots to a cell
+    std::ostringstream k;
+    k << ncols_ << "," << w << "," << h << "," << lines_only << "," << s.scale << "," << s.min_freq << "," << s.max_freq << "," << s.gain << "," << s.range << ","
+      << s.freq_gain << "," << s.wf_graphs << "," << s.wf_spacing << "," << s.wf_slant << "," << s.wf_height << "," << hi << "," << gen_ << "," << rate_ << "," << (s.wf_smooth ? static_cast<long long>(disp_cols_ * 64.0) : -1LL);
+    if (k.str() == wf_key_ && wf_img_.size() == static_cast<size_t>(w) * static_cast<size_t>(h)) { img = wf_img_; return; }
+    if (!hi) waterfall_raw(s, w, h, 1, lines_only, img);
+    else {
+        // twice the resolution, scaled down: every output pixel is 2 x 2 samples. The outline lies in one sample row / column, so it
+        // covers half a pixel or all of it (its place is known to half a pixel); that becomes black, half dark or nothing -- and a fine
+        // line in a quiet part keeps its colour instead of flickering with the rounding. Index = register * 4 (see spectro_palette_view()).
+        std::vector<uint8_t> big;
+        waterfall_raw(s, w * 2, h * 2, 2, false, big);
+        img.assign(static_cast<size_t>(w) * static_cast<size_t>(h), 0);
+        const size_t bw = static_cast<size_t>(w) * 2;
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                int nb = 0, no = 0, nf = 0, lv = 0;
+                for (int dy = 0; dy < 2; ++dy)
+                    for (int dx = 0; dx < 2; ++dx) {
+                        const uint8_t v = big[(static_cast<size_t>(y) * 2 + dy) * bw + static_cast<size_t>(x) * 2 + dx];
+                        if (v == 0) ++nb; else if (v == 1) ++no; else { ++nf; lv += v - 48; }
+                    }
+                int r = 0;
+                if (nb >= 3) r = 0;                                  // the background
+                else {
+                    const int lev = nf > 0 ? lv / nf : 0;            // 0 .. 207: the fill's height colour
+                    if (no >= 2 || (nf == 0 && no > 0)) r = 0;       // the line covers it: black
+                    else if (no == 1) r = 41 + std::min(22, lev * 23 / 208);   // a line half over it: half dark
+                    else r = 1 + std::min(39, lev * 40 / 208);
+                }
+                img[static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x)] = static_cast<uint8_t>(r << 2);
+            }
+    }
+    wf_key_ = k.str();
+    wf_img_ = img;
 }
 
 SpectroAnalyzer& spectro() { static SpectroAnalyzer a; return a; }
@@ -698,7 +953,9 @@ std::string kitty_tile(int id, int row, int col, int cells_w, int cells_h, const
 
 // Sixel: 64 colour registers (the 256 steps / 4), opaque. In Windows Terminal two screen rows per sixel row (pixel
 // aspect ratio), so half the data.
-std::string sixel_tile(int row, int col, const std::vector<uint8_t>& idx, int w, int h, const std::array<std::array<uint8_t, 3>, 256>& pal) {
+// `thin`: fine lines (the waterfall's outlines). With two screen rows per sixel row only every second picture row would be sent, and
+// a line that lies in the other one would be missing: of the two rows the darker pixel is sent then.
+std::string sixel_tile(int row, int col, const std::vector<uint8_t>& idx, int w, int h, const std::array<std::array<uint8_t, 3>, 256>& pal, bool thin = false) {
     static const bool aspect = std::getenv("WT_SESSION") != nullptr || std::getenv("MOUSIKI_SIXEL_ASPECT") != nullptr;
     const int pan = aspect ? 2 : 1;
     const int H = (h + pan - 1) / pan;
@@ -715,8 +972,15 @@ std::string sixel_tile(int row, int col, const std::vector<uint8_t>& idx, int w,
         std::vector<int> used;
         for (int y = 0; y < bh; ++y) {
             const int sy = std::min(h - 1, (by + y) * pan);
+            const int sy2 = (thin && pan == 2) ? std::min(h - 1, sy + 1) : sy;
             for (int x = 0; x < w; ++x) {
-                const int c = idx[static_cast<size_t>(sy) * w + x] >> 2;
+                int ix = idx[static_cast<size_t>(sy) * w + x];
+                if (sy2 != sy) {
+                    const int i2 = idx[static_cast<size_t>(sy2) * w + x];
+                    const auto &pa = pal[static_cast<size_t>(ix)], &pb = pal[static_cast<size_t>(i2)];
+                    if (pb[0] + pb[1] + pb[2] < pa[0] + pa[1] + pa[2]) ix = i2;
+                }
+                const int c = ix >> 2;
                 if (mx[static_cast<size_t>(c)] < 0) used.push_back(c);
                 mx[static_cast<size_t>(c)] = std::max(mx[static_cast<size_t>(c)], x);
                 bits[static_cast<size_t>(c) * w + x] |= static_cast<uint8_t>(1u << y);
@@ -775,14 +1039,17 @@ std::string SpectroGfx::clear(int proto) {
     return o;
 }
 
-std::string SpectroGfx::emit(int proto, const SpectroSettings& s, SpectroAnalyzer& a, int row, int col, int cols, int rows,
+std::string SpectroGfx::emit(int proto, const SpectroSettings& s_in, SpectroAnalyzer& a, int row, int col, int cols, int rows,
                              int cell_w, int cell_h, bool due, int skip_row, int skip_col, int skip_rows, int skip_cols) {
+    SpectroSettings s = s_in;
+    if (s.view == 1) s.motion = 0;   // the waterfall has no sweep / scroll: it is sent in tiles like a sweep
     std::string o;
     if (proto == 0 || cols <= 0 || rows <= 0) return o;
     std::ostringstream k;
     k << proto << "," << row << "," << col << "," << cols << "," << rows << "," << cell_w << "," << cell_h << "," << s.scheme << ","
       << s.scale << "," << s.min_freq << "," << s.max_freq << "," << s.gain << "," << s.range << "," << s.freq_gain << ","
-      << s.motion << "," << s.channels << "," << s.span << "," << s.window_log2 << "," << s.zero_pad << "," << (s.scheme == 3 ? g_grad_gen : 0);
+      << s.motion << "," << s.channels << "," << s.span << "," << s.window_log2 << "," << s.zero_pad << "," << (s.scheme == 3 ? g_grad_gen : 0)
+      << "," << s.view << "," << s.wf_graphs << "," << s.wf_spacing << "," << s.wf_slant << "," << s.wf_height << "," << s.wf_detail;
     const int n = (cols + kTileCols - 1) / kTileCols;
     if (k.str() != key_) {
         if (proto_ == 1) o += clear(1);
@@ -858,11 +1125,12 @@ std::string SpectroGfx::emit(int proto, const SpectroSettings& s, SpectroAnalyze
         }
         if (!on_screen_[static_cast<size_t>(t)]) any_new = true;
     }
-    if (!due || (!any_new && !shift && std::chrono::duration<double>(now - last).count() < min_gap)) return o;
+    if (!due || (!any_new && !urgent_ && !shift && std::chrono::duration<double>(now - last).count() < min_gap)) return o;
     last = now;
+    urgent_ = false;
     const size_t before = o.size();
     bool whole = true;
-    const auto& pal = spectro_palette(s.scheme);
+    const auto& pal = spectro_palette_view(s);
     std::vector<uint8_t> idx, part;
     if (shift) {
         // a rectangle of the picture (cells relative to it), drawn from the current view
@@ -871,7 +1139,7 @@ std::string SpectroGfx::emit(int proto, const SpectroSettings& s, SpectroAnalyze
             if (tw <= 0 || ph <= 0) return;
             a.render(s, W, H, c0 * cell_w, tw, idx, false);
             part.assign(idx.begin() + static_cast<long>(r0) * cell_h * tw, idx.begin() + static_cast<long>(r1) * cell_h * tw);
-            o += sixel_tile(row + r0, col + c0, part, tw, ph, pal);
+            o += sixel_tile(row + r0, col + c0, part, tw, ph, pal, s.view == 1);
         };
         const uint64_t off = a.scroll_offset(W);
         if (!have_off_ || off < last_off_ || off - last_off_ >= static_cast<uint64_t>(W)) {
@@ -923,7 +1191,7 @@ std::string SpectroGfx::emit(int proto, const SpectroSettings& s, SpectroAnalyze
                             part.begin() + static_cast<std::ptrdiff_t>(y) * pw);
             const int id = kKittyBase + t * kParts + (lay ? 1 + static_cast<int>(pi) : 0);
             if (proto == 1) o += kitty_tile(id, row + p.r0, col + c0 + p.c0, p.c1 - p.c0, p.r1 - p.r0, part, pw, ph, pal);
-            else o += sixel_tile(row + p.r0, col + c0 + p.c0, part, pw, ph, pal);
+            else o += sixel_tile(row + p.r0, col + c0 + p.c0, part, pw, ph, pal, s.view == 1);
         }
         dirty_[static_cast<size_t>(t)] = 0;
         on_screen_[static_cast<size_t>(t)] = 1;

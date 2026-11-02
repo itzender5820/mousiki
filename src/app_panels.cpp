@@ -209,41 +209,57 @@ TrackMetadata App::display_metadata() const {
     return md;
 }
 
+// What the meta data panel needs at the least. In a window that is too narrow the disk goes first, and the oscilloscope /
+// lyrics field before it; in a window that is too short for it the whole panel goes (show_metadata_panel()).
+namespace {
+constexpr int kMetaMinW = 20;      // the meta data column: "Title     : " and a few characters of the value
+constexpr int kVizMinW = 14;       // the oscilloscope / lyrics field beside it
+constexpr int kMinListRows = 4;    // list / queue rows the window must still have for the panel to stay
+}
+
+// The panel stays when the window has the rows for it AND the list and queue panes beneath still get kMinListRows of their own
+// (the fixed parts: progress bar and search box), and when it is wide enough for the meta data column.
+bool App::show_metadata_panel(int total_width) const {
+    if (total_width - 4 - 2 < kMetaMinW) return false;
+    const int panel_rows = disk_.height() + 2;
+    const int chrome = static_cast<int>(build_progress_panel(total_width).size() + build_search_bar(total_width).size());
+    return term_rows_ - 1 - 2 - (panel_rows + chrome) >= kMinListRows;
+}
+
 std::vector<std::string> App::build_metadata_panel(int total_width) const {
+    if (!show_metadata_panel(total_width)) return {};
     const int inner = total_width - 4;
     // The audio book's picture sits in the disk's place; its field is one column wider on the left (the other fields move to the
     // right, the meta data field is a column shorter).
     const int book_extra = 0;   // (the field was a column wider for a while; the picture keeps its place, the field is the disk's width again)
-    const int disk_w = settings_.element_disk ? disk_.width() : 0;
-    const int panel_h = disk_.height();
-    
     std::string sep = "  " + settings_.meta_separator + "  ";
     int sep_w = display_width(sep);
-    const int fixed_extra = settings_.element_disk ? sep_w : 2;
+    // too narrow for the disk beside a meta data column: the disk goes (then the oscilloscope / lyrics field, if even that does not fit)
+    const bool show_disk = settings_.element_disk && inner - disk_.width() - sep_w >= kMetaMinW;
+    const int disk_w = show_disk ? disk_.width() : 0;
+    const int panel_h = disk_.height();
+
+    const int fixed_extra = show_disk ? sep_w : 2;
 
     int avail = std::max(10, inner - disk_w - fixed_extra + book_extra);   // (the extra column is taken from the meta data below)
-    // Previously this split only happened when settings_.element_lyrics was
-    // true; with it off, lyrics_w stayed 0 and meta_w took the whole
-    // panel, so turning the Lyrics Engine off silently also gave up the
-    // sphere visualization that normally fills this column while nothing
-    // is playing lyrics -- the panel just went from "sphere" to "wide
-    // plain metadata" instead of staying visually alive. The split is now
-    // unconditional; settings_.element_lyrics only gates whether lyrics
-    // are fetched/shown as text (below), not whether this column exists.
-    int meta_w = std::min(42, std::max(10, avail - 10));
+    // The oscilloscope / lyrics field goes by the width the window has WITH the disk in place (not by what is left after the disk went
+    // for lack of room), so that narrowing the window only ever takes things away: all three, no field, meta data alone.
+    const int setup_avail = settings_.element_disk ? inner - disk_.width() - sep_w : inner - 2;
+    const bool show_viz = settings_.element_vizfield && setup_avail >= kMetaMinW + kVizMinW;
+    int meta_w = std::min(42, std::max(kMetaMinW, avail - kVizMinW));
     meta_w = std::min(meta_w, avail);
     int lyrics_w = std::max(0, avail - meta_w);
-    if (!settings_.element_vizfield) { meta_w = avail; lyrics_w = 0; }   // "Viz/Lyrics Field" off: the meta data take the field's place
+    if (!show_viz) { meta_w = avail; lyrics_w = 0; }   // "Viz/Lyrics Field" off, or no room: the meta data take the field's place
     if (book_extra) meta_w = std::max(10, meta_w - book_extra);
 
     std::vector<std::string> disk_frame;
     bool cover_pic_img = false;  // the album cover is a pixel image this frame: the oscilloscope picture then goes into the second slot gfx2_
     bool book_pic_img = false;   // the audio book picture is a real pixel image this frame (it uses the picture slot gfx_)
-    if (settings_.element_disk && audiobook_ && book_picture_gfx(2, disk_w, panel_h)) {
+    if (show_disk && audiobook_ && book_picture_gfx(2, disk_w, panel_h)) {
         book_pic_img = true;
         // placeholder cells: the main loop writes them as spaces or (Sixel) skips them so the picture stays
         for (int i = 0; i < panel_h; ++i) disk_frame.push_back(gfx_hole(disk_w));
-    } else if (settings_.element_disk && audiobook_) {
+    } else if (show_disk && audiobook_) {
         // The opening book takes the disk's place: braille dots in the colour wave. It is smaller than the disk, so it sits
         // centred between the left border and the ':' of the separator (a column to the right of the exact middle when the
         // widths do not divide), and in the upper part of the field (centred vertically).
@@ -258,15 +274,15 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
                                      std::string(static_cast<size_t>(std::max(0, disk_w - left - art_w)), ' '));
             else disk_frame.emplace_back(std::string(static_cast<size_t>(disk_w), ' '));
         }
-    } else if (settings_.element_disk && !audiobook_ && eff_album_cover() && album_cover_gfx(2, disk_w, panel_h)) {
+    } else if (show_disk && !audiobook_ && eff_album_cover() && album_cover_gfx(2, disk_w, panel_h)) {
         // Album Cover: the cover of the playing track is a pixel image in the disk's place (it uses the picture slot gfx_, so the
         // oscilloscope image goes into the second slot gfx2_)
         cover_pic_img = true;
         for (int i = 0; i < panel_h; ++i) disk_frame.push_back(gfx_hole(disk_w));
-    } else if (settings_.element_disk && !audiobook_ && eff_album_cover() && (gfx_proto_ == GfxProto::None || eff_cover_mode() >= 5) &&
+    } else if (show_disk && !audiobook_ && eff_album_cover() && (gfx_proto_ == GfxProto::None || eff_cover_mode() >= 5) &&
                !(disk_frame = album_cover_lines(disk_w, panel_h)).empty()) {
         // (no Kitty / Sixel: the cover in braille dots)
-    } else if (settings_.element_disk) {
+    } else if (show_disk) {
         disk_frame.clear();
         disk_frame = disk_.frame(angle_);
         while (static_cast<int>(disk_frame.size()) < panel_h) disk_frame.emplace_back(std::string(disk_w, ' '));
@@ -408,7 +424,7 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
         // taller peaks build upward — attached to the panel's bottom row
         // per instruction, with the second row directly above it.
         if (settings_.element_visualizer) {
-            int viz_w = std::min(meta_w, settings_.element_vizfield ? 48 : 96);
+            int viz_w = std::min(meta_w, show_viz ? 48 : 96);
             bars = fft_.compute_bars(viz_w, viz_dt_);
             std::string viz_top, viz_bottom;
             int nbars = static_cast<int>(bars.size());
@@ -572,7 +588,7 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
                     const int cws = std::max(2, std::min(cwq, cw0 / g.scale));
                     const int chs = std::max(4, static_cast<int>(std::lround(static_cast<double>(cws) * ch0 / cw0)));
                     g.cols = lyrics_w; g.rows = viz_rows_h; g.w = lyrics_w * cws; g.h = viz_rows_h * chs;
-                    g.col = 2 + disk_w + (settings_.element_disk ? sep_w : 2) + meta_w;
+                    g.col = 2 + disk_w + (show_disk ? sep_w : 2) + meta_w;
                     g.row = 1;
                     g.plain = false; g.direct = false; g.opaque = false; g.erase = false;   // (the album cover's picture is a plain one)
                     g.id = cover_pic_img ? 1 : 0; g.grid.clear(); g.cut_w = 0; g.crop = 0;   // no grid on the main screen (the big overlay sets one on the same frame object)
@@ -624,7 +640,7 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
                 spectro().update(settings_.spectro);
                 if (settings_.spectro.style == 1 && gfx_proto_ != GfxProto::None) {
                     spectro_area_[0] = 1;
-                    spectro_area_[1] = 2 + disk_w + (settings_.element_disk ? sep_w : 2) + meta_w;
+                    spectro_area_[1] = 2 + disk_w + (show_disk ? sep_w : 2) + meta_w;
                     spectro_area_[2] = lyrics_w;
                     spectro_area_[3] = viz_rows_h;
                     for (int i = 0; i < viz_rows_h && i < panel_h; ++i) lyric_rows[i] = gfx_hole(lyrics_w);
@@ -648,7 +664,7 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
                 const int x = std::max(0, (lyrics_w - bw) / 2);
                 const int row = panel_h - 1;
                 lyric_rows[row] = overlay_cells(lyric_rows[row], x, box, bw, lyrics_w);
-                const int area_col = 2 + disk_w + (settings_.element_disk ? sep_w : 2) + meta_w;
+                const int area_col = 2 + disk_w + (show_disk ? sep_w : 2) + meta_w;
                 // where it is on screen (0-based): the picture styles leave these cells free / write it again on top
                 caption_rect_[0] = 1 + row; caption_rect_[1] = area_col + x; caption_rect_[2] = bw;
                 caption_text_ = box;
@@ -740,7 +756,7 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
     std::string sep_ansi = ansi_for(settings_.border_color, false) + sep + "\x1b[0m";
     for (int row = 0; row < panel_h; ++row) {
         std::string content = "";
-        if (settings_.element_disk) {
+        if (show_disk) {
             content += disk_frame[row] + sep_ansi;
         } else {
             content += "  ";
@@ -762,7 +778,11 @@ std::vector<std::string> App::build_progress_panel(int total_width) const {
     const int button_content_w = 9;
     const int button_total_w = button_content_w + 4; // "│ X │"
     int side_panel_w = settings_.element_dummy_buttons ? (button_total_w * 3) : 38;
-    int main_total_w = std::max(24, total_width - side_panel_w);
+    // too narrow for the buttons / the volume bar beside the progress bar: they go, the bar takes the whole width
+    const bool has_side = total_width >= 24 + side_panel_w;
+    const bool buttons = settings_.element_dummy_buttons && has_side;
+    if (!has_side) side_panel_w = 0;
+    int main_total_w = has_side ? std::max(24, total_width - side_panel_w) : std::max(8, total_width);
     int wave_w = main_total_w - 4;
 
     double elapsed = has_track_ ? player_.poll_elapsed() : 0.0;
@@ -841,7 +861,7 @@ std::vector<std::string> App::build_progress_panel(int total_width) const {
     }
 
     std::vector<std::string> out;
-    if (settings_.element_dummy_buttons) {
+    if (buttons) {
         out.push_back(box_top("PROGRESS BAR", main_total_w, border_ansi)
                       + box_top("", button_total_w, border_ansi) + box_top("", button_total_w, border_ansi)
                       + box_top("", button_total_w, border_ansi));
@@ -854,7 +874,7 @@ std::vector<std::string> App::build_progress_panel(int total_width) const {
     std::string row3_content = settings_.element_waveform ? bot_wave : generic_blank;
 
     std::string bar = border_ansi + settings_.box_vertical + "\x1b[0m";
-    if (settings_.element_dummy_buttons) {
+    if (buttons) {
         out.push_back(bar + " " + row1_content + " " + bar
                       + button_mid("<<<", seek_back_text) + button_mid(play_label) + button_mid(">>>", seek_fwd_text));
         out.push_back(bar + " " + row2_content + " " + bar
@@ -890,6 +910,7 @@ std::vector<std::string> App::build_progress_panel(int total_width) const {
     std::string vol_bar_text = std::string(vol_hashes, '#') + std::string(20 - vol_hashes, '-'); // plain, for width math only
     std::string vol_tail = border_ansi + "VOLUME BAR:[" + "\x1b[0m" + vol_bar_colored
                           + border_ansi + "]" + "\x1b[0m" + " " + std::to_string(vol) + "%";
+    if (!has_side) vol_tail.clear();
     int side_w = total_width - main_total_w;
     // pad_left counts raw bytes, so it can't be used once vol_tail carries
     // ANSI bytes -- pad by the *visible* width instead (the volume-bar

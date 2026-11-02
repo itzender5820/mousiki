@@ -14,6 +14,7 @@ namespace muisc {
 std::string keyboard_layout_code();     // "de", "us", "gb", "fr", ... or "" when it cannot be told
 std::string mode_switch_key_label();    // the text shown in the cheat sheets (see above)
 std::string mode_switch_back_label();   // the same for the key that goes back to the previous mode ('_': SHIFT and - / SHIFT+-)
+// "/" (the search key) as printed on THIS keyboard: SHIFT+7 on German, Austrian, Swiss, Spanish and Italian layouts, "/" elsewhere.
 // "(" and ")" (the spectrogram / scope window keys) as printed on THIS keyboard: SHIFT+8 / SHIFT+9 on German, Austrian,
 // Spanish and Italian layouts, SHIFT+9 / SHIFT+0 on US / UK ones; any other key (or layout) as it is.
 std::string symbol_key_label(const std::string& key);

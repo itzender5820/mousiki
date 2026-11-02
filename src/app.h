@@ -380,6 +380,10 @@ private:
     std::vector<QueueItem> queue_undo_;
     void queue_toggle_lock();
     void queue_add_selected_end();       // "e": hovering track to the END of the queue
+    std::vector<QueueItem> queue_shuffle_undo_;   // the order before the last shuffle (one level)
+    int queue_shuffle_undo_sel_ = 0;
+    bool queue_playing_is_last() const;  // locked queue: the track that plays now sits at its end and stays there
+    void queue_undo_shuffle();           // SHIFT+u in the big queue overlay: the order from before the shuffle
     void queue_shuffle_order();          // SHIFT+s in the big queue overlay: the queue gets a random order
     void queue_move_to_edge(int dir);    // Shift+4 / Shift+5: dir=-1 top, +1 bottom
     void queue_reset_lap(); // clears every item's "played in this pass" flag (queue-then-stop)
@@ -1950,7 +1954,7 @@ private:
     // --- READ LYRICS, [SHIFT+e]: edit a translation by hand / write a new one from scratch ("Manual Translation")
     bool rd_te_open_ = false;
     std::vector<std::string> rd_te_lines_;              // the translation being written: exactly one entry per lyrics line
-    int rd_te_first_ = 0;                               // (kept for the drawing: the first line shown)
+    mutable int rd_te_first_ = 0;                               // (kept for the drawing: the first line shown)
     int rd_te_row_ = 0;                                 // the line with the caret (never a line that is empty in the original)
     std::string rd_te_to_, rd_te_svc_;                  // language it is in and the id it is saved under ("manual", "manual2" ...)
     std::string rd_te_orig_to_;                         // when a manual translation is edited: its language when opened (a changed language moves the file)
@@ -1958,6 +1962,8 @@ private:
     int rd_te_focus_ = 0;                               // 0 the lines, 1 the language
     bool rd_te_dirty_ = false, rd_te_ask_ = false, rd_te_new_ask_ = false, rd_te_warn_ = false;
     std::string rd_te_msg_;
+    int rd_te_mark_ = -1;                               // SHIFT+up/down: the line where the marking began (-1: no lines marked)
+    std::vector<std::string> rd_te_undo_;               // the lines before the last whole-line change (CTRL+z)
     void readlyrics_te_open();
     void readlyrics_te_key(int key);
     bool readlyrics_te_save();
@@ -1966,7 +1972,7 @@ private:
     bool readlyrics_te_blank(size_t i) const { return i >= rd_lines_.size() || rd_lines_[i].find_first_not_of(" \t\r") == std::string::npos; }
     std::vector<std::string> build_readlyrics_te_panel(int W) const;
     std::vector<std::string> build_readlyrics_te_legend(int W) const;
-    static constexpr int kTeLegendRows = 4;
+    static constexpr int kTeLegendRows = 5;
     std::vector<std::string> build_readlyrics_search_panel() const;
     void build_readlyrics_screen(std::ostringstream& frame, int W, int target_height);
     fs::path lyrics_path_;                              // track path the current lyrics belong to (sidecar location)
@@ -2317,7 +2323,8 @@ private:
                                const std::string& text_ansi = "") const; // text_ansi: colours for prefix+field+fill
 
     // panel builders
-    std::vector<std::string> build_metadata_panel(int width) const;
+    std::vector<std::string> build_metadata_panel(int width) const;   // (empty when the window is too small for it)
+    bool show_metadata_panel(int width) const;
     std::vector<std::string> build_progress_panel(int width) const;
     std::vector<std::string> build_search_bar(int width) const;
     std::vector<std::string> build_list_panel(int width, int height) const;

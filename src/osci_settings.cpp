@@ -5,6 +5,7 @@
 #include "viz_prefs.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <ostream>
@@ -263,6 +264,46 @@ void osci_config_write(std::ostream& out, const VizPrefs& s, const char* c) {
     out << c << " image style: normal | high -- the widest picture rendered (560 / 1024 px): high = sharper thin lines, more data per frame\n";
     out << "OsciImageDetail=" << (s.image_detail == 1 ? "high" : "normal") << "\n";
 
+}
+
+} // namespace muisc
+
+namespace muisc {
+
+bool spectro_profile_key(VizPrefs& s, const std::string& key, const std::string& value) {
+    std::string lk = key;
+    for (char& ch : lk) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    static const std::string kHead = "spectroprofile";
+    if (lk.compare(0, kHead.size(), kHead) != 0 || lk.size() <= kHead.size()) return false;
+    const int n = lk[kHead.size()] - '0';
+    if (n < 0 || n > 3) return true;
+    spectro_config_key(s.spectro_slot[n], "spectro" + lk.substr(kHead.size() + 1), value);
+    s.spectro_have[n] = true;
+    return true;
+}
+
+void spectro_profiles_write(std::ostream& out, const VizPrefs& s, const char* c) {
+    const int act = VizPrefs::spectro_slot_of(s.spectro);
+    bool head = false;
+    for (int n = 0; n < 4; ++n) {
+        if (n == act || !s.spectro_have[n]) continue;
+        if (!head) {
+            out << c << " Spectrogram and waterfall, image and braille each keep their own values (the block above is the look in use). SpectroProfile<n>:\n"
+                << c << " n = 2 * view + style, view 0 = spectrogram / 1 = waterfall, style 0 = braille / 1 = image\n";
+            head = true;
+        }
+        SpectroSettings sp = s.spectro_slot[n];
+        sp.view = n / 2;
+        sp.style = n % 2;
+        spectro_config_write(out, sp, c, ("SpectroProfile" + std::to_string(n)).c_str());
+    }
+}
+
+void spectro_profiles_finish(VizPrefs& s) {
+    for (int n = 0; n < 4; ++n)
+        if (s.spectro_have[n]) { s.spectro_slot[n].view = n / 2; s.spectro_slot[n].style = n % 2; }
+    s.spectro_active = -1;
+    s.spectro_sync();
 }
 
 } // namespace muisc

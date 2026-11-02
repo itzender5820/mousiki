@@ -138,6 +138,9 @@ const uint8_t kDigits[10][5] = {
     {7, 5, 5, 5, 7}, {2, 6, 2, 2, 7}, {7, 1, 7, 4, 7}, {7, 1, 7, 1, 7}, {5, 5, 7, 1, 1},
     {7, 4, 7, 1, 7}, {7, 4, 7, 5, 7}, {7, 1, 1, 1, 1}, {7, 5, 7, 5, 7}, {7, 5, 7, 1, 7}};
 
+// "k" (thousand) for the waterfall's frequency axis
+const uint8_t kGlyphK[5] = {5, 5, 6, 5, 5};
+
 } // namespace
 
 int spectro_window_main() {
@@ -183,6 +186,12 @@ int spectro_window_main() {
     std::vector<uint32_t> px;
     std::vector<sdl::Vertex> verts;
     std::vector<int> idx;
+    sdl::Texture* wtex = nullptr;        // the waterfall's picture (made again for every frame)
+    int wtex_w = 0, wtex_h = 0;
+    std::vector<uint8_t> wimg;
+    double wf_k = 1.0, wf_cpu = 0.0, min_dt = 0.02;   // waterfall: picture size fraction, smoothed time to make one, shortest frame interval seen
+    uint64_t last_t = 0;
+    long wf_n = 0;
     SpectroWinConfig cfg;
     unsigned cfg_seen = ~0u;
     std::string title_set;
@@ -258,6 +267,72 @@ int spectro_window_main() {
         const int rate = an.rate();
         const uint64_t cpp = static_cast<uint64_t>(an.columns_per_page());
         const uint64_t ncols = an.columns();
+
+        // ---- the waterfall: a picture of its own, made from the analysis for every frame --------------------------------
+        if (s.view == 1) {
+            const int strip = s.labels ? 8 * sc : 0;                       // frequencies under the picture
+            const int wpw = std::max(16, ow), wph = std::max(16, oh - strip);
+            // The picture is made at a fraction `wf_k` of the window's size and scaled up by the card: a full-screen window has several
+            // times the pixels of a small one, and the analysis + colouring of every pixel in every frame is what made it lag. The fraction
+            // follows the time one picture takes (kept to ~60 % of a monitor refresh), never below one half.
+            const int iw = std::max(16, static_cast<int>(wpw * wf_k)), ih = std::max(16, static_cast<int>(wph * wf_k));
+            if (!wtex || wtex_w != iw || wtex_h != ih) {
+                if (wtex) A.DestroyTexture(wtex);
+                wtex = A.CreateTexture(R, sdl::kFmtARGB8888, sdl::kTexStatic, iw, ih);
+                if (!wtex) { write_error(std::string("spectrogram window: cannot create a texture: ") + A.GetError()); break; }
+                if (A.SetTextureScaleMode) A.SetTextureScaleMode(wtex, wf_k < 0.999 ? sdl::kScaleLinear : sdl::kScaleNearest);
+                A.SetTextureBlendMode(wtex, sdl::kBlendNone);
+                wtex_w = iw; wtex_h = ih;
+            }
+            an.waterfall(s, iw, ih, false, wimg);
+            px.resize(static_cast<size_t>(iw) * static_cast<size_t>(ih));
+            for (size_t i = 0; i < px.size(); ++i) {
+                const uint8_t* p = cfg.pal[wimg[i]];
+                px[i] = 0xFF000000u | (static_cast<uint32_t>(p[0]) << 16) | (static_cast<uint32_t>(p[1]) << 8) | p[2];
+            }
+            A.UpdateTexture(wtex, nullptr, px.data(), iw * 4);
+            {
+                const double made = static_cast<double>(A.GetPerformanceCounter() - t_now) / freq;
+                const double dt_frame = last_t > 0 ? static_cast<double>(t_now - last_t) / freq : 0.0;
+                last_t = t_now;
+                if (dt_frame > 0.002 && dt_frame < 0.1) min_dt = std::min(min_dt * 1.002, dt_frame);   // (slowly forgets: the monitor may change)
+                wf_cpu = wf_cpu * 0.9 + made * 0.1;
+                if (++wf_n % 20 == 0) {
+                    const double budget = 0.6 * std::clamp(min_dt, 1.0 / 240.0, 1.0 / 30.0);
+                    if (wf_cpu > budget && wf_k > 0.5) wf_k = std::max(0.5, wf_k * 0.88);
+                    else if (wf_cpu < budget * 0.55 && wf_k < 1.0) wf_k = std::min(1.0, wf_k * 1.08);
+                }
+            }
+            A.SetRenderDrawColor(R, 0, 0, 0, 255);
+            A.RenderClear(R);
+            const sdl::Rect dst{0, 0, wpw, wph};
+            A.RenderCopy(R, wtex, nullptr, &dst);
+            if (s.labels && rate > 0) {   // the frequencies of the front graph, under it
+                A.SetRenderDrawColor(R, 190, 190, 190, 255);
+                for (const auto& [col, text] : spectro_axis_x(s, rate, wpw, 4 * sc)) {
+                    int x = col * 4 * sc;
+                    for (char ch : text) {
+                        const uint8_t* g = nullptr;
+                        if (ch >= '0' && ch <= '9') g = kDigits[ch - '0']; else if (ch == 'k') g = kGlyphK;
+                        if (g)
+                            for (int gy = 0; gy < 5; ++gy)
+                                for (int gx = 0; gx < 3; ++gx)
+                                    if (g[gy] & (4 >> gx)) { const sdl::Rect r{x + gx * sc, wph + sc + gy * sc, sc, sc}; A.RenderFillRect(R, &r); }
+                        x += 4 * sc;
+                    }
+                }
+            }
+            ++frame_no;
+            if (shot_path && frame_no == shot_frame) {
+                std::vector<uint32_t> shot(static_cast<size_t>(ow) * oh);
+                if (A.RenderReadPixels(R, nullptr, sdl::kFmtARGB8888, shot.data(), ow * 4) == 0) write_ppm(shot_path, shot, ow, oh);
+                if (shot_exit) quit = true;
+            }
+            A.RenderPresent(R);
+            const double spent_wf = static_cast<double>(A.GetPerformanceCounter() - t_now) / freq;
+            if (spent_wf < 1.0 / 240.0) A.Delay(static_cast<uint32_t>((1.0 / 240.0 - spent_wf) * 1000.0));
+            continue;
+        }
 
         // ---- the texture: new columns in, everything again when the look changed -------------------------------------
         if (!tex || tex_h != ph) {
@@ -388,6 +463,7 @@ int spectro_window_main() {
 
     save_geometry(geo);
     if (tex) A.DestroyTexture(tex);
+    if (wtex) A.DestroyTexture(wtex);
     A.DestroyRenderer(R);
     A.DestroyWindow(win);
     A.Quit();

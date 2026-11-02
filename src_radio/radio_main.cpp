@@ -2012,7 +2012,7 @@ int radio_main(int argc, char** argv) {
                     else if (k == 'B') orow = orow >= kSpectroRowCount - 1 ? kSrStyle : orow + 1;
                     else if (k == 'D' || k == 'C') {
                         if (orow == kSrDisplay) osci_adjust(cfg, kOrDisplay, k == 'C' ? +1 : -1);   // osci -> sphere -> spectro
-                        else spectro_adjust(cfg.spectro, orow, k == 'C' ? +1 : -1);
+                        else { spectro_adjust(cfg.spectro, orow, k == 'C' ? +1 : -1); cfg.spectro_sync(); }
                         ui.model.settings.dirty = true;
                     }
                     continue;
@@ -2024,7 +2024,7 @@ int radio_main(int argc, char** argv) {
                     ui.model.spectro_full = !ui.model.spectro_full; if (ui.model.spectro_full) ui.model.scope_big = false; out_clear_next = true;
                     continue;
                 }
-                if (k == 'r' || k == 'R') { spectro_reset(cfg.spectro); ui.model.settings.dirty = true; continue; }
+                if (k == 'r' || k == 'R') { spectro_reset(cfg.spectro); cfg.spectro_sync(); ui.model.settings.dirty = true; continue; }
                 continue;
             }
             if (ui.model.scope_big && ui.model.overlay == 0 && !ui.model.cheat_open) {   // the big oscilloscope overlay (SHIFT+0)

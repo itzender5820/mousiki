@@ -13,6 +13,7 @@
 // (scope_feed_push: one atomic load while the window is closed); a sender thread moves it every few milliseconds through
 // a pipe to the window process, together with the scope settings (ScopeWinConfig) whenever they change. The window
 // draws EVERY sample once, as a beam that leaves phosphor afterglow, at the monitor's refresh rate.
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -52,20 +53,28 @@ struct ScopeWinConfig {
 struct SpectroWinConfig {
     uint32_t magic = 0x5053534D;   // "MSSP"
     int32_t rate = 48000;          // sample rate of the samples that follow
-    int32_t v[16] = {};            // SpectroSettings, see spectro_win_pack()
+    int32_t v[24] = {};            // SpectroSettings, see spectro_win_pack()
     uint8_t pal[256][3] = {};
     char title[96] = {};
 };
 inline void spectro_win_pack(const SpectroSettings& s, SpectroWinConfig& c) {
-    const int32_t x[16] = {s.style, s.motion, s.scale, s.min_freq, s.max_freq, s.gain, s.range, s.freq_gain, s.window_log2,
-                           s.window_type, s.zero_pad, s.scheme, s.channels, s.span, s.labels ? 1 : 0, 0};
-    for (int i = 0; i < 16; ++i) c.v[i] = x[i];
+    const int32_t x[24] = {s.style, s.motion, s.scale, s.min_freq, s.max_freq, s.gain, s.range, s.freq_gain, s.window_log2,
+                           s.window_type, s.zero_pad, s.scheme, s.channels, s.span, s.labels ? 1 : 0, s.view, s.wf_graphs, s.wf_spacing,
+                           s.wf_slant, s.wf_height, s.wf_detail, 0, 0, 0};
+    for (int i = 0; i < 24; ++i) c.v[i] = x[i];
 }
 inline SpectroSettings spectro_win_unpack(const SpectroWinConfig& c) {
     SpectroSettings s;
     s.style = c.v[0]; s.motion = c.v[1]; s.scale = c.v[2]; s.min_freq = c.v[3]; s.max_freq = c.v[4]; s.gain = c.v[5];
     s.range = c.v[6]; s.freq_gain = c.v[7]; s.window_log2 = c.v[8]; s.window_type = c.v[9]; s.zero_pad = c.v[10];
     s.scheme = c.v[11]; s.channels = c.v[12]; s.span = c.v[13]; s.labels = c.v[14] != 0;
+    s.view = c.v[15] == 1 ? 1 : 0;
+    if (s.view == 1) {
+        s.wf_graphs = std::clamp<int>(c.v[16], 8, 100); s.wf_spacing = std::clamp<int>(c.v[17], 20, 500);
+        s.wf_slant = std::clamp<int>(c.v[18], 0, 40); s.wf_height = std::clamp<int>(c.v[19], 10, 60);
+        s.wf_detail = c.v[20] == 1 ? 1 : 0;
+        s.wf_smooth = true;   // the window moves the graphs with the monitor's refresh
+    }
     return s;
 }
 

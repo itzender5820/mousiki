@@ -146,8 +146,12 @@ std::string mode_key_label(int ch) {
 }
 
 std::string symbol_key_label(const std::string& key) {
-    if (key != "(" && key != ")" && key != "=" && key != "<") return key;
+    if (key != "(" && key != ")" && key != "=" && key != "<" && key != "/") return key;
     const std::string c = keyboard_layout_code();
+    if (key == "/") {   // the search key: SHIFT+7 on a German, Austrian, Swiss, Spanish or Italian keyboard
+        if (c == "de" || c == "at" || c == "ch" || c == "es" || c == "it") return "SHIFT+7";
+        return key;
+    }
     if (key == "<") {   // the menus index: its own key on German-style keyboards, SHIFT+, on US-style ones
         if (c == "us" || c == "gb" || c == "ie" || c == "au" || c == "ca" || c == "en" || c == "nz") return "SHIFT+,";
         return key;

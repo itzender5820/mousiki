@@ -340,6 +340,19 @@ static std::string* color_cell(Settings& s, int row, int col) {
 // smooth), rows 3.. = the other colour rows. color_cell() and the theme creator count the colour rows alone (0..20).
 static int color_row_of_tab(int t) { return t == 1 ? 0 : (t >= 3 ? t - 2 : -1); }
 static int tab_row_of_color(int c) { return c == 0 ? 1 : c + 2; }
+// The Colours tab is 25 lines long (THEME, a rule, 21 colour rows, SMOOTHNESS and one more rule). A window that is too short for
+// all of them shows a part, scrolled so that the chosen row stays in view (the same rule as the PATHS tab: the row in the middle).
+constexpr int kColorsLines = 25;
+static int colors_line_of(int c) { return 2 + c + (c >= 1 ? 1 : 0) + (c >= 5 ? 1 : 0); }   // the line of colour row c (0 = the first line of the tab)
+static int colors_sel_line(int settings_row) {
+    if (settings_row <= 0) return 0;
+    if (settings_row == 2) return 3;   // SMOOTHNESS
+    for (int c = 0; c < 21; ++c) if (tab_row_of_color(c) == settings_row) return colors_line_of(c);
+    return 0;
+}
+static int colors_first_line(int settings_row, int visible) {
+    return std::clamp(colors_sel_line(settings_row) - visible / 2, 0, std::max(0, kColorsLines - visible));
+}
 
 std::string* App::color_field_ptr(int row, int col) {
     const int c = color_row_of_tab(row);
@@ -2022,7 +2035,8 @@ void App::build_settings_screen(std::ostringstream& frame, int W, int player_h) 
                              (MAX_Y > 1) ? static_cast<float>(y - 1) / (MAX_Y - 1) : 0.0f, false);
     };
     int clip_rows = 1 << 30;   // the colours tab is longer than a small window: its rows from here on are not drawn
-    auto pos = [&](int y, int x, const std::string& s) { if (x <= W && y < clip_rows) frame << "\x1b[" << y << ";" << x << "H" << clip_to_columns(s, x, (x == 1 || x == W) ? W : W - 1); };   // (a row that does not fit is cut before the right border)
+    int clip_top = 0;          // ... and the ones above this row were scrolled off
+    auto pos = [&](int y, int x, const std::string& s) { if (x <= W && y < clip_rows && y >= clip_top) frame << "\x1b[" << y << ";" << x << "H" << clip_to_columns(s, x, (x == 1 || x == W) ? W : W - 1); };   // (a row that does not fit is cut before the right border)
     // The scrollbar of a tab that is longer than the panel, the same as in the help wizard: the last column inside the
     // frame, a thumb as tall as the visible part is of the whole, in the disk gradient. `first` is the first line shown.
     auto scrollbar = [&](int first, int visible, int total) {
@@ -2127,8 +2141,13 @@ void App::build_settings_screen(std::ostringstream& frame, int W, int player_h) 
 
     // 2. Content.
     int y = 3;
+    int colors_visible = 0, colors_first = 0;
     if (settings_tab_ == 0) {
         clip_rows = MAX_Y;
+        colors_visible = std::max(1, MAX_Y - 3);
+        colors_first = colors_first_line(settings_row_, colors_visible);
+        y = 3 - colors_first;
+        clip_top = 3;
         static const char* grp[21]  = {"BORDER_COLOR", "DISK", "METADATA", "VIZ", "PROGRESS_BAR",
                                         "SEARCH", "", "LIST", "", "", "QUEUE", "", "", "LYRICS", "", "", "HEADER", "LEGEND", "TAB_NAMES", "CHANGE", "FOCUS"};
         static const char* l1n[21]  = {"TOP", "TOP", "KEY", "LEFT", "PLAYED",
@@ -2234,7 +2253,10 @@ void App::build_settings_screen(std::ostringstream& frame, int W, int player_h) 
             if (!rt.empty()) pos(y, 72, rt);
             y++;
         }
+        if (colors_first > 0) pos(3, W - 2, legend_sgr(settings_) + "\u25b2" + R);                              // more above
+        if (colors_first + colors_visible < kColorsLines) pos(MAX_Y - 1, W - 2, legend_sgr(settings_) + "\u25bc" + R);   // more below
         clip_rows = 1 << 30;
+        clip_top = 0;
         if (y > MAX_Y) y = MAX_Y;   // (a small window: the bottom border and the hint lines go where the panel ends)
     } else if (settings_tab_ == 1 || settings_tab_ == 2) {
         // GENERAL and ANIMA/VIZ: category headers and their rows (settings_layout()). The list scrolls with the
@@ -2278,7 +2300,7 @@ void App::build_settings_screen(std::ostringstream& frame, int W, int player_h) 
                 pos(y, 35, ((sel && !(buf_row && settings_col_ == 1) && !(vol_row && settings_col_ == 1)) ? HI : "") + (ed ? change_sgr(settings_) : "") + (vol_row ? pad(shown, 9) : v) + R);
                 if (vol_row) {   // right of the look: "gradient" / "no gradient" (LEFT / RIGHT switch between the two, ENTER changes the one that is lit)
                     pos(y, 45, ((sel && settings_col_ == 1) ? HI : "") + (settings_.volume_gradient ? "gradient   " : "no gradient") + R);
-                    if (sel) pos(y, 59, ansi_for(settings_.tab_current_color, false) + "[ENTER] change\x1b[0m");
+                    if (sel) pos(y, 56, ansi_for(settings_.tab_current_color, false) + "[ENTER] change\x1b[0m");
                 } else
                 if (buf_row) {   // the button to the right of the number
                     pos(y, 57, ((sel && settings_col_ == 1) ? HI : legend_sgr(settings_)) + "[ Set back to default ]" + R);
@@ -2578,7 +2600,7 @@ void App::build_settings_screen(std::ostringstream& frame, int W, int player_h) 
         const int caret_col = paint_edit_field(color_edit_buffer_, ec, ea, edit_field_width(), "", false).caret;
         if (settings_tab_ == 0) {
             const int cc = std::max(0, color_row_of_tab(settings_row_));
-            int cy = 5 + cc + (cc >= 1 ? 1 : 0) + (cc >= 5 ? 1 : 0);
+            int cy = 3 + colors_line_of(cc) - colors_first_line(settings_row_, std::max(1, MAX_Y - 3));
             int cx = ((settings_col_ == 0) ? 38 : 61) + caret_col;
             frame << "\x1b[" << cy << ";" << cx << "H\x1b[?25h";
         } else {

@@ -220,12 +220,19 @@ void App::handle_key(int key) {
     if (mode_ == Mode::SpectroMenu) {
         // Spectrogram options (SHIFT+i). Like the oscilloscope overlay: playback keeps running, only these keys work.
         const bool arrow = last_key_was_arrow();
-        // rows kSrStyle .. the last (no "Display" row: what the lyrics area shows is the "." key's job)
-        if (arrow && key == 'A') { spectro_menu_row_ = spectro_menu_row_ <= kSrStyle ? kSpectroRowCount - 1 : spectro_menu_row_ - 1; return; }
-        if (arrow && key == 'B') { spectro_menu_row_ = spectro_menu_row_ >= kSpectroRowCount - 1 ? kSrStyle : spectro_menu_row_ + 1; return; }
+        // rows kSrView .. the last (no "Display" row: what the lyrics area shows is the "." key's job)
+        if (arrow && (key == 'A' || key == 'B')) {   // only the rows of the view in use (the waterfall has others than the spectrogram)
+            const std::vector<int> vis = spectro_visible_rows(settings_.spectro);
+            int at = 0;
+            for (size_t i = 0; i < vis.size(); ++i) if (vis[i] <= spectro_menu_row_) at = static_cast<int>(i);
+            const int n = static_cast<int>(vis.size());
+            at = key == 'A' ? (at + n - 1) % n : (at + 1) % n;
+            spectro_menu_row_ = vis[static_cast<size_t>(at)];
+            return;
+        }
         if (arrow && key == 'D') { spectro_menu_adjust(-1); return; }
         if (arrow && key == 'C') { spectro_menu_adjust(+1); return; }
-        if (!arrow && (key == 'r' || key == 'R')) { spectro_reset(settings_.spectro); return; }
+        if (!arrow && (key == 'r' || key == 'R')) { spectro_reset(settings_.spectro); settings_.spectro_sync(); return; }
         std::string act = resolve_hotkey_action(key);
         if (act.empty() && key >= 'a' && key <= 'z') act = resolve_hotkey_action(key - 32);
         if (act.empty() && key >= 'A' && key <= 'Z') act = resolve_hotkey_action(key + 32);
@@ -279,11 +286,11 @@ void App::handle_key(int key) {
         if (!arrow && osc_action == "HKeySpectroWindow") { spectro_window_toggle(); return; }
         if (!arrow && osc_action == "HKeyScopeBig") { scope_big_ = !scope_big_; spectro_full_ = false; scope_big_color_edit_ = false; scope_metrics_open_ = false; force_redraw_ = true; return; }
         // the spectrogram's overlays take over without closing this one first
-        if (!arrow && osc_action == "HKeySpectroMenu") { save_settings(settings_); scope_big_ = false; spectro_menu_row_ = kSrStyle; mode_ = Mode::SpectroMenu; force_redraw_ = true; return; }
+        if (!arrow && osc_action == "HKeySpectroMenu") { save_settings(settings_); scope_big_ = false; spectro_menu_row_ = kSrView; mode_ = Mode::SpectroMenu; force_redraw_ = true; return; }
         if (!arrow && osc_action == "HKeySpectroFull") {
             save_settings(settings_);
             spectro_full_ = true; scope_big_ = false;
-            spectro_menu_row_ = kSrStyle; mode_ = Mode::SpectroMenu; force_redraw_ = true; return;
+            spectro_menu_row_ = kSrView; mode_ = Mode::SpectroMenu; force_redraw_ = true; return;
         }
         if (!arrow && (key == 27 || osc_action == "HKeyOscMenu")) {
             mode_ = Mode::Browse;
@@ -520,7 +527,7 @@ void App::handle_key(int key) {
             }
             return;
         }
-        if (!arrow && key == 'S') { cheat_searching_ = true; cheat_query_.clear(); cheat_sel_ = 0; cheat_first_ = 0; edit_owner_.clear(); }
+        if (!arrow && key_is("HKeySearch", key)) { cheat_searching_ = true; cheat_query_.clear(); cheat_sel_ = 0; cheat_first_ = 0; edit_owner_.clear(); }
         else if (key == 27 || key_is("HKeyCheatsheet", key)) mode_ = Mode::Browse;
         else if (key == 'A') cheatsheet_scroll_ -= (last_key_was_shifted() ? 10 : 1); // up (SHIFT / PgUp: a page) -- the table is longer than the screen
         else if (key == 'B') cheatsheet_scroll_ += (last_key_was_shifted() ? 10 : 1); // down (clamped while rendering)
@@ -544,7 +551,7 @@ void App::handle_key(int key) {
         else if (key == '\r' || key == '\n') wk = wizard::Key::Enter;
         else if (key == '\b' || key == 127) wk = wizard::Key::Back;           // BACKSPACE and [t]: the table of content
         else if (key == 't' || key == 'T') wk = wizard::Key::Contents;
-        else if (key == 'S') wk = wizard::Key::Search;                          // SHIFT+s: search the whole text
+        else if (key_is("HKeySearch", key)) wk = wizard::Key::Search;         // the search key ("/", SHIFT+7 on a German keyboard): search the whole text
         else if (key_is("HKeyWizard", key)) wk = wizard::Key::Close;
         if (wizard::handle_key(wizard_st_, wk)) wizard_close();
         return;
@@ -773,6 +780,7 @@ void App::handle_key(int key) {
             return;
         }
         if (!last_key_was_arrow() && key == 'S') { queue_shuffle_order(); return; }   // SHIFT+s: shuffle the order
+        if (!last_key_was_arrow() && key == 'U') { queue_undo_shuffle(); return; }    // SHIFT+u: undo the shuffle
         if (key == 27) {
             if (!queue_find_.empty()) { queue_find_.clear(); return; }   // the first ESC takes the search away
             queue_overlay_close();
@@ -864,7 +872,7 @@ void App::handle_key(int key) {
     } else if (action == "HKeyHistory") { // SHIFT+h: listening history (HISTORY / TOP TRACKS / HABITS)
         history_open();
     } else if (action == "HKeySpectroMenu") { // SHIFT+i: spectrogram options
-        spectro_menu_row_ = kSrStyle;
+        spectro_menu_row_ = kSrView;
         mode_ = Mode::SpectroMenu;
     } else if (action == "HKeyScopeBig") { // SHIFT+0: the big oscilloscope overlay on / off
         scope_big_ = !scope_big_;

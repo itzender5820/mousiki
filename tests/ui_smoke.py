@@ -990,7 +990,7 @@ def narrow_sweep(binary, root, scripts, cols, rows):
                 see(b"\x1b[1;2B", "read lyrics (scrolled)", 0.2)
             see(b"\t", "read lyrics (translation pane)", 0.3)
             see(b"\t", "read lyrics (lyrics pane)", 0.3)
-            see(b"\x13", "read lyrics: search lyrics files", 0.8, "SEARCH LYRICS")
+            see(b"/", "read lyrics: search lyrics files", 0.8, "SEARCH LYRICS")
             for c in "oth":
                 sess.send(c, 0.1)
             check_fit(sess, tag + "read lyrics: search lyrics files (typed)")
@@ -1080,7 +1080,7 @@ def opened_lyrics_is_current(binary, root, scripts):
 
     def reader_with_search(query):
         sess.send(b"\x0c", 1.2)                       # READ LYRICS on the hovered track (the first one)
-        sess.send(b"\x13", 0.8)                       # CTRL+s: search the lyrics files
+        sess.send(b"/", 0.8)                          # "/": search the lyrics files
         for c in query:
             sess.send(c, 0.1)
         sess.send(b"\r", 0.8)                         # open the first match
@@ -1186,6 +1186,126 @@ def translation_editor(binary, root, scripts):
     finally:
         sess.kill()
 
+def translation_lines(binary, root, scripts):
+    """The translation editor on a small terminal: long lines are broken beside their original (no "..."), SHIFT+up/down marks
+    whole lines that are copied / pasted / cleared / undone, CTRL+2 switches the Latin letters."""
+    global COLS, ROWS
+    COLS, ROWS = 80, 32
+    home = os.path.join(root, "tl_home")
+    lib = os.path.join(root, "tl_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    os.makedirs(os.path.join(lib, "lyrics"))
+    make_wav(os.path.join(lib, "Aaa First.wav"), 5)
+    with open(os.path.join(lib, "lyrics", "Aaa First.lrc"), "w", encoding="utf-8") as f:
+        f.write("[00:00.50]this is a rather long original line that cannot fit one row ZEBRA\n[00:02.00]short two\n[00:03.00]short three\n[00:04.00]short four\n")
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    tdir = os.path.join(lib, "lyrics", "translations")
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Aaa First" in sess.text():
+                break
+        sess.send(b"\x0c", 1.5)
+        sess.send("E", 1.0)
+        t = sess.text()
+        check("ZEBRA" in t and "..." not in t.split("EDIT / ADD TRANSLATION")[-1].split("[CTRL+s]")[0], "translation lines: a long original is broken into rows, not cut with '...'")
+        for c in "eine sehr lange Uebersetzung die auch nicht in eine Zeile passt FINAL":
+            sess.send(c, 0.02)
+        sess.pump(0.5)
+        t = sess.text()
+        check("FINAL" in t and "eine sehr" in t, "translation lines: a long translation is broken into rows beside its original")
+        check_fit(sess, "translation lines 80x32", True)
+        sess.send(b"\r", 0.3)
+        sess.send("AAA", 0.3)
+        sess.send(b"\r", 0.3)
+        sess.send("BBB", 0.3)
+        sess.send(b"\x1b[A", 0.3)
+        sess.send(b"\x1b[1;2B", 0.5)                       # SHIFT+down: two lines marked
+        check("2 lines marked" in sess.text(), "translation lines: SHIFT+down marks whole lines")
+        sess.send(b"\x03", 0.5)                            # CTRL+c
+        check("copied 2 lines" in sess.text(), "translation lines: CTRL+c copies the marked lines")
+        sess.send(b"\x1b[B", 0.3)
+        sess.send(b"\x16", 0.6)                            # CTRL+v with a multi-line clipboard: pasted from the caret's line
+        t = sess.text()
+        check("pasted 1 line" in t or "pasted 2 lines" in t, "translation lines: CTRL+v pastes whole lines (%r)" % [l for l in t.split("\n") if "pasted" in l][:1])
+        sess.send(b"\x1b[A", 0.3)
+        sess.send(b"\x1b[A", 0.3)
+        sess.send(b"\x1b[1;2B", 0.4)
+        sess.send(b"\x7f", 0.5)                            # DEL on marked lines clears them
+        check("cleared 2 lines" in sess.text(), "translation lines: DEL clears the marked lines")
+        sess.send(b"\x1a", 0.5)                            # CTRL+z
+        check("undone" in sess.text(), "translation lines: CTRL+z undoes it")
+        sess.send(b"\x00", 0.5)                            # CTRL+2
+        check("Latin letters: on" in sess.text() or "Latin letters on" in sess.text(), "translation lines: CTRL+2 switches the Latin letters")
+        sess.send(b"\x00", 0.4)
+        sess.send(b"\x14", 0.5)                            # CTRL+t: the same, on a key every terminal sends
+        check("Latin letters: on" in sess.text() or "Latin letters on" in sess.text(), "translation lines: CTRL+t switches the Latin letters")
+        sess.send(b"\x14", 0.4)
+        sess.send(b"\x13", 1.0)
+        files = sorted(os.listdir(tdir)) if os.path.isdir(tdir) else []
+        check(len(files) == 1, "translation lines: saved (%r)" % files)
+        if files:
+            body = open(os.path.join(tdir, files[0]), encoding="utf-8").read().split("\n")
+            check(body[1].endswith("FINAL") and body[2] == "AAA" and body[3] == "BBB", "translation lines: the lines are where they should be (%r)" % body[1:5])
+        check(sess.alive(), "translation lines: the program is still running")
+    finally:
+        sess.kill()
+
+def waterfall_view(binary, root, scripts):
+    """The spectrogram options have a View row: the waterfall swaps the rows it does not use (motion, channels, time span) for its own,
+    the full-screen view is titled WATERFALL and carries the frequency labels on its top ruler."""
+    global COLS, ROWS
+    COLS, ROWS = 110, 36
+    home = os.path.join(root, "wf_home")
+    lib = os.path.join(root, "wf_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    make_wav(os.path.join(lib, "Alpha Song.wav"), 30)
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nSpectroStyle=braille\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Alpha Song" in sess.text():
+                break
+        sess.send(b"\r", 1.5)
+        sess.send("I", 1.0)
+        t = sess.text()
+        check("Spectrogram" in t and "View" in t and "spectrogram" in t and "Motion" in t and "Graphs" not in t, "waterfall: the options open on the View row, the spectrogram rows are listed")
+        sess.send(b"\x1b[C", 0.8)                          # RIGHT: waterfall
+        t = sess.text()
+        check("waterfall" in t and "Graphs" in t and "Graph spacing" in t and "Slant" in t and "Peak height" in t and "Motion" not in t and "Channels" not in t and "Time span" not in t,
+              "waterfall: its own rows replace motion / channels / time span")
+        sess.send(b"\x1b[B", 0.3)
+        sess.send(b"\x1b[B", 0.3)
+        check(sess.alive(), "waterfall: moving through the rows works")
+        check_fit(sess, "waterfall options", False)
+        sess.send("I", 0.8)
+        sess.send("U", 1.2)                                  # the full-screen view
+        t = sess.text()
+        check("WATERFALL" in t and "SPECTROGRAM" not in t, "waterfall: the full-screen view is titled WATERFALL")
+        check_fit(sess, "waterfall full screen", True)
+        sess.send("U", 0.8)
+        sess.send("I", 0.8)
+        sess.send(b"\x1b[D", 0.8)                          # LEFT on the View row: back to the spectrogram
+        t = sess.text()
+        check("Motion" in t and "Graphs" not in t, "waterfall: back to the spectrogram brings its rows back")
+        check(sess.alive(), "waterfall: the program is still running")
+    finally:
+        sess.kill()
+
 def disk_field_setting(binary, root, scripts):
     """ANIMA/VIZ: DISK holds Eliment Disk / Cover and Disk Speed, the cover rows are DISK / COVER OPTIONS; Remove Field empties the preview."""
     home = os.path.join(root, "df_home")
@@ -1249,17 +1369,199 @@ def queue_shuffle(binary, root, scripts):
 
         def order():
             t = sess.text()
-            return tuple(t.find(n) for n in names)
-        before = order()
+            pos = [t.find(n) for n in names]
+            return tuple(sorted(range(len(names)), key=lambda i: pos[i])) if all(p >= 0 for p in pos) else tuple(pos)   # (the order, not the offsets: a status line above would move them)
+        def settled():                            # the order once two frames in a row agree (a slow machine draws late)
+            last = None
+            for _ in range(8):
+                sess.pump(0.4)
+                cur = order()
+                if cur == last:
+                    return cur
+                last = cur
+            return last
         changed = False
         for _ in range(12):
-            sess.send("S", 0.5)
-            if order() != before:
+            before = settled()
+            sess.send("S", 0.3)
+            if settled() != before:
                 changed = True
                 break
         check(changed, "queue shuffle: SHIFT+s changes the order of the queue")
+        check("Undo shuffle" in sess.text() or "Unshuffle" in sess.text(), "queue shuffle: the overlay legend names SHIFT+u")
+        sess.send("U", 0.3)
+        after_undo = settled()
+        # (a short track may end meanwhile: on a locked queue the track that played moves to the end, so the old order comes back as a rotation)
+        rotated = any(before[k:] + before[:k] == after_undo for k in range(len(before))) if len(before) == len(after_undo) else False
+        check(after_undo == before or rotated, "queue shuffle: SHIFT+u brings the order from before the shuffle back (before %r, after undo %r)" % (before, after_undo))
+        sess.send("U", 0.6)
+        check(sess.alive(), "queue shuffle: a second SHIFT+u (nothing to undo) is harmless")
         check(sess.alive(), "queue shuffle: the program is still running")
         sess.send(b"\x1b", 0.8)
+    finally:
+        sess.kill()
+
+
+def search_key(binary, root, scripts):
+    """The search key of the main screen ("/", SHIFT+7 on a German keyboard) also searches in the cheat sheet, the help wizard and READ LYRICS
+    (the old SHIFT+s / CTRL+s do not any more); the legends name it for the keyboard."""
+    home = os.path.join(root, "sk_home")
+    lib = os.path.join(root, "sk_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    make_wav(os.path.join(lib, "Alpha Song.wav"), 30)
+    os.makedirs(os.path.join(lib, "lyrics"))
+    with open(os.path.join(lib, "lyrics", "Alpha Song.lrc"), "w", encoding="utf-8") as f:
+        f.write("[00:00.50]first line\n[00:03.00]second line\n")
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % lib)
+    sess = Session(binary, home, scripts, {"XKB_DEFAULT_LAYOUT": "de"}, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Alpha Song" in sess.text():
+                break
+        sess.send("?", 1.0)
+        check("[SHIFT+7] search" in sess.text(), "search key: the cheat sheet names SHIFT+7 on a German keyboard")
+        sess.send("S", 0.6)
+        check("Search: " not in sess.text(), "search key: SHIFT+s no longer opens the cheat sheet search")
+        sess.send("/", 0.6)
+        check("Search: " in sess.text(), "search key: / opens the cheat sheet search")
+        sess.send(b"\x1b", 0.5)
+        sess.send(b"\x1b", 0.5)
+        sess.send("W", 1.0)
+        check("[SHIFT+7] search" in sess.text(), "search key: the wizard names SHIFT+7 on a German keyboard")
+        sess.send("/", 0.8)
+        check("SEARCH" in sess.text().split("\n")[0], "search key: / opens the wizard search")
+        sess.send(b"\x1b", 0.5)
+        sess.send(b"\x1b", 0.5)
+        sess.send(b"\x0c", 1.5)
+        check("READ LYRICS" in sess.text() and "[SHIFT+7] Search" in sess.text(), "search key: the READ LYRICS legend names SHIFT+7")
+        sess.send(b"\x13", 0.8)
+        check("SEARCH LYRICS FILES" not in sess.text(), "search key: CTRL+s no longer opens the lyrics file search")
+        sess.send("/", 0.8)
+        check("SEARCH LYRICS FILES" in sess.text(), "search key: / opens the lyrics file search")
+        sess.send("/", 0.4)
+        check("SEARCH LYRICS FILES" in sess.text(), "search key: a typed / is text in the search, it does not close it")
+        sess.send(b"\x1b", 0.6)
+        check("SEARCH LYRICS FILES" not in sess.text() and "READ LYRICS" in sess.text(), "search key: ESC closes the lyrics file search")
+        check(sess.alive(), "search key: the program is still running")
+    finally:
+        sess.kill()
+
+
+def shrinking_window(binary, root, scripts):
+    """The window is made smaller while a track plays: the oscilloscope field goes first, then the disk (narrow), the whole meta data
+    panel goes when the rows are too few for it and the list; under 40 columns a note replaces the screen. Nothing runs past the edge."""
+    global COLS, ROWS
+    COLS, ROWS = 140, 45
+    home = os.path.join(root, "sw_home")
+    lib = os.path.join(root, "sw_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    make_wav(os.path.join(lib, "Alpha Artist", "First Album", "Alpha Song.wav"), 60)
+    make_wav(os.path.join(lib, "Beta Song.wav"), 60)
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+
+    def resize(c, r):
+        global COLS, ROWS
+        COLS, ROWS = c, r
+        fcntl.ioctl(sess.fd, termios.TIOCSWINSZ, struct.pack("HHHH", r, c, 0, 0))
+        os.kill(sess.pid, signal.SIGWINCH)
+        sess.screen = pyte.Screen(c, r)
+        sess.stream = pyte.ByteStream(sess.screen)
+        sess.raw = b""
+        sess.pump(1.2)
+
+    def braille_cols(row_text, lo, hi):
+        return sum(1 for ch in row_text[lo:hi] if "\u2801" <= ch <= "\u28ff")
+
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Alpha Song" in sess.text():
+                break
+        sess.send(b"\r", 2.0)
+        t = sess.text()
+        check("File      :" in t and "No sync" in t.replace("hron", ""), "shrinking: the full window shows the meta data and the lyrics / oscilloscope field")
+        check_fit(sess, "shrinking 140x45", False)
+        resize(100, 45)
+        lines = sess.screen.display
+        check(braille_cols(lines[4], 0, 34) > 5, "shrinking: at 100 columns the disk is there")
+        check_fit(sess, "shrinking 100x45", False)
+        resize(66, 45)
+        lines = sess.screen.display
+        check(braille_cols(lines[4], 0, 34) > 5 and "File      :" in sess.text(), "shrinking: at 66 columns the disk and the meta data stay")
+        check_fit(sess, "shrinking 66x45", False)
+        resize(52, 45)
+        lines = sess.screen.display
+        check(braille_cols(lines[4], 0, 34) == 0 and "File      :" in sess.text(), "shrinking: at 52 columns the disk is gone, the meta data stay")
+        check_fit(sess, "shrinking 52x45", False)
+        resize(40, 45)
+        check("File      :" in sess.text(), "shrinking: at 40 columns the meta data are still there")
+        check_fit(sess, "shrinking 40x45", False)
+        resize(30, 45)
+        check("too narrow" in sess.text() and "File      :" not in sess.text(), "shrinking: under 40 columns a note replaces the screen")
+        check_fit(sess, "shrinking 30x45", False)
+        resize(120, 45)
+        check("File      :" in sess.text() and "too narrow" not in sess.text(), "shrinking: the screen is back when the window is wide again")
+        resize(120, 24)
+        check("File      :" not in sess.text() and "Alpha Song" in sess.text() and "SEARCH LOCAL" in sess.text(), "shrinking: with too few rows the meta data panel goes and the list stays")
+        check_fit(sess, "shrinking 120x24", False)
+        resize(120, 40)
+        check(b"\x1b[2J" not in sess.raw and "File      :" in sess.text(), "shrinking: growing the rows repaints in place (no full-screen erase, so no flash)")
+        check_fit(sess, "shrinking 120x40", False)
+        check(sess.screen.cursor.y == 0, "shrinking: the cursor is parked in the top row, so a lower window pushes no row out of the screen")
+        resize(120, 40)
+        check("File      :" in sess.text(), "shrinking: the meta data panel is back when there are rows for it and the list")
+        check_fit(sess, "shrinking 120x40", False)
+        check(sess.alive(), "shrinking: the program is still running")
+    finally:
+        sess.kill()
+
+
+def colors_scroll(binary, root, scripts):
+    """Settings -> COLORS in a window too short for its 25 lines: it scrolls with the chosen row, marks hidden rows, and fits."""
+    global COLS, ROWS
+    COLS, ROWS = 100, 20
+    home = os.path.join(root, "cs_home")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % os.path.join(root, "music"))
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        sess.pump(1.0)
+        sess.send("s", 1.2)
+        t = sess.text()
+        check("THEME" in t and "BORDER_COLOR" in t, "colours scroll: the top of the tab is shown first")
+        check("\u25bc" in t and "\u25b2" not in t, "colours scroll: a mark says there are more rows below")
+        check("FOCUS" not in t, "colours scroll: the last row is not visible yet")
+        check_fit(sess, "colours scroll (top)")
+        for _ in range(22):
+            sess.send(b"\x1b[B", 0.12)
+        t = sess.text()
+        check("FOCUS" in t and "\u25b2" in t, "colours scroll: moving down scrolls to the last row, with a mark for rows above")
+        check("THEME" not in t, "colours scroll: the first rows are scrolled off")
+        check_fit(sess, "colours scroll (bottom)")
+        sess.send(b"\r", 0.5)                               # edit the chosen colour: the caret must be on the visible row
+        check_fit(sess, "colours scroll (editing)")
+        sess.send(b"\x1b", 0.5)
+        check(sess.alive(), "colours scroll: the program is still running")
     finally:
         sess.kill()
 
@@ -1274,6 +1576,16 @@ def run_scenario(name, binary, root, scripts):
         kitty_cover_options(binary, home, scripts)
     elif name == "selftest_command":
         selftest_command(binary, scripts)
+    elif name == "search_key":
+        search_key(binary, root, scripts)
+    elif name == "waterfall_view":
+        waterfall_view(binary, root, scripts)
+    elif name == "translation_lines":
+        translation_lines(binary, root, scripts)
+    elif name == "shrinking_window":
+        shrinking_window(binary, root, scripts)
+    elif name == "colors_scroll":
+        colors_scroll(binary, root, scripts)
     elif name == "translation_editor":
         translation_editor(binary, root, scripts)
     elif name == "opened_lyrics_is_current":
@@ -1291,7 +1603,7 @@ def run_scenario(name, binary, root, scripts):
 
 
 SCENARIOS = ["narrow80", "narrow100", "main", "read_lyrics_play", "karaoke_timing", "book_speed_and_devices", "paging_and_translit_row",
-             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "translation_editor"]
+             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "translation_editor", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key"]
 
 
 def main():

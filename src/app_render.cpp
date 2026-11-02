@@ -352,6 +352,8 @@ std::string App::render_frame(TerminalIO& term) {
     const bool big_overlay_now = list_overlay_active() || convert_overlay_active() || folder_overlay_active() || queue_overlay_active() || book_big_overlay;
     const bool overlay_closed = last_big_overlay_ && !big_overlay_now;
     last_big_overlay_ = big_overlay_now;
+    const bool force_was = force_redraw_;
+    const Mode prev_mode_for_clear = last_render_mode_;
     bool hard_clear = overlay_closed || (W != last_render_w_) || (term_rows_ != last_render_rows_) || (mode_family(mode_) != mode_family(last_render_mode_)) || force_redraw_;
     if (last_render_w_ != -1 && W != last_render_w_) {
         // Verbose-only: raw ioctl terminal size alongside the clamped
@@ -365,7 +367,13 @@ std::string App::render_frame(TerminalIO& term) {
     last_render_w_ = W;
     last_render_rows_ = term_rows_;
     last_render_mode_ = mode_;
-    const char* clear_prefix = hard_clear ? "\x1b[2J\x1b[H" : "\x1b[H";
+    // A pure size change of the plain Browse screen (no overlay, no picture on screen) is repainted in place: erasing the whole
+    // screen first is what shows as the UI "jumping up, getting cut and redrawing" while a window is dragged. Everything else keeps
+    // the full erase (pictures must be re-sent, other screens place cells absolutely).
+    const bool size_only_change = hard_clear && !overlay_closed && !force_was && mode_family(mode_) == mode_family(prev_mode_for_clear) &&
+        mode_ == Mode::Browse && !(gfx_ok_ && gfx_.active) && !creator_show_ && !list_overlay_active() && !convert_overlay_active() &&
+        !folder_overlay_active() && !queue_overlay_active() && !book_big_overlay;
+    const char* clear_prefix = (hard_clear && !size_only_change) ? "\x1b[2J\x1b[H" : "\x1b[H";
     if (hard_clear) cf_pic_key_.clear();   // the screen is wiped: a cover preview picture (meta editor, cover menus) must be sent again
 
     // The creator's preview (after "Create"): the oscilloscope music or the spectrogram of the new file over the whole screen
@@ -457,6 +465,14 @@ std::string App::render_frame(TerminalIO& term) {
         return hard_clear ? clamped : soften_fullscreen_frame(clamped, term_cols);
     };
 
+    if (term_cols < 40) {   // narrower than any screen is drawn (W is never below 40): a note instead of a frame the terminal would wrap
+        std::ostringstream frame;
+        frame << "\x1b[2J\x1b[H\x1b[?25l";
+        const auto msg = wrap_lines("Window too narrow: Mousiki needs at least 40 columns.", std::max(1, term_cols), std::max(1, term_rows_ - 1));
+        for (size_t i = 0; i < msg.size(); ++i) frame << "\x1b[" << (i + 1) << ";1H" << msg[i];
+        return fullscreen_out(frame);
+    }
+
     if (mode_ == Mode::Settings || mode_ == Mode::ColorEdit || (mode_ == Mode::AudioDevice && adev_from_settings_)) {
         std::ostringstream frame;
         frame << "\x1b[2J\x1b[H\x1b[?25l";
@@ -464,6 +480,7 @@ std::string App::render_frame(TerminalIO& term) {
         // The cover preview of the Settings screen is the one picture it may show; any other picture switched on while building the
         // screen (the colour tab's theme preview builds the main screen's disk) must stay off.
         if (!pv_cover_pic_) gfx_.active = false;
+        gfx2_.active = false;   // (the main screen's second picture -- the oscilloscope next to a cover -- never belongs here)
         gfx_ok_ = gfx_.active;
         if (remote_ov_.open) remote_overlay_draw(frame, W);
         if (mode_ == Mode::AudioDevice) draw_floating_panel(frame, build_audio_device_panel(), kAudioDevicePanelWidth, W);
@@ -763,6 +780,7 @@ std::string App::render_frame(TerminalIO& term) {
     // rows than the terminal has, so it structurally cannot scroll no
     // matter what future panels/config combinations produce.
     std::string out = clamp_output_rows(frame.str(), term_rows_);
+    if (size_only_change) out = soften_fullscreen_frame(out, W);
     frame_main_len_ = out.size();
 
     // Bulk Add / Retry Lyrics / Clear Queue: stamp their floating panel on top

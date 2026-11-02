@@ -156,7 +156,7 @@ void App::spectro_window_sync(bool check_alive) {
     SpectroWinConfig c;
     spectro_win_pack(settings_.spectro, c);
     spectro_gradient_from(settings_);
-    const auto& pal = spectro_palette(settings_.spectro.scheme);
+    const auto& pal = spectro_palette_view(settings_.spectro);   // (the waterfall has black for its background / outline, and its own steps in the high resolution)
     for (int h = 0; h < 256; ++h) for (int k = 0; k < 3; ++k) c.pal[h][k] = pal[static_cast<size_t>(h)][static_cast<size_t>(k)];
     std::string title;
     if (has_track_) { const TrackMetadata dm = display_metadata(); title = dm.artist.empty() ? dm.name : dm.artist + " - " + dm.name; }
@@ -210,13 +210,14 @@ void App::lyrics_view_nudge() {
 
 // ---- Spectrogram (SHIFT+i options, SHIFT+u full screen) ----------------------------------------------------------
 void App::spectro_menu_adjust(int dir) {
-    const int row = std::clamp(spectro_menu_row_, static_cast<int>(kSrStyle), kSpectroRowCount - 1);
+    const int row = std::clamp(spectro_menu_row_, static_cast<int>(kSrView), kSpectroRowCount - 1);
     if (row == kSrDisplay) {   // what the lyrics area shows: sphere -> osci -> spectro
         settings_.lyric_viz = settings_.viz_step(settings_.lyric_viz, dir > 0 ? 1 : -1, true);
         if (settings_.element_lyrics && settings_.lyric_viz == 2) status_line_ = "the spectrogram shows when there are no lyrics (. switches)";
         return;
     }
     spectro_adjust(settings_.spectro, row, dir);
+    settings_.spectro_sync();   // another view / style: its own values come in
 }
 
 std::vector<std::string> App::build_spectro_menu_panel() const {
@@ -232,7 +233,7 @@ std::vector<std::string> App::build_spectro_menu_panel() const {
     };
     std::vector<std::string> lines;
     lines.push_back(box_top("Spectrogram", W, border));
-    for (int r = kSrStyle; r < kSpectroRowCount; ++r) {
+    for (const int r : spectro_visible_rows(settings_.spectro)) {
         const bool sel = r == spectro_menu_row_;
         std::string val = spectro_row_value(settings_.spectro, r);
         if (r == kSrStyle && settings_.spectro.style == 1 && gfx_proto_ == GfxProto::None) val = "image (no Sixel/Kitty here)";
@@ -270,15 +271,22 @@ std::string App::build_spectro_full(int W, const char* clear_prefix) const {
     int cw = 10, chh = 20;
     if (image) gfx_cell_pixels(settings_.cell_pixels, cw, chh);
     const int unit = image ? std::max(1, chh) : 4;
-    const auto labels = spectro_axis(sp, a.rate(), rows * unit, unit);
+    const bool wf = sp.view == 1;
+    const auto labels = wf ? std::vector<std::pair<int, std::string>>() : spectro_axis(sp, a.rate(), rows * unit, unit);
     std::vector<std::string> lab(static_cast<size_t>(rows));
     for (const auto& l : labels) if (l.first >= 0 && l.first < rows) lab[static_cast<size_t>(l.first)] = l.second;
-    std::string title = "SPECTROGRAM";
+    std::string title = wf ? "WATERFALL" : "SPECTROGRAM";
     if (has_track_) { const TrackMetadata dm = display_metadata(); title += " - " + (dm.artist.empty() || dm.artist == "-" ? dm.name : dm.artist + " - " + dm.name); }
     std::ostringstream f;
     f << clear_prefix << "\x1b[?25l";
     f << box_top(truncate_str(title, W - 6), W, border) << "\n";
-    {   // time ruler: seconds of the page (sweep) or seconds before now (scroll)
+    if (wf) {   // the waterfall has no time axis: the frequencies of the front graph (in Hz, "k" = thousand) take the ruler's row
+        std::string ruler(static_cast<size_t>(cols), ' ');
+        if (sp.labels)
+            for (const auto& l : spectro_axis_x(sp, a.rate(), cols * (image ? cw : 2), image ? cw : 2))
+                for (size_t k = 0; k < l.second.size() && static_cast<size_t>(l.first) + k < ruler.size(); ++k) ruler[static_cast<size_t>(l.first) + k] = l.second[k];
+        f << bar << legend << std::string(static_cast<size_t>(label_w + 1), ' ') << ruler << R << bar << "\n";
+    } else {   // time ruler: seconds of the page (sweep) or seconds before now (scroll)
         std::string ruler(static_cast<size_t>(cols), ' ');
         const int step = sp.span <= 5 ? 1 : sp.span <= 10 ? 2 : sp.span <= 30 ? 5 : 10;
         for (int t = 0; t <= sp.span; t += step) {

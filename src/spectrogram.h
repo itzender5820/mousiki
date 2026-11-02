@@ -41,21 +41,40 @@ struct SpectroSettings {
     int channels = 0;       // 0 = left + right stacked (like Audacity), 1 = one mix of both
     int span = 30;          // seconds across the width (5 .. 60, steps of 5)
     bool labels = true;     // frequency labels in the full-screen view
+    // View 1 = waterfall: the same analysis drawn as a stack of spectra (a ridge per moment, the newest in front, each one filled
+    // and outlined in black, the older ones behind it and shifted up and to the right) instead of frequency over time.
+    int view = 0;           // 0 = spectrogram, 1 = waterfall
+    int wf_graphs = 40;     // waterfall: graphs in the stack (8 .. 100)
+    int wf_spacing = 120;   // waterfall: milliseconds between two graphs (20 .. 500)
+    int wf_slant = 25;      // waterfall: how far the back graph is shifted to the right, % of the width (0 .. 40)
+    int wf_height = 30;     // waterfall: height of the loudest peak, % of the picture (10 .. 60)
+    bool wf_smooth = false; // waterfall (not stored): the graphs move back continuously with the clock-driven position (the spectrogram window), not one slot at a time
+    int wf_detail = 0;      // waterfall: 0 = normal, 1 = high (drawn at twice the resolution and scaled down: fine lines keep their place and shade)
 };
 
 // Overlay rows (SHIFT+i); the first row ("Display") belongs to the caller (it switches the visual itself).
-enum SpectroRow { kSrDisplay, kSrStyle, kSrMotion, kSrScale, kSrMinFreq, kSrMaxFreq, kSrGain, kSrRange, kSrFreqGain,
-                  kSrWindow, kSrZeroPad, kSrScheme, kSrChannels, kSrSpan, kSrLabels, kSpectroRowCount };
+enum SpectroRow { kSrDisplay, kSrView, kSrStyle, kSrMotion, kSrScale, kSrMinFreq, kSrMaxFreq, kSrGain, kSrRange, kSrFreqGain,
+                  kSrWindow, kSrZeroPad, kSrScheme, kSrChannels, kSrSpan, kSrLabels, kSrWfGraphs, kSrWfSpacing, kSrWfSlant, kSrWfHeight, kSrWfDetail, kSpectroRowCount };
+// The rows the overlay shows for the view in use (after "Display"): the waterfall has no motion / channels / time span, the
+// spectrogram no waterfall rows.
+bool spectro_row_visible(const SpectroSettings& s, int row);
+std::vector<int> spectro_visible_rows(const SpectroSettings& s);
 const char* spectro_row_label(int row);
 std::string spectro_row_value(const SpectroSettings& s, int row);   // kSrDisplay is the caller's
 void spectro_adjust(SpectroSettings& s, int row, int dir);
 void spectro_reset(SpectroSettings& s);   // Audacity's defaults (the style and motion stay)
 // config keys Spectro<Name>=; true = the key was one of them
 bool spectro_config_key(SpectroSettings& s, const std::string& key, const std::string& value);
-void spectro_config_write(std::ostream& out, const SpectroSettings& s, const char* comment_prefix);
+void spectro_config_write(std::ostream& out, const SpectroSettings& s, const char* comment_prefix, const char* key_prefix = "Spectro");
 
 // The colour scheme as 256 RGB entries (index 0 = quietest).
 const std::array<std::array<uint8_t, 3>, 256>& spectro_palette(int scheme);
+// The palette a picture of this view is drawn with: the same, but the waterfall's background (0) and outline (1) are pure black.
+const std::array<std::array<uint8_t, 3>, 256>& spectro_palette_view(const SpectroSettings& s);
+// Waterfall: the width in pixels of one graph in a picture `w_px` wide (the rest is the slant), and the labels for the
+// frequency axis under the front graph: (text column, label) for a picture of `w_px` pixels, one text column = `unit_px`.
+int spectro_waterfall_plot_width(const SpectroSettings& s, int w_px);
+std::vector<std::pair<int, std::string>> spectro_axis_x(const SpectroSettings& s, int rate, int w_px, int unit_px);
 // The two colours of the "gradient" scheme (the caller's VIZ / OSCI gradient); cheap to call every frame.
 void spectro_set_gradient(const std::array<uint8_t, 3>& from, const std::array<uint8_t, 3>& to);
 // Frequency at a height 0 (bottom) .. 1 (top) of one channel, and back.
@@ -99,6 +118,11 @@ public:
     unsigned generation() const { return gen_; }
     void column_images(const SpectroSettings& s, uint64_t c0, uint64_t c1, int h, std::vector<uint8_t>& out);
     int columns_per_page() const { return cols_per_page_; }
+    // Waterfall picture (palette indices, w x h, row after row): 0 background, 1 black outline, 48..255 the fill by height.
+    // `lines_only` (braille): only the outlines, in the colour of their height, the fill just hides what is behind it.
+    void waterfall(const SpectroSettings& s, int w, int h, bool lines_only, std::vector<uint8_t>& img);
+    void waterfall_raw(const SpectroSettings& s, int w, int h, int R, bool lines_only, std::vector<uint8_t>& img);
+    // (with the resolution "high" the picture uses the 64 colour registers of spectro_palette_view(): index = register * 4)
 
 private:
     struct Shape { int rate = 0, fft = 0, win = 0, span = 0, ch = 0; };
@@ -150,6 +174,10 @@ private:
     std::chrono::steady_clock::time_point disp_t_{};
     void advance_display();
     bool rebuilt_ = false;              // the columns were computed again: everything has changed
+    // waterfall: the finished picture, kept while the columns, the size and the settings stay as they were (the tiles of a terminal
+    // picture are slices of it)
+    std::vector<uint8_t> wf_img_;
+    std::string wf_key_;
 };
 
 // The one analyzer of the program (player and radio share it; only one of them plays at a time).
@@ -170,7 +198,7 @@ public:
     std::string emit(int proto, const SpectroSettings& s, SpectroAnalyzer& a, int row, int col, int cols, int rows,
                      int cell_w, int cell_h, bool due, int skip_row, int skip_col, int skip_rows, int skip_cols);
     std::string clear(int proto);       // take the picture away (Kitty deletes its images; Sixel needs nothing)
-    void invalidate() { all_dirty_ = true; }   // the screen was cleared / the picture must be drawn again completely
+    void invalidate() { all_dirty_ = true; urgent_ = true; }   // the screen was cleared / the picture must be drawn again completely
     bool shown() const { return shown_; }
 private:
     static constexpr int kTileCols = 4;
@@ -181,6 +209,7 @@ private:
     uint64_t last_off_ = 0;             // Sixel scroll by copying (see emit): the view position on screen
     bool have_off_ = false;
     bool all_dirty_ = true, shown_ = false;
+    bool urgent_ = false;               // invalidate() asked for the whole picture now (no pacing wait)
 };
 
 } // namespace muisc

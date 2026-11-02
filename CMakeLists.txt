@@ -26,7 +26,7 @@ endif()
 
 # ---------------------------------------------------------------------------
 # Third-party code — vendored in third_party/, so configuring needs no network.
-#   miniaudio.h         : single-file audio library (public domain / MIT-0), v0.11.25
+#   miniaudio.h         : single-file audio library (public domain / MIT-0), v0.11.26
 #   kissfft/            : small real-input FFT for the spectrum visualizer (BSD-3-Clause)
 #   miniz/              : deflate (MIT / public domain), compresses the oscilloscope picture sent over Kitty graphics
 #   chromaprint/        : AcoustID fingerprinting library, 1.6.2 (MIT/LGPL-2.1) —

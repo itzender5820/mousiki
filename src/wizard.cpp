@@ -654,7 +654,7 @@ std::pair<int, int> chapter_range(int page) {
 
 
 // ---------------------------------------------------------------------------------------------------
-// search (SHIFT+s)
+// search (the search key)
 // ---------------------------------------------------------------------------------------------------
 
 struct PageText {
@@ -1015,7 +1015,7 @@ View render(State& st, int cols, int body_rows, const std::vector<std::string>& 
     if (st.page < st.min_page) st.page = st.min_page;
     const Page& p = d.pages[static_cast<size_t>(st.page)];
 
-    if (st.searching) {     // SHIFT+s: the search view replaces the page
+    if (st.searching) {     // the search key: the search view replaces the page
         compute_results(st);
         v.title = "MOUSIKI PLUS HELP WIZARD \xE2\x94\x80 SEARCH";
         const std::vector<Row> body = search_rows(st, inner - 2 * margin - 1, body_rows);

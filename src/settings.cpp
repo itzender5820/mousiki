@@ -888,6 +888,7 @@ static Settings load_from_config(const fs::path& path) {
             {"Seprator", "seprator"}, {"ListSeparator", "list_separator"},
         };
         if (osci_config_key(s, key, value)) continue;
+        if (spectro_profile_key(s, key, value)) continue;
         if (spectro_config_key(s.spectro, key, value)) continue;
         {
             auto it = kKeyAliases.find(key);
@@ -1473,6 +1474,7 @@ static Settings load_from_config(const fs::path& path) {
     }
 
     if (!focus_color_set) s.focus_color = s.header_color;
+    spectro_profiles_finish(s);
     s.mode_normalize();
     // The field starts with the default view. A config from before VizDefault existed starts with the view it was left on.
     if (!have_viz_default) s.viz_default = 4;
@@ -1893,6 +1895,7 @@ static void write_settings(std::ostream& out, const Settings& s) {
     }
     osci_config_write(out, s, "##");
     spectro_config_write(out, s.spectro, "##");
+    spectro_profiles_write(out, s, "##");
     out << "## Tune all of these live with SHIFT+o in the main UI\n";
     out << "Visualizer=" << tf(s.element_visualizer) << "\n";
     out << "MetaDataOnly=" << tf(s.meta_only) << "\n";

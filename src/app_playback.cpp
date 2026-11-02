@@ -893,6 +893,7 @@ void App::queue_clear() {
     const size_t n = queue_.size();
     // One level of undo (Ctrl+Shift+Z): what was just cleared.
     if (n > 0) queue_undo_ = queue_;
+    queue_shuffle_undo_.clear();
     queue_.clear();
     queue_next_run_ = 0;
     clamp_queue_selected(); // empty queue -> cursor and scroll back to 0
@@ -941,20 +942,55 @@ void App::queue_move_hovering(int dir) {
 
 // SHIFT+s in the big queue overlay: the queue is put in a random order. On a locked queue the track that plays now sits at its
 // end (the played tracks do): that one stays there, so "previous" still finds it.
+bool App::queue_playing_is_last() const {
+    if (!queue_locked_ || !has_track_ || queue_.empty()) return false;
+    const QueueItem& last = queue_.back();
+    return last.is_local == current_is_local_ && (last.is_local ? last.local_path == current_path_ : last.video_id == current_video_id_);
+}
+
 void App::queue_shuffle_order() {
     if (queue_.size() < 2) { status_line_ = "shuffle order: the queue needs at least two items"; return; }
     size_t n = queue_.size();
-    if (queue_locked_ && has_track_) {
-        const QueueItem& last = queue_.back();
-        if (last.is_local == current_is_local_ && (last.is_local ? last.local_path == current_path_ : last.video_id == current_video_id_)) --n;
-    }
+    if (queue_playing_is_last()) --n;
+    queue_shuffle_undo_ = queue_;   // one level of undo (SHIFT+u)
+    queue_shuffle_undo_sel_ = queue_selected_;
     std::random_device rd;
     std::mt19937 rng(rd());
     std::shuffle(queue_.begin(), queue_.begin() + static_cast<std::ptrdiff_t>(n), rng);
     queue_after_move(0, 0);
     queue_selected_ = 0;
     clamp_queue_selected();
-    status_line_ = "queue shuffled: " + std::to_string(queue_.size()) + " items in a new random order";
+    status_line_ = "queue shuffled: " + std::to_string(queue_.size()) + " items in a new random order -- SHIFT+u undoes it";
+}
+
+// SHIFT+u in the big queue overlay: the order from before the last shuffle comes back. Tracks that were added since keep their
+// place behind the others, tracks that were removed or played are simply gone from it; the track that plays now (locked queue)
+// stays at the end. One level: the backup is forgotten afterwards.
+void App::queue_undo_shuffle() {
+    if (queue_shuffle_undo_.empty()) { status_line_ = "nothing to undo -- the queue has not been shuffled"; return; }
+    auto key_of = [](const QueueItem& q) { return q.is_local ? "L" + path_utf8(q.local_path) : "V" + q.video_id; };
+    std::unordered_map<std::string, std::vector<int>> ranks;   // per track: its places in the old order (the first is used first)
+    for (int i = static_cast<int>(queue_shuffle_undo_.size()) - 1; i >= 0; --i) ranks[key_of(queue_shuffle_undo_[static_cast<size_t>(i)])].push_back(i);
+    const size_t n = queue_.size() - (queue_playing_is_last() ? 1 : 0);
+    std::vector<std::pair<int, size_t>> order;
+    for (size_t j = 0; j < n; ++j) {
+        auto it = ranks.find(key_of(queue_[j]));
+        int r;
+        if (it != ranks.end() && !it->second.empty()) { r = it->second.back(); it->second.pop_back(); }
+        else r = static_cast<int>(queue_shuffle_undo_.size() + j);   // new since the shuffle
+        order.emplace_back(r, j);
+    }
+    std::stable_sort(order.begin(), order.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    std::vector<QueueItem> back;
+    back.reserve(queue_.size());
+    for (const auto& o : order) back.push_back(std::move(queue_[o.second]));
+    for (size_t j = n; j < queue_.size(); ++j) back.push_back(std::move(queue_[j]));
+    queue_ = std::move(back);
+    queue_selected_ = queue_shuffle_undo_sel_;
+    queue_shuffle_undo_.clear();
+    queue_after_move(0, 0);
+    clamp_queue_selected();
+    status_line_ = "queue shuffle undone: the order from before is back";
 }
 
 // Shift+4 / Shift+5: the hovering item to the very top / bottom.

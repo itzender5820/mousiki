@@ -9,7 +9,7 @@ the optional programs Mousiki can use. The sources of the compiled-in code
 are in third_party/ of the source repository.
 
 Compiled into mousiki
-  - miniaudio 0.11.25 (David Reid) ............ public domain (Unlicense) or MIT-0
+  - miniaudio 0.11.26 (David Reid) ............ public domain (Unlicense) or MIT-0
   - KISS FFT (Mark Borgerding) ................ BSD-3-Clause
   - miniz 3.1.2 (Rich Geldreich, RAD Game Tools, Valve Software) ... MIT
   - Roseus colour map (dofuuz/roseus) ......... CC0 1.0 (spectrogram colours)
@@ -238,12 +238,19 @@ packages are built and listed again in THIRD-PARTY.txt inside each package:
       text is included as bin/ffmpeg-LICENSE.txt or bin/ffmpeg-GPLv3.txt
   - yt-dlp .......................... Unlicense - https://github.com/yt-dlp/yt-dlp
   - Python (embeddable, Windows) .... PSF License - https://www.python.org
+  - Cascadia Mono (font, macOS app) . SIL Open Font License 1.1 - https://github.com/microsoft/cascadia-code
+      Copyright (c) 2019 - Present, Microsoft Corporation, with Reserved Font Name Cascadia Code.
+      Bundled unmodified in Mousiki.app (Contents/Resources/fonts/) together with its licence text
+      (CascadiaCode-OFL.txt); the app copies the font into the user's ~/Library/Fonts. On Windows the font
+      comes with Windows Terminal, on other systems the user installs it; Mousiki does not ship it there.
     (the Python scripts use only Python's standard library: no PyPI packages are bundled)
 
 ==============================================================================
 Optional programs and libraries Mousiki can use (not bundled)
 ==============================================================================
 
+  - pykakasi (kanji readings, pip) .......... GPL-3.0-or-later, called as a separate program (see the note at the end)
+  - janome (Japanese word spacing, pip) ..... Apache-2.0, pure Python, called by scripts/kanji_reading.py; not bundled (installed only on request: the Windows installer task or setup.sh --with-kanji)
   - sidplayfp (C64 SID tunes) ............... GPL-2.0-or-later, run as a separate program
   - libopenmpt (tracker modules) ............ BSD-3-Clause, used through FFmpeg
   - libgme (game console music) ............. LGPL-2.1-or-later, used through FFmpeg

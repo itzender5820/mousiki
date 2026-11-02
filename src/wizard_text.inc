@@ -9,8 +9,8 @@ for lovers of the terminal. <3
 
 OPEN/CLOSE HELP WIZARD: [[Header]]
 To open/close use [SHIFT+w] and [ESC] for just closing it.
-[SHIFT+s] searches the whole wizard (typos are forgiven,
-matches are marked), also in the cheat sheet [?].
+[SHIFT+7] (German keyboard) or [/] (English keyboard) searches the whole wizard (typos are
+forgiven, matches are marked), also in the cheat sheet [?].
 
 RECOMMENDATIONS FOR FIRST TIME USERS: [[Header]]
 The first thing you might want to do is setting your custom folder paths
@@ -51,8 +51,8 @@ for lovers of the terminal. <3
 
 OPEN/CLOSE HELP WIZARD: [[Header]]
 To open/close use [SHIFT+w] and [ESC] for just closing it.
-[SHIFT+s] searches the whole wizard (typos are forgiven,
-matches are marked), also in the cheat sheet [?].
+[SHIFT+7] (German keyboard) or [/] (English keyboard) searches the whole wizard (typos are
+forgiven, matches are marked), also in the cheat sheet [?].
 
 HELP WIZARD TABLE OF CONTENT:[[Header]]
 Use [->] to move on to the table of content or press [t] from anywhere
@@ -216,9 +216,9 @@ Both keys can be changed in Settings -> REFERENCE (Next Mode / Previous Mode).
 COVER LOOK:[[Header]] [CTRL+t] one look back, [CTRL+z] one forward: plain disk, Just Cover, Cover
 with Gradient, Cover behind Disk, v2, Full Anima, Cover ASCII, Cover ASCII with Gradient. In the
 audio book mode: default picture, cover with gradient wave, cover in its own colours. Only while
-Eliment Disk / Cover is on; saved at once. Changeable in Settings -> REFERENCE. An album with
 )WIZ",
-R"WIZ(its own look (meta editor -> Style Option) changes that look instead.
+R"WIZ(Eliment Disk / Cover is on; saved at once. Changeable in Settings -> REFERENCE. An album with
+its own look (meta editor -> Style Option) changes that look instead.
 
 MENUS INDEX:[[Header]] [<] (German keyboard) or [SHIFT+,] (English keyboard) lists all menus
 and overlays with their keys; [ENTER] opens the selected one.
@@ -270,7 +270,7 @@ the associated folder. Use [c] or [ESC] to clear folder filter.
 [SHIFT+l] opens a BIG LIST OVERLAY[[HEADER]] for a better overview.
 [SHIFT+f] opens the BIG FOLDER OVERLAY[[Header]].
 [SHIFT+k] opens the BIG QUEUE OVERLAY[[Header]].
-In the big queue overlay [SHIFT+s] shuffles the order of the queue.
+In the big queue overlay [SHIFT+s] shuffles the order of the queue, [SHIFT+u] undoes the shuffle.
 The three big overlays switch directly: with one open, press the key of another
 ([SHIFT+l], [SHIFT+k], [SHIFT+f]) - no need to close it first.
 
@@ -377,12 +377,12 @@ Transliteration is taken into account for the search, but does not apply to sear
 Radio station browser or other online searches.
 
 RADIO:[[Header]] The radio mode has the same key: station names, the title that plays now, the lists and the
-menus switch too (the setting is shared with the music player).
+)WIZ",
+R"WIZ(menus switch too (the setting is shared with the music player).
 
 GENERAL:[[HEADER]]
 [UP] / [DOWN] while typing, then [ENTER] plays the highlighted result
-)WIZ",
-R"WIZ(right away
+right away
 [ENTER] without moving keeps the search as the filter
 [ESC] cancel and restore the unfiltered list view
 
@@ -533,10 +533,10 @@ overlay with the look of THIS track (as in Settings, Disk, Just Cover, Cover wit
 Cover behind Disk looks, the ASCII looks), its own Cover Contrast, Cover Brightness and Cover
 Colors, and the look of its whole ALBUM (no album tag: of that folder). [<-][->] change a row,
 [DEL] or [d] puts it back to "as in Settings". [t] switches between a real picture
-(Kitty / Sixel terminals, the default) and braille dots. A wide terminal adds a preview of the cover with the
-chosen look on the right. The track's own values win over the album's look and
 )WIZ",
-R"WIZ(over Settings; while the track plays, [CTRL+t] / [CTRL+z] change its look.
+R"WIZ((Kitty / Sixel terminals, the default) and braille dots. A wide terminal adds a preview of the cover with the
+chosen look on the right. The track's own values win over the album's look and
+over Settings; while the track plays, [CTRL+t] / [CTRL+z] change its look.
 From the main screen [SHIFT+s] opens the Style Option overlay of the track that plays, on its
 own ([ESC] closes it); opened that way [m] leads on to the meta data of that very song.
 
@@ -673,12 +673,12 @@ CHOOSE THE TARGET: [[Header]]
 START: [[Header]]
 [ENTER] converts the marked files (the highlighted one when nothing is marked!), [c] cancels a
 running conversion, [CTRL+p] plays the highlighted file. [ESC] closes the overlay; a running
-conversion goes on in the background and reports on the status line.
+)WIZ",
+R"WIZ(conversion goes on in the background and reports on the status line.
 
 WHERE THE FILES GO: [[Header]]
 Into the CONVERSION EXPORT PATH ([s] Settings[[Header]] ->> PATHS[[Header]]), by default the 
-)WIZ",
-R"WIZ(folder conversion-export inside the download folder, in the same sub folders as the originals.
+folder conversion-export inside the download folder, in the same sub folders as the originals.
 A file that already exists there is skipped. Tags and cover are copied (not to Opus).
 NOTE: Needs ffmpeg with libmp3lame and libopus; the installers provide it.[[Legend]]
 
@@ -784,11 +784,11 @@ search/list left, right, then to the button "Add chosen lyrics to chosen/current
 locked-in panes and the lyrics the locked track has below the lists; the current track is locked in at the start),
 [ENTER] on the button adds (a file already added to the locked track by hand shows as locked in, with the note
 "Added manually; hit DEL to unassign"), [ESC] closes. The overlay is a full-window screen with a bordered pane for each part (search fields, result lists, locked-in
-fields). [CTRL+t] (also while typing in a search field) switches the track list between artist - title and file names
-(the title of the pane says which one is on), [CTRL+f] shows only the tracks without saved lyrics,
 )WIZ",
-R"WIZ([CTRL+o] shows the locked-in lyrics file by the name of the file you picked (the copy remembers it) or by the name of the copy in the lyrics folder,
-[PgUp]/[PgDn] and [SHIFT+UP/DOWN] turn a page. A lyrics file opened with [CTRL+s] in the reader is locked in at once and its song (the track named like it) is the current track; only without such a file the playing song is. [CTRL+c] (anywhere) clears the choice: the lyrics file is unlocked and the current
+R"WIZ(fields). [CTRL+t] (also while typing in a search field) switches the track list between artist - title and file names
+(the title of the pane says which one is on), [CTRL+f] shows only the tracks without saved lyrics,
+[CTRL+o] shows the locked-in lyrics file by the name of the file you picked (the copy remembers it) or by the name of the copy in the lyrics folder,
+[PgUp]/[PgDn] and [SHIFT+UP/DOWN] turn a page. A lyrics file opened with the search ([SHIFT+7] on a German keyboard, [/] on an English one) in the reader is locked in at once and its song (the track named like it) is the current track; only without such a file the playing song is. [CTRL+c] (anywhere) clears the choice: the lyrics file is unlocked and the current
 track is the locked track again. The lyrics in use so far are kept as an older
 version. [DEL] (twice) unassigns manually added lyrics of the locked-in track again: the file itself is
 not deleted, the previous lyrics come back. A re-fetch never replaces lyrics added by hand: the fetched ones are saved as an older version you can switch to. In karaoke mode [a] and in the re-fetch form [CTRL+n] open READ LYRICS with this overlay open.
@@ -827,10 +827,13 @@ and per service: a Google and a MyMemory one live side by side,
 the same service again replaces only its own.
 [SHIFT+t] shows / cycles / hides translations (a translation that is there is shown at once),
 [d] or [DEL] deletes a translation.
+[SHIFT+7] (German keyboard) or [/] (English keyboard) searches every lyrics file of the library by
+name: type to filter, [UP]/[DOWN] pick, [ENTER] shows the file, [ESC] closes the search.
 [SHIFT+e] opens the translation editor: the original on the left, your own line on the right for
 every line of the lyrics (empty lines are skipped). [UP]/[DOWN]/[ENTER] change the line, [TAB] chooses
 the language, [CTRL+o] copies the original line, [CTRL+n] starts from scratch, [CTRL+s] saves,
-[ESC] closes. A machine translation that is edited is kept as it was: your version is saved as a new
+[ESC] closes. [SHIFT+UP/DOWN] marks whole lines: [CTRL+c/x/v] copy, cut and paste them, [DEL] clears
+them, [CTRL+z] undoes. [CTRL+t] switches the Latin letters (CTRL+2 too, but not every terminal sends it). Long lines are broken into rows. A machine translation that is edited is kept as it was: your version is saved as a new
 "Manual Translation" ("Manual Translation 2" ... for more), which the TRANSLATION pane lists.
 [e] exports the lyrics into the folder "export" inside the lyrics folder: the original only, or
 with the translation and / or the transliteration (Latin letters) below each line. If the
@@ -888,7 +891,8 @@ changes the visualizations while the program runs.
 
 WHAT THEY SHOW: [[Header]]
 SPHERE:[[Header]] an audio-reactive sphere (uses same FFT band data as te spectrum strip below
-the meta data field in the main UI. 
+)WIZ",
+R"WIZ(the meta data field in the main UI. 
 OSCILLOSCOPE:[[Header]] Available are a XY and YT mode oscilloscope.
 SPECTROGRAM:[[Header]] time runs left to right, frequency upwards, the color is the strength.
 All of them analyze the decoded signal, so volume, equalizer and normalization never change
@@ -903,8 +907,7 @@ TUNING AND EXTRA VIEWS: [[Header]]
 
 THE XY OSCILLOSCOPE: [[Header]]
 Like a real scope in X-Y mode. Wide stereo fills the area, a phase-shifted tone draws an ellipse.
-)WIZ",
-R"WIZ(A nearly mono track fades over to a phase portrait instead of a flat line.
+A nearly mono track fades over to a phase portrait instead of a flat line.
 
 TUNING OVERLAY:[[Header]] [SHIFT+o] opens it, the picture changes live while the music plays.
 [SHIFT+i] / [SHIFT+u] switch straight to the spectrogram options / full screen.
@@ -949,6 +952,9 @@ zero padding 2, Mel scale 0 to 20 000 Hz, gain 20 / range 80 dB, Roseus colors).
 as two channels.
 [SHIFT+i] options        [SHIFT+u] full screen (with frequency labels on the left and a time ruler on top)
 [SHIFT+o] / [SHIFT+0] in the options: switch straight to the oscilloscope options / full screen
+View         spectrogram / WATERFALL: a stack of spectra (newest in front, older ones behind, shifted up and
+             to the right), every graph filled with the colors and outlined in black. Own rows: Graphs,
+             Graph spacing, Slant, Peak height, Resolution (high = twice as fine, scaled down) (braille: lines of dots; full screen: frequencies on the top ruler)
 Scale        linear / logarithmic / mel / bark / erb / period
 Motion       sweep (a page at a time) / scroll (newest on the right)
 Window size  256 .. 8192: bigger = sharper frequency lines, smaller = crisper clicks and drum hits
@@ -962,6 +968,10 @@ Both visualizations can leave the terminal and open a real window, redrawn at yo
 refresh rate (60, 120, 165 Hz ...):
 [)]   scope window            German keyboard SHIFT+9, English keyboard SHIFT+0
 [(]   spectrogram window      German keyboard SHIFT+8, English keyboard SHIFT+9
+With the waterfall chosen ([SHIFT+i], View) the spectrogram window shows it too, at the refresh rate of the
+monitor, the graphs gliding back smoothly.
+Spectrogram and waterfall, image and braille, each keep their own values (colors, scale, gain ...): switching
+View or Style in [SHIFT+i] brings that look's values in.
 In the window: [F] or [F11] switches to fullscreen, [T] always on top, [ESC] or [Q] close.
 Each window is a separate process that gets the audio through a pipe, so a graphics driver
 problem can only close the window, never stall the music or the terminal.
@@ -1009,7 +1019,8 @@ PREVIEW: [[Header]]
 The file plays in a loop and the XY scope (oscilloscope music) or the spectrogram shows it. It has its
 own settings and does not change your [SHIFT+o] / [SHIFT+i] settings.
 [ESC] closes the preview and returns to the overlay; the song that played before comes back (from its start). [SPACE] pauses.
-
+)WIZ",
+R"WIZ(
 [[New Page]]
 2.6.1 EQUALIZER [[Header]]
 
@@ -1039,8 +1050,7 @@ NOTE:[[Header]] The radio keeps its own curve and its own presets (in radio_conf
 
 LOUDNESS NORMALIZATION: [[Header]]
 Plays every track at the same perceived loudness, so a quiet album does not disappear after a loud one.
-)WIZ",
-R"WIZ([v]        on / off, without opening anything
+[v]        on / off, without opening anything
 [SHIFT+v]  the overlay: on/off, target level, max boost
 
 Normalize     off / on                      (default on)
@@ -1176,7 +1186,8 @@ TIMES OF DAY: [[Header]]
 Morning 7-11, Day 11-18, Evening 18-22, Night 22-7.
 
 REDISCOVER: [[Header]]
-Least played counts never-played tracks as 0 and shuffles ties every time, which makes it a good way
+)WIZ",
+R"WIZ(Least played counts never-played tracks as 0 and shuffles ties every time, which makes it a good way
 to rediscover forgotten music.
 
 Files that moved or were deleted are skipped, and the status line says how many tracks were queued.
@@ -1202,8 +1213,7 @@ TEXT EDITING, IN EVERY FIELD: [[Header]]
 [DEL] [BACKSPACE] delete [CTRL+c] [CTRL+x] [CTRL+v]  copy, cut, paste
 [ENTER] confirm          [ESC] cancel the edit
 [TAB] and the arrows never leave a field that is being edited.
-)WIZ",
-R"WIZ(
+
 [[New Page]]
 2.8.2 COLORS AND COLOR THEMES [[Header]]
 
@@ -1303,7 +1313,8 @@ marquee.
 
 [Terminal Size:][[Legend]]                                    columns x rows (default 120 x 32, which shows 4 rows in
                                                   the list and the queue) Use [<-/->] to choose the field or
-                                                  the [ Set back to default ] button, where [ENTER] makes
+)WIZ",
+R"WIZ(                                                  the [ Set back to default ] button, where [ENTER] makes
                                                   input possible / resets the value. Choosing 0 = leaves the
                                                   terminal alone, similar to setting the previous option to
                                                   true. Minimum is set to at least 100 x 28. At the end
@@ -1317,8 +1328,7 @@ marquee.
 
 [Full Screen:][[Legend]]                                      true = the terminal is asked for full screen at every
                                                   start; settings in Terminal Size are then ignored.
-)WIZ",
-R"WIZ(
+
 [REMOTE / UPDATES:][[Header]]
 [Remote App:][[Legend]]                                       [ENTER] opens the REMOTE APP overlay (on/off, address, QR
                                                   code for the phone, port, and a PIN that can be
@@ -1401,7 +1411,8 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
                                                   Chinese (東京) stay as they are; Chin. = read as Chinese
                                                   (pinyin); Jap. = read as Japanese (kept unless the
                                                   optional kanji reader knows them). Same as
-                                                  LatinHanziDefault in the config.txt.
+)WIZ",
+R"WIZ(                                                  LatinHanziDefault in the config.txt.
 
 [Latin Name Lookup:][[Legend]]                                off by default. On = artists written in Chinese characters
                                                   are looked up on MusicBrainz in the background; their NAME
@@ -1424,8 +1435,7 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
 [LYRICS:][[Header]]                          
 [Lyrics Alignment][[Legend]]                                  Aligned left / center / right
 [Lyrics Animation][[Legend]]                                  Style full,word by word, letter by letter, active line
-)WIZ",
-R"WIZ(                                                  only, active word only, line by line.
+                                                  only, active word only, line by line.
 
 [DISK:][[Header]]
 [Eliment Disk / Cover:][[Legend]]                             shows or hides the disk field in the player area: the
@@ -1497,7 +1507,8 @@ R"WIZ(                                                  only, active word only, 
                                                   Folder First: the folder first (close name, then cover.jpg
                                                   and its like), the file's picture last
                                                   Within File First: inside the file; then only a closely
-                                                  named picture of the folder (no cover.jpg)
+)WIZ",
+R"WIZ(                                                  named picture of the folder (no cover.jpg)
                                                   Image in Folder Only: never looks inside the files
                                                   Within File Only: never looks in the folder
 
@@ -1514,8 +1525,7 @@ R"WIZ(                                                  only, active word only, 
                                                   jp2, ico, tga, ppm pgm pnm, pcx: every regular format read
                                                   by ffmpeg; avif, heic and jxl only if your ffmpeg can
                                                   decode them; no camera RAW or other very large formats.
-)WIZ",
-R"WIZ(                                                  The name only has to be close.
+                                                  The name only has to be close.
 
 
 [SEEK AND VOLUME:][[Header]]
@@ -1610,7 +1620,8 @@ have unsaved changes.
 
 REFERENCE TAB: [[Header]]
 The longest tab. It lists every rebindable command, grouped like the cheat sheet (PLAYBACK,
-NAVIGATION & VIEW, VIZ, LYRICS & KARAOKE (LYRICS & KARAOKE there), VISUALIZATIONS, SEARCH, QUEUE,
+)WIZ",
+R"WIZ(NAVIGATION & VIEW, VIZ, LYRICS & KARAOKE (LYRICS & KARAOKE there), VISUALIZATIONS, SEARCH, QUEUE,
 PLAYLISTS, META EDITOR, HISTORY, EQUALIZER, DOWNLOADS, LIBRARY, SYSTEM), and the FONT MAP (read-only).
 [ENTER] on a hotkey row, type the new key, [ENTER] again.
 
@@ -1634,8 +1645,7 @@ RADIO PLAYER MODE: [[Header]]
 
 The radio player is the second of the three modes of Mousiki Plus. [SHIFT and +] (German keyboard) or
 ['] (English keyboard) go to the next mode, [SHIFT and -] (German) or [;] (English) to the
-)WIZ",
-R"WIZ(previous one (order and used modes: Settings -> GENERAL -> MODES).
+previous one (order and used modes: Settings -> GENERAL -> MODES).
 
 PLAYER -> RADIO:[[Header]] the player is paused and kept in memory (queue, position and screen).
 RADIO -> OTHER MODE:[[Header]] the radio is closed completely, so it only uses resources while you 
@@ -1766,7 +1776,8 @@ Lists are stored in stationlists.txt.
 
 KEYS IN THE STATION LISTS MENU: [[Header]]
 [TAB]           name > search > STATIONS > LIST CONTENTS
-[ENTER]         in STATIONS: add the station to the end of the list.
+)WIZ",
+R"WIZ([ENTER]         in STATIONS: add the station to the end of the list.
                 In LIST CONTENTS: tune it, to audition the list
 [4] / [5]       move the hovered station up / down
 [DEL] or [d]    remove it
@@ -1795,8 +1806,7 @@ the square bracket keys (left / right)   back / forward 30 seconds
 the curly bracket keys (left / right)    back 5 minutes / back to live
                                          (German keyboard: [ALT GR+7] / [ALT GR+0])
 Every jump is shown for 4 seconds under the scope block, e.g. -0:30 | 2:30 behind live.
-)WIZ",
-R"WIZ(You can never go back before the moment you tuned in: internet radio only delivers from "now".
+You can never go back before the moment you tuned in: internet radio only delivers from "now".
 Catching up with the forward key hands back to the live stream without a gap. Tuning another
 station, [x] or quitting clears the buffer.
 
@@ -1916,7 +1926,8 @@ THE FILES OF THE RADIO: [[Header]]
 radio_config.txt   settings, colors, equalizer, oscilloscope (keys as HKey<Action>= lines)
 stations.txt       your station list                    presets.txt       the presets and the active one
 stationlists.txt   the saved station lists              preset_names.txt  the short names of the PRESETS pane
-radio_history/     history_radio.txt and archive_radio.txt
+)WIZ",
+R"WIZ(radio_history/     history_radio.txt and archive_radio.txt
 All of them live in the config folder: ~/.config/mousiki/ (Windows: %USERPROFILE%\.config\mousiki\).
 
 [[New Page]]
@@ -1943,8 +1954,7 @@ the first row [<- ..] ENTER goes back up or hitting [ESC]. A search shows all bo
 
 [[New Page]]
 4.1.1 THE AUDIO BOOK SCREEN AND ITS KEYS [[Header]]
-)WIZ",
-R"WIZ(
+
 PANES: [[Header]]
 BOOKS (left)      only folders: one row per book with its number of chapters. [ENTER] opens the book.
                   [/] searches the books, [ESC] shows all books again; in the chapter pane [ESC] goes 
@@ -2041,7 +2051,8 @@ Before the chapter changes ([n], [b], [ENTER] on another one), the mode switches
 question asks "Set a bookmark here?" with the exact time: [y]/[ENTER] yes, [n] no, [ESC] stay.
 The audio is paused while the question is open. Settings -> GENERAL -> BOOKMARKS -> Ask for Bookmark 
 turns it off, since it can become annoying and auto-mark is always on anyways.
-
+)WIZ",
+R"WIZ(
 [ENTER] on a chapter that was left but not bookmarked asks "Do you want to continue where you left?":
   [y] Continue there (the only answer that starts the chapter)   
   [n] Leave, keep the auto-mark, nothing is played
@@ -2063,8 +2074,7 @@ NOTES: [[Header]]
            time stamp is passed.
            [CTRL+n] goes on in the big notes overlay (same text, same caret), there [CTRL+n] comes back.
            A shown note: [CTRL+n] opens it there for editing. The time stamp (@ h:mm:ss) always stays whole.
-)WIZ",
-R"WIZ([SHIFT+l]  all notes in a full-screen overlay: the list left (chapter, time, title), the note right.
+[SHIFT+l]  all notes in a full-screen overlay: the list left (chapter, time, title), the note right.
            [ENTER] (or [t]) edits it right there, [f] shows it in the field, [SHIFT+p] plays from that 
            point (the note is in the field after the overlay is closed), the right pane becomes the editor, 
            [n] writes a new note at the playing point, [x] deletes, [SHIFT+e] / [SHIFT+i] export / import (an
@@ -2179,7 +2189,8 @@ PHONE BROWSER: [[Header]] open the address and enter the PIN.
 The phone shows the disk, the meta data, the progress bar, the dummy buttons (working: seek,
 play/pause) and boxes for prev, random, next, volume, mute, playback mode, LISTS and manual --
 drawn by Mousiki in the colours of your theme. In the radio: the ON AIR sign, the station,
-prev/next station, pause, live, stop.
+)WIZ",
+R"WIZ(prev/next station, pause, live, stop.
 
 LISTS (player): on top the local list (tap a title: it plays), below the saved playlists (tap one: its titles
 go into the queue, starts it when nothing plays). A tap on the other list gives it the focus; UP / DOWN

@@ -113,6 +113,7 @@ std::string App::hotkey_text(const char* action, const char* fallback) const {
     if (k.empty()) return "-"; // unbound
     if (k == "$") return "SHIFT+4";
     if (k == "%") return "SHIFT+5";
+    if (k == "/") return symbol_key_label(k);   // the search key: SHIFT+7 on a German keyboard
     if (k == "(" || k == ")" || k == "=") return symbol_key_label(k);   // the window keys and the scope overlay key, named for this keyboard
     if (k == "*" || k == "_") return pretty_key(k);   // the mode / karaoke size keys, named for this keyboard
     if (k.size() == 1 && k[0] >= 'A' && k[0] <= 'Z') return std::string("SHIFT+") + static_cast<char>(k[0] + 32);   // SHIFT+x, like the literal legends
@@ -174,7 +175,7 @@ std::vector<LegendRow> App::queue_overlay_legend(int panel_w) const {
         {"Order", {"[" + join_keys(hotkey_text("HKeyQueueMoveUp", "4"), hotkey_text("HKeyQueueMoveDown", "5")) + "] Move up/down",
                    "[" + join_keys(hotkey_text("HKeyQueueMoveTop", "$"), hotkey_text("HKeyQueueMoveBottom", "%")) + "] Move to top/bottom\001Top/Bottom",
                    "[" + hotkey_text("HKeyQueueLock", "!") + "] " + (queue_locked_ ? "Unlock" : "Lock"),
-                   "[SHIFT+s] Shuffle order\001Shuffle"}},
+                   "[SHIFT+s] Shuffle order\001Shuffle", "[SHIFT+u] Undo shuffle\001Unshuffle"}},
         {"Other", {"[" + hotkey_text("HKeyQueueToPlaylist", "CTRL+SHIFT+U") + "] Queue to playlist\001To playlist",
                    "[SHIFT+\u2191\u2193] Next/Prev. page\001Page", "[" + hotkey_text("HKeySearch", "/") + "] Search\001Search", "[ESC] Close"}},
     };

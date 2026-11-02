@@ -105,6 +105,8 @@ constexpr int kKeyCtrlZ = 327;
 constexpr int kKeyCtrlF = 328;
 // Ctrl+O (control byte 0x0f): the add-lyrics overlay shows the original name of the lyrics file / the name of the copy.
 constexpr int kKeyCtrlO = 329;
+// Ctrl+2 (control byte 0x00 on most terminals, also Ctrl+@ / Ctrl+Space): the Latin-letters switch inside the translation editor.
+constexpr int kKeyCtrl2 = 330;
 
 // Ctrl+Left / Ctrl+Right (a word to the side) and Ctrl+Shift+Left / Right (mark a word). Only reported while a text field has the
 // keyboard (set_text_entry); everywhere else the keys stay what they were, so no screen loses a key.

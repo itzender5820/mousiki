@@ -7,8 +7,8 @@ for lovers of the terminal. <3
 
 OPEN/CLOSE HELP WIZARD: [[Header]]
 To open/close use [SHIFT+w] and [ESC] for just closing it.
-[SHIFT+s] searches the whole wizard (typos are forgiven,
-matches are marked), also in the cheat sheet [?].
+[SHIFT+7] (German keyboard) or [/] (English keyboard) searches the whole wizard (typos are
+forgiven, matches are marked), also in the cheat sheet [?].
 
 RECOMMENDATIONS FOR FIRST TIME USERS: [[Header]]
 The first thing you might want to do is setting your custom folder paths
@@ -49,8 +49,8 @@ for lovers of the terminal. <3
 
 OPEN/CLOSE HELP WIZARD: [[Header]]
 To open/close use [SHIFT+w] and [ESC] for just closing it.
-[SHIFT+s] searches the whole wizard (typos are forgiven,
-matches are marked), also in the cheat sheet [?].
+[SHIFT+7] (German keyboard) or [/] (English keyboard) searches the whole wizard (typos are
+forgiven, matches are marked), also in the cheat sheet [?].
 
 HELP WIZARD TABLE OF CONTENT:[[Header]]
 Use [->] to move on to the table of content or press [t] from anywhere
@@ -267,7 +267,7 @@ the associated folder. Use [c] or [ESC] to clear folder filter.
 [SHIFT+l] opens a BIG LIST OVERLAY[[HEADER]] for a better overview.
 [SHIFT+f] opens the BIG FOLDER OVERLAY[[Header]].
 [SHIFT+k] opens the BIG QUEUE OVERLAY[[Header]].
-In the big queue overlay [SHIFT+s] shuffles the order of the queue.
+In the big queue overlay [SHIFT+s] shuffles the order of the queue, [SHIFT+u] undoes the shuffle.
 The three big overlays switch directly: with one open, press the key of another
 ([SHIFT+l], [SHIFT+k], [SHIFT+f]) - no need to close it first.
 
@@ -781,7 +781,7 @@ locked-in panes and the lyrics the locked track has below the lists; the current
 fields). [CTRL+t] (also while typing in a search field) switches the track list between artist - title and file names
 (the title of the pane says which one is on), [CTRL+f] shows only the tracks without saved lyrics,
 [CTRL+o] shows the locked-in lyrics file by the name of the file you picked (the copy remembers it) or by the name of the copy in the lyrics folder,
-[PgUp]/[PgDn] and [SHIFT+UP/DOWN] turn a page. A lyrics file opened with [CTRL+s] in the reader is locked in at once and its song (the track named like it) is the current track; only without such a file the playing song is. [CTRL+c] (anywhere) clears the choice: the lyrics file is unlocked and the current
+[PgUp]/[PgDn] and [SHIFT+UP/DOWN] turn a page. A lyrics file opened with the search ([SHIFT+7] on a German keyboard, [/] on an English one) in the reader is locked in at once and its song (the track named like it) is the current track; only without such a file the playing song is. [CTRL+c] (anywhere) clears the choice: the lyrics file is unlocked and the current
 track is the locked track again. The lyrics in use so far are kept as an older
 version. [DEL] (twice) unassigns manually added lyrics of the locked-in track again: the file itself is
 not deleted, the previous lyrics come back. A re-fetch never replaces lyrics added by hand: the fetched ones are saved as an older version you can switch to. In karaoke mode [a] and in the re-fetch form [CTRL+n] open READ LYRICS with this overlay open.
@@ -820,10 +820,13 @@ and per service: a Google and a MyMemory one live side by side,
 the same service again replaces only its own.
 [SHIFT+t] shows / cycles / hides translations (a translation that is there is shown at once),
 [d] or [DEL] deletes a translation.
+[SHIFT+7] (German keyboard) or [/] (English keyboard) searches every lyrics file of the library by
+name: type to filter, [UP]/[DOWN] pick, [ENTER] shows the file, [ESC] closes the search.
 [SHIFT+e] opens the translation editor: the original on the left, your own line on the right for
 every line of the lyrics (empty lines are skipped). [UP]/[DOWN]/[ENTER] change the line, [TAB] chooses
 the language, [CTRL+o] copies the original line, [CTRL+n] starts from scratch, [CTRL+s] saves,
-[ESC] closes. A machine translation that is edited is kept as it was: your version is saved as a new
+[ESC] closes. [SHIFT+UP/DOWN] marks whole lines: [CTRL+c/x/v] copy, cut and paste them, [DEL] clears
+them, [CTRL+z] undoes. [CTRL+t] switches the Latin letters (CTRL+2 too, but not every terminal sends it). Long lines are broken into rows. A machine translation that is edited is kept as it was: your version is saved as a new
 "Manual Translation" ("Manual Translation 2" ... for more), which the TRANSLATION pane lists.
 [e] exports the lyrics into the folder "export" inside the lyrics folder: the original only, or
 with the translation and / or the transliteration (Latin letters) below each line. If the
@@ -941,6 +944,9 @@ zero padding 2, Mel scale 0 to 20 000 Hz, gain 20 / range 80 dB, Roseus colors).
 as two channels.
 [SHIFT+i] options        [SHIFT+u] full screen (with frequency labels on the left and a time ruler on top)
 [SHIFT+o] / [SHIFT+0] in the options: switch straight to the oscilloscope options / full screen
+View         spectrogram / WATERFALL: a stack of spectra (newest in front, older ones behind, shifted up and
+             to the right), every graph filled with the colors and outlined in black. Own rows: Graphs,
+             Graph spacing, Slant, Peak height, Resolution (high = twice as fine, scaled down) (braille: lines of dots; full screen: frequencies on the top ruler)
 Scale        linear / logarithmic / mel / bark / erb / period
 Motion       sweep (a page at a time) / scroll (newest on the right)
 Window size  256 .. 8192: bigger = sharper frequency lines, smaller = crisper clicks and drum hits
@@ -954,6 +960,10 @@ Both visualizations can leave the terminal and open a real window, redrawn at yo
 refresh rate (60, 120, 165 Hz ...):
 [)]   scope window            German keyboard SHIFT+9, English keyboard SHIFT+0
 [(]   spectrogram window      German keyboard SHIFT+8, English keyboard SHIFT+9
+With the waterfall chosen ([SHIFT+i], View) the spectrogram window shows it too, at the refresh rate of the
+monitor, the graphs gliding back smoothly.
+Spectrogram and waterfall, image and braille, each keep their own values (colors, scale, gain ...): switching
+View or Style in [SHIFT+i] brings that look's values in.
 In the window: [F] or [F11] switches to fullscreen, [T] always on top, [ESC] or [Q] close.
 Each window is a separate process that gets the audio through a pipe, so a graphics driver
 problem can only close the window, never stall the music or the terminal.

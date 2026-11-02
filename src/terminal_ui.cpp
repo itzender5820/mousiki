@@ -671,6 +671,7 @@ int TerminalIO::poll_key_raw() {
                 if (mod == 5 && (code == 'z' || code == 'Z')) { g_last_key_was_arrow = false; return kKeyCtrlZ; } // Ctrl+Z
                 if (mod == 5 && (code == 'f' || code == 'F')) { g_last_key_was_arrow = false; return kKeyCtrlF; } // Ctrl+F
                 if (mod == 5 && (code == 'o' || code == 'O')) { g_last_key_was_arrow = false; return kKeyCtrlO; } // Ctrl+O
+                if (mod == 5 && code == '2') { g_last_key_was_arrow = false; return kKeyCtrl2; } // Ctrl+2
                 // "1;<mod> A" -- an arrow (or Home/End) pressed WITH a
                 // modifier, which is how xterm-style terminals report
                 // Shift+Left/Right: "ESC [ 1 ; 2 D". mod is
@@ -731,6 +732,7 @@ int TerminalIO::poll_key_raw() {
     if (c == 0x14) { g_last_key_was_arrow = false; return kKeyCtrlT; }   // Ctrl+T: the cover look one step back
     if (c == 0x06) { g_last_key_was_arrow = false; return kKeyCtrlF; }   // Ctrl+F
     if (c == 0x0f) { g_last_key_was_arrow = false; return kKeyCtrlO; }   // Ctrl+O
+    if (c == 0x00) { g_last_key_was_arrow = false; return kKeyCtrl2; }   // Ctrl+2 (a terminal sends the NUL byte for it)
     if (c == 0x1a) { g_last_key_was_arrow = false; return kKeyCtrlZ; }   // Ctrl+Z: one step forward (VSUSP is off, see below)
     g_last_key_was_arrow = false;
     return c;
@@ -810,9 +812,20 @@ bool truecolor_ok() {
     return ok;
 }
 
-void write_frame(const std::string& frame) {
+// Where the cursor is left after a frame. A terminal that is made lower moves everything up by the rows it loses when the cursor
+// sits below the new bottom (which a frame ending on its last line always does): the first row is thrown away, and our repaint then
+// fits it back in -- the visible "jump". With the (hidden) cursor parked in the top-left corner nothing is pushed out.
+static std::string park_cursor(const std::string& frame) {
+    const size_t show = frame.rfind("\x1b[?25h"), hide = frame.rfind("\x1b[?25l");
+    if (show != std::string::npos && (hide == std::string::npos || show > hide)) return frame;   // a text caret is meant to be seen
+    return frame + "\x1b[H";
+}
+
+void write_frame(const std::string& frame_in) {
+    const std::string frame = park_cursor(frame_in);
 #if defined(_WIN32)
-    std::cout << frame << std::flush;
+    // Synchronized update (ConPTY / Windows Terminal honour it; older consoles ignore it): one finished frame is painted, never a half-drawn one.
+    std::cout << "\x1b[?2026h" << frame << "\x1b[?2026l" << std::flush;
 #else
     std::cout.flush(); // anything already buffered must precede the frame
     std::string buf;

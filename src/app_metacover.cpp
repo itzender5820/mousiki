@@ -247,7 +247,7 @@ bool App::meta_sty_gfx(const CoverImage& cover, int mode, int contrast, int brig
     const int chs = std::min(ch0, std::max(4, 640 / rows));
     const int w = cols * cws, h = rows * chs;
     // Over the main screen (its own cover picture is in gfx_) the preview goes into the second slot, so both pictures are shown.
-    const bool second = meta_sty_from_main_ && gfx_.active;
+    const bool second = meta_sty_from_main_ && mode_ == Mode::MetaEdit && gfx_.active;   // (only in that overlay: the flag can outlive it)
     GfxFrame& g = second ? gfx2_ : gfx_;
     const int want_id = second ? 1 : 0;
     std::string& pic_key = second ? sty2_key_ : cover_pic_key_;

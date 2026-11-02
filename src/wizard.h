@@ -83,7 +83,7 @@ struct State {
     int min_page = 0;         // 1 once the first-start greeting has been left: it is not reachable again
     bool started = false;     // opened at least once by this process
     double angle = 0.0;       // the disk on the first page
-    // SHIFT+s: search the whole text (Key::Search). While `searching`, the frontends hand every key to search_key().
+    // the search key ("/", SHIFT+7 on a German keyboard): search the whole text (Key::Search). While `searching`, the frontends hand every key to search_key().
     bool searching = false;
     std::string query;
     size_t qcaret = 0, qanchor = 0;      // the caret and the other end of the marked range in `query` (byte offsets)
