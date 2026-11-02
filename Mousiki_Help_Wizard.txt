@@ -629,6 +629,8 @@ SEARCH FOLDERS: Start the search with /f: (e.g. /f:abbey) to list the tracks of 
 SORT: [SHIFT+t] cycles the library sort: folder order, Filenames A-Z, Title A-Z, Artist A-Z,
 Album A-Z, Recently added (also for search results). Use it before typing, or after leaving the box with [ESC].
 REMOVE: Move the focus to the track list, choose and delete a track via [DEL/d]
+LATIN LETTERS: [SHIFT+'] (the ["] key, as set in Hotkeys) shows Japanese, Korean and Chinese
+text in Latin letters, on / off, in both tabs, also while typing (no ["] can be typed there).
 SAVE/DISCARD: Save via [CTRL+s] and just choose [No] when exiting the playlist
 editor to discard your current playlist.
 

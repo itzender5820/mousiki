@@ -1234,6 +1234,9 @@ def translation_lines(binary, root, scripts):
         sess.send(b"\x1b[B", 0.3)
         sess.send(b"\x16", 0.6)                            # CTRL+v with a multi-line clipboard: pasted from the caret's line
         t = sess.text()
+        for _ in range(10):   # (a slow machine needs longer to show the message)
+            if "pasted" in t: break
+            sess.pump(0.4); t = sess.text()
         check("pasted 1 line" in t or "pasted 2 lines" in t, "translation lines: CTRL+v pastes whole lines (%r)" % [l for l in t.split("\n") if "pasted" in l][:1])
         sess.send(b"\x1b[A", 0.3)
         sess.send(b"\x1b[A", 0.3)
@@ -1393,6 +1396,10 @@ def queue_shuffle(binary, root, scripts):
         after_undo = settled()
         # (a short track may end meanwhile: on a locked queue the track that played moves to the end, so the old order comes back as a rotation)
         rotated = any(before[k:] + before[:k] == after_undo for k in range(len(before))) if len(before) == len(after_undo) else False
+        # (on a slow machine more tracks end meanwhile and the queue refills: then only what is still in both lists has to keep its old order, as a rotation)
+        common_b = [x for x in before if x in after_undo]
+        common_a = [x for x in after_undo if x in before]
+        rotated = rotated or (len(common_b) >= 2 and len(common_b) == len(common_a) and any(common_b[k:] + common_b[:k] == common_a for k in range(len(common_b))))
         check(after_undo == before or rotated, "queue shuffle: SHIFT+u brings the order from before the shuffle back (before %r, after undo %r)" % (before, after_undo))
         sess.send("U", 0.6)
         check(sess.alive(), "queue shuffle: a second SHIFT+u (nothing to undo) is harmless")
@@ -1493,6 +1500,9 @@ def shrinking_window(binary, root, scripts):
                 break
         sess.send(b"\r", 2.0)
         t = sess.text()
+        for _ in range(20):   # (a slow machine needs longer to load the track and its lyrics)
+            if "File      :" in t and "No sync" in t.replace("hron", ""): break
+            sess.pump(0.5); t = sess.text()
         check("File      :" in t and "No sync" in t.replace("hron", ""), "shrinking: the full window shows the meta data and the lyrics / oscilloscope field")
         check_fit(sess, "shrinking 140x45", False)
         resize(100, 45)

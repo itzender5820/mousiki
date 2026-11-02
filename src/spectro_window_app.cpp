@@ -186,12 +186,12 @@ int spectro_window_main() {
     std::vector<uint32_t> px;
     std::vector<sdl::Vertex> verts;
     std::vector<int> idx;
-    sdl::Texture* wtex = nullptr;        // the waterfall's picture (made again for every frame)
-    int wtex_w = 0, wtex_h = 0;
-    std::vector<uint8_t> wimg;
-    double wf_k = 1.0, wf_cpu = 0.0, min_dt = 0.02;   // waterfall: picture size fraction, smoothed time to make one, shortest frame interval seen
-    uint64_t last_t = 0;
-    long wf_n = 0;
+    sdl::Texture* ptex = nullptr;        // the waterfall's palette: one row of 256 colours
+    std::string ptex_key;
+    std::vector<SpectroAnalyzer::WfGraph> wgraphs;
+    std::vector<sdl::Vertex> wverts;
+    std::vector<int> widx;
+    std::vector<sdl::Point> wpts;
     SpectroWinConfig cfg;
     unsigned cfg_seen = ~0u;
     std::string title_set;
@@ -272,41 +272,61 @@ int spectro_window_main() {
         if (s.view == 1) {
             const int strip = s.labels ? 8 * sc : 0;                       // frequencies under the picture
             const int wpw = std::max(16, ow), wph = std::max(16, oh - strip);
-            // The picture is made at a fraction `wf_k` of the window's size and scaled up by the card: a full-screen window has several
-            // times the pixels of a small one, and the analysis + colouring of every pixel in every frame is what made it lag. The fraction
-            // follows the time one picture takes (kept to ~60 % of a monitor refresh), never below one half.
-            const int iw = std::max(16, static_cast<int>(wpw * wf_k)), ih = std::max(16, static_cast<int>(wph * wf_k));
-            if (!wtex || wtex_w != iw || wtex_h != ih) {
-                if (wtex) A.DestroyTexture(wtex);
-                wtex = A.CreateTexture(R, sdl::kFmtARGB8888, sdl::kTexStatic, iw, ih);
-                if (!wtex) { write_error(std::string("spectrogram window: cannot create a texture: ") + A.GetError()); break; }
-                if (A.SetTextureScaleMode) A.SetTextureScaleMode(wtex, wf_k < 0.999 ? sdl::kScaleLinear : sdl::kScaleNearest);
-                A.SetTextureBlendMode(wtex, sdl::kBlendNone);
-                wtex_w = iw; wtex_h = ih;
+            // The graphs are drawn by the graphics card (filled triangles coloured from a one-row palette texture, the outline as lines):
+            // the processor only works out where the corners are, which is a few thousand points, so a full-screen window costs the
+            // same as a small one and even an integrated chip keeps up with the monitor's refresh rate.
+            if (!ptex) {
+                ptex = A.CreateTexture(R, sdl::kFmtARGB8888, sdl::kTexStatic, 256, 1);
+                if (!ptex) { write_error(std::string("spectrogram window: cannot create a texture: ") + A.GetError()); break; }
+                A.SetTextureBlendMode(ptex, sdl::kBlendNone);
+                if (A.SetTextureScaleMode) A.SetTextureScaleMode(ptex, sdl::kScaleLinear);
+                ptex_key.clear();
             }
-            an.waterfall(s, iw, ih, false, wimg);
-            px.resize(static_cast<size_t>(iw) * static_cast<size_t>(ih));
-            for (size_t i = 0; i < px.size(); ++i) {
-                const uint8_t* p = cfg.pal[wimg[i]];
-                px[i] = 0xFF000000u | (static_cast<uint32_t>(p[0]) << 16) | (static_cast<uint32_t>(p[1]) << 8) | p[2];
-            }
-            A.UpdateTexture(wtex, nullptr, px.data(), iw * 4);
             {
-                const double made = static_cast<double>(A.GetPerformanceCounter() - t_now) / freq;
-                const double dt_frame = last_t > 0 ? static_cast<double>(t_now - last_t) / freq : 0.0;
-                last_t = t_now;
-                if (dt_frame > 0.002 && dt_frame < 0.1) min_dt = std::min(min_dt * 1.002, dt_frame);   // (slowly forgets: the monitor may change)
-                wf_cpu = wf_cpu * 0.9 + made * 0.1;
-                if (++wf_n % 20 == 0) {
-                    const double budget = 0.6 * std::clamp(min_dt, 1.0 / 240.0, 1.0 / 30.0);
-                    if (wf_cpu > budget && wf_k > 0.5) wf_k = std::max(0.5, wf_k * 0.88);
-                    else if (wf_cpu < budget * 0.55 && wf_k < 1.0) wf_k = std::min(1.0, wf_k * 1.08);
+                const std::string pk(reinterpret_cast<const char*>(cfg.pal), sizeof cfg.pal);
+                if (pk != ptex_key) {
+                    uint32_t row[256];
+                    for (int i = 0; i < 256; ++i) row[i] = 0xFF000000u | (static_cast<uint32_t>(cfg.pal[i][0]) << 16) | (static_cast<uint32_t>(cfg.pal[i][1]) << 8) | cfg.pal[i][2];
+                    A.UpdateTexture(ptex, nullptr, row, 256 * 4);
+                    ptex_key = pk;
                 }
             }
+            int fwp = 0, amp = 1;
+            an.waterfall_layout(s, wpw, wph, wgraphs, fwp, amp);
             A.SetRenderDrawColor(R, 0, 0, 0, 255);
             A.RenderClear(R);
-            const sdl::Rect dst{0, 0, wpw, wph};
-            A.RenderCopy(R, wtex, nullptr, &dst);
+            const float u0 = (48 + 0.5f) / 256.0f;
+            const int thick = wph >= 1300 ? 2 : 1;   // a fine line stays fine on a big screen
+            for (const auto& G : wgraphs) {
+                wverts.clear(); widx.clear(); wpts.clear();
+                const int n = static_cast<int>(G.top.size());
+                for (int x = 0; x < n; ++x) {
+                    const float px = static_cast<float>(G.ox + x);
+                    const int top = G.top[static_cast<size_t>(x)];
+                    const float fr = std::clamp(static_cast<float>(G.baseline - top) / amp, 0.0f, 1.0f);
+                    const float ut = (48.0f + fr * 207.0f + 0.5f) / 256.0f;
+                    const int vi = static_cast<int>(wverts.size());
+                    wverts.push_back({px, static_cast<float>(top), 255, 255, 255, 255, ut, 0.5f});
+                    wverts.push_back({px, static_cast<float>(G.baseline), 255, 255, 255, 255, u0, 0.5f});
+                    wverts.push_back({px, static_cast<float>(G.bottom + 1), 255, 255, 255, 255, u0, 0.5f});
+                    if (x > 0) {
+                        const int p = vi - 3;
+                        const int q[12] = {p, p + 1, vi, p + 1, vi + 1, vi, p + 1, p + 2, vi + 1, p + 2, vi + 2, vi + 1};
+                        widx.insert(widx.end(), q, q + 12);
+                    }
+                }
+                if (!widx.empty()) A.RenderGeometry(R, ptex, wverts.data(), static_cast<int>(wverts.size()), widx.data(), static_cast<int>(widx.size()));
+                // the outline: along the curve, down both ends and along the lower edge
+                wpts.push_back({G.ox, G.bottom});
+                for (int x = 0; x < n; ++x) wpts.push_back({G.ox + x, G.top[static_cast<size_t>(x)]});
+                wpts.push_back({G.ox + n - 1, G.bottom});
+                wpts.push_back({G.ox, G.bottom});
+                A.SetRenderDrawColor(R, 0, 0, 0, 255);
+                for (int k = 0; k < thick; ++k) {
+                    A.RenderDrawLines(R, wpts.data(), static_cast<int>(wpts.size()));
+                    if (k + 1 < thick) for (auto& pt : wpts) pt.y += 1;
+                }
+            }
             if (s.labels && rate > 0) {   // the frequencies of the front graph, under it
                 A.SetRenderDrawColor(R, 190, 190, 190, 255);
                 for (const auto& [col, text] : spectro_axis_x(s, rate, wpw, 4 * sc)) {
@@ -463,7 +483,7 @@ int spectro_window_main() {
 
     save_geometry(geo);
     if (tex) A.DestroyTexture(tex);
-    if (wtex) A.DestroyTexture(wtex);
+    if (ptex) A.DestroyTexture(ptex);
     A.DestroyRenderer(R);
     A.DestroyWindow(win);
     A.Quit();

@@ -735,6 +735,7 @@ void App::handle_playlist_key(int key) {
     // Arrows collapse to 'A'..'D' app-wide; last_key_was_arrow() is what
     // tells a real arrow from a typed capital.
     const bool arrow = last_key_was_arrow();
+    if (!arrow && key_is("HKeyTranslit", key)) { toggle_latin_letters(); return; }   // SHIFT+" : Latin letters on / off (create / edit and manage tabs)
     // Tab switch: plain Left/Right, as in the meta editor and Settings --
     // EXCEPT while a text box is in use. A box only counts as in use once
     // something was typed / edited in it (text_engage()); until then the

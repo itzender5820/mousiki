@@ -861,6 +861,51 @@ void SpectroAnalyzer::waterfall_raw(const SpectroSettings& s, int w, int h, int 
     }
 }
 
+void SpectroAnalyzer::waterfall_layout(const SpectroSettings& s, int w, int h, std::vector<WfGraph>& out, int& plot_w, int& amp) {
+    out.clear();
+    plot_w = 0; amp = 1;
+    if (w < 16 || h < 8 || cap_ == 0 || ncols_ == 0) return;
+    const int R = 1;
+    const int N0 = std::clamp(s.wf_graphs, 8, 100);
+    const int A = std::max(2, h * std::clamp(s.wf_height, 10, 60) / 100);
+    const int shear = static_cast<int>(w * std::clamp(s.wf_slant, 0, 40) / 100.0);
+    const int fw = spectro_waterfall_plot_width(s, w);
+    const int S = std::max(2, h - A - 3 * R);
+    const int N = std::clamp(std::min(N0, S / (4 * R) + 1), 2, N0);
+    prepare(s, fw);
+    const double cps = columns_per_second();
+    const int step = std::max(1, static_cast<int>(std::lround(std::clamp(s.wf_spacing, 20, 500) / 1000.0 * cps * N0 / N)));
+    const long long newest = static_cast<long long>(ncols_) - 1;
+    double phase = 0.0;
+    long long base = newest / step * step;
+    if (s.wf_smooth) {
+        const double nf = std::clamp(disp_cols_ - 1.0, 0.0, static_cast<double>(newest));
+        base = static_cast<long long>(std::floor(nf / step)) * step;
+        phase = std::clamp((nf - static_cast<double>(base)) / step, 0.0, 0.999);
+    }
+    plot_w = fw; amp = A;
+    for (int g = N - 1; g >= 0; --g) {
+        const long long col = g == 0 ? newest : base - static_cast<long long>(g - 1) * step;
+        if (col < 0 || static_cast<uint64_t>(newest - col) + 2 >= cap_) continue;
+        auto pos_of = [&](int gg) { return gg == 0 ? 0.0 : static_cast<double>(gg) + phase; };
+        if (pos_of(g) > N - 1 + 1e-9) continue;
+        const double f = N > 1 ? pos_of(g) / (N - 1) : 0.0;
+        WfGraph G;
+        G.baseline = h - 2 * R - static_cast<int>(std::lround(f * S));
+        G.ox = static_cast<int>(std::lround(f * shear));
+        G.top.resize(static_cast<size_t>(fw));
+        G.v.resize(static_cast<size_t>(fw));
+        for (int x = 0; x < fw; ++x) {
+            const int v = value_at(static_cast<uint64_t>(col), 0, fw - 1 - x);
+            G.v[static_cast<size_t>(x)] = static_cast<uint8_t>(std::clamp(v, 0, 255));
+            G.top[static_cast<size_t>(x)] = G.baseline - static_cast<int>(std::lround(static_cast<double>(v) * A / 255.0));
+        }
+        const int next_base = g == 0 ? h - 1 : h - 2 * R - static_cast<int>(std::lround(pos_of(g - 1) / (N - 1) * S));
+        G.bottom = std::min(h - 1, std::max(G.baseline, next_base) + 1);
+        out.push_back(std::move(G));
+    }
+}
+
 void SpectroAnalyzer::waterfall(const SpectroSettings& s, int w, int h, bool lines_only, std::vector<uint8_t>& img) {
     const bool hi = s.wf_detail == 1 && !lines_only;   // braille already has 2 x 4 dots to a cell
     std::ostringstream k;

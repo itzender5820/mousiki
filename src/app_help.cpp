@@ -312,6 +312,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "#ESC", "Leave the field you typed in (LEFT/RIGHT switch tabs again); outside a field: close (asks to save unsaved changes)"},
         {nullptr, "#" MUISC_ALT_NAME_UC "+LEFT/RIGHT", "Switch tab from anywhere, also while typing"},
         {nullptr, "#TAB", "Cycle focus (name field / library picker / track list)"},
+        {nullptr, "#SHIFT+'  (\" key)", "Latin letters on / off (Japanese, Korean, Chinese text shown in Latin letters), also while typing; the Hotkeys setting HKeyTranslit decides the key"},
         {nullptr, "#UP/DOWN", "Navigate the focused list/picker (fixed arrow keys)"},
         {nullptr, "#ENTER", "Add hovering track to playlist / load selected playlist"},
         {nullptr, "#e", "Saved Playlists tab: export the hovered playlist as M3U8 (default) or M3U -- overlay with folder and format"},

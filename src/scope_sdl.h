@@ -17,6 +17,7 @@ namespace muisc::sdl {
 
 struct Window; struct Renderer; struct Texture;
 struct Rect { int x, y, w, h; };
+struct Point { int x, y; };
 struct Vertex { float x, y; uint8_t r, g, b, a; float u, v; };   // SDL_Vertex: SDL_FPoint, SDL_Color, SDL_FPoint
 struct Version { uint8_t major, minor, patch; };
 
@@ -67,6 +68,7 @@ struct Api {
     int (*SetRenderDrawBlendMode)(Renderer*, int) = nullptr;
     int (*RenderClear)(Renderer*) = nullptr;
     int (*RenderFillRect)(Renderer*, const Rect*) = nullptr;
+    int (*RenderDrawLines)(Renderer*, const Point*, int) = nullptr;
     int (*RenderCopy)(Renderer*, Texture*, const Rect*, const Rect*) = nullptr;
     int (*RenderGeometry)(Renderer*, Texture*, const Vertex*, int, const int*, int) = nullptr;
     void (*RenderPresent)(Renderer*) = nullptr;
@@ -144,7 +146,7 @@ inline bool load(Api& a, std::string* err) {
     get(a.SetTextureAlphaMod, "SDL_SetTextureAlphaMod", true); get(a.SetTextureScaleMode, "SDL_SetTextureScaleMode", false);
     get(a.SetRenderTarget, "SDL_SetRenderTarget", true); get(a.SetRenderDrawColor, "SDL_SetRenderDrawColor", true);
     get(a.SetRenderDrawBlendMode, "SDL_SetRenderDrawBlendMode", true); get(a.RenderClear, "SDL_RenderClear", true);
-    get(a.RenderFillRect, "SDL_RenderFillRect", true); get(a.RenderCopy, "SDL_RenderCopy", true);
+    get(a.RenderFillRect, "SDL_RenderFillRect", true); get(a.RenderDrawLines, "SDL_RenderDrawLines", true); get(a.RenderCopy, "SDL_RenderCopy", true);
     get(a.RenderGeometry, "SDL_RenderGeometry", true); get(a.RenderPresent, "SDL_RenderPresent", true);
     get(a.RenderReadPixels, "SDL_RenderReadPixels", true); get(a.ComposeCustomBlendMode, "SDL_ComposeCustomBlendMode", true);
     get(a.PollEvent, "SDL_PollEvent", true);

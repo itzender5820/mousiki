@@ -634,6 +634,8 @@ SEARCH FOLDERS: Start the search with /f: (e.g. /f:abbey) to list the tracks of 
 SORT: [SHIFT+t] cycles the library sort: folder order, Filenames A-Z, Title A-Z, Artist A-Z,
 Album A-Z, Recently added (also for search results). Use it before typing, or after leaving the box with [ESC].
 REMOVE: Move the focus to the track list, choose and delete a track via [DEL/d]
+LATIN LETTERS: [SHIFT+'] (the ["] key, as set in Hotkeys) shows Japanese, Korean and Chinese
+text in Latin letters, on / off, in both tabs, also while typing (no ["] can be typed there).
 SAVE/DISCARD: Save via [CTRL+s] and just choose [No] when exiting the playlist
 editor to discard your current playlist.
 
@@ -669,12 +671,12 @@ CHOOSE WHAT TO CONVERT: [[Header]]
 
 CHOOSE THE TARGET: [[Header]]
 [<-/->]          MP3 320 kbps, MP3 V0 (variable), MP3 192 kbps, AAC 256 kbps (.m4a), Opus 128 kbps
-
+)WIZ",
+R"WIZ(
 START: [[Header]]
 [ENTER] converts the marked files (the highlighted one when nothing is marked!), [c] cancels a
 running conversion, [CTRL+p] plays the highlighted file. [ESC] closes the overlay; a running
-)WIZ",
-R"WIZ(conversion goes on in the background and reports on the status line.
+conversion goes on in the background and reports on the status line.
 
 WHERE THE FILES GO: [[Header]]
 Into the CONVERSION EXPORT PATH ([s] Settings[[Header]] ->> PATHS[[Header]]), by default the 
@@ -783,9 +785,9 @@ search/list left, right, then to the button "Add chosen lyrics to chosen/current
 [UP]/[DOWN] pick, [ENTER] in a list LOCKS the highlighted entry in (shown in the header colour, with the
 locked-in panes and the lyrics the locked track has below the lists; the current track is locked in at the start),
 [ENTER] on the button adds (a file already added to the locked track by hand shows as locked in, with the note
-"Added manually; hit DEL to unassign"), [ESC] closes. The overlay is a full-window screen with a bordered pane for each part (search fields, result lists, locked-in
 )WIZ",
-R"WIZ(fields). [CTRL+t] (also while typing in a search field) switches the track list between artist - title and file names
+R"WIZ("Added manually; hit DEL to unassign"), [ESC] closes. The overlay is a full-window screen with a bordered pane for each part (search fields, result lists, locked-in
+fields). [CTRL+t] (also while typing in a search field) switches the track list between artist - title and file names
 (the title of the pane says which one is on), [CTRL+f] shows only the tracks without saved lyrics,
 [CTRL+o] shows the locked-in lyrics file by the name of the file you picked (the copy remembers it) or by the name of the copy in the lyrics folder,
 [PgUp]/[PgDn] and [SHIFT+UP/DOWN] turn a page. A lyrics file opened with the search ([SHIFT+7] on a German keyboard, [/] on an English one) in the reader is locked in at once and its song (the track named like it) is the current track; only without such a file the playing song is. [CTRL+c] (anywhere) clears the choice: the lyrics file is unlocked and the current
@@ -887,12 +889,12 @@ WHAT IS IN THE CYCLE: [[Header]]
 A view that is switched off in the settings tab ANIMA/VIZ (Use Lyrics Engine, Use Oscilloscope,
 Use Spectrogram, Use Sphere) is skipped by [,/.]. The order of the views is set on the tab ANIMA/VIZ
 (Viz Order 1 to 4). The view Mousiki starts with is Lyrics/Viz Default on the same tab; [,/.] only
-changes the visualizations while the program runs.
+)WIZ",
+R"WIZ(changes the visualizations while the program runs.
 
 WHAT THEY SHOW: [[Header]]
 SPHERE:[[Header]] an audio-reactive sphere (uses same FFT band data as te spectrum strip below
-)WIZ",
-R"WIZ(the meta data field in the main UI. 
+the meta data field in the main UI. 
 OSCILLOSCOPE:[[Header]] Available are a XY and YT mode oscilloscope.
 SPECTROGRAM:[[Header]] time runs left to right, frequency upwards, the color is the strength.
 All of them analyze the decoded signal, so volume, equalizer and normalization never change
@@ -1017,10 +1019,10 @@ terminal on macOS / Windows).
 
 PREVIEW: [[Header]]
 The file plays in a loop and the XY scope (oscilloscope music) or the spectrogram shows it. It has its
-own settings and does not change your [SHIFT+o] / [SHIFT+i] settings.
-[ESC] closes the preview and returns to the overlay; the song that played before comes back (from its start). [SPACE] pauses.
 )WIZ",
-R"WIZ(
+R"WIZ(own settings and does not change your [SHIFT+o] / [SHIFT+i] settings.
+[ESC] closes the preview and returns to the overlay; the song that played before comes back (from its start). [SPACE] pauses.
+
 [[New Page]]
 2.6.1 EQUALIZER [[Header]]
 
@@ -1179,15 +1181,15 @@ HOW TO USE THEM: [[Header]]
 [2] (or [->])     go to TOP TRACKS
 [TAB]             move into the pane (a [◀] appears behind its title)
 arrow keys        pick a list; while the pane has the focus [<-/->] move between the columns
-[ENTER]           add that list to the end of the queue
+)WIZ",
+R"WIZ([ENTER]           add that list to the end of the queue
 [ESC] or [TAB]    back to the track list
 
 TIMES OF DAY: [[Header]]
 Morning 7-11, Day 11-18, Evening 18-22, Night 22-7.
 
 REDISCOVER: [[Header]]
-)WIZ",
-R"WIZ(Least played counts never-played tracks as 0 and shuffles ties every time, which makes it a good way
+Least played counts never-played tracks as 0 and shuffles ties every time, which makes it a good way
 to rediscover forgotten music.
 
 Files that moved or were deleted are skipped, and the status line says how many tracks were queued.
@@ -1310,11 +1312,11 @@ marquee.
 [Use Terminal Settings:][[Legend]]                            true = Mousiki leaves the terminal size as it is: Terminal
                                                   Size and Full Screen are ignored (they keep their values).
                                                   Default is false.
-
+)WIZ",
+R"WIZ(
 [Terminal Size:][[Legend]]                                    columns x rows (default 120 x 32, which shows 4 rows in
                                                   the list and the queue) Use [<-/->] to choose the field or
-)WIZ",
-R"WIZ(                                                  the [ Set back to default ] button, where [ENTER] makes
+                                                  the [ Set back to default ] button, where [ENTER] makes
                                                   input possible / resets the value. Choosing 0 = leaves the
                                                   terminal alone, similar to setting the previous option to
                                                   true. Minimum is set to at least 100 x 28. At the end
@@ -1409,10 +1411,10 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
 
 [Translit. Kanji:][[Legend]]                                  Leave (default) = characters that could be Japanese or
                                                   Chinese (東京) stay as they are; Chin. = read as Chinese
-                                                  (pinyin); Jap. = read as Japanese (kept unless the
-                                                  optional kanji reader knows them). Same as
 )WIZ",
-R"WIZ(                                                  LatinHanziDefault in the config.txt.
+R"WIZ(                                                  (pinyin); Jap. = read as Japanese (kept unless the
+                                                  optional kanji reader knows them). Same as
+                                                  LatinHanziDefault in the config.txt.
 
 [Latin Name Lookup:][[Legend]]                                off by default. On = artists written in Chinese characters
                                                   are looked up on MusicBrainz in the background; their NAME
@@ -1505,10 +1507,10 @@ R"WIZ(                                                  LatinHanziDefault in the
                                                   Eclipse named cover, folder, front, albumart or album is
                                                   taken.
                                                   Folder First: the folder first (close name, then cover.jpg
-                                                  and its like), the file's picture last
-                                                  Within File First: inside the file; then only a closely
 )WIZ",
-R"WIZ(                                                  named picture of the folder (no cover.jpg)
+R"WIZ(                                                  and its like), the file's picture last
+                                                  Within File First: inside the file; then only a closely
+                                                  named picture of the folder (no cover.jpg)
                                                   Image in Folder Only: never looks inside the files
                                                   Within File Only: never looks in the folder
 
@@ -1612,7 +1614,8 @@ visualizations, borders, play mode and sound are kept in audiobook_config.txt, a
 radio. Paths, hotkeys, the mode switches and the like are the same in all three modes (config.txt).
 Changing LOCAL PATH rescans at once. Changing the playlist or history folder copies what is there; nothing
 is moved or deleted. Changed folders only stick when you save with [s]. A warning will appear in case you
-have unsaved changes.
+)WIZ",
+R"WIZ(have unsaved changes.
 
 
 [[New Page]]
@@ -1620,8 +1623,7 @@ have unsaved changes.
 
 REFERENCE TAB: [[Header]]
 The longest tab. It lists every rebindable command, grouped like the cheat sheet (PLAYBACK,
-)WIZ",
-R"WIZ(NAVIGATION & VIEW, VIZ, LYRICS & KARAOKE (LYRICS & KARAOKE there), VISUALIZATIONS, SEARCH, QUEUE,
+NAVIGATION & VIEW, VIZ, LYRICS & KARAOKE (LYRICS & KARAOKE there), VISUALIZATIONS, SEARCH, QUEUE,
 PLAYLISTS, META EDITOR, HISTORY, EQUALIZER, DOWNLOADS, LIBRARY, SYSTEM), and the FONT MAP (read-only).
 [ENTER] on a hotkey row, type the new key, [ENTER] again.
 
@@ -1771,13 +1773,13 @@ Named, ordered collections of stations (a "jazz" list, a "morning" list), built 
 playlist editor of the music player.
 
 OPEN AND CHANGE TABS: [[Header]] 
-[SHIFT+k] opens the menu, [<-/->] switch the two tabs (<-/->] from every pane, also while typing). 
+)WIZ",
+R"WIZ([SHIFT+k] opens the menu, [<-/->] switch the two tabs (<-/->] from every pane, also while typing). 
 Lists are stored in stationlists.txt.
 
 KEYS IN THE STATION LISTS MENU: [[Header]]
 [TAB]           name > search > STATIONS > LIST CONTENTS
-)WIZ",
-R"WIZ([ENTER]         in STATIONS: add the station to the end of the list.
+[ENTER]         in STATIONS: add the station to the end of the list.
                 In LIST CONTENTS: tune it, to audition the list
 [4] / [5]       move the hovered station up / down
 [DEL] or [d]    remove it
@@ -1923,11 +1925,11 @@ A key that is already in use is refused, and the fixed keys count too: the 16 pr
 e r t d f g) and the vi-style [j] / [k]. The cheat sheet [?] always lists the default keys.
 
 THE FILES OF THE RADIO: [[Header]]
-radio_config.txt   settings, colors, equalizer, oscilloscope (keys as HKey<Action>= lines)
+)WIZ",
+R"WIZ(radio_config.txt   settings, colors, equalizer, oscilloscope (keys as HKey<Action>= lines)
 stations.txt       your station list                    presets.txt       the presets and the active one
 stationlists.txt   the saved station lists              preset_names.txt  the short names of the PRESETS pane
-)WIZ",
-R"WIZ(radio_history/     history_radio.txt and archive_radio.txt
+radio_history/     history_radio.txt and archive_radio.txt
 All of them live in the config folder: ~/.config/mousiki/ (Windows: %USERPROFILE%\.config\mousiki\).
 
 [[New Page]]
@@ -2048,11 +2050,11 @@ NOTE       a bookmark with a text (SHIFT+n, below); without a title it is number
 The chapter with the newest bookmark is lit in the header colour with a diamond.
 [d] in the chapter pane deletes the bookmark of the chosen chapter (a small question first).
 Before the chapter changes ([n], [b], [ENTER] on another one), the mode switches or Mousiki quits, a
-question asks "Set a bookmark here?" with the exact time: [y]/[ENTER] yes, [n] no, [ESC] stay.
+)WIZ",
+R"WIZ(question asks "Set a bookmark here?" with the exact time: [y]/[ENTER] yes, [n] no, [ESC] stay.
 The audio is paused while the question is open. Settings -> GENERAL -> BOOKMARKS -> Ask for Bookmark 
 turns it off, since it can become annoying and auto-mark is always on anyways.
-)WIZ",
-R"WIZ(
+
 [ENTER] on a chapter that was left but not bookmarked asks "Do you want to continue where you left?":
   [y] Continue there (the only answer that starts the chapter)   
   [n] Leave, keep the auto-mark, nothing is played
@@ -2186,11 +2188,11 @@ ANDROID APP: [[Header]] Mousiki Remote (remote_app/android): enter the address a
 or let it find Mousiki in the network.
 
 PHONE BROWSER: [[Header]] open the address and enter the PIN.
-The phone shows the disk, the meta data, the progress bar, the dummy buttons (working: seek,
+)WIZ",
+R"WIZ(The phone shows the disk, the meta data, the progress bar, the dummy buttons (working: seek,
 play/pause) and boxes for prev, random, next, volume, mute, playback mode, LISTS and manual --
 drawn by Mousiki in the colours of your theme. In the radio: the ON AIR sign, the station,
-)WIZ",
-R"WIZ(prev/next station, pause, live, stop.
+prev/next station, pause, live, stop.
 
 LISTS (player): on top the local list (tap a title: it plays), below the saved playlists (tap one: its titles
 go into the queue, starts it when nothing plays). A tap on the other list gives it the focus; UP / DOWN

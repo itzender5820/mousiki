@@ -122,6 +122,10 @@ public:
     // `lines_only` (braille): only the outlines, in the colour of their height, the fill just hides what is behind it.
     void waterfall(const SpectroSettings& s, int w, int h, bool lines_only, std::vector<uint8_t>& img);
     void waterfall_raw(const SpectroSettings& s, int w, int h, int R, bool lines_only, std::vector<uint8_t>& img);
+    // The same graphs as numbers, for a window that draws them on the graphics card: back to front, each with the row of its
+    // baseline, the shift to the right, the row it is filled down to and the top edge of every column (and the loudness there).
+    struct WfGraph { int baseline = 0, ox = 0, bottom = 0; std::vector<int> top; std::vector<uint8_t> v; };
+    void waterfall_layout(const SpectroSettings& s, int w, int h, std::vector<WfGraph>& out, int& plot_w, int& amp);
     // (with the resolution "high" the picture uses the 64 colour registers of spectro_palette_view(): index = register * 4)
 
 private:

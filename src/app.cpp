@@ -1028,7 +1028,10 @@ int App::run() {
         const auto frame_start = std::chrono::steady_clock::now();
         // the image styles (oscilloscope or spectrogram) need to know what the terminal speaks: ask once, and again when
         // the protocol setting changes
-        if ((settings_.osci_style == 1 || settings_.spectro.style == 1 || audiobook_) && gfx_probed_pref_ != settings_.gfx_protocol) {
+        // (the cover is a picture in the cover looks 0-4 -- the default is 2 -- so the terminal is asked at the start whatever the oscilloscope / spectrogram styles are: before, with braille styles the cover stayed braille until an image style was chosen once)
+        // (the Settings previews, the meta editor and the cover fetch show pictures too: with braille styles in use nothing had asked the terminal yet, so they fell back to braille)
+        const bool pictures_wanted = mode_ == Mode::Settings || mode_ == Mode::ColorEdit || mode_ == Mode::MetaEdit || mode_ == Mode::CoverFetch;
+        if ((settings_.osci_style == 1 || settings_.spectro.style == 1 || audiobook_ || pictures_wanted || settings_.cover_mode <= 4) && gfx_probed_pref_ != settings_.gfx_protocol) {
             if (gfx_shown) { write_frame(gfx_clear(gfx_proto_)); gfx_shown = false; }
             gfx_proto_ = gfx_probe(settings_.gfx_protocol);
             gfx_probed_pref_ = settings_.gfx_protocol;
