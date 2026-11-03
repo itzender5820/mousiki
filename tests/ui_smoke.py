@@ -1508,11 +1508,13 @@ def shrinking_window(binary, root, scripts):
                 break
         sess.send(b"\r", 2.0)
         t = sess.text()
-        for _ in range(20):   # (a slow machine needs longer to load the track and its lyrics)
-            if "File      :" in t and "No sync" in t.replace("hron", ""): break
+        for _ in range(20):   # (a slow machine needs longer to load the track)
+            if "File      :" in t: break
             sess.pump(0.5); t = sess.text()
-        check("File      :" in t and "No sync" in t.replace("hron", ""), "shrinking: the full window shows the meta data and the lyrics / oscilloscope field")
-        if not ("File      :" in t and "No sync" in t.replace("hron", "")): print("  screen at the failure:\n" + "\n".join("    | " + l.rstrip() for l in t.split("\n") if l.strip()), flush=True)
+        # (the field right of the meta data shows "No sync" when no lyrics are found, but nothing while an online lookup is still running:
+        # on a machine with a network the text is not there yet, so only the meta data is checked)
+        check("File      :" in t, "shrinking: the full window shows the meta data")
+        if "File      :" not in t: print("  screen at the failure:\n" + "\n".join("    | " + l.rstrip() for l in t.split("\n") if l.strip()), flush=True)
         check_fit(sess, "shrinking 140x45", False)
         resize(100, 45)
         lines = sess.screen.display
