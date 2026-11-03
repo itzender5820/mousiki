@@ -1660,7 +1660,8 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
 [LOCAL PATH][[Header]]                                        the folders scanned for music (several, plus "+ new path")
 [DOWNLOAD PATH][[Header]]                                     where [y] saves streams
 [PLAYLIST PATH][[Header]]                                     one folder for all playlists
-[PLAYLIST EXPORT PATH][[Header]]                              where [e] writes M3U8 / M3U (empty: "export" folder)
+[PLAYLIST EXPORT PATH][[Header]]                              where [e] writes M3U8 / M3U (default: playlists\export)
+[PLAYLIST IMPORT PATH][[Header]]                              where [i] reads M3U8 / M3U (default: playlists\import)
 [HISTORY PATH][[Header]]                                      holds history.json
 [CONVERSION EXPORT PATH][[Header]]                            where converted files go
 [AUDIO BOOK PATH][[Header]]                                   One folder only, since books are sorted by book folders

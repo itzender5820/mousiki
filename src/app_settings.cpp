@@ -193,8 +193,28 @@ std::vector<App::PathRow> App::build_path_rows() const {
 
         PathRow n;
         n.kind = PathRow::Kind::Note;
-        n.label = "Where [e] on the Saved Playlists tab exports M3U8 / M3U files (empty = the playlist folder).";
+        n.label = "Where [e] on the Saved Playlists tab exports M3U8 / M3U files (default: export, inside the playlist folder).";
         rows.push_back(n);
+    }
+
+    // PLAYLIST IMPORT PATH: ONE folder (settings_.playlist_import_path) that 'i' on the Saved Playlists tab reads from.
+    {
+        PathRow p;
+        p.label = "PLAYLIST IMPORT PATH";
+        p.kind = PathRow::Kind::Path;
+        p.sel = sel++;
+        p.path_index = -1;
+        p.import_folder = true;
+        rows.push_back(p);
+
+        PathRow n;
+        n.kind = PathRow::Kind::Note;
+        n.label = "Where [i] looks for M3U8 / M3U files (default: import, inside the playlist folder).";
+        rows.push_back(n);
+        PathRow n2;
+        n2.kind = PathRow::Kind::Note;
+        n2.label = "The files stay there; imported lists are copied into the imported_lists folder of the playlist folder.";
+        rows.push_back(n2);
     }
 
     // CONVERSION EXPORT PATH: ONE folder (settings_.conversion_export_path) the conversion overlay (SHIFT+c) writes to.
@@ -241,8 +261,12 @@ std::vector<App::PathRow> App::build_path_rows() const {
 
         PathRow n;
         n.kind = PathRow::Kind::Note;
-        n.label = "Audio books: every folder in it with audio files is one book. A .cue file beside each book records where you last stopped listening.";
+        n.label = "Audio books: every folder in it with audio files is one book.";
         rows.push_back(n);
+        PathRow n2;
+        n2.kind = PathRow::Kind::Note;
+        n2.label = "A .cue file beside each book records where you last stopped listening.";
+        rows.push_back(n2);
     }
 
     return rows;
@@ -814,7 +838,8 @@ std::string App::settings_get_value(int row, int col) const {
         if (r.sel < 0) return "";
         if (r.kind == PathRow::Kind::Path) {
             if (r.history_folder) return settings_.history_path.empty() ? history_.effective_dir() : settings_.history_path;
-            if (r.export_folder) return settings_.playlist_export_path.empty() ? path_utf8(playlists_dir()) : settings_.playlist_export_path;
+            if (r.export_folder) return settings_.playlist_export_path.empty() ? path_utf8(playlists_dir() / "export") : settings_.playlist_export_path;
+            if (r.import_folder) return settings_.playlist_import_path.empty() ? path_utf8(playlists_dir() / "import") : settings_.playlist_import_path;
             if (r.conversion_folder) return conversion_export_dir();
             if (r.audiobook_folder) return settings_.audiobook_path;
             if (r.download_folder) {
@@ -1163,9 +1188,15 @@ void App::settings_commit_edit_impl() {
                 if (home) p = std::string(home) + p.substr(1);
             }
             if (r.export_folder) {
-                // One folder, nothing moves: only where the next export goes (empty = the playlist folder).
+                // One folder, nothing moves: only where the next export goes (empty = export, inside the playlist folder).
                 settings_.playlist_export_path = p;
-                status_line_ = p.empty() ? "playlist export folder: the playlist folder" : "playlist export folder: " + p;
+                status_line_ = p.empty() ? "playlist export folder: export, inside the playlist folder" : "playlist export folder: " + p;
+                return;
+            }
+            if (r.import_folder) {
+                // One folder, nothing moves: only where the next import looks (empty = import, inside the playlist folder).
+                settings_.playlist_import_path = p;
+                status_line_ = p.empty() ? "playlist import folder: import, inside the playlist folder" : "playlist import folder: " + p;
                 return;
             }
             if (r.audiobook_folder) {

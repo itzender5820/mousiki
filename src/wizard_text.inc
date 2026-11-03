@@ -1674,7 +1674,8 @@ R"WIZ([Hi-Fi Gain (dB):][[Legend]]                                  (Hi-Fi only)
 [LOCAL PATH][[Header]]                                        the folders scanned for music (several, plus "+ new path")
 [DOWNLOAD PATH][[Header]]                                     where [y] saves streams
 [PLAYLIST PATH][[Header]]                                     one folder for all playlists
-[PLAYLIST EXPORT PATH][[Header]]                              where [e] writes M3U8 / M3U (empty: "export" folder)
+[PLAYLIST EXPORT PATH][[Header]]                              where [e] writes M3U8 / M3U (default: playlists\export)
+[PLAYLIST IMPORT PATH][[Header]]                              where [i] reads M3U8 / M3U (default: playlists\import)
 [HISTORY PATH][[Header]]                                      holds history.json
 [CONVERSION EXPORT PATH][[Header]]                            where converted files go
 [AUDIO BOOK PATH][[Header]]                                   One folder only, since books are sorted by book folders
@@ -1725,11 +1726,11 @@ The credits and versions, centred on the tab and placed in its vertical middle, 
 
 OPEN: [[Header]]
 [t] on the main screen opens the console, a read-only view with two panes. [ESC], [t] or [T] close it.
-
+)WIZ",
+R"WIZ(
 CONSOLE / LOGS: [[Header]]
 The top pane shows what the app has been doing: the commands it ran with their output (yt-dlp, ffmpeg,
-)WIZ",
-R"WIZ(lyrics and cover fetches ...), sort and filter changes, queue messages, load timings and why a cover
+lyrics and cover fetches ...), sort and filter changes, queue messages, load timings and why a cover
 or a lyrics file was (not) found. It keeps the last 1500 lines of this session, and the end of the
 last session's log stands above them, after a line "the last session". The files are
 ~/.cache/mousiki/logs/console.log and console_previous.log.
@@ -1879,11 +1880,11 @@ Every search hides broken streams, sorts by clicks and returns at most 200 resul
 
 Named, ordered collections of stations (a "jazz" list, a "morning" list), built exactly like the
 playlist editor of the music player.
-
+)WIZ",
+R"WIZ(
 OPEN AND CHANGE TABS: [[Header]] 
 [SHIFT+k] opens the menu, [<-/->] switch the two tabs (<-/->] from every pane, also while typing). 
-)WIZ",
-R"WIZ(Lists are stored in stationlists.txt.
+Lists are stored in stationlists.txt.
 
 KEYS IN THE STATION LISTS MENU: [[Header]]
 [TAB]           name > search > STATIONS > LIST CONTENTS
@@ -2032,11 +2033,11 @@ The keys that are not hard coded, grouped like the player's: PLAYBACK, MENUS, TI
 The first row, Reset all keys to default, sits under the cheat sheet note at the top.
 A key that is already in use is refused, and the fixed keys count too: the 16 preset keys (1..0 and
 e r t d f g) and the vi-style [j] / [k]. The cheat sheet [?] always lists the default keys.
-
+)WIZ",
+R"WIZ(
 THE FILES OF THE RADIO: [[Header]]
 radio_config.txt   settings, colors, equalizer, oscilloscope (keys as HKey<Action>= lines)
-)WIZ",
-R"WIZ(stations.txt       your station list                    presets.txt       the presets and the active one
+stations.txt       your station list                    presets.txt       the presets and the active one
 stationlists.txt   the saved station lists              preset_names.txt  the short names of the PRESETS pane
 radio_history/     history_radio.txt and archive_radio.txt
 All of them live in the config folder: ~/.config/mousiki/ (Windows: %USERPROFILE%\.config\mousiki\).
@@ -2158,9 +2159,9 @@ NOTE       a bookmark with a text (SHIFT+n, below); without a title it is number
 
 The chapter with the newest bookmark is lit in the header colour with a diamond.
 [d] in the chapter pane deletes the bookmark of the chosen chapter (a small question first).
-Before the chapter changes ([n], [b], [ENTER] on another one), the mode switches or Mousiki quits, a
 )WIZ",
-R"WIZ(question asks "Set a bookmark here?" with the exact time: [y]/[ENTER] yes, [n] no, [ESC] stay.
+R"WIZ(Before the chapter changes ([n], [b], [ENTER] on another one), the mode switches or Mousiki quits, a
+question asks "Set a bookmark here?" with the exact time: [y]/[ENTER] yes, [n] no, [ESC] stay.
 The audio is paused while the question is open. Settings -> GENERAL -> BOOKMARKS -> Ask for Bookmark 
 turns it off, since it can become annoying and auto-mark is always on anyways.
 
@@ -2294,11 +2295,11 @@ logged in), change the PORT or the PIN ([n] a new one). [ESC] back, [s] saves th
 Works with your own build as well as with an installed Mousiki. The phone must be in the same network.
 
 ANDROID APP: [[Header]] Mousiki Remote (remote_app/android): enter the address and the PIN once,
-or let it find Mousiki in the network.
+)WIZ",
+R"WIZ(or let it find Mousiki in the network.
 
 PHONE BROWSER: [[Header]] open the address and enter the PIN.
-)WIZ",
-R"WIZ(The phone shows the disk, the meta data, the progress bar, the dummy buttons (working: seek,
+The phone shows the disk, the meta data, the progress bar, the dummy buttons (working: seek,
 play/pause) and boxes for prev, random, next, volume, mute, playback mode, LISTS and manual --
 drawn by Mousiki in the colours of your theme. In the radio: the ON AIR sign, the station,
 prev/next station, pause, live, stop.

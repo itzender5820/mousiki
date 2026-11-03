@@ -467,6 +467,9 @@ struct Settings : VizPrefs {
     // Saved Playlists tab). Empty = the playlist folder itself. ONE folder
     // (Settings -> PATHS -> PLAYLIST EXPORT PATH, config.txt: PlaylistExportPath=).
     std::string playlist_export_path;
+    // Folder 'i' on the Saved Playlists tab reads M3U8 / M3U files from (Settings -> PATHS -> PLAYLIST IMPORT PATH, PlaylistImportPath=).
+    // Empty = the "import" folder inside the playlist folder. The files stay; a copy of each list goes to imported_lists.
+    std::string playlist_import_path;
 
     // Folder the file conversion overlay (SHIFT+c) writes its converted files to. Empty = "conversion-export"
     // inside the download folder. ONE folder (Settings -> PATHS -> CONVERSION EXPORT PATH, config.txt:

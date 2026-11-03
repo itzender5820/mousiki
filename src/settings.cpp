@@ -1469,6 +1469,15 @@ static Settings load_from_config(const fs::path& path) {
             if (!path.empty()) s.playlist_export_path = path;
             continue;
         }
+        if (key == "PlaylistImportPath" || key == "playlist_import_path") {
+            std::string path = trim_ws(unquote(value));
+            if (!path.empty() && path[0] == '~') {
+                const char* home = std::getenv("HOME");
+                if (home) path = std::string(home) + path.substr(1);
+            }
+            if (!path.empty()) s.playlist_import_path = path;
+            continue;
+        }
         if (key == "ConversionExportPath" || key == "conversion_export_path") {
             std::string path = trim_ws(unquote(value));
             if (!path.empty() && path[0] == '~') {
@@ -2127,8 +2136,13 @@ static void write_settings(std::ostream& out, const Settings& s) {
         if (!path.empty()) out << "PlaylistsPath=" << path << "\n";
     }
     if (!s.playlist_export_path.empty()) {
-        out << "\n# Where playlists are exported as M3U8 / M3U (one folder; unset means the playlist folder).\n";
+        out << "\n# Where playlists are exported as M3U8 / M3U (one folder; unset means the \"export\" folder inside the playlist folder).\n";
         out << "PlaylistExportPath=" << s.playlist_export_path << "\n";
+    }
+    if (!s.playlist_import_path.empty()) {
+        out << "\n# Where playlists are imported from (M3U8 / M3U; one folder; unset means the \"import\" folder inside the playlist folder).\n";
+        out << "# The files stay; a copy of each list lands in the imported_lists folder of the playlist folder.\n";
+        out << "PlaylistImportPath=" << s.playlist_import_path << "\n";
     }
     if (!s.conversion_export_path.empty()) {
         out << "\n# Where the file conversion overlay (SHIFT+c) writes converted files (one folder; unset means the\n";

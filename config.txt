@@ -443,9 +443,16 @@ LocalMusicPath=%USERPROFILE%\Music
 
 # Playlist export folder (optional, ONE folder): where 'e' on the Saved
 # Playlists tab of the playlist editor writes M3U8 / M3U files. Unset means
-# the playlist folder itself. Editable live in Settings -> PATH
-# ("PLAYLIST EXPORT PATH").
+# the "export" folder inside the playlist folder. Editable live in Settings
+# -> PATH ("PLAYLIST EXPORT PATH").
 #PlaylistExportPath=C:\Users\YOUR NAME!!!!!!\Music\playlists\export
+
+# Playlist import folder (optional, ONE folder): where 'i' on the Saved
+# Playlists tab looks for M3U8 / M3U files. Unset means the "import" folder
+# inside the playlist folder. The files stay there; a copy of each list lands
+# in the "imported_lists" folder of the playlist folder. Editable live in
+# Settings -> PATH ("PLAYLIST IMPORT PATH").
+#PlaylistImportPath=C:\Users\YOUR NAME!!!!!!\Music\playlists\import
 
 # Conversion export folder (optional, ONE folder): where the file conversion
 # overlay (SHIFT+c) writes the converted files. Unset means the

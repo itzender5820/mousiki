@@ -446,8 +446,8 @@ bool import_parse_m3u(const fs::path& file, std::string* name_out, std::vector<f
 
 void App::playlist_import_begin() {
     // its own folder inside the playlists folder: the files to import are put there and stay there (a copy goes to imported_lists)
-    playlist_import_dir_ = settings_.playlist_export_path.empty() ? path_utf8(playlists_dir() / "import") : settings_.playlist_export_path;
-    { std::error_code mk; if (settings_.playlist_export_path.empty()) fs::create_directories(path_from_utf8(playlist_import_dir_), mk); }
+    playlist_import_dir_ = settings_.playlist_import_path.empty() ? path_utf8(playlists_dir() / "import") : settings_.playlist_import_path;
+    { std::error_code mk; if (settings_.playlist_import_path.empty()) fs::create_directories(path_from_utf8(playlist_import_dir_), mk); }
     playlist_import_all_ = false;
     playlist_import_field_ = 0;
     playlist_import_status_.clear();
