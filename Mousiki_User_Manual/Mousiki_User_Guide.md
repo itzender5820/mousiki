@@ -652,6 +652,8 @@ A full-window editor for a translation you write yourself: to correct a machine 
 
 **Whole lines:** copied lines go to the clipboard one per row, the gaps between stanzas as empty lines, so they line up again when pasted. `CTRL+v` with text of several lines in the clipboard (a whole translation copied from a web page, say) pastes it line by line from the line with the caret, even without marking; the gaps of the lyrics keep their place.
 
+![The translation editor: the original lyrics on the left, the translation on the right, one line marked](images/translation_editor.png)
+
 | Key | What it does |
 |---|---|
 | `↑` / `↓` / `ENTER` | The previous / next line. `PgUp` / `PgDn`: ten lines |
@@ -664,6 +666,8 @@ A full-window editor for a translation you write yourself: to correct a machine 
 | `CTRL+n` | **Start from scratch**: empties all lines and makes the text a new Manual Translation (asks `y` first, because what is written here is dropped) |
 | `CTRL+s` | **Saves** and returns to the reader, which shows the new translation |
 | `ESC` | Closes; with unsaved changes it asks `y` / any other key |
+
+![The same song with Latin letters on (`CTRL+t`): the original column shows the Latin spelling, the text of the translation is not changed](images/translation_editor_latin.png)
 
 What is saved: when a translation is shown in the TRANSLATION pane, the editor starts with its text. A **machine translation** (Google, MyMemory) is never changed: your version is saved as a **new Manual Translation**. A **Manual Translation** is changed in place. Without a translation the editor starts empty. The names are *Manual Translation*, *Manual Translation 2*, *Manual Translation 3* … (a number that became free after a delete is used again) and are listed after the machine translations; the file is `<name>.<language>.manual.txt` (`manual2` …) in the `translations` folder next to the lyrics. Like every translation it belongs to the lyrics file it was written for: it is ignored when the lyrics change, and `d` / `DEL` in the TRANSLATION pane deletes it (asks first).
 
@@ -888,6 +892,10 @@ The third visual for the lyrics area (and the radio's scope block): a **spectrog
 - **Four looks, each with its own values:** the spectrogram and the waterfall, each as image and as braille, remember their own colours, scale, frequency range, gain, range, window, time span and (waterfall) graph settings. Switching *View* or *Style* in the options brings that look's values in; a look you never used starts with a copy of the values you had, so nothing changes until you change it. *Reset* (`R`) resets only the look in use. They are saved in the config file as `SpectroProfile0..3` blocks (n = 2 x view + style: view 0 spectrogram / 1 waterfall, style 0 braille / 1 image); the plain `Spectro...` keys are the look in use.
 
 **Waterfall (overlay row *View*):** the same analysis drawn as a **stack of spectra**: every graph is the spectrum of one moment (frequency from left to right, loudness as height), the **newest one in front** and the older ones behind it, each shifted a little up and to the right, so the music seems to flow away into the distance. Every graph is **filled with the spectrogram's colours** (by height: low parts dark, loud peaks in the top colour of the scheme you chose) and has a **fine black outline**, so the graphs are told apart by their outline alone; no graph gets another colour for contrast. A graph hides what is behind it. (In a Sixel terminal that shows two screen rows per picture row, such as Windows Terminal, only every second pixel row can be sent: of every two rows the darker pixel is sent, so no horizontal outline is lost.) In a small picture (the lyrics area) fewer graphs are drawn, evenly spaced, when the set number would lie closer together than their outlines are thick; the time they cover stays the same. The front graph follows the sound live; the others move back one place whenever a spacing is full. It shows in all the places of the spectrogram (lyrics area, full screen `SHIFT+u`, the settings preview), in the image style as a picture and in the braille style as **coloured lines of dots** (braille cannot draw black, so only the outlines are drawn, and a graph still hides the lines behind it). In full screen the frequencies of the front graph stand on the top ruler (`1k`, `5k`, `10k` ...). Scale, frequency range, gain, range, frequency gain, window size, zero padding and colours work as in the spectrogram. Rows that belong to one view only are shown only with it (the waterfall has no *Motion*, *Channels* or *Time span*; the spectrogram none of the waterfall's five). The **spectrogram window** (`(`) shows the waterfall too when it is chosen, drawn by the graphics card at the monitor's refresh rate: there the graphs glide back continuously with the clock instead of moving a slot at a time, the frequencies stand under the picture, and the graphs are drawn as filled shapes with outlines directly at the window's pixel size, so the *Resolution* row does not apply there. The window follows the *Style* row: *image* draws the filled graphs with their black outline, *braille* the same picture as in the lyrics field and the full screen: only the outlines, as lines of dots in the colour of their height on black (the graphs still hide what is behind them). Only simple 2D triangles and lines are drawn, so an integrated graphics chip is enough.
+
+![The waterfall in the image style: filled graphs in the colours of the scheme with a fine black outline, the newest one in front](images/waterfall_image.png)
+
+![The waterfall in the braille style: only the outlines, as coloured lines of dots](images/waterfall_braille.png)
 
 | Waterfall row | Choices | Default |
 |---|---|---|

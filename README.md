@@ -120,6 +120,8 @@ Everything below is in the current version (v4.8.0) and works the same on Window
 
 <p align="center"><img width="850" alt="The spectrogram in image mode in the visualization field, both channels" src="readme_images/spectrogram_inapp.png" /></p>
 <p align="center"><img width="850" alt="The spectrogram in image mode over the whole screen, both channels (theme Tokyo Night)" src="readme_images/spectro_image.png" /></p>
+<p align="center"><img width="850" alt="The waterfall view of the spectrogram in image mode: filled graphs with a black outline" src="readme_images/waterfall_image.png" /></p>
+<p align="center"><img width="850" alt="The waterfall view of the spectrogram in braille mode: coloured outlines" src="readme_images/waterfall_braille.png" /></p>
 
 ### Lyrics and Karaoke mode
 

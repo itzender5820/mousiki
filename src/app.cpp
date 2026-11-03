@@ -775,7 +775,7 @@ void App::log_event(const std::string& msg) {
     ConsoleLog::instance().log_basic(msg);
 }
 
-// Tab layout: 0=Colors, 1=On/Off, 2=Animation, 3=Paths, 4=Reference, 5=About App.
+// Tab layout: 0=Colors, 1=General (was On/Off), 2=Animation, 3=Paths, 4=Reference, 5=About App.
 //
 // The Paths tab holds the LOCAL PATH / DOWNLOAD PATH / PLAYLIST PATH
 // sections (editable path rows -- see build_path_rows()).
