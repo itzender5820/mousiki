@@ -57,7 +57,7 @@
 
 namespace muisc {
 
-enum class Mode { Browse, Search, Settings, ColorEdit, Console, Cheatsheet, BulkAdd, RetryLyrics, Playlist, MetaEdit, CoverFetch, History, ClearQueue, OsciMenu, NormMenu, Equalizer, SleepTimer, LyricsEdit, Karaoke, SpectroMenu, Wizard, ReadLyrics, Creator, MenuIndex, UpdateNotice, QueueToPlaylist, BookOverlay, AudioDevice };
+enum class Mode { Browse, Search, Settings, ColorEdit, Console, Cheatsheet, BulkAdd, RetryLyrics, Playlist, MetaEdit, CoverFetch, History, ClearQueue, OsciMenu, NormMenu, BarsMenu, Equalizer, SleepTimer, LyricsEdit, Karaoke, SpectroMenu, Wizard, ReadLyrics, Creator, MenuIndex, UpdateNotice, QueueToPlaylist, BookOverlay, AudioDevice };
 enum class ListSource { Local, Online, Playlist, Folder };
 
 // One row of the main UI's "/f:" folder list: a folder that directly
@@ -470,6 +470,9 @@ private:
     int playlist_tab_ = 0;
     int playlist_edit_focus_ = 0; // 0=name field, 1=library picker, 2=playlist-tracks list -- cycled with Tab
     std::string playlist_edit_name_;
+    bool playlist_edit_imported_ = false;   // the playlist being edited is a given (imported) one: it is saved back into imported_lists
+    int playlist_manage_filter_ = 0;        // SAVED PLAYLISTS: 0 all, 1 created here (c), 2 given / imported (g)
+    std::string playlist_edit_orig_name_;   // the saved name of the playlist being edited ("" = a new one): a changed name renames it instead of copying it
     std::vector<PlaylistTrack> playlist_edit_tracks_;
     std::string playlist_edit_lib_query_;
     std::vector<LocalTrack> playlist_edit_lib_view_;   // filter_and_rank_local(playlist_edit_lib_query_)
@@ -497,7 +500,8 @@ private:
     std::string playlist_export_name_;     // the playlist being exported
     std::string playlist_export_dir_;      // the folder field
     bool playlist_export_m3u_ = false;     // false = .m3u8 (UTF-8, the default), true = .m3u
-    int playlist_export_field_ = 0;        // 0 = folder field, 1 = format row
+    int playlist_export_field_ = 0;        // 0 = folder field, 1 = format row, 2 = scope row
+    bool playlist_export_all_ = false;     // scope: false = the hovered playlist, true = the whole folder (every playlist the list shows)
     std::string playlist_export_status_;   // shown inside the overlay
     void playlist_export_begin();          // opens the overlay for the hovered saved playlist
     void playlist_export_run();            // ENTER in the overlay
@@ -507,7 +511,8 @@ private:
     // (default: the same folder the export overlay starts in) and saves them as playlists of their own.
     bool playlist_import_open_ = false;
     std::string playlist_import_dir_;                 // the folder field
-    int playlist_import_field_ = 0;                   // 0 = folder field, 1 = file list
+    int playlist_import_field_ = 0;                   // 0 = folder field, 1 = file list, 2 = scope row
+    bool playlist_import_all_ = false;                // scope: false = the marked (else the hovered) files, true = the whole folder
     std::vector<std::string> playlist_import_files_;  // .m3u / .m3u8 files found in the folder (full paths)
     std::vector<int> playlist_import_counts_;         // entries per file
     std::vector<char> playlist_import_marked_;
@@ -525,6 +530,16 @@ private:
     void playlist_open_editor();  // HKeyPlaylist entry point -- resets to a blank new playlist on tab 0
     void playlist_load_into_editor(const std::string& name);
     void playlist_add_hovering_to_edit();
+    // "/f:" in the library search: the hits are shown as folders (header rows, the files indented below an opened one)
+    struct PlLibRow { bool header; int lib; std::string folder, name; int count; bool open; };
+    static bool is_folder_query(const std::string& raw);
+    std::vector<PlLibRow> playlist_lib_rows() const;
+    std::unordered_set<std::string> playlist_folder_open_;
+    int playlist_edit_row_sel_ = 0;   // cursor row in the folder view
+    std::vector<std::vector<fs::path>> playlist_add_undo_;   // one entry per add (a file or a whole folder): SHIFT+u takes the last one back
+    void playlist_lib_move(int delta);
+    void playlist_add_folder_to_edit();
+    void playlist_undo_add();
     void playlist_remove_hovering_track();
     void playlist_move_hovering_track(int dir); // dir=-1 up, +1 down -- keys 4/5, mirrors queue_move_hovering
     void playlist_delete_selected(); // tab 1's DEL, after playlist_confirm_delete_ confirms
@@ -834,6 +849,7 @@ private:
     // Up / Down in a meta editor list: plain = one row, SHIFT = a page, CTRL = first / last. Returns the new row.
     int meta_nav(int selected, int total, bool up) const;
     void meta_toggle_filter(int filter);
+    void meta_jump_to_current();   // SHIFT+c: hover the song that plays now, search and filters removed
     const char* meta_filter_label() const;
     void meta_persist();               // save (or delete) the autosave backup file
     const MetaEditEntry* meta_entry(const std::string& path) const;
@@ -1687,6 +1703,13 @@ private:
     // on/off), SPACE or the toggle key (HKeyToggleNormalize) switches
     // normalisation on/off from any row, R resets target and boost to their
     // defaults, ESC / Shift+V close (and save the values to config.txt).
+    // SHIFT+y (HKeyBarsMenu): the options of the spectrum bars (style, the Hi-Fi rows, motion). It sits UNDER the upper pane, so the bars stay visible.
+    int bars_menu_row_ = 0;
+    mutable int bars_menu_scroll_ = 0;   // the first row shown when the overlay has more rows than the room under the upper pane (scroll bar)
+    static constexpr int kBarsMenuPanelWidth = 54;
+    std::vector<int> bars_menu_rows() const;
+    std::vector<std::string> build_bars_menu_panel(int main_w) const;   // main_w: the width of the main screen (the height of the upper pane depends on it)
+    void bars_menu_adjust(int dir);
     int norm_menu_row_ = 0;
     static constexpr int kNormMenuPanelWidth = 54; // wide enough for the key legend in the bottom border
     std::vector<std::string> build_norm_menu_panel() const;

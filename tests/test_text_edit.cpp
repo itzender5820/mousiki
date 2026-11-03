@@ -24,6 +24,30 @@ TEST(text_edit_typing_and_backspace_utf8) {
     CHECK_EQ(f.caret, static_cast<size_t>(2));
 }
 
+TEST(text_edit_ctrl_z_and_ctrl_y_undo) {
+    Field f;
+    f.type("hello");
+    f.key(kKeyHome);                         // a caret move ends the typing run
+    f.type("X");
+    CHECK_EQ(f.s, std::string("Xhello"));
+    f.key(kKeyEnd);
+    f.key(127);
+    CHECK_EQ(f.s, std::string("Xhell"));
+    CHECK(f.key(kKeyCtrlZ));                 // undo the backspace
+    CHECK_EQ(f.s, std::string("Xhello"));
+    CHECK(f.key(25));                        // CTRL+y (QWERTZ) undoes as well: the typed X
+    CHECK_EQ(f.s, std::string("hello"));
+    CHECK(f.key(kKeyCtrlZ));                 // the run "hello" is one step
+    CHECK_EQ(f.s, std::string(""));
+    CHECK(!f.key(kKeyCtrlZ));                // nothing left: no change
+    CHECK_EQ(f.s, std::string(""));
+    f.type("a");
+    f.s = "changed from outside";            // another value loaded: the old history is dropped
+    f.caret = f.anchor = f.s.size();
+    CHECK(!f.key(kKeyCtrlZ));
+    CHECK_EQ(f.s, std::string("changed from outside"));
+}
+
 TEST(text_edit_home_end_insert_in_the_middle) {
     Field f;
     f.type("world");

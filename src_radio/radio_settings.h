@@ -1,6 +1,7 @@
 // Radio settings (see radio_settings.cpp): the RadioSettings struct and the functions that read and
 // write it.
 #pragma once
+#include "bars_presets.h"
 #include "themes.h"
 // Radio mode -- its OWN settings, separate from the music player's `Settings` / config.txt.
 //
@@ -170,6 +171,25 @@ struct RadioSettings : VizPrefs {
     int visualizer_fluidity = 10;               // 1-10, higher = smoother / slower rise
     int visualizer_degradation_speed = 8;       // 1 (slow fade) - 10 (near-instant)
     int visualizer_viscosity = 3;               // 0 (bars independent) - 10 (heavy neighbour blending)
+    int bars_style = 1;                         // 0 classic, 1 Hi-Fi (hifi_bars.h)
+    int hifi_resolution = 0;                    // Hi-Fi: 0 fine, 1 rough
+    int hifi_channels = 0;                      // Hi-Fi: 0 stereo, 1 mono
+    int hifi_fluidity = 10;                     // the Hi-Fi style keeps its own three bar values (visualizer_* are the Classic ones)
+    int hifi_degradation = 8;
+    int hifi_viscosity = 3;
+    int& bar_fluidity() { return bars_style == 1 ? hifi_fluidity : visualizer_fluidity; }
+    int& bar_degradation() { return bars_style == 1 ? hifi_degradation : visualizer_degradation_speed; }
+    int& bar_viscosity() { return bars_style == 1 ? hifi_viscosity : visualizer_viscosity; }
+    int bar_fluidity() const { return bars_style == 1 ? hifi_fluidity : visualizer_fluidity; }
+    int bar_degradation() const { return bars_style == 1 ? hifi_degradation : visualizer_degradation_speed; }
+    int bar_viscosity() const { return bars_style == 1 ? hifi_viscosity : visualizer_viscosity; }
+    int hifi_adapt = 1;                         // Hi-Fi: the height adapts to the song
+    int hifi_split = 1;                         // Hi-Fi: an empty dot column between the channels
+    int hifi_scale = 2;                         // Hi-Fi height: 0 full, 1 medium, 2 low
+    int hifi_fscale = 2;                        // Hi-Fi: the frequency scale (0 linear, 1 logarithmic, 2 mel, 3 bark, 4 erb)
+    int hifi_gain = -2;                         // Hi-Fi: dB, -20 .. 20
+    int hifi_range = 68;                        // Hi-Fi: dB from the bottom to the top, 40 .. 100
+    int hifi_color = 0;                         // Hi-Fi: 0 gradient, 1 corresponding (the spectrogram's colours by height)
     // (the oscilloscope / spectrogram settings -- osci_set, osci_style, osci_mode, gfx_protocol, spectro ... -- are the VizPrefs base)
 
     std::string box_upper_left = "╭";      // ╭
@@ -217,6 +237,7 @@ const std::string* color_field(const RadioSettings& s, int row, int col);
 // (SettingsModel::row) counts the rows only; rs_row_line() gives the line it is drawn on.
 struct SettingsLine { bool header; int id; const char* text; };       // a category header, or a row (id + label)
 const std::vector<SettingsLine>& rs_layout(int tab);                   // tab 1 or 2
+void rs_set_hifi_rows(bool on);                                       // the Hi-Fi rows of SPECTRUM BARS are listed only while the style is Hi-Fi
 int rs_row_count(int tab);                                              // selectable rows of the tab
 int rs_row_line(int tab, int row);                                      // line (headers counted) of a row
 const char* rs_row_label(int tab, int row);

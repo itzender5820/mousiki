@@ -267,6 +267,28 @@ TEST(playlist_names_with_reserved_characters_round_trip) {
     CHECK(PlaylistManager::load(dir, "who/what?").has_value());   // the same name finds the same file
 }
 
+TEST(imported_playlists_live_in_their_own_subfolder) {
+    mt::TempHome home;
+    const fs::path dir = home.path() / "playlists";
+    Playlist mine; mine.name = "Mine";
+    Playlist given; given.name = "Given"; given.imported = true;
+    CHECK(PlaylistManager::save(dir, mine));
+    CHECK(PlaylistManager::save(dir, given));
+    CHECK(fs::exists(dir / "Mine.txt"));
+    CHECK(fs::exists(dir / PlaylistManager::kImportedDir / "Given.txt"));
+    CHECK(!fs::exists(dir / "Given.txt"));
+    const auto all = PlaylistManager::list(dir);
+    CHECK_EQ(all.size(), static_cast<size_t>(2));
+    for (const auto& s : all) CHECK_EQ(s.imported, s.name == "Given");
+    auto back = PlaylistManager::load(dir, "Given");
+    CHECK(back.has_value());
+    CHECK(back->imported);
+    CHECK(!PlaylistManager::load(dir, "Mine")->imported);
+    CHECK(PlaylistManager::remove(dir, "Given"));
+    CHECK(!fs::exists(dir / PlaylistManager::kImportedDir / "Given.txt"));
+    CHECK_EQ(PlaylistManager::list(dir).size(), static_cast<size_t>(1));
+}
+
 // ---- listening history --------------------------------------------------------------------------------------------------
 
 namespace {

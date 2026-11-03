@@ -331,7 +331,7 @@ std::string App::render_frame(TerminalIO& term) {
         if (m == Mode::MetaEdit && meta_sty_open_ && meta_sty_from_main_) return 0;   // the Style Option panel over the main screen
         if (m == Mode::AudioDevice) return adev_from_settings_ ? 1 : 0;     // over the settings screen or over the main screen
         switch (m) {
-            case Mode::Browse: case Mode::Search: case Mode::BulkAdd: case Mode::RetryLyrics: case Mode::ClearQueue: case Mode::UpdateNotice: case Mode::QueueToPlaylist: case Mode::OsciMenu: case Mode::SpectroMenu: case Mode::NormMenu: case Mode::Equalizer: case Mode::SleepTimer: case Mode::MenuIndex: case Mode::Creator: case Mode::LyricsEdit: case Mode::BookOverlay: case Mode::AudioDevice: return 0;
+            case Mode::Browse: case Mode::Search: case Mode::BulkAdd: case Mode::RetryLyrics: case Mode::ClearQueue: case Mode::UpdateNotice: case Mode::QueueToPlaylist: case Mode::OsciMenu: case Mode::SpectroMenu: case Mode::NormMenu: case Mode::BarsMenu: case Mode::Equalizer: case Mode::SleepTimer: case Mode::MenuIndex: case Mode::Creator: case Mode::LyricsEdit: case Mode::BookOverlay: case Mode::AudioDevice: return 0;
             case Mode::Settings: case Mode::ColorEdit: return 1;
             case Mode::Console: return 2;
             case Mode::Cheatsheet: return 3;
@@ -858,6 +858,9 @@ std::string App::render_frame(TerminalIO& term) {
         draw_floating_panel(floating, build_osci_menu_panel(), kOsciMenuPanelWidth, W, 0, false, 2);   // starts on row 2 and only grows downwards (braille / image style have different row counts)
     } else if (mode_ == Mode::SpectroMenu) {
         draw_floating_panel(floating, build_spectro_menu_panel(), kSpectroMenuPanelWidth, W);
+    } else if (mode_ == Mode::BarsMenu) {   // under the upper pane: the spectrum bars (the bottom of its meta column) stay free
+        draw_floating_panel(floating, build_bars_menu_panel(W), kBarsMenuPanelWidth, W, 0, false,
+                            static_cast<int>(build_metadata_panel(W).size()) + 1);
     } else if (mode_ == Mode::NormMenu) {
         draw_floating_panel(floating, build_norm_menu_panel(), kNormMenuPanelWidth, W);
     } else if (mode_ == Mode::LyricsEdit) {

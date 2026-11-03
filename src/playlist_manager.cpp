@@ -42,25 +42,29 @@ std::string PlaylistManager::sanitize_name(const std::string& name) {
 
 std::vector<PlaylistSummary> PlaylistManager::list(const fs::path& dir) {
     std::vector<PlaylistSummary> out;
-    std::error_code ec;
-    if (!fs::exists(dir, ec) || !fs::is_directory(dir, ec)) return out;
+    for (const bool imported : {false, true}) {
+        const fs::path folder = imported ? dir / kImportedDir : dir;
+        std::error_code ec;
+        if (!fs::exists(folder, ec) || !fs::is_directory(folder, ec)) continue;
+        for (auto& entry : fs::directory_iterator(folder, ec)) {
+            if (ec) break;
+            std::error_code fec;
+            if (!entry.is_regular_file(fec) || fec) continue;
+            fs::path p = entry.path();
+            if (ascii_lower(path_utf8(p.extension())) != ".txt") continue;
 
-    for (auto& entry : fs::directory_iterator(dir, ec)) {
-        if (ec) break;
-        std::error_code fec;
-        if (!entry.is_regular_file(fec) || fec) continue;
-        fs::path p = entry.path();
-        if (ascii_lower(path_utf8(p.extension())) != ".txt") continue;
-
-        size_t count = 0;
-        std::ifstream in(p);
-        std::string line;
-        while (std::getline(in, line)) {
-            strip_eol(line);
-            if (line.empty() || line[0] == '#') continue;
-            ++count;
+            size_t count = 0;
+            std::ifstream in(p);
+            std::string line;
+            while (std::getline(in, line)) {
+                strip_eol(line);
+                if (line.empty() || line[0] == '#') continue;
+                ++count;
+            }
+            PlaylistSummary sum{path_utf8(p.stem()), count};
+            sum.imported = imported;
+            out.push_back(std::move(sum));
         }
-        out.push_back(PlaylistSummary{path_utf8(p.stem()), count});
     }
 
     std::sort(out.begin(), out.end(), [](const PlaylistSummary& a, const PlaylistSummary& b) {
@@ -72,10 +76,11 @@ std::vector<PlaylistSummary> PlaylistManager::list(const fs::path& dir) {
 int PlaylistManager::rename_paths(const fs::path& dir,
                                   const std::vector<std::pair<std::string, std::string>>& renames) {
     if (renames.empty()) return 0;
-    std::error_code ec;
-    if (!fs::is_directory(dir, ec)) return 0;
     int changed = 0;
-    for (auto& entry : fs::directory_iterator(dir, ec)) {
+    for (const fs::path& folder : {dir, dir / kImportedDir}) {
+    std::error_code ec;
+    if (!fs::is_directory(folder, ec)) continue;
+    for (auto& entry : fs::directory_iterator(folder, ec)) {
         if (ec) break;
         std::error_code fec;
         if (!entry.is_regular_file(fec) || fec) continue;
@@ -106,16 +111,25 @@ int PlaylistManager::rename_paths(const fs::path& dir,
         if (ec) { fs::remove(tmp, ec); continue; }
         ++changed;
     }
+    }
     return changed;
 }
 
 std::optional<Playlist> PlaylistManager::load(const fs::path& dir, const std::string& name) {
     fs::path file = dir / path_from_utf8(sanitize_name(name) + ".txt");
+    bool imported = false;
     std::ifstream in(file);
-    if (!in.is_open()) return std::nullopt;
+    if (!in.is_open()) {   // not a created one: maybe a given (imported) one
+        in.clear();
+        file = dir / kImportedDir / path_from_utf8(sanitize_name(name) + ".txt");
+        in.open(file);
+        if (!in.is_open()) return std::nullopt;
+        imported = true;
+    }
 
     Playlist pl;
     pl.name = name;
+    pl.imported = imported;
     std::error_code ec;
     std::string line;
     while (std::getline(in, line)) {
@@ -134,13 +148,14 @@ std::optional<Playlist> PlaylistManager::load(const fs::path& dir, const std::st
 
 bool PlaylistManager::save(const fs::path& dir, const Playlist& pl, std::string* error) {
     std::error_code ec;
-    fs::create_directories(dir, ec);
+    const fs::path folder = pl.imported ? dir / kImportedDir : dir;
+    fs::create_directories(folder, ec);
     if (ec) {
         if (error) *error = ec.message();
         return false;
     }
 
-    fs::path file = dir / path_from_utf8(sanitize_name(pl.name) + ".txt");
+    fs::path file = folder / path_from_utf8(sanitize_name(pl.name) + ".txt");
     std::ofstream out(file, std::ios::trunc);
     if (!out.is_open()) {
         if (error) *error = "could not open file for writing";
@@ -155,6 +170,7 @@ bool PlaylistManager::save(const fs::path& dir, const Playlist& pl, std::string*
 bool PlaylistManager::remove(const fs::path& dir, const std::string& name, std::string* error) {
     fs::path file = dir / path_from_utf8(sanitize_name(name) + ".txt");
     std::error_code ec;
+    if (!fs::exists(file, ec)) file = dir / kImportedDir / path_from_utf8(sanitize_name(name) + ".txt");
     if (!fs::exists(file, ec)) {
         if (error) *error = "no such playlist";
         return false;

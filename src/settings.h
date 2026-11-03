@@ -1,6 +1,7 @@
 // Settings (see settings.cpp): the Settings struct with every option of the music player, and the
 // functions that read and write them.
 #pragma once
+#include "bars_presets.h"
 #include <filesystem>
 #include <iosfwd>
 #include <string>
@@ -128,6 +129,27 @@ struct Settings : VizPrefs {
     int visualizer_fluidity = 10;       // 1-10, higher = smoother/slower rise
     int visualizer_degradation_speed = 8; // 1 (slow fade) - 10 (near-instant), how fast bars fall after a drop
     int visualizer_viscosity = 3;       // 0 (bars move independently) - 10 (heavy neighbor blending)
+    // the Hi-Fi spectrum bars (hifi_bars.h): a style of the bars under the meta data, with three rows of its own
+    int hifi_fluidity = 10;             // the Hi-Fi style keeps its own three bar values (visualizer_* above are the Classic ones)
+    int hifi_degradation = 8;
+    int hifi_viscosity = 3;
+    int bars_style = 1;                 // 0 = classic, 1 = Hi-Fi (a braille column per frequency step, stereo)
+    int hifi_resolution = 0;            // 0 = fine (a band per dot column), 1 = rough (a band per two dot columns)
+    int hifi_channels = 0;              // 0 = stereo, 1 = mono
+    int hifi_fscale = 2;                // Hi-Fi frequency scale: 0 linear, 1 logarithmic, 2 mel, 3 bark, 4 erb
+    int hifi_gain = -2;                 // Hi-Fi gain in dB (-20 .. 20)
+    int hifi_range = 68;                // Hi-Fi range in dB from the bottom to the top (40 .. 100)
+    // The three bar values of the style in use (Classic: visualizer_*, Hi-Fi: hifi_*)
+    int& bar_fluidity() { return bars_style == 1 ? hifi_fluidity : visualizer_fluidity; }
+    int& bar_degradation() { return bars_style == 1 ? hifi_degradation : visualizer_degradation_speed; }
+    int& bar_viscosity() { return bars_style == 1 ? hifi_viscosity : visualizer_viscosity; }
+    int bar_fluidity() const { return bars_style == 1 ? hifi_fluidity : visualizer_fluidity; }
+    int bar_degradation() const { return bars_style == 1 ? hifi_degradation : visualizer_degradation_speed; }
+    int bar_viscosity() const { return bars_style == 1 ? hifi_viscosity : visualizer_viscosity; }
+    int hifi_adapt = 1;                 // Hi-Fi: the height adapts to the song (dense music is lowered more)
+    int hifi_split = 1;                 // Hi-Fi: an empty dot column between the two channels
+    int hifi_scale = 2;                 // Hi-Fi height: 0 full, 1 medium, 2 low, 3 very low
+    int hifi_color = 0;                 // 0 = gradient (left to right, the bar colours), 1 = corresponding (the spectrogram's colours by height)
     bool colors_palette = false;        // config.txt says ColorCodes=palette (colour numbers are palette numbers); false = an older file, converted on load
     std::string disk_color = "170";
     std::string disk_color_end = "30"; // empty = solid disk_color, no gradient
@@ -532,6 +554,7 @@ void apply_theme(Settings& s, const std::string& theme_name);
 
 // Default hotkey bindings — used when config.txt doesn't specify them.
 void apply_default_hotkeys(Settings& s);
+bool shares_shift_b(const std::string& a, const std::string& b);   // commands that may hold the same key (see settings.cpp)
 
 // Config file path and I/O. Uses config.txt format (: and == separators).
 // Falls back to reading legacy settings.txt if config.txt doesn't exist.

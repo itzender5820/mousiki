@@ -313,6 +313,12 @@ void apply_theme(Settings& s, const std::string& theme_name) {
 // Default hotkeys
 // =====================================================================
 
+// SHIFT+b: the bookmark in the audio book mode, the tag fetch inside the meta editor, the spectrum bars overlay everywhere else.
+bool shares_shift_b(const std::string& a, const std::string& b) {
+    auto in = [](const std::string& x) { return x == "HKeyBookmark" || x == "HKeyFetchTags" || x == "HKeyBarsMenu"; };
+    return a != b && in(a) && in(b);
+}
+
 void apply_default_hotkeys(Settings& s) {
     // Merged per-key (not "only if the whole map is empty") so that a
     // config.txt which only sets SOME hotkeys -- e.g. an older config
@@ -430,6 +436,7 @@ void apply_default_hotkeys(Settings& s) {
             // level, max boost, live). Uppercase on purpose -- plain "v" is
             // HKeyToggleNormalize, same convention as the other overlays.
             {"HKeyNormMenu",                    "V"},
+            {"HKeyBarsMenu",                    "B"},   // SHIFT+b: the spectrum bars' options (in the audio book mode the bookmark has this key)
             // Shift+E: the equaliser overlay (10 bands + presets). Uppercase
             // on purpose -- plain "e" is HKeyQueueAddEnd.
             {"HKeyEqualizer",                   "E"},
@@ -455,7 +462,8 @@ void apply_default_hotkeys(Settings& s) {
             // modifier combinations are written as names (ALT+L, CTRL+L, CTRL+SHIFT+Z, CTRL+SHIFT+U); on a Mac
             // "ALT" is the OPTION key.
             {"HKeyRescan",                      "R"},             // SHIFT+r: look for new files
-            {"HKeyFetchTags",                   "B"},             // SHIFT+b: AcoustID lookup of the hovered title
+            {"HKeyFetchTags",                   "B"},             // SHIFT+b inside the meta data editor: AcoustID lookup of the hovered title
+            {"HKeyBookmark",                    "B"},             // SHIFT+b in the audio book mode: a bookmark (the spectrum bars overlay has the key in the other modes)
 #if defined(__APPLE__)
             {"HKeyLyricsTiming",                "J"},             // lyrics timing overlay (SHIFT+j on a Mac: no OPTION key, which types special characters there)
 #else
@@ -527,6 +535,14 @@ void apply_default_hotkeys(Settings& s) {
                 if (!taken) sw->second = ")";
             }
         }
+        // Migration: SHIFT+b opens the spectrum bars overlay (the meta editor keeps it for the tag fetch, the audio book for the bookmark);
+        // the audio book bookmark got a command of its own (it was HKeyFetchTags); the user's own binding is kept.
+        {
+            auto ft = s.hotkeys.find("HKeyFetchTags");   // (it was the audio book's bookmark key too: that command has a key of its own now)
+            if (ft != s.hotkeys.end() && s.hotkeys.find("HKeyBookmark") == s.hotkeys.end()) s.hotkeys["HKeyBookmark"] = ft->second;
+            auto bm = s.hotkeys.find("HKeyBarsMenu");
+            if (bm != s.hotkeys.end() && bm->second == "Y") bm->second = "B";
+        }
         std::vector<std::string> added_now;   // commands that came with a newer version
         for (const auto& [action, key] : defaults) {
             // Only fill actions that are entirely absent from the config.
@@ -544,7 +560,7 @@ void apply_default_hotkeys(Settings& s) {
         // The same goes for the keys that became rebindable later (their old fixed key may have been given to another
         // action in the meantime, which could never fire: the fixed key was caught first).
         // Any command that is new to this config gets the same treatment: the user's own binding on that key wins.
-        std::vector<std::string> check = {"HKeyWizard", "HKeyRescan", "HKeyFetchTags", "HKeyLyricsTiming", "HKeyReadLyrics",
+        std::vector<std::string> check = {"HKeyWizard", "HKeyRescan", "HKeyFetchTags", "HKeyBookmark", "HKeyLyricsTiming", "HKeyReadLyrics",
                                           "HKeyQueueUndoClear", "HKeyQueueToPlaylist", "HKeyBulkAdd", "HKeyAddToPlaylist"};
         check.insert(check.end(), added_now.begin(), added_now.end());
         for (const std::string& name : check) {
@@ -552,6 +568,7 @@ void apply_default_hotkeys(Settings& s) {
             if (wiz != s.hotkeys.end() && !wiz->second.empty()) {
                 for (const auto& [action, key] : s.hotkeys) {
                     if (action == name || key != wiz->second) continue;
+                    if (shares_shift_b(action, name)) continue;   // one key, three places (the audio book, the meta editor, everywhere else)
                     // two commands that are both new keep their defaults (a fresh config); only the user's own key wins
                     if (std::find(added_now.begin(), added_now.end(), action) != added_now.end() &&
                         std::find(added_now.begin(), added_now.end(), name) != added_now.end()) continue;
@@ -881,6 +898,7 @@ static Settings load_from_config(const fs::path& path) {
             {"Visualizer", "Eliment_visualizer"},
             {"VisualizerFluidity", "visualizer_fluidity"}, {"DiskRotationSpeed", "disk_rotation_speed"},
             {"VisualizerDegradationSpeed", "visualizer_degradation_speed"}, {"VisualizerViscosity", "visualizer_viscosity"},
+            {"VisualizerStyle", "bars_style"}, {"HifiResolution", "hifi_resolution"}, {"HifiChannels", "hifi_channels"}, {"HifiColor", "hifi_color"}, {"HifiScale", "hifi_scale"}, {"HifiAdapt", "hifi_adapt"}, {"HifiFluidity", "hifi_fluidity"}, {"HifiDegradationSpeed", "hifi_degradation"}, {"HifiViscosity", "hifi_viscosity"}, {"HifiFrequencyScale", "hifi_fscale"}, {"HifiGain", "hifi_gain"}, {"HifiRange", "hifi_range"}, {"HifiSplit", "hifi_split"},
             {"LyricsAlignment", "lyrics_alignment"}, {"LyricsAnimation", "lyrics_animation"},
             {"UpperLeftCorner", "upper_left_corner"}, {"UpperRightCorner", "upper_right_corner"},
             {"BottomLeftCorner", "bottom_left_corner"}, {"LowerRightCorner", "lower_right_corner"},
@@ -1265,6 +1283,19 @@ static Settings load_from_config(const fs::path& path) {
         if (key == "visualizer_color_end") { if (!value.empty()) s.visualizer_color_end = normalize_color_value(value); continue; }
         if (key == "visualizer_fluidity") { try { s.visualizer_fluidity = std::clamp(std::stoi(value), 1, 10); } catch (...) {} continue; }
         if (key == "visualizer_degradation_speed") { try { s.visualizer_degradation_speed = std::clamp(std::stoi(value), 1, 10); } catch (...) {} continue; }
+        if (key == "bars_style") { const std::string v = trim_ws(unquote(value)); s.bars_style = (v == "hifi" || v == "hi-fi" || v == "1") ? 1 : 0; continue; }
+        if (key == "hifi_resolution") { const std::string v = trim_ws(unquote(value)); s.hifi_resolution = (v == "rough" || v == "1") ? 1 : 0; continue; }
+        if (key == "hifi_channels") { const std::string v = trim_ws(unquote(value)); s.hifi_channels = (v == "mono" || v == "1") ? 1 : 0; continue; }
+        if (key == "hifi_scale") { const std::string v = trim_ws(unquote(value)); s.hifi_scale = (v == "full" || v == "0") ? 0 : (v == "low" || v == "2") ? 2 : (v == "very low" || v == "3") ? 3 : 1; continue; }
+        if (key == "hifi_fscale") { const std::string v = trim_ws(unquote(value)); s.hifi_fscale = v == "linear" ? 0 : (v == "logarithmic" || v == "log") ? 1 : v == "bark" ? 3 : v == "erb" ? 4 : 2; continue; }
+        if (key == "hifi_gain") { try { s.hifi_gain = std::clamp(std::stoi(trim_ws(unquote(value))), -20, 20); } catch (...) {} continue; }
+        if (key == "hifi_range") { try { s.hifi_range = std::clamp(std::stoi(trim_ws(unquote(value))), 40, 100); } catch (...) {} continue; }
+        if (key == "hifi_fluidity") { try { s.hifi_fluidity = std::clamp(std::stoi(value), 1, 10); } catch (...) {} continue; }
+        if (key == "hifi_degradation") { try { s.hifi_degradation = std::clamp(std::stoi(value), 1, 10); } catch (...) {} continue; }
+        if (key == "hifi_viscosity") { try { s.hifi_viscosity = std::clamp(std::stoi(value), 0, 10); } catch (...) {} continue; }
+        if (key == "hifi_adapt") { const std::string v = trim_ws(unquote(value)); s.hifi_adapt = (v == "on" || v == "1") ? 1 : 0; continue; }
+        if (key == "hifi_split") { const std::string v = trim_ws(unquote(value)); s.hifi_split = (v == "remove" || v == "0") ? 0 : 1; continue; }
+        if (key == "hifi_color") { const std::string v = trim_ws(unquote(value)); s.hifi_color = (v == "corresponding" || v == "1") ? 1 : 0; continue; }
         if (key == "visualizer_viscosity") { try { s.visualizer_viscosity = std::clamp(std::stoi(value), 0, 10); } catch (...) {} continue; }
         if (key == "theme_name") { s.theme_name = value; continue; }
         if (key == "play_mode") { try { s.play_mode = std::clamp(std::stoi(value), 0, 4); } catch (...) {} continue; }
@@ -1945,6 +1976,19 @@ static void write_settings(std::ostream& out, const Settings& s) {
         << "## shuffle never reorders the queue: n and the end of a track play its next title, only # picks a random one of it\n";
     out << "VisualizerDegradationSpeed=" << s.visualizer_degradation_speed << "\n## 1 to 10\n";
     out << "VisualizerViscosity=" << s.visualizer_viscosity << "\n## 1 to 10\n";
+    out << "VisualizerStyle=" << (s.bars_style == 1 ? "hifi" : "classic") << "\n## classic , hifi -- the spectrum bars under the meta data: classic, or Hi-Fi (a braille column per frequency step, stereo, at the program's frame rate)\n";
+    out << "HifiResolution=" << (s.hifi_resolution == 1 ? "rough" : "fine") << "\n## fine , rough -- Hi-Fi: a band per dot column, or per two dot columns\n";
+    out << "HifiChannels=" << (s.hifi_channels == 1 ? "mono" : "stereo") << "\n## stereo , mono -- Hi-Fi: the left channel on the left and the right one on the right (bass in the middle), or one mix across the width\n";
+    out << "HifiScale=" << (s.hifi_scale == 0 ? "full" : s.hifi_scale == 2 ? "low" : s.hifi_scale == 3 ? "very low" : "medium") << "\n## full , medium , low , very low -- Hi-Fi: the height of the bars (the lower, the lower the middle levels; the peaks stay visible)\n";
+    out << "HifiFrequencyScale=" << (s.hifi_fscale == 0 ? "linear" : s.hifi_fscale == 1 ? "logarithmic" : s.hifi_fscale == 3 ? "bark" : s.hifi_fscale == 4 ? "erb" : "mel") << "\n## linear , logarithmic , mel , bark , erb -- Hi-Fi: the frequency scale of the bars\n";
+    out << "HifiGain=" << s.hifi_gain << "\n## -20 to 20 dB -- Hi-Fi: moves the levels up or down\n";
+    out << "HifiRange=" << s.hifi_range << "\n## 40 to 100 dB -- Hi-Fi: the range from the bottom to the top of the bars (smaller = steeper)\n";
+    out << "HifiFluidity=" << s.hifi_fluidity << "\n## 1 to 10 -- the Hi-Fi style keeps its own bar values (VisualizerFluidity ... are the Classic ones)\n";
+    out << "HifiDegradationSpeed=" << s.hifi_degradation << "\n## 1 to 10\n";
+    out << "HifiViscosity=" << s.hifi_viscosity << "\n## 0 to 10\n";
+    out << "HifiAdapt=" << (s.hifi_adapt == 1 ? "on" : "off") << "\n## on , off -- Hi-Fi: adapts the height to the song (dense, compressed music with a full frequency range is lowered more)\n";
+    out << "HifiSplit=" << (s.hifi_split == 0 ? "remove" : "add") << "\n## add , remove -- Hi-Fi: an empty dot column between the left and the right channel\n";
+    out << "HifiColor=" << (s.hifi_color == 1 ? "corresponding" : "gradient") << "\n## gradient , corresponding -- Hi-Fi: the bar colours from left to right, or the colours of the spectrogram by height\n";
     out << "LyricsAlignment=" << (s.lyrics_alignment == 1 ? "left" : s.lyrics_alignment == 2 ? "right" : "center") << "\n## center , left , right\n";
     {
         const char* anim_name = "full";
@@ -2189,6 +2233,7 @@ void copy_look(const Settings& src, Settings& dst) {
     MOUSIKI_LOOK(use_sphere); MOUSIKI_LOOK(viz_default); MOUSIKI_LOOK(element_visualizer); MOUSIKI_LOOK(waveform_smooth);
     for (int i = 0; i < 4; ++i) dst.viz_order[i] = src.viz_order[i];
     MOUSIKI_LOOK(meta_only); MOUSIKI_LOOK(visualizer_fluidity); MOUSIKI_LOOK(visualizer_degradation_speed); MOUSIKI_LOOK(visualizer_viscosity);
+    MOUSIKI_LOOK(bars_style); MOUSIKI_LOOK(hifi_resolution); MOUSIKI_LOOK(hifi_channels); MOUSIKI_LOOK(hifi_color); MOUSIKI_LOOK(hifi_scale); MOUSIKI_LOOK(hifi_adapt); MOUSIKI_LOOK(hifi_fluidity); MOUSIKI_LOOK(hifi_degradation); MOUSIKI_LOOK(hifi_viscosity); MOUSIKI_LOOK(hifi_fscale); MOUSIKI_LOOK(hifi_gain); MOUSIKI_LOOK(hifi_range); MOUSIKI_LOOK(hifi_split);
     MOUSIKI_LOOK(viz_style); MOUSIKI_LOOK(viz_bands); MOUSIKI_LOOK(viz_density); MOUSIKI_LOOK(disk_rotation_speed);
     // border characters
     MOUSIKI_LOOK(box_upper_left); MOUSIKI_LOOK(box_upper_right); MOUSIKI_LOOK(box_lower_left); MOUSIKI_LOOK(box_lower_right);

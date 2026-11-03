@@ -291,6 +291,7 @@ struct UiModel {
     double sleep_left = 0.0;        // seconds until it stops
     double sleep_fade_sec = 0.0;    // length of the fade-out of the running / selected timer (0 = fade off)
     int overlay_row = 0;
+    int bars_scroll = 0;            // overlay 10 (spectrum bars): the first row shown
     std::string update_latest, update_current, update_url;   // overlay 8: the new version, the one in use, the release page
     bool sort_az = false;         // SHIFT+t: the main STATIONS pane (and its search results) sorted by name A-Z instead of list order
     bool shuffle = true;          // station-surf mode shown in the small box next to SEARCH: true = "S" (shuffle), false = "L" (list); toggled with M

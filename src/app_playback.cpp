@@ -2,6 +2,7 @@
 // Part of class App (src/app.h): Loading and playing a track: the load worker, search, play next / previous, the queue and its playlists.
 // Split out of app.cpp; the includes are the same as there.
 #include "app.h"
+#include "hifi_bars.h"
 #include "text_edit.h"
 #include "overlay_common.h"
 #include "remote_server.h"
@@ -353,6 +354,7 @@ void App::poll_pending_load() {
     waveform_pending_ready_ = false;
     ++waveform_epoch_; // any waveform still being computed for the previous track is now stale
     last_lyrics_status_.clear();
+    hifi().reset();
     fft_.reset(); // don't let the previous track's spectrum tail linger into this one's first frame
     scope_.reset(); // ...and don't let the previous track's waveform linger in the oscilloscope either
 

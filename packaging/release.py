@@ -948,12 +948,50 @@ begin
   RegWriteExpandStringValue(Root, Key, 'Path', Paths);
 end;
 
+// Optional clean-up of the settings and cache FILES in USERPROFILE\.config\mousiki and \.cache\mousiki: only the files of
+// the types the program writes there (txt, bak, json, log, pcm) directly in those two folders. Every subfolder (history,
+// playlists, covers, ...) and every other file (e.g. tracks saved to the default download folder) is left alone.
+procedure DeleteSettingsFiles(Dir: String);
+var
+  FR: TFindRec;
+  E: String;
+begin
+  if not DirExists(Dir) then exit;
+  if FindFirst(Dir + '\*', FR) then
+  begin
+    try
+      repeat
+        if (FR.Attributes and FILE_ATTRIBUTE_DIRECTORY) = 0 then
+        begin
+          E := Lowercase(ExtractFileExt(FR.Name));
+          if ((E = '.txt') or (E = '.bak') or (E = '.json') or (E = '.log') or (E = '.pcm')) and (Lowercase(FR.Name) <> 'history.json') then
+            DeleteFile(Dir + '\' + FR.Name);
+        end;
+      until not FindNext(FR);
+    finally
+      FindClose(FR);
+    end;
+  end;
+  RemoveDir(Dir);   // only works when nothing is left in it
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  Home: String;
 begin
   if CurUninstallStep = usPostUninstall then
   begin
     RemoveFromPath(HKEY_CURRENT_USER, 'Environment');
     RemoveFromPath(HKEY_LOCAL_MACHINE, SysEnvKey);
+    Home := GetEnv('USERPROFILE');
+    if (Home <> '') and (not UninstallSilent) then
+      if MsgBox('Also delete the settings and cache files of Mousiki (.config\mousiki and .cache\mousiki in your user folder)?' + #13#10 + #13#10 +
+                'Your history, playlists and all other subfolders and music files stay where they are. Choose No to keep everything.',
+                mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+      begin
+        DeleteSettingsFiles(Home + '\.config\mousiki');
+        DeleteSettingsFiles(Home + '\.cache\mousiki');
+      end;
   end;
 end;
 """ % {"ver": version, "guid": APPID_GUID, "out": str(out_dir), "base": base_name, "stage": s, "lic": str(license_file), "manual_icon": manual_icon, "q3": '"' * 3, "q2": '"' * 2}

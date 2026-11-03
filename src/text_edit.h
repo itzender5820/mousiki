@@ -3,6 +3,7 @@
 // typo-tolerant search score. Used by the music player (src/app.cpp) AND the radio (src_radio/): one copy for both.
 #include <algorithm>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include "terminal_ui.h"
 #include "utf8_util.h"
@@ -177,6 +178,60 @@ inline size_t le_word_right(const std::string& s, size_t caret) {
     return i;
 }
 
+// ---- undo for text fields ---------------------------------------------------------------------------------------------
+// CTRL+z (and CTRL+y, the key that sits there on a QWERTZ keyboard) takes back the last change of the field that has the keyboard:
+// typed characters of one run count as one step, a deletion, a paste or a cut each as its own. The history belongs to the buffer
+// (kept by its address); when the text was changed from outside between two keys (another value loaded) it starts over.
+struct LeUndoStep { std::string text; size_t caret = 0; };
+struct LeUndoHist { std::vector<LeUndoStep> steps; std::string last; int kind = 0; };
+inline std::unordered_map<const void*, LeUndoHist>& le_undo_map() {
+    static std::unordered_map<const void*, LeUndoHist> m;
+    return m;
+}
+inline bool le_is_undo_key(int key) { return key == kKeyCtrlZ || key == 25; }   // 25 = the control byte of CTRL+y
+// For the editors that handle their keys by hand: records the change a key made when the scope ends (whatever way the handler returns).
+struct LeUndoScope {
+    const void* id; const std::string& buf; std::string before; size_t caret; int key;
+    LeUndoScope(const void* i, const std::string& b, size_t c, int k) : id(i), buf(b), before(b), caret(c), key(k) {}
+    ~LeUndoScope();
+};
+// An undo key: takes the last step back. Returns true when `key` was an undo key (consumed, changed or not); *changed tells if the text changed.
+inline bool le_undo_key(const void* id, std::string& buf, size_t& caret, size_t& anchor, int key, std::string* status, bool* changed = nullptr) {
+    if (changed) *changed = false;
+    if (!le_is_undo_key(key)) return false;
+    LeUndoHist& h = le_undo_map()[id];
+    if (h.last != buf) { h.steps.clear(); h.kind = 0; }
+    if (h.steps.empty()) { if (status) *status = "nothing to undo"; return true; }
+    LeUndoStep st = std::move(h.steps.back());
+    h.steps.pop_back();
+    buf = st.text;
+    caret = anchor = std::min(st.caret, buf.size());
+    h.last = buf;
+    h.kind = 0;
+    if (status) *status = "UNDONE";
+    if (changed) *changed = true;
+    return true;
+}
+// After a key was handled: records what it changed. `before` / `caret_before`: the field before the key. Characters typed one after the
+// other make one step; any other change (or a caret move in between) starts a new one.
+inline void le_undo_note(const void* id, const std::string& buf, const std::string& before, size_t caret_before, int key) {
+    LeUndoHist& h = le_undo_map()[id];
+    if (h.last != before) { h.steps.clear(); h.kind = 0; }
+    if (buf != before) {
+        const int kind = (is_text_key(key) && !last_key_was_arrow()) ? 1 : 2;
+        if (!(kind == 1 && h.kind == 1)) {
+            h.steps.push_back({before, caret_before});
+            if (h.steps.size() > 100) h.steps.erase(h.steps.begin());
+        }
+        h.kind = kind;
+    } else {
+        h.kind = 0;   // a caret move or a copy: the next typing is a new step
+    }
+    h.last = buf;
+}
+
+inline LeUndoScope::~LeUndoScope() { le_undo_note(id, buf, before, caret, key); }
+
 // One keystroke, every single-line text field in the app.
 //
 // Caret movement, Shift+arrows marking, Home/End, Ctrl+C/X/V and typing --
@@ -191,8 +246,8 @@ inline size_t le_word_right(const std::string& s, size_t caret) {
 // return false. `status` (nullable) receives the short feedback these keys
 // produce ("COPIED"/"CUT"/"PASTED"), because a box with no status line of
 // its own should not go silent on a copy.
-inline bool edit_text_key(std::string& buf, size_t& caret, size_t& anchor, int key,
-                          size_t limit, std::string* status) {
+inline bool edit_text_key_core(std::string& buf, size_t& caret, size_t& anchor, int key,
+                               size_t limit, std::string* status) {
     auto say = [&](const char* s) { if (status) *status = s; };
     // Modifier combinations arrive as their own sentinel values
     // (terminal_ui.h) precisely because the bare ones are already taken: an
@@ -236,6 +291,17 @@ inline bool edit_text_key(std::string& buf, size_t& caret, size_t& anchor, int k
     }
     if (is_text_key(key)) { le_insert(buf, caret, anchor, static_cast<char>(key), limit); return true; }
     return false;
+}
+
+inline bool edit_text_key(std::string& buf, size_t& caret, size_t& anchor, int key,
+                          size_t limit, std::string* status) {
+    bool changed = false;
+    if (le_undo_key(&buf, buf, caret, anchor, key, status, &changed)) return changed;   // CTRL+z / CTRL+y
+    const std::string before = buf;
+    const size_t caret_before = caret;
+    const bool r = edit_text_key_core(buf, caret, anchor, key, limit, status);
+    le_undo_note(&buf, buf, before, caret_before, key);
+    return r;
 }
 
 // (App::edit_focus() lives below, outside this anonymous namespace.)

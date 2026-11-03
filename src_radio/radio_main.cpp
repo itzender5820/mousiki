@@ -17,6 +17,7 @@
 // Later this becomes a mode of the main app: App would own a RadioEngine and call
 // render_radio_frame() instead of its own panels while radio mode is on. Nothing in
 // radio/ depends on App or Player, so that hook is the only coupling.
+#include "bars_rows.h"
 #include "translit.h"
 #include "utf8_util.h"
 #include <algorithm>
@@ -454,7 +455,7 @@ int radio_main(int argc, char** argv) {
         if (a2 == "onoff" || a2 == "anim" || a2 == "paths" || a2 == "ref" || a2 == "about") {   // --dump-settings onoff|anim|paths|ref|about [row [edit]]
             const bool anim = a2 == "anim", paths = a2 == "paths", ref = a2 == "ref", about = a2 == "about";
             sm.tab = about ? 5 : ref ? 4 : paths ? 3 : anim ? 2 : 1;
-            const int maxrow = about ? static_cast<int>(about_app_text().size()) : ref ? kKeyActionCount + 1 : paths ? kPathRowCount : anim ? kAnimRowCount : kOnOffRowCount;
+            const int maxrow = about ? static_cast<int>(about_app_text().size()) : ref ? kKeyActionCount + 1 : paths ? kPathRowCount : anim ? rs_row_count(2) : kOnOffRowCount;
             sm.row = std::clamp(argc > 3 ? std::atoi(argv[3]) : 0, 0, maxrow - 1);
             if (ref && argc > 4 && std::string(argv[4]) == "edit") { sm.editing = true; sm.buffer = "u"; sm.edit.to_end(sm.buffer); }
             if (paths && argc > 4 && std::string(argv[4]) == "edit") { sm.editing = true; sm.buffer = "/home/me/radio files"; sm.edit.to_end(sm.buffer); }
@@ -1714,7 +1715,7 @@ int radio_main(int argc, char** argv) {
                     sm.tab = (sm.tab + 1) % 6; sm.row = 0; sm.col = 0; sm.status.clear();
                     continue;
                 }
-                const int nrows = sm.tab == 1 ? kOnOffRowCount : sm.tab == 2 ? kAnimRowCount : sm.tab == 3 ? kPathRowCount : sm.tab == 4 ? kKeyActionCount + 1 : sm.tab == 5 ? static_cast<int>(about_app_text().size()) : color_tab_row_count();   // + the THEME and SMOOTHNESS rows
+                const int nrows = sm.tab == 1 ? kOnOffRowCount : sm.tab == 2 ? (rs_set_hifi_rows(cfg.bars_style == 1), rs_row_count(2)) : sm.tab == 3 ? kPathRowCount : sm.tab == 4 ? kKeyActionCount + 1 : sm.tab == 5 ? static_cast<int>(about_app_text().size()) : color_tab_row_count();   // + the THEME and SMOOTHNESS rows
                 // the Volume indicator row has two values (the look | gradient or not): the only row of the other tabs that keeps its column
                 const bool vol_row = (sm.tab == 1 || sm.tab == 2) && std::string(rs_row_label(sm.tab, sm.row)) == "Volume indicator";
                 auto fix_col = [&]() {
@@ -2002,6 +2003,22 @@ int radio_main(int argc, char** argv) {
                 if (k == 27 || k == key_of(cfg, "EqMenu")) { eq_close(); continue; }
                 if (k == 's' || k == 'S') { eq_begin_naming(cfg, eu); set_text_entry(true); continue; }
                 if (k == kKeyDelete || k == 'x' || k == 'X') { if (eq_delete_custom(cfg, eu, armed)) { ui.model.settings.dirty = true; settings_save(); } continue; }
+                continue;
+            }
+            if (ui.model.overlay == 10 && !ui.model.cheat_open) {  // spectrum bars options (SHIFT+b)
+                int& orow = ui.model.overlay_row;
+                const std::vector<int> brow = muisc::bars_rows(cfg);
+                const int bn = static_cast<int>(brow.size());
+                if (k == 3 || k == kKeyCtrlC) { ui.model.overlay = 0; settings_save(); running = false; continue; }
+                if (arrow) {
+                    if (k == 'A') orow = orow <= 0 ? bn - 1 : orow - 1;
+                    else if (k == 'B') orow = orow >= bn - 1 ? 0 : orow + 1;
+                    else if (k == 'C' || k == 'D') { muisc::bars_change(cfg, brow[static_cast<size_t>(std::clamp(orow, 0, bn - 1))], k == 'C' ? +1 : -1); ui.model.settings.dirty = true; }
+                    orow = std::clamp(orow, 0, std::max(0, static_cast<int>(muisc::bars_rows(cfg).size()) - 1));
+                    continue;
+                }
+                if (k == 27 || k == key_of(cfg, "BarsMenu")) { ui.model.overlay = 0; settings_save(); continue; }
+                if (k == 'r' || k == 'R') { muisc::bars_reset(cfg); ui.model.settings.dirty = true; orow = std::clamp(orow, 0, bn - 1); continue; }
                 continue;
             }
             if (ui.model.overlay == 6 && !ui.model.cheat_open) {   // spectrogram options (SHIFT+i)
@@ -2669,6 +2686,7 @@ int radio_main(int argc, char** argv) {
                     }
                     ui.model.settings.dirty = true;
                     break;
+                case 'B': ui.model.overlay = 10; ui.model.overlay_row = 0; ui.model.bars_scroll = 0; break;   // Shift+B: spectrum bars options
                 case 'I': ui.model.overlay = 6; ui.model.overlay_row = kSrStyle; break;   // Shift+I: spectrogram options
                 case 'U':                              // Shift+U: spectrogram full screen
                     ui.model.spectro_full = !ui.model.spectro_full;

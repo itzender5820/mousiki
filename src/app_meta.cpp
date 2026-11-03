@@ -200,20 +200,17 @@ void App::handle_meta_key(int key) {
         meta_prompt_ = MetaPrompt::Discard;
         return;
     }
-    // SHIFT+b for the hovered title -- raw 'B' with no arrow behind it (see
-    // handle_key()'s Browse branch for why this can't be a normal hotkey).
-    // Only fires while the current focus has no caret of its own to type
-    // into: the library picker (focus 1) and the whole of tab 1's fetch
-    // list, neither of which is a text field. On tab 0 with the search box
-    // (focus 0) or the field editor (focus 2) focused, a capital B must
-    // still be typable, so this hotkey is skipped there and 'B' falls
-    // through to the normal text-entry handling below instead.
+    // SHIFT+b (HKeyFetchTags) for the hovered title -- raw 'B' with no arrow behind it. Only while the focus has no caret of its own to
+    // type into: the library picker (focus 1) and the whole of tab 1's fetch list. In the search box and the field editor a capital B
+    // must stay typable.
     if (key_is("HKeyFetchTags", key) && (key > 255 || meta_tab_ == 1 || meta_focus_ == 1)) {
         std::string path = meta_hovering_path();
         if (path.empty()) meta_status_ = "no title selected";
         else meta_prompt_single_fetch(path, false);
         return;
     }
+    // SHIFT+c on the EDIT tab (library list): jump to the song that plays now, whatever was typed or filtered (all removed).
+    if (key == 'C' && !last_key_was_arrow() && meta_tab_ == 0 && meta_focus_ == 1) { meta_jump_to_current(); return; }
     // SHIFT+c on the Fetch List tab: stop the running fetch.
     if (key == 'C' && !last_key_was_arrow() && meta_tab_ == 1) { meta_cancel_fetch(); return; }
 
@@ -327,6 +324,7 @@ void App::handle_meta_key(int key) {
         if (key == 'f' && !arrow) {   // folder view on / off
             meta_folder_view_ = !meta_folder_view_;
             meta_folder_hover_.clear();
+            meta_lib_selected_ = 0;   // the view starts at the top again
             meta_status_ = meta_folder_view_ ? "folder view: on -- [a] on a folder queues all its titles, [ENTER] opens / closes it" : "folder view: off";
             return;
         }
@@ -432,6 +430,11 @@ void App::handle_meta_key(int key) {
         // bare ones are already taken here: a plain arrow press collapses to
         // the letter it would otherwise type, and a typed 'c' has to stay a
         // typed 'c' inside a word.
+        {   // CTRL+z / CTRL+y: undo (the history follows the field that is being edited)
+            bool undone = false;
+            if (le_undo_key(&edit_owner_, cur, edit_caret_, edit_anchor_, key, &meta_status_, &undone)) { if (undone) commit(); return; }
+        }
+        LeUndoScope undo_scope(&edit_owner_, cur, edit_caret_, key);
         if (key == kKeyHome) { edit_caret_ = edit_anchor_ = 0; return; }
         if (key == kKeyEnd) { edit_caret_ = edit_anchor_ = cur.size(); return; }
         if (key == kKeyShiftLeft) { le_move(cur, edit_caret_, edit_anchor_, -1, true); return; }
@@ -902,8 +905,58 @@ void App::build_meta_screen(std::ostringstream& frame, int W, int target_height)
     // the screen. total = fixed_rows + (panel_h + 2) + 3 must fit the
     // smaller of the two: 2 for the panel's own border rows, 5 for the
     // footer (four legend rows + status -- see where it's written below).
+    // The legend first: its height (4 rows, more when Move / Filter use a second row) decides how much is left for the panels.
+    // Left/Right and ESC say what they do RIGHT NOW: inside a text box
+    // that is in use they move the caret / leave the box, otherwise they
+    // switch the tab / close the editor (see handle_meta_key()).
+    const bool in_text = meta_tab_ == 0 && ((meta_focus_ == 2 && meta_field_editing_) || (meta_focus_ == 0 && text_engaged("meta-search")));
+    const std::string lr = in_text ? "[\u2190\u2192] Cursor" : "[\u2190\u2192] Tab";
+    const bool in_search = meta_tab_ == 0 && meta_focus_ == 0;
+    const std::string esc = in_search ? "[ESC] Clear/Exit\001Exit" : in_text ? "[ESC] Leave field" : "[ESC] Exit";
+    std::string enter_hint = "[ENTER] Edit";
+    if (meta_tab_ == 0 && meta_focus_ == 2) {
+        const MetaEditEntry* he = meta_entry(meta_hovering_path());
+        if (meta_field_ == kMetaFieldCount) enter_hint = "[ENTER] Cover Options\001Cover";
+        else if (meta_field_ > kMetaFieldCount) enter_hint = "[ENTER] Style Option\001Style";
+        else if (he && meta_field_ >= 0 && he->needs_choice(meta_field_)) enter_hint = "[ENTER] Choose";
+    }
+    // The legend is a small tree table: one row per group of commands (label | commands), joined by tree lines. Four rows
+    // on both tabs, so the footer always has the same height -- 4 legend rows + the status row -- and switching tabs or a
+    // message appearing never moves the panels. (A fetch confirmation replaces all of it; see the prompt branch.)
+    //   Move     moving around / working on the hovered title
+    //   Fetch    fetching tags (the same commands on both tabs)
+    //   View     the library view (EDIT tab) / the fetch list (FETCH LIST tab)
+    //   Session  save / discard / leave
+    // It adapts to the width: the commands of a row are spaced out while they fit and packed tighter, then the last ones
+    // are replaced by "..." when the terminal is narrow (the most important commands come first in every row).
+    std::vector<LegendGroup> groups;
+    const std::string rescan = "[" + hotkey_text("HKeyRescan", "R") + "] Rescan paths\001Rescan";
+    const std::string fetch_missing = "[" + hotkey_text("HKeyFetchTags", "B") + "] Fetch missing\001Missing";
+    if (meta_tab_ == 0) {
+        groups.push_back({"Move", {lr, "[TAB] Focus", "[\u2191\u2193] Navi.", "[SHIFT+\u2191\u2193] Page\001Page", "[CTRL+\u2191\u2193] Top/bottom\001Top/bot.", enter_hint, "[SHIFT+p] Play", "[SHIFT+c] Current song\001Current"}});
+        groups.back().max_lines = 2;   // Move: a second row when SHIFT+c and the others do not fit one (120 columns)
+        groups.push_back({"Fetch", {"[a] To list", "[SHIFT+f] All searched to fetch list\001Searched to list", "\002Single track\003", fetch_missing, "[SHIFT+n] (Re-)fetch all\001(Re-)fetch all"}});
+        groups.push_back({"Filter", {"[f] Folder view\001Folders", "[r] Recently edited first\001Edited", "[n] Recently added first\001Added", "[x/T/A/L/Y] Specific missing tags\001Missing", rescan, "[t] ASCII / Full Resolution\001ASCII/Full"}});
+        groups.back().max_lines = 2;   // Filter: two rows too, broken between two commands
+    } else {
+        LegendGroup mv{"Move", {meta_fetch_focus_ == 1 ? std::string("[\u2190\u2192] Option") : lr, "[TAB] Focus"}};
+        if (meta_fetch_focus_ == 1) mv.cmds.push_back("[SPACE] Tick");
+        mv.cmds.push_back("[\u2191\u2193] Navi.");
+        mv.cmds.push_back("[SHIFT+\u2191\u2193] Page\001Page");
+        mv.cmds.push_back("[CTRL+\u2191\u2193] Top/bottom\001Top/bot.");
+        mv.cmds.push_back("[SHIFT+p] Play");
+        groups.push_back(mv);
+        // \002...\003 marks a sub-heading: paint_legend_row() draws it in the header colour (the markers take no column)
+        groups.push_back({"Fetch", {"[ENTER] Fetch list\001Fetch list", "[SHIFT+c] Cancel fetch\001Cancel", "\002Single track\003", fetch_missing, "[SHIFT+n] (Re-)fetch all\001(Re-)fetch all"}});
+        groups.push_back({"List", {"[DEL] Remove", "[SHIFT+d] Empty list\001Empty", rescan}});
+    }
+    groups.push_back({"Session", {"[CTRL+s] Save", "[CTRL+SHIFT+x] Discard", esc}});
     int budget = std::min(target_height, term_rows_ - 1);
-    int panel_h = std::max(6, budget - fixed_rows - 7);
+    auto lrows = layout_legend_tree(groups, W - 1);
+    if (budget - fixed_rows - (2 + static_cast<int>(lrows.size()) + 1) < 8)   // a low terminal: no second legend rows, the panels keep their room
+        { for (auto& g : groups) g.max_lines = 1; lrows = layout_legend_tree(groups, W - 1); }
+    const int footer_rows = std::max(5, static_cast<int>(lrows.size()) + 1);   // the legend + the status row
+    int panel_h = std::max(6, budget - fixed_rows - (2 + footer_rows));
     meta_page_rows_ = std::max(1, panel_h - 3); // no upper cap: fills a maximised window (7 = 2 border rows + the 5-row footer)
     if (meta_tab_ == 0) {
         int left_w = W / 2;
@@ -949,7 +1002,7 @@ void App::build_meta_screen(std::ostringstream& frame, int W, int target_height)
         // Padded to the same five rows the legend footer always uses (four legend rows + the status row), so a
         // prompt appearing (or going away) can never change the height of
         // what sits above it.
-        while (lines.size() < 5) lines.push_back(std::string());
+        while (static_cast<int>(lines.size()) < footer_rows) lines.push_back(std::string());
         for (const auto& l : lines) {
             // The trailing row is reserved (so the footer never changes
             // height between a prompt and a hint/status), but a reserved
@@ -959,51 +1012,7 @@ void App::build_meta_screen(std::ostringstream& frame, int W, int target_height)
             else frame << colors << " " << l << " \x1b[0m\n";
         }
     } else {
-        // Left/Right and ESC say what they do RIGHT NOW: inside a text box
-        // that is in use they move the caret / leave the box, otherwise they
-        // switch the tab / close the editor (see handle_meta_key()).
-        const bool in_text = meta_tab_ == 0 && ((meta_focus_ == 2 && meta_field_editing_) || (meta_focus_ == 0 && text_engaged("meta-search")));
-        const std::string lr = in_text ? "[\u2190\u2192] Cursor" : "[\u2190\u2192] Tab";
-        const bool in_search = meta_tab_ == 0 && meta_focus_ == 0;
-        const std::string esc = in_search ? "[ESC] Clear/Exit\001Exit" : in_text ? "[ESC] Leave field" : "[ESC] Exit";
-        std::string enter_hint = "[ENTER] Edit";
-        if (meta_tab_ == 0 && meta_focus_ == 2) {
-            const MetaEditEntry* he = meta_entry(meta_hovering_path());
-            if (meta_field_ == kMetaFieldCount) enter_hint = "[ENTER] Cover Options\001Cover";
-            else if (meta_field_ > kMetaFieldCount) enter_hint = "[ENTER] Style Option\001Style";
-            else if (he && meta_field_ >= 0 && he->needs_choice(meta_field_)) enter_hint = "[ENTER] Choose";
-        }
-        // The legend is a small tree table: one row per group of commands (label | commands), joined by tree lines. Four rows
-        // on both tabs, so the footer always has the same height -- 4 legend rows + the status row -- and switching tabs or a
-        // message appearing never moves the panels. (A fetch confirmation replaces all of it; see the prompt branch.)
-        //   Move     moving around / working on the hovered title
-        //   Fetch    fetching tags (the same commands on both tabs)
-        //   View     the library view (EDIT tab) / the fetch list (FETCH LIST tab)
-        //   Session  save / discard / leave
-        // It adapts to the width: the commands of a row are spaced out while they fit and packed tighter, then the last ones
-        // are replaced by "..." when the terminal is narrow (the most important commands come first in every row).
-        std::vector<LegendGroup> groups;
-        const std::string rescan = "[" + hotkey_text("HKeyRescan", "R") + "] Rescan paths\001Rescan";
-        const std::string fetch_missing = "[" + hotkey_text("HKeyFetchTags", "B") + "] Fetch missing\001Missing";
-        if (meta_tab_ == 0) {
-            groups.push_back({"Move", {lr, "[TAB] Focus", "[\u2191\u2193] Navi.", "[SHIFT+\u2191\u2193] Page\001Page", "[CTRL+\u2191\u2193] Top/bottom\001Top/bot.", enter_hint, "[SHIFT+p] Play"}});
-            groups.push_back({"Fetch", {"[a] To list", "[SHIFT+f] All searched to fetch list\001Searched to list", "\002Single track\003", fetch_missing, "[SHIFT+n] (Re-)fetch all\001(Re-)fetch all"}});
-            groups.push_back({"Filter", {"[f] Folder view\001Folders", "[r] Recently edited first\001Edited", "[n] Recently added first\001Added", "[x/T/A/L/Y] Specific missing tags\001Missing", rescan, "[t] ASCII / Full Resolution\001ASCII/Full"}});
-        } else {
-            LegendGroup mv{"Move", {meta_fetch_focus_ == 1 ? std::string("[\u2190\u2192] Option") : lr, "[TAB] Focus"}};
-            if (meta_fetch_focus_ == 1) mv.cmds.push_back("[SPACE] Tick");
-            mv.cmds.push_back("[\u2191\u2193] Navi.");
-            mv.cmds.push_back("[SHIFT+\u2191\u2193] Page\001Page");
-            mv.cmds.push_back("[CTRL+\u2191\u2193] Top/bottom\001Top/bot.");
-            mv.cmds.push_back("[SHIFT+p] Play");
-            groups.push_back(mv);
-            // \002...\003 marks a sub-heading: paint_legend_row() draws it in the header colour (the markers take no column)
-            groups.push_back({"Fetch", {"[ENTER] Fetch list\001Fetch list", "[SHIFT+c] Cancel fetch\001Cancel", "\002Single track\003", fetch_missing, "[SHIFT+n] (Re-)fetch all\001(Re-)fetch all"}});
-            groups.push_back({"List", {"[DEL] Remove", "[SHIFT+d] Empty list\001Empty", rescan}});
-        }
-        groups.push_back({"Session", {"[CTRL+s] Save", "[CTRL+SHIFT+x] Discard", esc}});
         {
-            const auto lrows = layout_legend_tree(groups, W - 1);
             for (size_t i = 0; i < lrows.size(); ++i) frame << " " << paint_legend(settings_, lrows, i, border, 0, true) << "\n";
         }
         if (!meta_status_.empty()) frame << "\x1b[38;5;246m" << truncate_str(meta_status_, W) << "\x1b[0m\n";

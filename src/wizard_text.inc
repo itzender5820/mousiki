@@ -227,8 +227,8 @@ and overlays with their keys; [ENTER] opens the selected one.
 The main screen consists of five panes, which are discussed below. The focuse between the
 SEARCH, LOCAL AUDIO FILES and QUEUE can be changed via [TAB], where the [◀] is an indicator
 for the current focus. Commands that work no matter which pane is focused are [n] for next
-song in list and [b] song before current song in a list (with the focus in a LOCKED queue [b]
-plays the previously played queue song), [p] play/pause, [+/-] change
+song in list and [b] song before current song in a list (while a LOCKED queue has titles, in
+any pane, [b] plays the previously played queue song), [p] play/pause, [+/-] change
 volume, [x] mute, [SHIFT+n] to toggle if either the filename or the meta data track name
 is shown in the track lists, as well as all commands that open certain overlays (such as
 the settings, oscilloscope parameter overlay etc.).
@@ -553,6 +553,7 @@ Several sort options are available for the LIBRARY PANE:
 [r]         Show edited tracks first (highlighted in the same color as headers)
 [n]         Show recently added tracks first (newest files on top)
             The pane title shows what is active, e.g. [EDITED FIRST + MISSING TITLE].
+            After [f], [r], [x], [SHIFT+t/a/l/y] the list jumps to its top.
             [ESC] removes it step by step: first the filter, then [r]/[n], then leaves the pane.
 [x]         Show all tracks with NO META DATA
 [SHIFT+t]   Show all track with MISSING TITLE tag
@@ -563,8 +564,9 @@ NOTE: If [r] or [n] shows no titles, one of these filters may still be active - 
 hides all tracks that are not missing that tag. The bottom row then says
 "NOTE: [MISSING TITLE] filter active, hit [ESC] to clear filter". [ESC] clears it.
 
-FETCHING META DATA OF SINGLE TRACKS (POSSIBLE IN BOTH TABS)[[Header]]
-[SHIFT+b]   Fetch missing tags of a SINGLE TRACK
+FETCHING META DATA OF SINGLE TRACKS[[Header]]
+[SHIFT+b]   Fetch missing tags of a SINGLE TRACK (EDIT tab, library list)
+[SHIFT+c]   Jump to the song that plays now (search text and filters removed)
 [SHIFT+n]   Fetch all tags (again) of a SINGLE TRACK (overwrites existing tags)
 
 GENERAL BEHAVIOR OF META DATA EDITOR:[[Header]]
@@ -596,7 +598,8 @@ meta data is correct or not.
 
 FETCH META DATA FOR A SINGLE TRACK:[[Header]]
 Meta data can also be fetched for single highlighted tracks in the LIBRARY PANE[[Header]].
-Doing so via [SHIFT+b] only fetches missing tags. This can be done in the main screen list!
+Doing so via [SHIFT+b] only fetches missing tags. This works in the meta data menu only!
+The menu opens on the song that plays now (filters cleared).
 Using [SHIFT+n] fetches all tags, but only in the meta data menu. For a more detailed
 control over what is changed and not, add tracks to the fetch list and mark what category you
 want to be fetched via AcoustID/MusicBrainz (existing tags will be overwritten).
@@ -631,7 +634,12 @@ NAME: Choose a name for a playlist.
 SEARCH AND ADD: Use the search function to search for titles and add via [ENTER]
 COLUMNS: Filename (narrow) | Title | Artist | Album, in the library and in the track list. On the
 hovering row every too long column scrolls (Settings -> GENERAL -> Marquee Scrolling).
-SEARCH FOLDERS: Start the search with /f: (e.g. /f:abbey) to list the tracks of the matching folders.
+SEARCH FOLDERS: Start the search with /f: (e.g. /f:abbey): the matching folders are listed as folder rows,
+[ENTER] opens / closes one (its files hang indented below), [ENTER] on a file adds it.
+ADD A FOLDER: [SHIFT+a] adds the whole hovering folder (the folder of the hovering file in a normal search).
+UNDO ADD: [SHIFT+u] takes the last add back (a file or a whole folder), again and again.
+RESCAN: [SHIFT+r] looks for new files in the library. [SHIFT+a/u/r/t] work while nothing was typed in
+the search box yet (after typing: [ESC] first).
 SORT: [SHIFT+t] cycles the library sort: folder order, Filenames A-Z, Title A-Z, Artist A-Z,
 Album A-Z, Recently added (also for search results). Use it before typing, or after leaving the box with [ESC].
 REMOVE: Move the focus to the track list, choose and delete a track via [DEL/d]
@@ -651,7 +659,12 @@ PLAYLISTS TAB: [[Header]]
 SEARCH AND ADD TO QUEUE: Search and choose a playlist and hit [ENTER] to add to queue.
 EXPORT/IMPORT: Use [e/i] to import or export playlists in the M3U/M3U8 format. Playlists
 created with Mousiki are stored in its own format, but they can be exported in M3U/M3U8.
-DELETE PLAYLIST: Use [DEL/d] to delete a playlist.
+Both dialogs have a scope row: export: [Currently (filtered) list] writes every playlist the
+(filtered) list shows; import: [Whole folder] takes every file of the folder. Defaults: the "export" and "import" folders inside the playlist folder. Import
+never touches its files: a COPY goes to "imported_lists" in the playlist folder, which so holds
+only the given lists. FILTER: [c] shows only created playlists, [g] all given ones (playlist folder + imported_lists).
+)WIZ",
+R"WIZ(DELETE PLAYLIST: Use [DEL/d] to delete a playlist.
 
 [[New Page]]
 2.3.5 FILE CONVERSION [[Header]]
@@ -672,8 +685,7 @@ CHOOSE WHAT TO CONVERT: [[Header]]
 
 CHOOSE THE TARGET: [[Header]]
 [<-/->]          MP3 320 kbps, MP3 V0 (variable), MP3 192 kbps, AAC 256 kbps (.m4a), Opus 128 kbps
-)WIZ",
-R"WIZ(
+
 START: [[Header]]
 [ENTER] converts the marked files (the highlighted one when nothing is marked!), [c] cancels a
 running conversion, [CTRL+p] plays the highlighted file. [ESC] closes the overlay; a running
@@ -758,96 +770,126 @@ lyrics: sphere, oscilloscope, spectrogram or nothing.
 2.4.2 LYRICS RETRY, TIMING AND READING [[Header]]
 
 WRONG MATCH? RETRY:[[Header]]
-In case the lyrics don't fit, e.g. given a different version of a song witch alternative
-verses (not the timing!), lyrics can be refetched under a different query. This can be done
-via the command [l], which opens the retry form (also with the lyrics engine off: the lyrics
-are then kept for karaoke and reading).
-Fields:[[Header]] TITLE and ARTIST, FT (opt) = featured artist(s), added to the search as "ft. ...",
-plus ticks that help with edits whose timing differ by 
-concept from the original: slowed, ultra-slowed, sped up (these three exclude each other), 
-reverb, remix, other. [TAB]/[DOWN] next field, [UP] previous field, [SPACE] tick/untick, 
-[ENTER] fetch, [ESC] cancel. The text fields are normal text boxes (caret, [SHIFT+<-/->] marking,
-[CTRL+c/x/v]). Fetching lyrics again does not replace older version, as long 
-there had been timing adjustments or the lyrics differ. Lyrics can be deleted in the re-fetch
-form or in the read/translate lyrics overlay which can be accessed via [Ctrl+l] (see further
-below for details).
-The form opens with [l] in READ LYRICS (for the track that plays: start it with [p]) and in the
-karaoke mode as well. [ESC] or the fetch brings you back there, and READ LYRICS shows the new
-lyrics as soon as they are loaded.
-
-ADD LYRICS MANUALLY[[Header]]
-Before, own lyrics only worked by name: a file called exactly like the track (Song.mp3 -> Song.lrc) in the
-"lyrics" folder next to the track (an .lrc right next to the track is read too), copied and renamed by hand.
-The overlay does this for you, with any file name (.lrc or .txt) and for any track of the library, and it can be undone.
-You have a .lrc (or .txt) file of your own? [a] in READ LYRICS (also [CTRL+n]) opens an overlay with two
-search bars (left LYRICS FILE, right TRACK) and below each its result list. LYRICS FILE searches every lyrics folder of the library, subfolders included (or type the
-full path of a file). TRACK searches the library; its first entry is always "Current track". [TAB] goes
-search/list left, right, then to the button "Add chosen lyrics to chosen/current song" at the bottom;
-[UP]/[DOWN] pick, [ENTER] in a list LOCKS the highlighted entry in (shown in the header colour, with the
-locked-in panes and the lyrics the locked track has below the lists; the current track is locked in at the start),
-[ENTER] on the button adds (a file already added to the locked track by hand shows as locked in, with the note
+In case the lyrics don't fit, e.g. you got a different version of a song with other verses (not another
+timing!), they can be fetched again under a different query.
+[Open:][[Legend]]                     [l] opens the retry form: in READ LYRICS (for the track that plays: start it with
+                          [p]) and in karaoke mode. It also works with the lyrics engine off: the lyrics
+                          are then kept for karaoke and reading.
+[Fields:][[Legend]]                   TITLE and ARTIST, FT (opt) = featured artist(s), added to the search as "ft.
+                          ...". Normal text boxes: caret, [SHIFT+<-/->] marking, [CTRL+c/x/v].
+[Ticks:][[Legend]]                    For edits whose timing differs by concept from the original: slowed,
+                          ultra-slowed, sped up (these three exclude each other), reverb, remix, other.
+[Keys:][[Legend]]                     [TAB]/[DOWN] next field, [UP] previous field, [SPACE] tick / untick, [ENTER]
+                          fetch, [ESC] cancel. Both lead back to READ LYRICS, which shows the new lyrics as
+                          soon as they are loaded.
+[Older versions:][[Legend]]           Fetching again does not replace the older version as long as there were timing
+                          adjustments or the lyrics differ.
 )WIZ",
-R"WIZ("Added manually; hit DEL to unassign"), [ESC] closes. The overlay is a full-window screen with a bordered pane for each part (search fields, result lists, locked-in
-fields). [CTRL+t] (also while typing in a search field) switches the track list between artist - title and file names
-(the title of the pane says which one is on), [CTRL+f] shows only the tracks without saved lyrics,
-[CTRL+o] shows the locked-in lyrics file by the name of the file you picked (the copy remembers it) or by the name of the copy in the lyrics folder,
-[PgUp]/[PgDn] and [SHIFT+UP/DOWN] turn a page. A lyrics file opened with the search ([SHIFT+7] on a German keyboard, [/] on an English one) in the reader is locked in at once and its song (the track named like it) is the current track; only without such a file the playing song is. [CTRL+c] (anywhere) clears the choice: the lyrics file is unlocked and the current
-track is the locked track again. The lyrics in use so far are kept as an older
-version. [DEL] (twice) unassigns manually added lyrics of the locked-in track again: the file itself is
-not deleted, the previous lyrics come back. A re-fetch never replaces lyrics added by hand: the fetched ones are saved as an older version you can switch to. In karaoke mode [a] and in the re-fetch form [CTRL+n] open READ LYRICS with this overlay open.
+R"WIZ([Delete:][[Legend]]                   Lyrics can be deleted in the retry form or in the READ LYRICS overlay ([CTRL+l],
+                          see below).
+
+ADD LYRICS MANUALLY:[[Header]]
+Own lyrics used to work only by name (Song.mp3 -> Song.lrc in the "lyrics" folder next to the track, or
+right next to it). The overlay does this for you with any file name (.lrc or .txt), for any track of the
+library, and it can be undone.
+[Open:][[Legend]]                     [a] in READ LYRICS (also [CTRL+n]); in karaoke mode [a], in the retry form
+                          [CTRL+n]: they open READ LYRICS with this overlay open. A lyrics file opened with
+                          the search in the reader is locked in at once, and the track named like it
+                          becomes the current track.
+[Panes:][[Legend]]                    A full-window screen: two search bars (left LYRICS FILE, right TRACK) with a
+                          result list each, the locked-in panes and the lyrics the locked track has below.
+[LYRICS FILE:][[Legend]]              Searches every lyrics folder of the library, subfolders included (or type the
+                          full path of a file).
+[TRACK:][[Legend]]                    Searches the library; the first entry is always "Current track".
+[TAB:][[Legend]]                      Search / list left, right, then the button "Add chosen lyrics to chosen/current
+                          song" at the bottom.
+[UP DOWN:][[Legend]]                  Pick an entry. [PgUp]/[PgDn] and [SHIFT+UP/DOWN] turn a page.
+[ENTER in a list:][[Legend]]          LOCKS the highlighted entry in (header colour). The current track is locked in at
+                          the start.
+[ENTER on button:][[Legend]]          Adds. A file already added to the locked track by hand shows as locked in with
+                          the note "Added manually; hit DEL to unassign".
+[CTRL+t:][[Legend]]                   Track list: artist - title or file names (also while typing; the pane title says
+                          which one is on).
+[CTRL+f:][[Legend]]                   Shows only the tracks without saved lyrics.
+[CTRL+o:][[Legend]]                   Names the locked-in lyrics file like the file you picked (the copy remembers it)
+                          or like the copy in the lyrics folder.
+[CTRL+c:][[Legend]]                   Clears the choice (anywhere): the lyrics file is unlocked, the current track is
+                          the locked track again.
+[DEL (twice):][[Legend]]              Unassigns manually added lyrics of the locked-in track: the file itself stays,
+                          the previous lyrics come back.
+[ESC:][[Legend]]                      Closes.
+[Old lyrics:][[Legend]]               The lyrics in use so far are kept as an older version. A re-fetch never replaces
+                          lyrics added by hand: the fetched ones are saved as an older version you can
+                          switch to.
 
 LYRICS RUNNING EARLY OR LATE: THE TIMING OVERLAY[[Header]]
-[ALT+L] (macOS: [SHIFT+j]) opens the overlay, on both the main screen and in karaoke mode (only while synced 
+[ALT+L] (macOS: [SHIFT+j]) opens the overlay, on the main screen and in karaoke mode (only while synced
 lyrics are loaded). The lines move live while you adjust, so you can judge the offset by ear.
-[->] / [<-]       lyrics later / earlier by 0.1 s
-[UP] / [DOWN]     lyrics later / earlier by 0.5 s       [R] back to 0 (range +/- 120 s)
-[SHIFT + <-/->]   seek currently playling track back / forth 
-[ENTER] or [S]    save into the lyrics file of the track
-[ESC] or [ALT+L]  cancel, the old offset comes back
-A positive offset makes the lyrics appear later, so use it when they are too early. Saving writes
-a standard [offset:...] tag into the .lrc file, which other players understand too.
+[-> <-:][[Legend]]                    Lyrics later / earlier by 0.1 s.
+[UP DOWN:][[Legend]]                  Lyrics later / earlier by 0.5 s.
+[R:][[Legend]]                        Back to 0 (range +/- 120 s).
+[SHIFT+<-/->:][[Legend]]              Seek the playing track back / forth.
+[ENTER or S:][[Legend]]               Save into the lyrics file of the track: a standard [offset:...] tag, which other
+                          players understand too.
+[ESC or ALT+L:][[Legend]]             Cancel, the old offset comes back.
+[Hint:][[Legend]]                     A positive offset makes the lyrics appear later, so use it when they are too
+                          early.
 
 LYRICS NAME VARIANTS:[[Header]]
-When a lyrics search finds nothing (the first fetch and every refetch), Mousiki tries other spellings of
-the names, one after the other, and the status line says which one worked: the Latin-letters spelling it
-shows in the lists, the title or artist without their Latin or without their Japanese part (Lemon
-(レモン) becomes Lemon or レモン), and the title alone. This often finds lyrics that a mixed Latin /
-Japanese spelling misses; it costs time only when the first search finds nothing. Settings > GENERAL >
-TRANSLITERATION > Lyrics Name Variants (on by default) switches it off.
-FETCH CHECK:[[Header]] If lyrics, covers or the update notice stop working, run  mousiki --selftest-fetch
-in a terminal: it tests the lyrics sources, MusicBrainz / Cover Art Archive, GitHub, ffmpeg / yt-dlp and
-the pinned downloads and says OK / WARN / FAIL for each (--offline, --verify-pins and
---only lyrics,cover,update,tools,pins,scripts narrow it).
+[When:][[Legend]]                     A lyrics search (the first fetch and every re-fetch) finds nothing.
+[Then:][[Legend]]                     Mousiki tries other spellings of the names, one after the other, and the status
+                          line says which one worked: the Latin-letters spelling of the lists, the title or
+                          artist without their Latin or without their Japanese part (Lemon (レモン) becomes
+                          Lemon or レモン), and the title alone.
+[Cost:][[Legend]]                     Time only when the first search finds nothing. Settings > GENERAL >
+                          TRANSLITERATION > Lyrics Name Variants (on by default) switches it off.
+
+FETCH CHECK:[[Header]]
+[Command:][[Legend]]                  If lyrics, covers or the update notice stop working, run  mousiki
+                          --selftest-fetch  in a terminal: it tests the lyrics sources, MusicBrainz / Cover
+                          Art Archive, GitHub, ffmpeg / yt-dlp and the pinned downloads and says OK / WARN
+                          / FAIL for each (--offline, --verify-pins and --only
+                          lyrics,cover,update,tools,pins,scripts narrow it).
 
 READING AND TRANSLATING LYRICS:[[Header]]
-[CTRL+L] opens READ LYRICS (playing track, else the hovered one). It shows the lyrics fetched 
-so far and the translations and the text itseld. [TAB] switches between the two top panes, 
-[<-/->] chooses the file or the translation, the scrolling commands are [UP]/[DOWN] for a line,
-[SHIFT+↑/↓] (or [SPACE]/[b]) for a page and [HOME] / [END] for top/bottom. 
-[t] opens the translate overlay (service (Google / MyMemory), translate into, lyrics are in), 
-the command [ENTER] fetches. One translation is kept per language
-and per service: a Google and a MyMemory one live side by side,
-the same service again replaces only its own.
-[SHIFT+t] shows / cycles / hides translations (a translation that is there is shown at once),
-[d] or [DEL] deletes a translation.
-[SHIFT+7] (German keyboard) or [/] (English keyboard) searches every lyrics file of the library by
-name: type to filter, [UP]/[DOWN] pick, [ENTER] shows the file, [ESC] closes the search.
-[SHIFT+e] opens the translation editor: the original on the left, your own line on the right for
-every line of the lyrics (empty lines are skipped). [UP]/[DOWN]/[ENTER] change the line, [TAB] chooses
-the language, [CTRL+o] copies the original line, [CTRL+n] starts from scratch, [CTRL+s] saves,
-[ESC] closes. [SHIFT+UP/DOWN] marks whole lines: [CTRL+c/x/v] copy, cut and paste them, [DEL] clears
-them, [CTRL+z] undoes. [CTRL+t] switches the Latin letters (CTRL+2 too, but not every terminal sends it). Long lines are broken into rows. A machine translation that is edited is kept as it was: your version is saved as a new
-"Manual Translation" ("Manual Translation 2" ... for more), which the TRANSLATION pane lists.
-[e] exports the lyrics into the folder "export" inside the lyrics folder: the original only, or
-with the translation and / or the transliteration (Latin letters) below each line. If the
-kanji reader is still working, the overlay says so: wait, or press [ENTER] again to export now.
-[p] plays / pauses the track of the reader: while it plays, the lyrics are drawn like in the main
-view (active line, sung words, animation), the view scrolls along ([f] switches that off, any
-scrolling too), the translation of the active line is lit, [SHIFT+<-/->] seeks 5 s.
-[ALT+L] opens the lyrics timing overlay (shift the lyrics earlier / later, live; [ENTER] saves),
-only for the track that plays and has synced lyrics loaded.
-Fetching translations goes on in the background and may take a while; asking for another one 
-meanwhile then only gives a warning.
+[CTRL+L] opens READ LYRICS (playing track, else the hovered one): the lyrics fetched so far, the
+translations and the text itself.
+[TAB:][[Legend]]                      Switches between the two top panes.
+[<-/->:][[Legend]]                    Chooses the file or the translation.
+[Scrolling:][[Legend]]                [UP]/[DOWN] a line, [SHIFT+UP/DOWN] (or [SPACE]/[b]) a page, [HOME] / [END] top /
+                          bottom.
+[t:][[Legend]]                        Translate overlay (service Google / MyMemory, translate into, lyrics are in);
+                          [ENTER] fetches. One translation is kept per language and service: a Google and a
+                          MyMemory one live side by side, the same service again replaces only its own.
+                          Fetching goes on in the background; asking for another one meanwhile only gives a
+                          warning.
+[SHIFT+t:][[Legend]]                  Shows / cycles / hides translations (a translation that is there is shown at
+                          once).
+[d or DEL:][[Legend]]                 Deletes a translation.
+[SHIFT+7 or /:][[Legend]]             Search every lyrics file of the library by name ([SHIFT+7] on a German keyboard,
+                          [/] on an English one): type to filter, [UP]/[DOWN] pick, [ENTER] shows the file,
+                          [ESC] closes the search.
+[SHIFT+e:][[Legend]]                  Translation editor: the original on the left, your own line on the right for
+                          every line of the lyrics (empty lines are skipped). [UP]/[DOWN]/[ENTER] change
+                          the line, [TAB] chooses the language, [CTRL+o] copies the original line, [CTRL+n]
+                          starts from scratch, [CTRL+s] saves, [ESC] closes.
+[Editor: marking:][[Legend]]          [SHIFT+UP/DOWN] marks whole lines: [CTRL+c/x/v] copy, cut and paste them, [DEL]
+                          clears them, [CTRL+z] undoes. [CTRL+t] switches the Latin letters ([CTRL+2] too,
+                          but not every terminal sends it). Long lines are broken into rows.
+[Editor: result:][[Legend]]           A machine translation that is edited is kept as it was: your version is saved as
+                          a new "Manual Translation" ("Manual Translation 2" ... for more), which the
+                          TRANSLATION pane lists.
+[e:][[Legend]]                        Exports the lyrics into the folder "export" inside the lyrics folder: the
+                          original only, or with the translation and / or the transliteration (Latin
+                          letters) below each line. If the kanji reader is still working, the overlay says
+                          so: wait, or press [ENTER] again to export now.
+[p:][[Legend]]                        Plays / pauses the track of the reader: the lyrics are drawn like in the main
+)WIZ",
+R"WIZ(                          view (active line, sung words, animation), the view scrolls along ([f] switches
+                          that off, any scrolling too), the translation of the active line is lit,
+                          [SHIFT+<-/->] seeks 5 s.
+[ALT+L:][[Legend]]                    The lyrics timing overlay (shift the lyrics earlier / later, live; [ENTER]
+                          saves), only for the track that plays and has synced lyrics loaded.
 
 [[New Page]]
 2.4.3 KARAOKE MODE [[Header]]
@@ -890,8 +932,7 @@ WHAT IS IN THE CYCLE: [[Header]]
 A view that is switched off in the settings tab ANIMA/VIZ (Use Lyrics Engine, Use Oscilloscope,
 Use Spectrogram, Use Sphere) is skipped by [,/.]. The order of the views is set on the tab ANIMA/VIZ
 (Viz Order 1 to 4). The view Mousiki starts with is Lyrics/Viz Default on the same tab; [,/.] only
-)WIZ",
-R"WIZ(changes the visualizations while the program runs.
+changes the visualizations while the program runs.
 
 WHAT THEY SHOW: [[Header]]
 SPHERE:[[Header]] an audio-reactive sphere (uses same FFT band data as te spectrum strip below
@@ -972,7 +1013,8 @@ refresh rate (60, 120, 165 Hz ...):
 [)]   scope window            German keyboard SHIFT+9, English keyboard SHIFT+0
 [(]   spectrogram window      German keyboard SHIFT+8, English keyboard SHIFT+9
 With the waterfall chosen ([SHIFT+i], View) the spectrogram window shows it too, at the refresh rate of the
-monitor, the graphs gliding back smoothly.
+)WIZ",
+R"WIZ(monitor, the graphs gliding back smoothly.
 Spectrogram and waterfall, image and braille, each keep their own values (colors, scale, gain ...): switching
 View or Style in [SHIFT+i] brings that look's values in.
 In the window: [F] or [F11] switches to fullscreen, [T] always on top, [ESC] or [Q] close.
@@ -1020,8 +1062,7 @@ terminal on macOS / Windows).
 
 PREVIEW: [[Header]]
 The file plays in a loop and the XY scope (oscilloscope music) or the spectrogram shows it. It has its
-)WIZ",
-R"WIZ(own settings and does not change your [SHIFT+o] / [SHIFT+i] settings.
+own settings and does not change your [SHIFT+o] / [SHIFT+i] settings.
 [ESC] closes the preview and returns to the overlay; the song that played before comes back (from its start). [SPACE] pauses.
 
 [[New Page]]
@@ -1126,7 +1167,8 @@ System Default (name)    the output the system uses now (the default: nothing ch
 the devices              every sound output of this computer (speakers, headphones, HDMI, USB, Bluetooth)
 
 [UP]/[DOWN] pick, [ENTER] switches at once, [r] reads the list again (a headset that was just plugged
-in), [ESC] closes. The device in use is marked "in use".
+)WIZ",
+R"WIZ(in), [ESC] closes. The device in use is marked "in use".
 
 SWITCHING: [[Header]]
 A track that plays goes on at the same place on the new device (a paused one stays paused); the radio
@@ -1182,8 +1224,7 @@ HOW TO USE THEM: [[Header]]
 [2] (or [->])     go to TOP TRACKS
 [TAB]             move into the pane (a [◀] appears behind its title)
 arrow keys        pick a list; while the pane has the focus [<-/->] move between the columns
-)WIZ",
-R"WIZ([ENTER]           add that list to the end of the queue
+[ENTER]           add that list to the end of the queue
 [ESC] or [TAB]    back to the track list
 
 TIMES OF DAY: [[Header]]
@@ -1214,6 +1255,7 @@ opened the settings, paths included. While there are unsaved changes a note says
 TEXT EDITING, IN EVERY FIELD: [[Header]]
 [<-/->] caret            [SHIFT+<-/->] mark          [HOME] [END] jump
 [DEL] [BACKSPACE] delete [CTRL+c] [CTRL+x] [CTRL+v]  copy, cut, paste
+[CTRL+z] or [CTRL+y]  undo the last change (a typed run, a deletion or a paste is one step)
 [ENTER] confirm          [ESC] cancel the edit
 [TAB] and the arrows never leave a field that is being edited.
 
@@ -1277,7 +1319,8 @@ marquee.
 [MODES ON/OFF AND ORDER:][[Header]]
 [Use Music Player / Use Radio / Use Audio Books:][[Legend]]   false = the mode is left out of the [SHIFT and +] cycle;
                                                   one mode always stays on, the remaining mode set to true,
-                                                  when all others are turned off, can't be turned off...
+)WIZ",
+R"WIZ(                                                  when all others are turned off, can't be turned off...
 
 [Mode Order 1-3:][[Legend]]                                   sets the order of the cycle, just like Viz Order 1-4.
                                                   Picking a mode for a place swaps it with the place that
@@ -1313,8 +1356,7 @@ marquee.
 [Use Terminal Settings:][[Legend]]                            true = Mousiki leaves the terminal size as it is: Terminal
                                                   Size and Full Screen are ignored (they keep their values).
                                                   Default is false.
-)WIZ",
-R"WIZ(
+
 [Terminal Size:][[Legend]]                                    columns x rows (default 120 x 32, which shows 4 rows in
                                                   the list and the queue) Use [<-/->] to choose the field or
                                                   the [ Set back to default ] button, where [ENTER] makes
@@ -1375,7 +1417,8 @@ This category is only available in the audio book mode only...
 
 [Replace Emoji:][[Legend]]                                    All (default) = every emoji in a title is drawn as a ?
                                                   (a single one), so the frame borders stay aligned; Safe
-                                                  = plain emoji (note, radio, book ...) are kept and only
+)WIZ",
+R"WIZ(                                                  = plain emoji (note, radio, book ...) are kept and only
                                                   the risky ones (joined ones like the black cat, flags,
                                                   skin tones, red heart-style forms, keycaps) become ?;
                                                   Off = every emoji itself is drawn.
@@ -1412,8 +1455,7 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
 
 [Translit. Kanji:][[Legend]]                                  Leave (default) = characters that could be Japanese or
                                                   Chinese (東京) stay as they are; Chin. = read as Chinese
-)WIZ",
-R"WIZ(                                                  (pinyin); Jap. = read as Japanese (kept unless the
+                                                  (pinyin); Jap. = read as Japanese (kept unless the
                                                   optional kanji reader knows them). Same as
                                                   LatinHanziDefault in the config.txt.
 
@@ -1480,7 +1522,8 @@ R"WIZ(                                                  (pinyin); Jap. = read as
                                                   them), without them the same looks are drawn in braille
                                                   dots.
 [Cover Contrast:][[Legend]]                                   0% .. 100% in steps of 5%. Adds contrast to the cover,
-                                                  only where it is shown through the gradient or the disk
+)WIZ",
+R"WIZ(                                                  only where it is shown through the gradient or the disk
                                                   (Cover with Gradient, ASCII with Gradient, Cover behind
                                                   Disk looks; in the audio book mode with the Book Gradient
                                                   Wave on). Just Cover and all previews stay as they are; 0%
@@ -1508,8 +1551,7 @@ R"WIZ(                                                  (pinyin); Jap. = read as
                                                   Eclipse named cover, folder, front, albumart or album is
                                                   taken.
                                                   Folder First: the folder first (close name, then cover.jpg
-)WIZ",
-R"WIZ(                                                  and its like), the file's picture last
+                                                  and its like), the file's picture last
                                                   Within File First: inside the file; then only a closely
                                                   named picture of the folder (no cover.jpg)
                                                   Image in Folder Only: never looks inside the files
@@ -1553,6 +1595,33 @@ R"WIZ(                                                  and its like), the file'
 [On/Off:][[Legend]]                                           shows or hides the spectrum bars under the meta data
                                                   field.
 
+[Bars Style:][[Legend]]                                       Classic is the bar display as before. Hi-Fi is a stereo
+                                                  analyzer in braille dots without gaps, one dot column per
+                                                  frequency step, redrawn at the frame rate of the program
+                                                  (default: Hi-Fi).
+[Hi-Fi Resolution:][[Legend]]                                 (Hi-Fi only) Fine = a step per dot column, Rough = a step
+                                                  per two dot columns.
+[Hi-Fi Channels:][[Legend]]                                   (Hi-Fi only) Stereo or Mono (only for the display).
+[Hi-Fi Channel Gap:][[Legend]]                                (Hi-Fi only) Add or remove the empty dot column between
+                                                  the two channels (default: add).
+[Hi-Fi Height:][[Legend]]                                     (Hi-Fi only) Full, Medium, Low or Very low: Medium, Low
+                                                  and Very low keep the middle levels lower, the peaks
+                                                  still reach the top (default: Low).
+[Hi-Fi Adapt Height:][[Legend]]                               (Hi-Fi only) On = the height adapts to the song: dense,
+                                                  compressed music is bent down more (default: on).
+[Hi-Fi Frequency Scale:][[Legend]]                            (Hi-Fi only) linear, logarithmic, mel, bark or erb, as in
+                                                  the spectrogram options (default: mel).
+[Hi-Fi Gain (dB):][[Legend]]                                  (Hi-Fi only) -20 to 20, moves the levels up or down
+                                                  (default: -2).
+)WIZ",
+R"WIZ([Hi-Fi Range (dB):][[Legend]]                                 (Hi-Fi only) 40 to 100, the dB range from the bottom to
+                                                  the top of the bars; smaller = steeper (default: 68).
+[Hi-Fi Color:][[Legend]]                                      (Hi-Fi only) Gradient = left to right as set in the
+                                                  colours, Corresponding = the colours of the spectrogram.
+
+[Bars Behavior:][[Legend]]                                    a preset for the three rows below: lively, default,
+                                                  smooth or slow ("custom" when you changed a value).
+                                                  Classic and Hi-Fi keep their own values.
 [Bars Fluidity:][[Legend]]                                    sets the stiffness/friction of the bars moving up, where a
                                                   low value means the bars snap upwards instantly. The
                                                   higher the value, the softer the jump.
@@ -1564,6 +1633,14 @@ R"WIZ(                                                  and its like), the file'
                                                   viscosity. FOR
                                                   A SMOOTH WOBBLY LOOK: High fluidity, low degragation and
                                                   hight viscosity.
+
+[SHIFT+b:][[Legend]]                                          the SPECTRUM BARS OVERLAY with all these rows, in the
+                                                  music player and in the radio. It sits under the upper
+                                                  pane, so the bars stay visible while you change values;
+                                                  on a low terminal it gets a scroll bar. [UP/DOWN] select,
+                                                  [LEFT/RIGHT] change, [r] defaults, [SHIFT+b] / [ESC]
+                                                  close. In the audio book mode [SHIFT+b] sets a bookmark:
+                                                  use these Settings rows there.
 
 [PROGRESS WAVEFORM:][[Header]]
 [On/Off:][[Legend]]                                           shows or hides the braille waveform inside the progress
@@ -1596,7 +1673,7 @@ R"WIZ(                                                  and its like), the file'
 [LOCAL PATH][[Header]]                                        the folders scanned for music (several, plus "+ new path")
 [DOWNLOAD PATH][[Header]]                                     where [y] saves streams
 [PLAYLIST PATH][[Header]]                                     one folder for all playlists
-[PLAYLIST EXPORT PATH][[Header]]                              where [e] writes M3U8 / M3U
+[PLAYLIST EXPORT PATH][[Header]]                              where [e] writes M3U8 / M3U (empty: "export" folder)
 [HISTORY PATH][[Header]]                                      holds history.json
 [CONVERSION EXPORT PATH][[Header]]                            where converted files go
 [AUDIO BOOK PATH][[Header]]                                   One folder only, since books are sorted by book folders
@@ -1615,8 +1692,7 @@ visualizations, borders, play mode and sound are kept in audiobook_config.txt, a
 radio. Paths, hotkeys, the mode switches and the like are the same in all three modes (config.txt).
 Changing LOCAL PATH rescans at once. Changing the playlist or history folder copies what is there; nothing
 is moved or deleted. Changed folders only stick when you save with [s]. A warning will appear in case you
-)WIZ",
-R"WIZ(have unsaved changes.
+have unsaved changes.
 
 
 [[New Page]]
@@ -1653,7 +1729,8 @@ CONSOLE / LOGS: [[Header]]
 The top pane shows what the app has been doing: the commands it ran with their output (yt-dlp, ffmpeg,
 lyrics and cover fetches ...), sort and filter changes, queue messages, load timings and why a cover
 or a lyrics file was (not) found. It keeps the last 1500 lines of this session, and the end of the
-last session's log stands above them, after a line "the last session". The files are
+)WIZ",
+R"WIZ(last session's log stands above them, after a line "the last session". The files are
 ~/.cache/mousiki/logs/console.log and console_previous.log.
 
 STATUS MESSAGES: [[Header]]
@@ -1685,7 +1762,7 @@ are in it. Files added to your music folders meanwhile are found after [SHIFT+r]
 [q] (or [CTRL+c]) in the radio quits the program, both modes end.
 
 WHAT THE RADIO SHARES WITH THE PLAYER: [[Header]]
-Equalizer [SHIFT+e], oscilloscope [SHIFT+o] / [SHIFT+0], spectrogram [SHIFT+i] / [SHIFT+u], scope and
+Equalizer [SHIFT+e], oscilloscope [SHIFT+o] / [SHIFT+0], spectrogram [SHIFT+i] / [SHIFT+u], spectrum bars [SHIFT+b], scope and
 spectrogram windows [)] / [(], loudness normalization [v] / [SHIFT+v], sleep timer [SHIFT+z], text fields,
 the cheat sheet [?] and this wizard [SHIFT+w] work with the same keys and overlays as described in
 chapters 2.5 to 2.8. Differences: the radio keeps its own equalizer curve, oscilloscope values and
@@ -1772,8 +1849,7 @@ instead of duplicating it.[[Legend]]
 SEARCHING YOUR OWN STATIONS: [[Header]]
 [/] opens the search box under the frequency band. The STATIONS pane filters live as you type; 
 [ENTER] tunes the highlighted station and [ESC] clears the search.
-)WIZ",
-R"WIZ((a name, genre or country)   filters your stations
+(a name, genre or country)   filters your stations
 [s:]                         back to searching stations
 [p:]                         your saved STATION LISTS; [ENTER] fills the pane with that list and tunes
                              its first station
@@ -1810,7 +1886,8 @@ Lists are stored in stationlists.txt.
 KEYS IN THE STATION LISTS MENU: [[Header]]
 [TAB]           name > search > STATIONS > LIST CONTENTS
 [ENTER]         in STATIONS: add the station to the end of the list.
-                In LIST CONTENTS: tune it, to audition the list
+)WIZ",
+R"WIZ(                In LIST CONTENTS: tune it, to audition the list
 [4] / [5]       move the hovered station up / down
 [DEL] or [d]    remove it
 [SHIFT+t]       sort STATIONS: list order <-> name A-Z
@@ -1927,11 +2004,11 @@ Black Background, On air ascii,
 Pulse wave, Dummy buttons, Volume indicator (the look of the VOLUME BAR, like in the player),
 Spectrum Bars, Stereo sound, Normalize volume, Tuning noise (static while
 tuning, off by default and never recorded), Timeshift buffer (5 / 15 / 30 / 45 / 60 minutes),
-)WIZ",
-R"WIZ(Use oscilloscope / Use spectrogram.
+Use oscilloscope / Use spectrogram.
 
 ANIMA/VIZ: [[Header]]
-Gradient wave speed and Pulse wave speed (the ON AIR sign), Bars Fluidity / Degradation / Viscosity,
+Gradient wave speed and Pulse wave speed (the ON AIR sign), Bars Style with the Hi-Fi rows, Bars Behavior,
+Bars Fluidity / Degradation / Viscosity,
 Osci/sphere (osci / sphere / spectro / off) and Osci style (braille / image).
 
 [[New Page]]
@@ -1959,7 +2036,8 @@ THE FILES OF THE RADIO: [[Header]]
 radio_config.txt   settings, colors, equalizer, oscilloscope (keys as HKey<Action>= lines)
 stations.txt       your station list                    presets.txt       the presets and the active one
 stationlists.txt   the saved station lists              preset_names.txt  the short names of the PRESETS pane
-radio_history/     history_radio.txt and archive_radio.txt
+)WIZ",
+R"WIZ(radio_history/     history_radio.txt and archive_radio.txt
 All of them live in the config folder: ~/.config/mousiki/ (Windows: %USERPROFILE%\.config\mousiki\).
 
 [[New Page]]
@@ -2058,8 +2136,7 @@ File name, Book title, Author, Narrator, Chapter, Publisher, Year and Genre.
               to every chapter of the book; the chapter title stays each chapter's own. The chapter 
               number always goes in FRONT of the name (01 Dune, 02 Dune ...): the folder is sorted 
               by name, so the number keeps the track order whatever the titles are.
-)WIZ",
-R"WIZ(
+
 A number that is there already is not added twice; numbers at the END of every name (Dune 01) are moved 
 to the front of every file - the editor says why and asks [y] / [n] first. [s] puts the number in front 
 of the renamed chapter.Bookmarks, auto-mark, chapter marks and notes follow the new file names. 
@@ -2084,7 +2161,8 @@ Before the chapter changes ([n], [b], [ENTER] on another one), the mode switches
 question asks "Set a bookmark here?" with the exact time: [y]/[ENTER] yes, [n] no, [ESC] stay.
 The audio is paused while the question is open. Settings -> GENERAL -> BOOKMARKS -> Ask for Bookmark 
 turns it off, since it can become annoying and auto-mark is always on anyways.
-
+)WIZ",
+R"WIZ(
 [ENTER] on a chapter that was left but not bookmarked asks "Do you want to continue where you left?":
   [y] Continue there (the only answer that starts the chapter)   
   [n] Leave, keep the auto-mark, nothing is played
@@ -2187,8 +2265,7 @@ with the time inside that part (a note at 0:25:00, a chapter starting at 0:10:00
 of the new chapter).
 
 [[New Page]]
-)WIZ",
-R"WIZ(5.1.1 REMOTE CONTROL AND KEY BINDINGS [[Header]]
+5.1.1 REMOTE CONTROL AND KEY BINDINGS [[Header]]
 
 A running player or radio can be controlled with the same program:
   mousiki --cmd next | prev | play-pause | pause | stop | shuffle | mute | live  
@@ -2222,7 +2299,8 @@ PHONE BROWSER: [[Header]] open the address and enter the PIN.
 The phone shows the disk, the meta data, the progress bar, the dummy buttons (working: seek,
 play/pause) and boxes for prev, random, next, volume, mute, playback mode, LISTS and manual --
 drawn by Mousiki in the colours of your theme. In the radio: the ON AIR sign, the station,
-prev/next station, pause, live, stop.
+)WIZ",
+R"WIZ(prev/next station, pause, live, stop.
 
 LISTS (player): on top the local list (tap a title: it plays), below the saved playlists (tap one: its titles
 go into the queue, starts it when nothing plays). A tap on the other list gives it the focus; UP / DOWN

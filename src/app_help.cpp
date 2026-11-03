@@ -59,7 +59,7 @@ bool App::wizard_allowed_over_mode() const {
         case Mode::Settings:    return theme_ui_ == 0 && leave_prompt_ == 0;   // not in the theme editor or a question
         case Mode::Cheatsheet:  return !cheat_searching_;                      // the search field takes typed text
         case Mode::Console: case Mode::History: case Mode::ReadLyrics:
-        case Mode::OsciMenu: case Mode::NormMenu: case Mode::SpectroMenu: case Mode::SleepTimer: case Mode::MenuIndex:
+        case Mode::OsciMenu: case Mode::NormMenu: case Mode::BarsMenu: case Mode::SpectroMenu: case Mode::SleepTimer: case Mode::MenuIndex:
         case Mode::LyricsEdit: case Mode::Karaoke:
             return true;
         case Mode::Equalizer:   return !eq_naming_;                            // the "Save as:" prompt takes typed text
@@ -196,7 +196,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "HKeyCyclePlayMode", "Play mode: on to the next chapter / repeat the chapter / stop after the chapter"},
         {nullptr, "HKeySearch", "Search the books (fuzzy, over the folder names); ESC shows all books again; in the chapter pane ESC goes back to the library pane; inside a folder of the library pane ESC and LEFT go one step up"},
         {nullptr, "HKeyRescan", "Scan the audio book folder again (new books and chapters)"},
-        {nullptr, "HKeyFetchTags", "Audio book: set a bookmark at the exact time - a book may carry many (the last bookmarked chapter is lit in the header colour). Three kinds of time stamps: the auto-mark (kept by itself while you listen), bookmarks and notes (a bookmark with a text)"},
+        {nullptr, "HKeyBookmark", "Audio book: set a bookmark at the exact time - a book may carry many (the last bookmarked chapter is lit in the header colour). Three kinds of time stamps: the auto-mark (kept by itself while you listen), bookmarks and notes (a bookmark with a text)"},
         {nullptr, "#CTRL+SHIFT+u", "Audio book: undo the last deletion of a bookmark, note or auto-mark (up to 30; also in the SHIFT+k list and the notes overlay)"},
         {nullptr, "#d", "Audio book: in the chapter pane [d] deletes the bookmark of the chosen chapter (a small question first; CTRL+SHIFT+u undoes it)"},
         {nullptr, "HKeyToggleMetaOnly", "Audio book: write a note at the current time (title, then text in the field; CTRL+SHIFT+s saves; ESC stops typing, then SHIFT+s saves)"},
@@ -211,7 +211,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {"PLAYBACK (MAIN UI)", "HKeyPlay", "Play the selected track"},
         {nullptr, "HKeyTogglePlayPause", "Play / pause"},
         {nullptr, "HKeyPlayNextSong", "Play next in list/queue"},
-        {nullptr, "HKeyPlayPreviousSong", "Play previous in list (queue pane, locked queue: previous queue song)"},
+        {nullptr, "HKeyPlayPreviousSong", "Play previous in list (a locked queue with titles, any pane: previous queue song)"},
         {nullptr, "HKeyShuffleNext", "Shuffle to a random next track"},
         {nullptr, "HKeyCyclePlayMode", "Cycle play mode (list/repeat/shuffle/stop/queue then stop)"},
         {nullptr, "HKeySeekForward", "Seek forward 5s"},
@@ -220,6 +220,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "HKeyDecreaseVolume", "Volume down"},
         {nullptr, "HKeyToggleMute", "Mute (without pausing)"},
         {"SOUND (MAIN UI)", "HKeyToggleNormalize", "Toggle loudness normalization"},
+        {nullptr, "HKeyBarsMenu", "Spectrum bars overlay (music player and radio, under the upper pane; scrolls when the terminal is low; in the audio book mode SHIFT+b is the bookmark, use Settings there): style, Hi-Fi resolution / channels / gap / height / frequency scale / gain / range / colour, bar motion (toggle; [R] defaults)"},
         {nullptr, "HKeyNormMenu", "Normalization overlay: on/off, target level, max boost live (toggle)"},
         {nullptr, "#UP/DOWN  LEFT/RIGHT", "Normalization overlay: pick a value / change it   [SPACE] on/off   [R] reset   [ESC] close"},
         {"SLEEP TIMER (MAIN UI)", "HKeySleepTimer", "Sleep timer overlay: pause after 15/30/60/90/120 min (optional fade-out over the last 10 %) or stop after this song (toggle)"},
@@ -276,8 +277,8 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "#LEFT/RIGHT  UP/DOWN", "Lyrics timing overlay: -/+ 0.1 s / -/+ 0.5 s   [R] reset   [ENTER] save to the .lrc   [ESC] cancel"},
         {nullptr, "HKeyReadLyrics", "READ LYRICS: the saved lyrics of the playing (else hovered) track as plain text; two top lines list the lyrics files (embedded / fetched / older) and the saved translations, which are shown in ( ) below each line"},
         {nullptr, "HKeySearch", "READ LYRICS: search EVERY lyrics file by name (all lyrics folders of the library) instead of the playing track's lyrics: type to filter, UP/DOWN pick, ENTER shows the file, ESC closes the search (CTRL+L opens the playing track's lyrics again)"},
-        {nullptr, "#a  CTRL+n", "ADD LYRICS MANUALLY: assign a .lrc / .txt file to a track by hand. Two search bars with a result list each: the lyrics files (all lyrics folders, subfolders too, or a typed path) and the library tracks (first entry: Current track). TAB goes list / list / the button at the bottom, ENTER in a list locks the highlighted entry in (current track by default), ENTER on the button adds, CTRL+c clears the choice, CTRL+t toggles file names in the track list, CTRL+f only tracks without lyrics, CTRL+o original / copy name of the locked file, PgUp/PgDn turn a page, DEL (twice) unassigns manually added lyrics again (the file stays). ESC closes. [a] in READ LYRICS and karaoke, CTRL+n also in the re-fetch form; the old lyrics are kept as an older version"},
-        {nullptr, "#LEFT/RIGHT  TAB  UP/DOWN  t  SHIFT+t  d  e", "READ LYRICS: choose the file / translation, TAB switches the pane, scroll (SPACE, b, HOME, END too)   [t] translate overlay (ENTER fetches)   [SHIFT+t] show / next / hide translations   [d] delete a translation   [SHIFT+e] edit / add a translation by hand (saved as Manual Translation, Manual Translation 2 ...; TAB language, CTRL+o copy original line, CTRL+n from scratch, SHIFT+UP/DOWN mark whole lines (CTRL+c/x/v, DEL, CTRL+z), CTRL+t (or CTRL+2) Latin letters, CTRL+s save)   [e] export the lyrics (original, + translation, + transliteration) into lyrics/export   [ESC] close"},
+        {nullptr, "#a  CTRL+n", "ADD LYRICS MANUALLY: assign a .lrc / .txt file to a track by hand (the overlay legend lists its keys); [a] in READ LYRICS and karaoke, CTRL+n also in the re-fetch form; the old lyrics are kept as an older version"},
+        {nullptr, "#LEFT/RIGHT  TAB  UP/DOWN  t  SHIFT+t  d  e", "READ LYRICS: choose the file / translation, TAB switches the pane, scroll   [t] translate   [SHIFT+t] show / next / hide translations   [d] delete a translation   [SHIFT+e] edit / add a translation by hand   [e] export the lyrics into lyrics/export   [ESC] close (the overlay legend lists the rest)"},
         {nullptr, "HKeyKaraoke", "Karaoke overlay: the lyrics over the whole screen, sung words highlighted (toggle; fetches the lyrics even with the lyrics engine off; playback keys keep working)"},
         {nullptr, "#@KARAOKESIZE", "Karaoke overlay: lyrics bigger / smaller, sizes 1-5 (saved when the overlay closes)"},
         // --- Search ---
@@ -311,17 +312,20 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "#LEFT/RIGHT", "Switch tab (Create/Edit vs Saved Playlists); inside a name / search field after typing: move the caret"},
         {nullptr, "#ESC", "Leave the field you typed in (LEFT/RIGHT switch tabs again); outside a field: close (asks to save unsaved changes)"},
         {nullptr, "#" MUISC_ALT_NAME_UC "+LEFT/RIGHT", "Switch tab from anywhere, also while typing"},
-        {nullptr, "#TAB", "Cycle focus (name field / library picker / track list)"},
+        {nullptr, "#TAB", "Cycle focus (name field / library picker / track list); ENTER on the name field opens its edit mode (CHANGE colours), LEFT/RIGHT switch the tab until then"},
         {nullptr, "#SHIFT+'  (\" key)", "Latin letters on / off (Japanese, Korean, Chinese text shown in Latin letters), also while typing; the Hotkeys setting HKeyTranslit decides the key"},
         {nullptr, "#UP/DOWN", "Navigate the focused list/picker (fixed arrow keys)"},
         {nullptr, "#ENTER", "Add hovering track to playlist / load selected playlist"},
-        {nullptr, "#e", "Saved Playlists tab: export the hovered playlist as M3U8 (default) or M3U -- overlay with folder and format"},
-        {nullptr, "#i", "Saved Playlists tab: import .m3u / .m3u8 files from a folder (default: export/playlist folder) -- SPACE marks, a marks all"},
+        {nullptr, "#e", "Saved Playlists tab: export the hovered playlist, or with the scope Currently (filtered) list every playlist the (filtered) list shows, as M3U8 (default) or M3U -- overlay with folder, format, scope (default folder: export, inside the playlist folder)"},
+        {nullptr, "#i", "Saved Playlists tab: import .m3u / .m3u8 files from a folder (default: import, inside the playlist folder) -- SPACE marks, a marks all, scope Whole folder; the files stay, a copy goes to imported_lists"},
+        {nullptr, "#c / g", "Saved Playlists tab: filter the list: c = only the playlists created here (the playlist folder), g = all given: the playlist folder and imported_lists together (the export and import folders are never listed); the same key again = back"},
+        {nullptr, "#SHIFT+r / SHIFT+a / SHIFT+u", "Library picker (box not typed into yet): rescan the library / add the whole hovering folder / undo the last add; with /f: the folders are rows, ENTER opens / closes one"},
         {nullptr, "#4 / 5", "Move the hovering track up/down"},
         {nullptr, "#D / DEL / BACKSPACE", "Remove hovering track / delete selected playlist"},
         {nullptr, "#CTRL+s", "Save the playlist"},
         {nullptr, "#SHIFT+LEFT/RIGHT", "Mark text (name / search fields)"},
         {nullptr, "#CTRL+C/X/V", "Copy / cut / paste text"},
+        {nullptr, "#CTRL+z / CTRL+y", "Undo the last change in a text box (typed run / deletion / paste = one step each; both keys, as CTRL+z sits on the y key of a QWERTZ keyboard)"},
         // --- Meta editor -- same deal: HKeyMetaEditor opens it, everything
         // else is build_meta_screen()'s own fixed legend (both tabs).
         {"META EDITOR", "HKeyMetaEditor", "Meta editor: edit file name / artist / title / album / year; the cover of the track below the tags, [Cover Options] to choose / delete / search a cover"},
@@ -338,7 +342,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         // --- Cover fetch: opened with its own key, runs in the same two-tab frame ---
         {"COVER FETCH (MAIN UI)", "HKeyCoverFetch", "Cover fetch overlay: album library (missing / one / several covers), fetch the front covers from MusicBrainz / Cover Art Archive into fetched_covers folders (an extra overlay, because MusicBrainz often misjudges album titles)"},
         {nullptr, "HKeyStyleOptions", "Style Option overlay of the track that plays (cover look, contrast, brightness, colors; the same overlay as the meta editor's Style Option button, shown on its own); [m] goes on to the meta data of that song, ESC closes it"},
-        {"META EDITOR: LIBRARY PANE", "#f", "Meta editor (library pane): folder view on / off -- files grouped by folder, numbered per folder; [a] on a folder header adds the whole folder to the fetch list, ENTER closes / opens it"},
+        {"META EDITOR: LIBRARY PANE", "#f", "Meta editor (library pane): folder view on / off (like r, n, x and SHIFT+t/a/l/y: the view moves to the top of the list) -- files grouped by folder, numbered per folder; [a] on a folder header adds the whole folder to the fetch list, ENTER closes / opens it"},
         {nullptr, "#r", "Meta editor: toggle edited files on top of the library pane"},
         {nullptr, "#n", "Meta editor (library pane): toggle recently added files first"},
         {nullptr, "#x, SHIFT+/t/a/l/y", "Filter + sort the library pane by missing metadata: x = missing any, SHIFT+t = title, SHIFT+a = artist, SHIFT+l = album, SHIFT+y = year (same order as the fields)"},
@@ -347,7 +351,8 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "#SHIFT+f", "Meta editor (library pane): add the full list -- every title the pane shows now (search and missing-tag filter applied) -- to the fetch list"},
                 {nullptr, "#TAB  LEFT/RIGHT  SPACE (Fetch List)", "Meta editor, Fetch List tab: TAB moves between the list and the fetch option line; LEFT/RIGHT move over the boxes, SPACE ticks one (missing only / all exclude the rest; the tag boxes combine); ENTER fetches the full list"},
         {nullptr, "#UP/DOWN  ENTER  DEL/d  ESC", "Meta editor choice overlay: select / take it / discard the fetched value and all options / close"},
-        {nullptr, "HKeyFetchTags", "Meta editor / main list: fetch the missing tags (empty ones only) of the hovered title (AcoustID)"},
+        {nullptr, "HKeyFetchTags", "Meta editor (library list / Fetch List tab): fetch the missing tags (empty ones only) of the highlighted title (AcoustID)"},
+        {nullptr, "#SHIFT+c", "Meta editor, EDIT tab (library list): jump to the song that plays now; the search text and the filters are removed"},
         {nullptr, "#SHIFT+n", "Meta editor (library pane / fetch list): fetch ALL tags of the hovered title, overwriting existing ones"},
         {nullptr, "#SHIFT+c", "Meta editor, Fetch List tab: cancel the running AcoustID fetch (what had arrived stays as pending edits, the rest stays on the list). Leaving the editor does not stop a fetch; quitting does"},
         {nullptr, "HKeyRescan", "Rescan the library (new files); also in the meta data editor (library pane / fetch list focused)"},

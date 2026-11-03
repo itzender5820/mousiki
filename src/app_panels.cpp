@@ -2,6 +2,7 @@
 // Part of class App (src/app.h): The panels of the main screen: metadata, progress bar, search bar, list and queue.
 // Split out of app.cpp; the includes are the same as there.
 #include "app.h"
+#include "hifi_bars.h"
 #include "text_edit.h"
 #include "overlay_common.h"
 #include "remote_server.h"
@@ -311,7 +312,10 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
         // switched off). Nothing below can ever reach past this line, so the
         // spectrum is never overwritten, shifted or pushed -- whatever the
         // tags look like.
-        const int last_meta_row = (settings_.element_visualizer ? panel_h - 2 : panel_h) - 1;
+        // (Hi-Fi bars are up to four rows high: as many as the meta data leave, at least two)
+        const bool hifi_bars = settings_.element_visualizer && settings_.bars_style == 1;
+        const int viz_rows = !settings_.element_visualizer ? 0 : hifi_bars ? std::clamp(panel_h - 11, 2, 4) : 2;
+        const int last_meta_row = panel_h - viz_rows - 1;
         // `marquee_slot` >= 0: the value always takes exactly one row and, when
         // it is wider than the column, scrolls through it (Name / Artist /
         // Album). Otherwise it wraps over up to `max_lines` rows, but only as
@@ -423,7 +427,31 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
         // (0-4), top row is whatever's left over above that (0-4) so
         // taller peaks build upward — attached to the panel's bottom row
         // per instruction, with the second row directly above it.
-        if (settings_.element_visualizer) {
+        if (hifi_bars) {
+            // the Hi-Fi style: a stereo spectrum, a braille dot column per frequency step, at the frame rate of the program
+            const int viz_w = std::min(meta_w, show_viz ? 48 : 96);
+            bars = fft_.compute_bars(48, viz_dt_);   // (the sphere below uses the classic bars)
+            HifiView hv;
+            hv.cells = viz_w; hv.rows = viz_rows; hv.resolution = settings_.hifi_resolution; hv.channels = settings_.hifi_channels;
+            hv.color = settings_.hifi_color; hv.scale = settings_.hifi_scale; hv.adapt = settings_.hifi_adapt; hv.fscale = settings_.hifi_fscale; hv.gain = settings_.hifi_gain; hv.range = settings_.hifi_range; hv.split = settings_.hifi_split; hv.fluidity = settings_.hifi_fluidity; hv.degradation = settings_.hifi_degradation;
+            hv.viscosity = settings_.hifi_viscosity; hv.dt = viz_dt_;
+            spectro_gradient_from(settings_);
+            const auto& pal = spectro_palette(settings_.spectro.scheme);
+            std::vector<std::string> hrows = hifi_rows(hifi(), hv,
+                [&](float t) {
+                    return !settings_.viz_center_color.empty() ? multi_stop_gradient_ansi(settings_.viz_left_color, settings_.viz_center_color, settings_.viz_right_color, t)
+                                                              : gradient_ansi(settings_.visualizer_color, settings_.visualizer_color_end, t);
+                },
+                [&](float f) {
+                    const auto& c = pal[static_cast<size_t>(std::clamp(48 + static_cast<int>(f * 207.0f), 0, 255))];
+                    return "\x1b[38;2;" + std::to_string(c[0]) + ";" + std::to_string(c[1]) + ";" + std::to_string(c[2]) + "m";
+                });
+            for (int r = 0; r < viz_rows; ++r) {
+                std::string line = hrows[static_cast<size_t>(r)];
+                if (viz_w < meta_w) line += std::string(static_cast<size_t>(meta_w - viz_w), ' ');
+                meta_rows[static_cast<size_t>(panel_h - viz_rows + r)] = line;
+            }
+        } else if (settings_.element_visualizer) {
             int viz_w = std::min(meta_w, show_viz ? 48 : 96);
             bars = fft_.compute_bars(viz_w, viz_dt_);
             std::string viz_top, viz_bottom;

@@ -774,12 +774,23 @@ std::string App::settings_get_value(int row, int col) const {
             }
             case kSidStartMode: return mode_row_name(std::max(0, mode_index(settings_.start_mode)));
             case kSidVolIndicator: return kVolIndicatorNames[std::clamp(settings_.volume_indicator, 0, kVolStyleCount - 1)];
-            case kSidVisFluidity: return std::to_string(settings_.visualizer_fluidity);
+            case kSidVisFluidity: return std::to_string(settings_.bar_fluidity());
+            case kSidBarBehavior: return bars_preset_name(bars_preset_of(settings_.bar_fluidity(), settings_.bar_degradation(), settings_.bar_viscosity()));
+            case kSidBarStyle: return settings_.bars_style == 1 ? "hi-fi" : "classic";
+            case kSidHifiRes: return settings_.hifi_resolution == 1 ? "rough" : "fine";
+            case kSidHifiChan: return settings_.hifi_channels == 1 ? "mono" : "stereo";
+            case kSidHifiColor: return settings_.hifi_color == 1 ? "corresponding" : "gradient";
+            case kSidHifiScale: return settings_.hifi_scale == 0 ? "full" : settings_.hifi_scale == 2 ? "low" : settings_.hifi_scale == 3 ? "very low" : "medium";
+            case kSidHifiAdapt: return settings_.hifi_adapt == 1 ? "on" : "off";
+            case kSidHifiSplit: return settings_.hifi_split == 0 ? "remove" : "add";
+            case kSidHifiFScale: { static const char* n[] = {"linear", "logarithmic", "mel", "bark", "erb"}; return n[std::clamp(settings_.hifi_fscale, 0, 4)]; }
+            case kSidHifiGain: return std::to_string(settings_.hifi_gain);
+            case kSidHifiRange: return std::to_string(settings_.hifi_range);
             case kSidWaveStyle: return settings_.waveform_smooth ? "smooth" : "raw";
             case kSidDiskSpeed: return std::to_string(settings_.disk_rotation_speed).substr(0, 4);
             case kSidTrackBuffer: return std::to_string(settings_.track_buffer_mb);
-            case kSidVisDegr: return std::to_string(settings_.visualizer_degradation_speed);
-            case kSidVisVisc: return std::to_string(settings_.visualizer_viscosity);
+            case kSidVisDegr: return std::to_string(settings_.bar_degradation());
+            case kSidVisVisc: return std::to_string(settings_.bar_viscosity());
             case kSidLyrAlign: return settings_.lyrics_alignment == 1 ? "left" : settings_.lyrics_alignment == 2 ? "right" : "center";
             case kSidLyrAnim: {
                 static const char* names[] = {"full", "word by word", "letter by letter", "active line only", "active word only", "line by line"};
@@ -859,11 +870,22 @@ std::vector<std::string> App::settings_options_for(int tab, int row) const {
                 for (int h = 50; h <= 300; h += 5) o.push_back(speed_label(h / 100.0));
                 return o;
             }
+            case kSidBarBehavior: return {"lively", "default", "smooth", "slow"};
             case kSidVisFluidity: case kSidVisDegr: case kSidVisVisc: return {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"};
             case kSidLatinHanzi: return {"Leave", "Chin.", "Jap."};
             case kSidEmoji: return {"Off", "Safe", "All"};
             case kSidTermSize: return {};   // two typed numbers (ENTER types the one that is lit)
             case kSidWaveStyle: return {"raw", "smooth"};
+            case kSidBarStyle: return {"classic", "hi-fi"};
+            case kSidHifiRes: return {"fine", "rough"};
+            case kSidHifiChan: return {"stereo", "mono"};
+            case kSidHifiColor: return {"gradient", "corresponding"};
+            case kSidHifiScale: return {"full", "medium", "low", "very low"};
+            case kSidHifiAdapt: return {"off", "on"};
+            case kSidHifiSplit: return {"add", "remove"};
+            case kSidHifiFScale: return {"linear", "logarithmic", "mel", "bark", "erb"};
+            case kSidHifiGain: { std::vector<std::string> g; for (int i = -20; i <= 20; i += 2) g.push_back(std::to_string(i)); return g; }
+            case kSidHifiRange: { std::vector<std::string> g; for (int i = 40; i <= 100; i += 4) g.push_back(std::to_string(i)); return g; }
             case kSidDiskSpeed: return {"0.01", "0.05", "0.10", "0.17", "0.25", "0.50", "0.75", "1.00"};
             case kSidLyrAlign: return {"left", "center", "right"};
             case kSidLyrAnim: return {"full", "word by word", "line by line", "letter by letter", "active line only", "active word only"};
@@ -1009,8 +1031,21 @@ void App::settings_commit_edit_impl() {
             case kSidVolIndicator:
                 settings_.volume_indicator = std::max(0, volume_style_from_name(v));
                 return;
-            case kSidVisFluidity: try { settings_.visualizer_fluidity = std::stoi(buf); } catch (...) {} return;
+            case kSidVisFluidity: try { settings_.bar_fluidity() = std::clamp(std::stoi(buf), 1, 10); } catch (...) {} return;
+            case kSidBarBehavior: for (int i = 0; i < 4; ++i) if (v == kBarsPresets[i].name) {
+                settings_.bar_fluidity() = kBarsPresets[i].fluidity; settings_.bar_degradation() = kBarsPresets[i].degradation; settings_.bar_viscosity() = kBarsPresets[i].viscosity; }
+                return;
             case kSidWaveStyle: settings_.waveform_smooth = (v == "smooth"); return;
+            case kSidBarStyle: settings_.bars_style = (v == "hi-fi") ? 1 : 0; g_settings_hifi_rows = settings_.bars_style == 1; return;
+            case kSidHifiRes: settings_.hifi_resolution = (v == "rough") ? 1 : 0; return;
+            case kSidHifiChan: settings_.hifi_channels = (v == "mono") ? 1 : 0; return;
+            case kSidHifiColor: settings_.hifi_color = (v == "corresponding") ? 1 : 0; return;
+            case kSidHifiScale: settings_.hifi_scale = v == "full" ? 0 : v == "low" ? 2 : v == "very low" ? 3 : 1; return;
+            case kSidHifiAdapt: settings_.hifi_adapt = v == "on" ? 1 : 0; return;
+            case kSidHifiSplit: settings_.hifi_split = v == "remove" ? 0 : 1; return;
+            case kSidHifiFScale: settings_.hifi_fscale = v == "linear" ? 0 : v == "logarithmic" ? 1 : v == "bark" ? 3 : v == "erb" ? 4 : 2; return;
+            case kSidHifiGain: try { settings_.hifi_gain = std::clamp(std::stoi(v), -20, 20); } catch (...) {} return;
+            case kSidHifiRange: try { settings_.hifi_range = std::clamp(std::stoi(v), 40, 100); } catch (...) {} return;
             case kSidDiskSpeed: try { settings_.disk_rotation_speed = std::stod(buf); } catch (...) {} return;
             case kSidTrackBuffer: {   // typed MB; the next track that is loaded uses it
                 try {
@@ -1022,8 +1057,8 @@ void App::settings_commit_edit_impl() {
                 } catch (...) { status_line_ = "track buffer: type a number of MB"; }
                 return;
             }
-            case kSidVisDegr: try { settings_.visualizer_degradation_speed = std::stoi(buf); } catch (...) {} return;
-            case kSidVisVisc: try { settings_.visualizer_viscosity = std::stoi(buf); } catch (...) {} return;
+            case kSidVisDegr: try { settings_.bar_degradation() = std::clamp(std::stoi(buf), 1, 10); } catch (...) {} return;
+            case kSidVisVisc: try { settings_.bar_viscosity() = std::clamp(std::stoi(buf), 0, 10); } catch (...) {} return;
             case kSidDisk: if (v == "show disk / cover" || v == "true") settings_.element_disk = true; else if (v == "remove field" || v == "false") settings_.element_disk = false; return;
             case kSidLyrAlign: settings_.lyrics_alignment = (v == "left") ? 1 : (v == "right") ? 2 : 0; return;
             case kSidLyrAnim:
@@ -1414,6 +1449,7 @@ void App::ref_undo_pop() {
 }
 
 void App::handle_settings_key(int key) {
+    g_settings_hifi_rows = settings_.bars_style == 1;   // (the Hi-Fi rows of SPECTRUM BARS are listed only with that style)
     if (leave_prompt_ != 0 && mode_ != Mode::ColorEdit) {
         // "unsaved changes" question: [s] / ENTER save, [d] discard, anything else (ESC) goes back to editing
         const int kind = leave_prompt_;
@@ -1536,6 +1572,8 @@ void App::handle_settings_key(int key) {
         // (terminal_ui.h) precisely because the bare ones are already taken:
         // an arrow press collapses to the letter it would otherwise type, and
         // a typed 'c' has to stay a typed 'c'.
+        if (le_undo_key(&color_edit_buffer_, color_edit_buffer_, edit_caret_, edit_anchor_, key, &status_line_)) return;   // CTRL+z / CTRL+y
+        LeUndoScope undo_scope(&color_edit_buffer_, color_edit_buffer_, edit_caret_, key);
         if (key == kKeyHome) { edit_caret_ = edit_anchor_ = 0; return; }
         if (key == kKeyEnd) { edit_caret_ = edit_anchor_ = color_edit_buffer_.size(); return; }
         if (key == kKeyShiftLeft) { le_move(color_edit_buffer_, edit_caret_, edit_anchor_, -1, true); return; }
@@ -2012,6 +2050,7 @@ void App::build_theme_screen(std::ostringstream& frame, int W, int player_h) con
 }
 
 void App::build_settings_screen(std::ostringstream& frame, int W, int player_h) const {
+    g_settings_hifi_rows = settings_.bars_style == 1;   // (the Hi-Fi rows of SPECTRUM BARS are listed only with that style)
     // Literal port of the reference SettingsEngine::render() -- same
     // columns, same labels, same schema text, same group-blanking, same
     // divider, same tab-wrap algorithm, same gradient border (applied to

@@ -2,6 +2,7 @@
 // The tables of the Settings screen (the REFERENCE tab's hotkey rows, the row ids and layouts of the GENERAL and ANIMA/VIZ
 // tabs). Shared by app.cpp and app_settings.cpp; nothing here is part of the program's interface.
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace muisc {
@@ -21,6 +22,7 @@ inline const RefHotkeyRow kRefRows[] = {
     {nullptr, "HKeyDecreaseVolume", "Volume Down"},
     {nullptr, "HKeyToggleMute", "Toggle Mute"},
     {nullptr, "HKeyToggleNormalize", "Toggle Normalize"},
+    {nullptr, "HKeyBarsMenu", "Spectrum Bars Options"}, // style, the Hi-Fi rows, motion; under the upper pane
     {nullptr, "HKeyNormMenu", "Normalization Tuning"}, // on/off, target level, max boost, live
     {nullptr, "HKeySleepTimer", "Sleep Timer"},       // 15/30/60/90/120 min or stop after the current song
     {nullptr, "HKeyCreator", "Creator"},              // text / picture -> oscilloscope music or spectrogram sound
@@ -77,7 +79,8 @@ inline const RefHotkeyRow kRefRows[] = {
     {"META EDITOR", "HKeyMetaEditor", "Open Meta Editor"}, // edit file names/tags, AcoustID fetch
     {nullptr, "HKeyCoverFetch", "Open Cover Fetch"},
     {nullptr, "HKeyStyleOptions", "Open Style Options"},   // the cover look of the playing track       // fetch album covers (MusicBrainz / Cover Art Archive)
-    {nullptr, "HKeyFetchTags", "Fetch Missing Tags"}, // the hovered title; also inside the meta editor
+    {nullptr, "HKeyFetchTags", "Fetch Missing Tags (Meta Editor)"}, // the highlighted title, inside the meta data editor
+    {nullptr, "HKeyBookmark", "Set Bookmark (Audio Book)"}, // the same key as the spectrum bars overlay, which the audio book mode does not use
     // --- Listening history ---
     {"HISTORY", "HKeyHistory", "Open Listening History"}, // HISTORY / TOP TRACKS / TOP PLAYLISTS / HABITS overlay
     // --- Equalizer ---
@@ -133,11 +136,14 @@ enum SetId {
     kSidTermDefaultFont, // TEXT AND TRANSLITERATION: leave the terminal's own font alone (terminal_font.h)
     kSidCheckUpdate,   // [ENTER] checks for a newer release now (an action row, no value to switch)
     kSidBookSpeed,     // audio book player: the playback speed (0.5x - 3.0x, the pitch stays)
+    kSidBarStyle, kSidHifiRes, kSidHifiChan, kSidHifiColor, kSidHifiScale, kSidHifiAdapt, kSidHifiSplit, kSidHifiFScale, kSidHifiGain, kSidHifiRange, kSidBarBehavior,   // SPECTRUM BARS: classic / Hi-Fi and the three rows only Hi-Fi shows
     kSidAudioDevice,   // the sound output: shows the device in use, [ENTER] opens the CHOOSE AUDIO DEVICE overlay
 };
 // True while the audio book player is the mode that runs (set by App::run()): its GENERAL and ANIMA/VIZ tabs leave out what only
 // belongs to the music player and name the lyrics view "notes".
 inline bool g_settings_book_layout = false;
+// True while the bars style is Hi-Fi (set by App): only then the Hi-Fi rows of SPECTRUM BARS are listed.
+inline bool g_settings_hifi_rows = false;
 struct SetLine { bool header; int id; const char* text; };   // a category header, or a row (id + label)
 inline const std::vector<SetLine>& settings_layout(int tab) {
     static const std::vector<SetLine> on_off = {
@@ -187,7 +193,9 @@ inline const std::vector<SetLine>& settings_layout(int tab) {
         {true, -1, ""},
         {true, -1, "SPECTRUM BARS"},   // the bars under the meta data
         {false, kSidVisualizer, "On/Off"},
-        {false, kSidVisFluidity, "Bars Fluidity"}, {false, kSidVisDegr, "Bars Degradation"}, {false, kSidVisVisc, "Bars Viscosity"},
+        {false, kSidBarStyle, "Bars Style"},
+        {false, kSidHifiRes, "Hi-Fi Resolution"}, {false, kSidHifiChan, "Hi-Fi Channels"}, {false, kSidHifiColor, "Hi-Fi Color"}, {false, kSidHifiScale, "Hi-Fi Height"}, {false, kSidHifiAdapt, "Hi-Fi Adapt Height"}, {false, kSidHifiSplit, "Hi-Fi Channel Gap"}, {false, kSidHifiFScale, "Hi-Fi Frequency Scale"}, {false, kSidHifiGain, "Hi-Fi Gain (dB)"}, {false, kSidHifiRange, "Hi-Fi Range (dB)"},
+        {false, kSidBarBehavior, "Bars Behavior"}, {false, kSidVisFluidity, "Bars Fluidity"}, {false, kSidVisDegr, "Bars Degradation"}, {false, kSidVisVisc, "Bars Viscosity"},
         {true, -1, ""},
         {true, -1, "PROGRESS WAVEFORM"},   // the braille waveform in the progress bar
         {false, kSidWave, "On/Off"},
@@ -248,7 +256,9 @@ inline const std::vector<SetLine>& settings_layout(int tab) {
         {true, -1, ""},
         {true, -1, "SPECTRUM BARS"},
         {false, kSidVisualizer, "On/Off"},
-        {false, kSidVisFluidity, "Bars Fluidity"}, {false, kSidVisDegr, "Bars Degradation"}, {false, kSidVisVisc, "Bars Viscosity"},
+        {false, kSidBarStyle, "Bars Style"},
+        {false, kSidHifiRes, "Hi-Fi Resolution"}, {false, kSidHifiChan, "Hi-Fi Channels"}, {false, kSidHifiColor, "Hi-Fi Color"}, {false, kSidHifiScale, "Hi-Fi Height"}, {false, kSidHifiAdapt, "Hi-Fi Adapt Height"}, {false, kSidHifiSplit, "Hi-Fi Channel Gap"}, {false, kSidHifiFScale, "Hi-Fi Frequency Scale"}, {false, kSidHifiGain, "Hi-Fi Gain (dB)"}, {false, kSidHifiRange, "Hi-Fi Range (dB)"},
+        {false, kSidBarBehavior, "Bars Behavior"}, {false, kSidVisFluidity, "Bars Fluidity"}, {false, kSidVisDegr, "Bars Degradation"}, {false, kSidVisVisc, "Bars Viscosity"},
         {true, -1, ""},
         {true, -1, "PROGRESS WAVEFORM"},
         {false, kSidWave, "On/Off"},
@@ -266,8 +276,15 @@ inline const std::vector<SetLine>& settings_layout(int tab) {
         {false, kSidUseOsci, "Use Oscilloscope"},
         {false, kSidUseSpectro, "Use Spectrogram"}, {false, kSidUseSphere, "Use Sphere"},
     };
-    if (g_settings_book_layout) return tab == 1 ? book_on_off : book_anima;
-    return tab == 1 ? on_off : anima;
+    const std::vector<SetLine>& base = g_settings_book_layout ? (tab == 1 ? book_on_off : book_anima) : (tab == 1 ? on_off : anima);
+    if (g_settings_hifi_rows) return base;
+    // without Hi-Fi the three Hi-Fi rows are left out (one filtered copy per layout, kept)
+    static std::vector<std::pair<const std::vector<SetLine>*, std::vector<SetLine>>> cache;
+    for (const auto& c : cache) if (c.first == &base) return c.second;
+    std::vector<SetLine> f;
+    for (const auto& l : base) if (l.header || (l.id != kSidHifiRes && l.id != kSidHifiChan && l.id != kSidHifiColor && l.id != kSidHifiScale && l.id != kSidHifiAdapt && l.id != kSidHifiSplit && l.id != kSidHifiFScale && l.id != kSidHifiGain && l.id != kSidHifiRange)) f.push_back(l);
+    cache.emplace_back(&base, std::move(f));
+    return cache.back().second;
 }
 inline int settings_item_count(int tab) {
     int n = 0;

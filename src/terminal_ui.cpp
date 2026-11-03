@@ -670,6 +670,7 @@ int TerminalIO::poll_key_raw() {
                 if (mod == 5 && (code == 'n' || code == 'N')) { g_last_key_was_arrow = false; return kKeyCtrlN; } // Ctrl+N
                 if (mod == 5 && (code == 't' || code == 'T')) { g_last_key_was_arrow = false; return kKeyCtrlT; } // Ctrl+T
                 if (mod == 5 && (code == 'z' || code == 'Z')) { g_last_key_was_arrow = false; return kKeyCtrlZ; } // Ctrl+Z
+                if (mod == 5 && (code == 'y' || code == 'Y')) { g_last_key_was_arrow = false; return 25; } // Ctrl+Y (undo in a text field)
                 if (mod == 5 && (code == 'f' || code == 'F')) { g_last_key_was_arrow = false; return kKeyCtrlF; } // Ctrl+F
                 if (mod == 5 && (code == 'o' || code == 'O')) { g_last_key_was_arrow = false; return kKeyCtrlO; } // Ctrl+O
                 if (mod == 5 && code == '2') { g_last_key_was_arrow = false; return kKeyCtrl2; } // Ctrl+2
@@ -1293,7 +1294,24 @@ std::vector<LegendRow> layout_legend_tree(std::vector<LegendGroup> groups, int w
         }
         std::string cmds;
         bool fitted = false;
+        std::string second;   // the second row of a group that may use two (max_lines > 1)
+        const auto joined_of = [](const std::vector<std::string>& v, size_t from, size_t to) {
+            std::string j;
+            for (size_t i = from; i < to; ++i) j += (i > from ? " " : "") + v[i];
+            return j;
+        };
+        const auto try_two_rows = [&](const std::vector<std::string>* list) {   // the break goes between two commands, as even as possible
+            int best = -1, best_w = 1 << 30;
+            for (size_t k = 1; k < list->size(); ++k) {
+                const int w1 = display_width(joined_of(*list, 0, k)), w2 = display_width(joined_of(*list, k, list->size()));
+                if (w1 <= cmd_w && w2 <= cmd_w && std::max(w1, w2) < best_w) { best = static_cast<int>(k); best_w = std::max(w1, w2); }
+            }
+            if (best <= 0) return false;
+            cmds = joined_of(*list, 0, static_cast<size_t>(best)); second = joined_of(*list, static_cast<size_t>(best), list->size());
+            return true;
+        };
         for (const std::vector<std::string>* list : {&lng, &shrt}) {
+            if (list == &shrt && groups[gi].max_lines > 1 && try_two_rows(&lng)) { fitted = true; break; }   // two rows with the long labels beat one row of short ones
             for (int gap : {1}) {   // one space between commands, everywhere (a long legend must fit a 120-column line)
                 std::string joined;
                 for (size_t ci = 0; ci < list->size(); ++ci) joined += (ci ? std::string(static_cast<size_t>(gap), ' ') : std::string()) + (*list)[ci];
@@ -1301,6 +1319,7 @@ std::vector<LegendRow> layout_legend_tree(std::vector<LegendGroup> groups, int w
             }
             if (fitted) break;
         }
+        if (!fitted && groups[gi].max_lines > 1) fitted = try_two_rows(&shrt);
         if (!fitted) {
             for (size_t ci = 0; ci < shrt.size(); ++ci) {
                 const std::string next = cmds + (ci ? " " : "") + shrt[ci];
@@ -1314,6 +1333,13 @@ std::vector<LegendRow> layout_legend_tree(std::vector<LegendGroup> groups, int w
         r.label = pad_right(groups[gi].label, label_w);
         r.cmds = cmds;
         rows.push_back(std::move(r));
+        if (!second.empty()) {   // the continuation: the tree line goes on (not after the last group), the label stays blank
+            LegendRow c;
+            c.tree = gi + 1 == groups.size() ? "   " : "\u2502  ";
+            c.label = pad_right(std::string(), label_w);
+            c.cmds = second;
+            rows.push_back(std::move(c));
+        }
     }
     return rows;
 }

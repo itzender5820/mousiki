@@ -275,6 +275,7 @@ void App::edit_focus(const std::string& owner, const std::string& text) {
     if (edit_owner_ != owner) {
         edit_owner_ = owner;
         edit_caret_ = edit_anchor_ = text.size();
+        le_undo_map().clear();   // another field takes the keyboard: its undo history starts empty
     }
     le_clamp(text, edit_caret_, edit_anchor_);
 }
@@ -751,6 +752,7 @@ std::string App::hotkey_conflict(const std::string& key_str, const std::string& 
     for (const auto& [action, val] : settings_.hotkeys) {
         if (action == except_action) continue;
         if ((is_size(action) && is_mode(except_action)) || (is_mode(action) && is_size(except_action))) continue;
+        if (shares_shift_b(action, except_action)) continue;   // one key, three places
         if (val == key_str) return action;
     }
     return "";
@@ -954,6 +956,7 @@ int App::run() {
     // Coming back from the radio the App is still alive (it was only suspended): nothing is initialised or restored again.
     const bool resuming = suspended_;
     suspended_ = false;
+    g_settings_hifi_rows = settings_.bars_style == 1;
     g_settings_book_layout = audiobook_;   // (the settings screen shows this mode's rows)
     remote::start("player");
     if (resuming) sync_after_radio();

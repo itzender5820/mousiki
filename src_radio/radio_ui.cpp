@@ -23,6 +23,8 @@
 #include "settings.h"
 #include "radio_sign.h"
 #include "sphere_visualizer.h"
+#include "hifi_bars.h"
+#include "bars_rows.h"
 #include "terminal_ui.h"
 #include "disk_art.h"      // the help wizard's welcome page
 #include "wizard.h"        // its text, shared with the music player
@@ -474,15 +476,17 @@ std::vector<std::string> build_left(const Style& s, const UiModel& m, const Radi
     return rows;
 }
 
-std::vector<std::string> build_meta(const Style& s, const RadioStatus& st, const std::vector<int>* viz_bars) {
+std::vector<std::string> build_meta(const Style& s, const RadioStatus& st, const std::vector<int>* viz_bars,
+                                    const std::vector<std::string>* hifi_lines = nullptr) {
+    const int bar_rows = hifi_lines ? static_cast<int>(hifi_lines->size()) : 2;   // text rows the spectrum takes at the bottom
     std::vector<std::string> rows(kPanelH, spaces(kMetaW));
     int cursor = 1;
     auto kv = [&](const std::string& label, const std::string& value, int max_lines = 1) {
-        const int room = std::max(1, (kPanelH - 2) - cursor);
+        const int room = std::max(1, (kPanelH - bar_rows) - cursor);
         auto lines = wrap_lines(value.empty() ? "-" : value, kMetaW - 12, std::min(max_lines, room));
         if (lines.empty()) lines.push_back("");
         for (size_t i = 0; i < lines.size(); ++i) {
-            if (cursor >= kPanelH - 2) break; // never write over the spectrum rows
+            if (cursor >= kPanelH - bar_rows) break; // never write over the spectrum rows
             const bool first = i == 0;
             rows[static_cast<size_t>(cursor++)] = seg_line({{first ? s.key : "", pad_right(first ? label : "", 10)},
                                                             {"", first ? ": " : "  "}, {s.val, lines[i]}}, kMetaW);
@@ -516,7 +520,12 @@ std::vector<std::string> build_meta(const Style& s, const RadioStatus& st, const
     }
 
     // FFT spectrum on the bottom two rows -- same bars/glyphs/gradient as the music player.
-    if (s.c.element_visualizer && viz_bars) {
+    if (s.c.element_visualizer && hifi_lines) {
+        for (int r = 0; r < bar_rows; ++r) {
+            std::string line = (*hifi_lines)[static_cast<size_t>(r)] + kReset;
+            rows[static_cast<size_t>(kPanelH - bar_rows + r)] = line;
+        }
+    } else if (s.c.element_visualizer && viz_bars) {
         const std::vector<int>& bars = *viz_bars;
         std::string top, bottom;
         const int n = static_cast<int>(bars.size());
@@ -1817,6 +1826,7 @@ const CheatRow kCheatRows[] = {
     {nullptr, "S/DEL/X", "Equalizer: save the curve as a custom preset (ENTER saves, ESC cancels) / delete the selected one (press twice)"},
     {"VISUALIZATIONS (MAIN UI)", ".", "Cycle the scope block: oscilloscope / sphere / spectrogram, like . in the player (rebindable; what is off on the GENERAL tab is skipped)"},
     {nullptr, "SHIFT+i", "Spectrogram options overlay (style, motion, scale, frequencies, gain, range, window, colors, channels, time span; R = Audacity's defaults)"},
+    {nullptr, "SHIFT+b", "Spectrum bars overlay (under the upper pane, scrolls on a low terminal): style, Hi-Fi resolution / channels / gap / height / adapt / frequency scale / gain / range / colour, bar motion (toggle; R = defaults)"},
     {nullptr, "SHIFT+u", "Spectrogram full screen with frequency labels and time ruler (toggle; ESC closes)"},
     {nullptr, "SHIFT+0", "Oscilloscope full screen: YT mode left, XY mode right, values in the border (toggle; ESC closes; the SHIFT+o options open on top of it). The key is the character = (SHIFT+0 on a German keyboard)"},
     {nullptr, "SHIFT+a / v / c / p", "Oscilloscope full screen: axes / grid on or off   axis values on or off   grid colour (small window: type 0-255, empty = colour of inactive list elements)   grid metrics (small window: time unit, grid divisions, steady readouts in the picture names: RMS level, peak hold, L/R correlation, L/R balance)"},
@@ -1861,6 +1871,7 @@ const CheatRow kCheatRows[] = {
     {nullptr, "CTRL+C", "Copy the marked text (nothing marked: the whole field)"},
     {nullptr, "CTRL+X", "Cut the marked text"},
     {nullptr, "CTRL+V", "Paste at the caret (replaces the marked text)"},
+    {nullptr, "CTRL+z / CTRL+y", "Undo the last change in a text box (a typed run, a deletion or a paste is one step)"},
     // --- Presets menu ---
     {"PRESETS MENU", "TAB", "Cycle focus: SEARCH -> SELECT PRESET -> STATIONS"},
     {nullptr, "ARROW KEYS", "Navigate the focused pane"},
@@ -2677,6 +2688,7 @@ std::vector<std::string> build_settings_impl(const RadioSettings& c, const Setti
         struct DLine { std::vector<Seg> segs; int row = -1; };
         std::vector<DLine> dl;
         int rr = 0;
+        rs_set_hifi_rows(c.bars_style == 1);
         for (const SettingsLine& l : rs_layout(sm.tab)) {
             if (l.header) {   // the layout carries its own blank lines (empty headers); the tab starts with one, like the other tabs
                 if (rr == 0 && dl.empty()) dl.push_back({{}, -1});
@@ -2976,6 +2988,44 @@ std::vector<std::string> build_adev_overlay(const RadioSettings& c, const Settin
     return lines;
 }
 
+// SPECTRUM BARS OPTIONS (overlay 10, SHIFT+b): the rows of the music player's overlay (bars_rows.h). It sits under the upper pane
+// (so the bars stay in view) and gets a scroll bar when the terminal is too low for all rows.
+constexpr int kBarsOverlayW = 52;
+std::vector<std::string> build_bars_overlay(const RadioSettings& c, const UiModel& m) {
+    const int W = kBarsOverlayW, inner = W - 4;
+    const std::string border = ansi_fg(c.border_top), border_bottom = ansi_fg(c.border_bottom);
+    const std::vector<int> rows = muisc::bars_rows(c);
+    const int n = static_cast<int>(rows.size());
+    const int at = std::clamp(m.overlay_row, 0, n - 1);
+    int scroll = m.bars_scroll;
+    const int room = m.rows - (kPanelH + 2) - 5;   // the frame: top, blank, blank, hint, bottom
+    const muisc::BarsWindow w = muisc::bars_window(n, at, scroll, room);
+    const_cast<UiModel&>(m).bars_scroll = scroll;
+    std::vector<std::string> lines;
+    const std::string t = " Spectrum Bars ";
+    lines.push_back(border + c.box_upper_left + c.box_horizontal + t + repeat(c.box_horizontal, std::max(0, W - 3 - display_width(t))) + c.box_upper_right + kReset);
+    auto frame = [&](const std::string& body, const std::string& right) { return border + c.box_vertical + kReset + " " + body + " " + right; };
+    const std::string bar = border + c.box_vertical + kReset;
+    lines.push_back(frame(spaces(inner), bar));
+    for (int i = 0; i < w.cap; ++i) {
+        const int ri = w.first + i;
+        const std::string label = muisc::bars_row_label(rows[static_cast<size_t>(ri)]), val = muisc::bars_value(c, rows[static_cast<size_t>(ri)]);
+        const std::string l = std::string(ri == at ? "> " : "  ") + label;
+        const int gap = std::max(1, inner - display_width(l) - display_width(val));
+        const std::string body = truncate_str(l + spaces(gap) + val, inner);
+        const std::string padded = body + spaces(std::max(0, inner - display_width(body)));
+        const bool thumb = w.scrolls && i >= w.thumb_at && i < w.thumb_at + w.thumb_len;
+        lines.push_back(frame(ri == at ? "\x1b[7m" + padded + kReset : padded, thumb ? border + "\xe2\x94\x83" + kReset : bar));
+    }
+    lines.push_back(frame(spaces(inner), bar));
+    const std::string hint = truncate_str("[UP/DOWN] row  [LEFT/RIGHT] change  [r] reset", inner);
+    lines.push_back(frame(hint + spaces(std::max(0, inner - display_width(hint))), bar));
+    const std::string b = " [B / ESC] close ";
+    const int dashes = std::max(0, W - 2 - display_width(b));
+    lines.push_back(border_bottom + c.box_lower_left + repeat(c.box_horizontal, dashes / 2) + b + repeat(c.box_horizontal, dashes - dashes / 2) + c.box_lower_right + kReset);
+    return lines;
+}
+
 std::vector<std::string> build_settings(const RadioSettings& c, const SettingsModel& sm, int W, int rows) {
     if (sm.theme_ui == 4 || sm.theme_ui == 5) return build_theme_io(c, sm, W, rows);
     if (sm.theme_ui == 1 || sm.theme_ui == 3) return build_theme_picker(c, sm, W, rows);
@@ -3056,6 +3106,7 @@ const MenusEntry kMenusEntries[] = {
     {"VISUALS",            "Oscilloscope options",     "OsciMenu"},
     {"VISUALS",            "Oscilloscope full screen", "ScopeBig"},
     {"VISUALS",            "Spectrogram options",      "SpectroMenu"},
+    {"VISUALS",            "Spectrum bars options",    "BarsMenu"},
     {"VISUALS",            "Spectrogram full screen",  "SpectroFull"},
     {"VISUALS",            "Scope window",             "ScopeWindow"},
     {"VISUALS",            "Spectrogram window",       "SpectroWindow"},
@@ -3173,6 +3224,7 @@ std::vector<std::string> build_update_overlay(const Style& s, const UiModel& m) 
 std::vector<std::string> build_overlay(const Style& s, const UiModel& m, const RadioStatus& st) {
     if (m.overlay == 8) return build_update_overlay(s, m);
     if (m.overlay == 9) return build_adev_overlay(s.c, m.settings);
+    if (m.overlay == 10) return build_bars_overlay(s.c, m);
     const RadioSettings& c = s.c;
     const bool osci = m.overlay == 1;
     const bool sleep = m.overlay == 3;
@@ -3695,7 +3747,24 @@ std::vector<std::string> render_radio_frame_inner(const UiModel& m, const RadioS
     out.push_back(box_top(s, W, "", s.border));
     std::vector<std::string> left, meta, scope;
     if (show_sign) left = build_left(s, m, st);
-    meta = build_meta(s, st, cfg.element_visualizer ? &bars : nullptr);
+    std::vector<std::string> hifi_lines;
+    if (cfg.element_visualizer && cfg.bars_style == 1) {   // the Hi-Fi style: stereo braille columns at the frame rate
+        HifiView hv;
+        hv.cells = std::min(kMetaW, 48); hv.rows = std::clamp(kPanelH - 11, 2, 4);
+        hv.resolution = cfg.hifi_resolution; hv.channels = cfg.hifi_channels; hv.color = cfg.hifi_color; hv.scale = cfg.hifi_scale; hv.adapt = cfg.hifi_adapt; hv.split = cfg.hifi_split;
+        hv.fluidity = cfg.hifi_fluidity; hv.degradation = cfg.hifi_degradation;
+        hv.viscosity = cfg.hifi_viscosity; hv.dt = m.dt;
+        hv.fscale = cfg.hifi_fscale; hv.gain = cfg.hifi_gain; hv.range = cfg.hifi_range;
+        spectro_gradient_from(s);
+        const auto& pal = spectro_palette(cfg.spectro.scheme);
+        hifi_lines = hifi_rows(hifi(), hv, [&](float t) { return s.viz_at(t); },
+            [&](float f) {
+                const auto& c = pal[static_cast<size_t>(std::clamp(48 + static_cast<int>(f * 207.0f), 0, 255))];
+                return "\x1b[38;2;" + std::to_string(c[0]) + ";" + std::to_string(c[1]) + ";" + std::to_string(c[2]) + "m";
+            });
+        for (auto& l : hifi_lines) l += spaces(kMetaW - hv.cells);
+    }
+    meta = build_meta(s, st, cfg.element_visualizer ? &bars : nullptr, hifi_lines.empty() ? nullptr : &hifi_lines);
     const bool off_air = st.state == StreamState::Idle || st.state == StreamState::Failed;
     bool spectro_img = false;
     if (show_scope && !off_air && cfg.scope_mode == 3) {   // the spectrogram (like Audacity's), braille or a picture
@@ -3749,10 +3818,11 @@ std::vector<std::string> render_radio_frame_inner(const UiModel& m, const RadioS
     }
     if (m.overlay != 0) {   // SHIFT+o / SHIFT+v overlay, centred over the finished screen
         const auto panel = build_overlay(s, m, st);
-        const int pw = m.overlay == 9 ? kAdevOverlayW : m.overlay == 8 ? kUpdateOverlayW : m.overlay == 7 ? kMenusOverlayW : m.overlay == 6 ? kSpectroOverlayW : m.overlay == 5 ? kRecordOverlayW : m.overlay == 4 ? kEqOverlayW : m.overlay == 3 ? kSleepOverlayW : m.overlay == 1 ? kOsciOverlayW : kNormOverlayW;
+        const int pw = m.overlay == 10 ? kBarsOverlayW : m.overlay == 9 ? kAdevOverlayW : m.overlay == 8 ? kUpdateOverlayW : m.overlay == 7 ? kMenusOverlayW : m.overlay == 6 ? kSpectroOverlayW : m.overlay == 5 ? kRecordOverlayW : m.overlay == 4 ? kEqOverlayW : m.overlay == 3 ? kSleepOverlayW : m.overlay == 1 ? kOsciOverlayW : kNormOverlayW;
         const int ph = static_cast<int>(panel.size());
         const int x = std::max(0, (W - pw) / 2);
-        const int y = m.overlay == 1 ? std::clamp(1, 0, std::max(0, rows - ph))   // oscilloscope options: second row, only grows downwards
+        const int y = m.overlay == 10 ? std::clamp(kPanelH + 2, 0, std::max(0, rows - ph))   // the spectrum bars overlay: under the upper pane, so the bars stay in view
+                    : m.overlay == 1 ? std::clamp(1, 0, std::max(0, rows - ph))   // oscilloscope options: second row, only grows downwards
                                      : std::clamp((rows - ph) / 2 - (m.overlay == 7 ? 0 : 2), 0, std::max(0, rows - ph));
         for (int i = 0; i < ph; ++i)
             out[static_cast<size_t>(y + i)] = splice_line(out[static_cast<size_t>(y + i)], x, panel[static_cast<size_t>(i)], pw);

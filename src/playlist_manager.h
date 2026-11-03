@@ -43,6 +43,7 @@ struct PlaylistTrack {
 
 struct Playlist {
     std::string name;
+    bool imported = false;   // lives in <playlists>/imported_lists (a copy made by the import) instead of the folder itself (created here)
     std::vector<PlaylistTrack> tracks;
 };
 
@@ -52,10 +53,15 @@ struct Playlist {
 struct PlaylistSummary {
     std::string name;
     size_t track_count = 0;
+    bool imported = false;   // in <playlists>/imported_lists (given), else created in the program
 };
 
 class PlaylistManager {
 public:
+    // The playlists folder keeps the playlists created in the program; the copies the import makes go to this subfolder, so the two
+    // kinds are easy to tell apart. list() / load() / remove() / rename_paths() look into both; save() writes to the one Playlist::imported says.
+    static constexpr const char* kImportedDir = "imported_lists";
+
     // Rewrites every line of every playlist .txt under `dir` that equals an
     // old path in `renames` (old -> new, both UTF-8) to the new path. Used
     // after the meta editor renamed files, so saved playlists keep pointing

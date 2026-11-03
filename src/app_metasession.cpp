@@ -151,6 +151,11 @@ void App::meta_open() {
     meta_field_editing_ = false;
     meta_fetch_selected_ = 0;
     meta_refresh_lib_view();
+    // The song that plays now is where the list starts (the view is unfiltered here, whatever was typed or filtered before).
+    if (has_track_ && current_is_local_) {
+        for (size_t i = 0; i < meta_lib_view_.size(); ++i)
+            if (meta_lib_view_[i].path == current_path_) { meta_lib_selected_ = static_cast<int>(i); break; }
+    }
 }
 
 // Loads the autosaved backup exactly once per run. Called from meta_open()
@@ -270,6 +275,7 @@ void App::meta_refresh_lib_view() {
 void App::meta_toggle_resort() {
     meta_resort_edited_ = !meta_resort_edited_;
     meta_refresh_lib_view();
+    meta_lib_selected_ = 0;   // the view starts at the top again
     if (meta_resort_edited_) {
         int n = 0;
         for (const auto& e : meta_session_) if (e.any_edited()) ++n;
@@ -306,6 +312,18 @@ const char* App::meta_filter_label() const {
     }
 }
 
+// SHIFT+c: the song that plays now is hovered in the list, whatever was typed or filtered (the search text and the missing-tag filter are removed).
+void App::meta_jump_to_current() {
+    if (!has_track_ || !current_is_local_) { meta_status_ = "no local song plays right now"; return; }
+    meta_query_.clear();
+    meta_filter_ = 0;
+    meta_folder_hover_.clear();
+    meta_refresh_lib_view();
+    for (size_t i = 0; i < meta_lib_view_.size(); ++i)
+        if (meta_lib_view_[i].path == current_path_) { meta_lib_selected_ = static_cast<int>(i); meta_status_ = "the song that plays now (search and filters removed)"; return; }
+    meta_status_ = "the song that plays now is not in the library list";
+}
+
 // 'x' / Shift+T / Shift+A / Shift+Y: narrow the library pane to files a
 // given tag is (or, for 'x', every tag is) missing. The same key clears it,
 // which is what keeps four keys enough for five states, and the status line
@@ -315,6 +333,8 @@ const char* App::meta_filter_label() const {
 void App::meta_toggle_filter(int filter) {
     meta_filter_ = (meta_filter_ == filter) ? 0 : filter;
     meta_refresh_lib_view();
+    meta_lib_selected_ = 0;   // the view starts at the top again
+    meta_folder_hover_.clear();
     const std::string shown = std::to_string(meta_lib_view_.size());
     if (meta_filter_ == 0) meta_status_ = "filter cleared - " + shown + " files";
     else meta_status_ = std::string("filter: ") + meta_filter_label() + " - " + shown + " files (press the key again or [ESC] to clear)";

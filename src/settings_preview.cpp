@@ -6,6 +6,7 @@
 // and sphere are fed with the signal of the radio's "TEST Stereo Chords" station, made here in the program; the spectrogram
 // with a spectrogram the Creator makes from the text "Mousiki Plus". No file, no network and no ffmpeg are needed.
 #include "app.h"
+#include "hifi_bars.h"
 #include "app_internal.h"
 #include "app_settings_tables.h"
 #include "cover_art.h"
@@ -47,6 +48,7 @@ struct SettingsPreviewState {
     double sig = 0.0;             // the chord signal's own clock, in seconds
     double angle = 0.0;           // the disk
     FftVisualizer fft;
+    HifiBars hifi;   // the Hi-Fi bars' own analysis of the test signal
     OscilloscopeVisualizer osc;
     SphereVisualizer sph;
     SpectroAnalyzer spec;
@@ -55,7 +57,7 @@ struct SettingsPreviewState {
     int translit_key = -1;
     double translit_at = -10.0;
     std::vector<std::string> translit_rows;
-    std::vector<float> text_audio;   // the spectrogram preview's sound: a created spectrogram that reads "Mousiki Plus" (interleaved stereo, 48 kHz)
+    std::vector<float> text_audio;   // the spectrogram and spectrum bars preview's sound: a created spectrogram that reads "Mousiki Plus" (interleaved stereo, 48 kHz)
     size_t text_pos = 0;             // in frames
     bool text_made = false;
 };
@@ -119,13 +121,16 @@ PvKind kind_of(int id, const Settings& s) {
         case kSidAlbumCover: case kSidCoverMode: case kSidCoverContrast: case kSidCoverBrightness: case kSidCoverColors:
         case kSidCoverSearch: return kPvCover;
         case kSidVolIndicator: case kSidDummy: return kPvVolume;
-        case kSidVisualizer: case kSidVisFluidity: case kSidVisDegr: case kSidVisVisc: return kPvBars;
+        case kSidVisualizer: case kSidVisFluidity: case kSidVisDegr: case kSidVisVisc: case kSidBarStyle: case kSidHifiRes: case kSidHifiChan: case kSidHifiColor: case kSidHifiScale: case kSidHifiAdapt: case kSidHifiSplit: case kSidHifiFScale: case kSidHifiGain: case kSidHifiRange: case kSidBarBehavior: return kPvBars;
         case kSidWave: case kSidWaveStyle: return kPvWave;
         case kSidUseOsci: return kPvScope;   // (Modes Share Settings: no preview)
         case kSidUseSpectro: return kPvSpectro;
         case kSidUseSphere: return kPvSphere;
         case kSidLyricViz: case kSidNoLyricsViz: {
-            const int v = id == kSidLyricViz ? s.lyric_viz : s.nolyrics_viz;
+            // Lyrics/Viz Defaults is edited in viz_default (0 sphere, 1 osci, 2 spectro, 3 lyrics, 4 last used: the view in use, lyric_viz);
+            // lyric_viz alone is only what the field shows now, so the preview showed the wrong picture until the row was changed twice.
+            int v = id == kSidLyricViz ? s.viz_default : s.nolyrics_viz;
+            if (id == kSidLyricViz && v == 4) v = s.lyric_viz;
             return v == 0 ? kPvSphere : v == 1 ? kPvScope : v == 2 ? kPvSpectro : kPvLyrics;
         }
         case kSidLatinMacrons: case kSidLatinWo: case kSidLatinHanzi: case kSidLatinLookup: return kPvTranslit;
@@ -188,7 +193,7 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
     if (wants_signal) {
         const size_t n = static_cast<size_t>(std::lround(P.dt * 48000.0));
         double t = P.sig;
-        if (kind == kPvSpectro) {
+        if (kind == kPvSpectro || kind == kPvBars) {   // (the spectrum bars listen to the same lively sound)
             // a spectrogram the Creator makes from the text "Mousiki Plus" (made once, played in a loop)
             if (!P.text_made) {
                 P.text_made = true;
@@ -224,6 +229,7 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
             P.fft.push_samples(mono.data(), mono.size(), 48000);
         }
         if (kind == kPvScope) P.osc.push_frames(lr.data(), n);
+        if (kind == kPvBars && settings_.bars_style == 1) P.hifi.push(lr.data(), n, 48000);
         if (kind == kPvSpectro) {
             P.spec.set_visible(true);
             P.spec.push(lr.data(), n, 48000);
@@ -389,10 +395,28 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
             bot += a + fft_glyph(std::min(bars[static_cast<size_t>(i)], 4));
         }
         rows = {ansi_for(settings_.border_color, false) + "Title : Chords" + R, ansi_for(settings_.border_color, false) + "Artist: Test signal" + R, "", top + R, bot + R};
+        if (settings_.bars_style == 1) {   // Hi-Fi: the same drawing as under the meta data (four rows high, the test signal in stereo)
+            HifiView hv;
+            hv.cells = n; hv.rows = 4; hv.resolution = settings_.hifi_resolution; hv.channels = settings_.hifi_channels; hv.color = settings_.hifi_color; hv.scale = settings_.hifi_scale; hv.adapt = settings_.hifi_adapt; hv.fscale = settings_.hifi_fscale; hv.gain = settings_.hifi_gain; hv.range = settings_.hifi_range; hv.split = settings_.hifi_split;
+            hv.fluidity = settings_.hifi_fluidity; hv.degradation = settings_.hifi_degradation; hv.viscosity = settings_.hifi_viscosity; hv.dt = P.dt;
+            spectro_gradient_from(settings_);
+            const auto& pal = spectro_palette(settings_.spectro.scheme);
+            const std::vector<std::string> hr = hifi_rows(P.hifi, hv,
+                [&](float t) {
+                    return !settings_.viz_center_color.empty() ? multi_stop_gradient_ansi(settings_.viz_left_color, settings_.viz_center_color, settings_.viz_right_color, t)
+                                                              : gradient_ansi(settings_.visualizer_color, settings_.visualizer_color_end, t);
+                },
+                [&](float f) {
+                    const auto& c = pal[static_cast<size_t>(std::clamp(48 + static_cast<int>(f * 207.0f), 0, 255))];
+                    return "\x1b[38;2;" + std::to_string(c[0]) + ";" + std::to_string(c[1]) + ";" + std::to_string(c[2]) + "m";
+                });
+            rows = {ansi_for(settings_.border_color, false) + "Title : Chords" + R, ansi_for(settings_.border_color, false) + "Artist: Test signal" + R, ""};
+            for (const auto& l : hr) rows.push_back(l + R);
+        }
         out.rows = rows;
         out.w = n;
-        out.caption = "fluidity " + std::to_string(settings_.visualizer_fluidity) + "  degradation " + std::to_string(settings_.visualizer_degradation_speed) +
-                      "  viscosity " + std::to_string(settings_.visualizer_viscosity);
+        out.caption = std::string(bars_preset_name(bars_preset_of(settings_.bar_fluidity(), settings_.bar_degradation(), settings_.bar_viscosity()))) + ": fluidity " + std::to_string(settings_.bar_fluidity()) + "  degradation " + std::to_string(settings_.bar_degradation()) +
+                      "  viscosity " + std::to_string(settings_.bar_viscosity());
         break;
     }
     case kPvWave: {
@@ -450,11 +474,11 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
         break;
     }
     case kPvSpectro: {
-        spectro_gradient_from(settings_);
-        SpectroSettings sp = settings_.spectro;
+        // always the plain defaults (the regular spectrogram as an image, mel scale, Roseus colours), whatever the spectrogram is set to:
+        // the preview only shows what a spectrogram is, it is not connected to the SHIFT+i values (nor to the waterfall)
+        SpectroSettings sp;
         sp.motion = 1;   // scrolling, so the small picture is full at once; span: a short stretch of time across the box
         sp.span = 10;
-        sp.view = 0;     // always the regular spectrogram: the waterfall (own analysis span, own picture) made the small preview flicker and stick
         P.spec.update(sp);
         const int srows = std::min(body_h, 12);
         if (gfx_proto_ != GfxProto::None) {   // the picture wherever the terminal can show one, braille only without Kitty / Sixel
@@ -462,10 +486,10 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
             pv_spectro_set_ = sp;
             for (int r = 0; r < srows; ++r) out.rows.push_back(gfx_hole(cw));
             out.picture = true;
-            out.caption = "spectrogram (image)";
+            out.caption = "spectrogram (image; default look)";
         } else {
             out.rows = P.spec.braille(sp, cw, srows);
-            out.caption = "spectrogram (braille)";
+            out.caption = "spectrogram (braille; default look)";
         }
         out.w = cw;
         break;

@@ -112,7 +112,8 @@ TEST(settings_default_hotkeys_do_not_collide) {
         // The karaoke size keys work only inside the karaoke overlay, the mode keys outside it: each pair shares its keys.
         auto pair = [](const std::string& x, const std::string& y) {
             return (x == "HKeyModeNext" && y == "HKeyKaraokeBigger") || (x == "HKeyKaraokeBigger" && y == "HKeyModeNext") ||
-                   (x == "HKeyModePrev" && y == "HKeyKaraokeSmaller") || (x == "HKeyKaraokeSmaller" && y == "HKeyModePrev");
+                   (x == "HKeyModePrev" && y == "HKeyKaraokeSmaller") || (x == "HKeyKaraokeSmaller" && y == "HKeyModePrev") ||
+                   shares_shift_b(x, y);   // SHIFT+b: the bookmark in the audio book mode, the bars overlay elsewhere
         };
         if (!fresh && pair(it->second, action)) continue;
         if (!fresh) ::mt::fail(__FILE__, __LINE__, "key '" + key + "' is bound to both " + it->second + " and " + action);
@@ -397,4 +398,21 @@ TEST(config_files_are_written_whole_or_not_at_all) {
     fs::path tmp = p;
     tmp += ".tmp";
     CHECK(!fs::exists(tmp));                        // no temp file is left behind
+}
+
+TEST(settings_old_fetch_tags_binding_becomes_the_bookmark_and_the_bars_get_shift_b) {
+    mt::TempHome home;
+    {
+        std::filesystem::create_directories(config_path().parent_path());
+        std::ofstream f(config_path());
+        f << "HKeyFetchTags=9\nHKeyBarsMenu=Y\n";   // an older config: the user had moved the tag fetch; the bars overlay was on Y
+    }
+    const Settings s = load_settings();
+    CHECK_EQ(s.hotkeys.at("HKeyFetchTags"), std::string("9"));   // stays where the user put it
+    CHECK_EQ(s.hotkeys.at("HKeyBookmark"), std::string("9")); // the user's own key is kept
+    CHECK_EQ(s.hotkeys.at("HKeyBarsMenu"), std::string("B"));
+    mt::TempHome home2;
+    const Settings d = load_settings();                          // a fresh config: both commands hold SHIFT+b (one per mode)
+    CHECK_EQ(d.hotkeys.at("HKeyBookmark"), std::string("B"));
+    CHECK_EQ(d.hotkeys.at("HKeyBarsMenu"), std::string("B"));
 }

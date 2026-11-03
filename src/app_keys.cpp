@@ -2,6 +2,7 @@
 // Part of class App (src/app.h): The keyboard: App::handle_key for the main screen.
 // Split out of app.cpp; the includes are the same as there.
 #include "app.h"
+#include "bars_rows.h"
 #include "text_edit.h"
 #include "overlay_common.h"
 #include "remote_server.h"
@@ -294,6 +295,31 @@ void App::handle_key(int key) {
             spectro_menu_row_ = kSrView; mode_ = Mode::SpectroMenu; force_redraw_ = true; return;
         }
         if (!arrow && (key == 27 || osc_action == "HKeyOscMenu")) {
+            mode_ = Mode::Browse;
+            save_settings(settings_);
+        }
+        return;
+    }
+
+    if (mode_ == Mode::BarsMenu) {
+        // The spectrum bars' options. Playback and the bars keep running underneath; only these keys work.
+        const bool arrow = last_key_was_arrow();
+        const std::vector<int> rows = bars_menu_rows();
+        const int n = static_cast<int>(rows.size());
+        int at = 0;
+        for (int i = 0; i < n; ++i) if (rows[static_cast<size_t>(i)] == bars_menu_row_) at = i;   // exact match: the list order need not follow the ids
+        if (arrow && key == 'A') { bars_menu_row_ = rows[static_cast<size_t>((at + n - 1) % n)]; return; }
+        if (arrow && key == 'B') { bars_menu_row_ = rows[static_cast<size_t>((at + 1) % n)]; return; }
+        if (arrow && key == 'D') { bars_menu_adjust(-1); return; }
+        if (arrow && key == 'C') { bars_menu_adjust(+1); return; }
+        if (!arrow && (key == 'r' || key == 'R')) {   // the Hi-Fi values and the motion back to the defaults; the style is left alone
+            bars_reset(settings_);
+            return;
+        }
+        std::string bars_action = resolve_hotkey_action(key);
+        if (bars_action.empty() && key >= 'a' && key <= 'z') bars_action = resolve_hotkey_action(key - 32);
+        if (bars_action.empty() && key >= 'A' && key <= 'Z') bars_action = resolve_hotkey_action(key + 32);
+        if (!arrow && (key == 27 || bars_action == "HKeyBarsMenu" || key_is("HKeyBarsMenu", key))) {
             mode_ = Mode::Browse;
             save_settings(settings_);
         }
@@ -792,8 +818,7 @@ void App::handle_key(int key) {
     // Ctrl+Shift+U / Ctrl+Shift+Z: queue -> playlist editor / undo the last
     // clear. Sentinel keys (see terminal_ui.h), so they are matched directly.
 
-    // (SHIFT+b, the AcoustID lookup of the hovered title, is the HKeyFetchTags action below. A typed capital B and the
-    // Down arrow are the same value; resolve_hotkey_action() tells them apart with last_key_was_arrow().)
+    // (A typed capital B and the Down arrow are the same value; resolve_hotkey_action() tells them apart with last_key_was_arrow().)
     // Hotkeys are resolved to an action name via settings_.hotkeys /
     // resolve_hotkey_action() instead of switching on the raw key
     // directly, so a rebinding in Settings > Reference (or config.txt)
@@ -822,27 +847,19 @@ void App::handle_key(int key) {
     std::string action = resolve_hotkey_action(lookup_key);
     if (action.empty() && lookup_key >= 'a' && lookup_key <= 'z') action = resolve_hotkey_action(lookup_key - 32);
     if (action.empty() && lookup_key >= 'A' && lookup_key <= 'Z') action = resolve_hotkey_action(lookup_key + 32);
+    // SHIFT+b is the bookmark in the audio book mode and the spectrum bars overlay everywhere else (both commands may hold the key)
+    // (the settings keep the bindings in an unordered map, so which of the two a shared key resolves to is decided here)
+    if (action == "HKeyBarsMenu" || action == "HKeyBookmark" || action == "HKeyFetchTags") {   // (HKeyFetchTags is the meta editor's)
+        if (audiobook_ && key_is("HKeyBookmark", key)) action = "HKeyBookmark";
+        else if (key_is("HKeyBarsMenu", key)) action = "HKeyBarsMenu";
+        else if (!audiobook_) action.clear();
+    }
     if (audiobook_ && book_intercept(action, key)) return;   // the audio book player's own keys (and what it does not offer)
 
     if (action == "HKeyRescan") {   // SHIFT+r: new files copied / uploaded while the app runs
         rescan_now();
     } else if (action == "HKeyTranslit") {   // SHIFT+' : Japanese / Korean / Chinese text in Latin letters, on / off
         toggle_latin_letters();
-    } else if (action == "HKeyFetchTags") {   // SHIFT+b: AcoustID lookup (audio fingerprint) of the hovered title
-        std::string path;
-        if (queue_focus_) {
-            if (queue_selected_ >= 0 && queue_selected_ < static_cast<int>(queue_.size()) && queue_[queue_selected_].is_local) {
-                path = path_utf8(queue_[queue_selected_].local_path);
-            }
-        } else if (list_source_ == ListSource::Local && !local_view_.empty() &&
-                   selected_ >= 0 && selected_ < static_cast<int>(local_view_.size())) {
-            path = path_utf8(local_view_[selected_].path);
-        }
-        if (path.empty()) {
-            status_line_ = "fetch tags: only a local file can be fingerprinted";
-        } else {
-            meta_prompt_single_fetch(path); // asks the AcoustID disclaimer first
-        }
     } else if (action == "HKeyLyricsTiming") {   // lyrics timing overlay
         lyrics_edit_open();
     } else if (action == "HKeyStyleOptions") {   // SHIFT+s: the Style Option overlay of the playing track
@@ -894,6 +911,9 @@ void App::handle_key(int key) {
     } else if (action == "HKeyOscMenu") { // SHIFT+o: oscilloscope tuning overlay
         osci_menu_row_ = 0;
         mode_ = Mode::OsciMenu;
+    } else if (action == "HKeyBarsMenu") { // SHIFT+y: the spectrum bars' options, under the upper pane
+        bars_menu_row_ = 0;
+        mode_ = Mode::BarsMenu;
     } else if (action == "HKeyNormMenu") { // SHIFT+v: loudness normalization overlay
         norm_menu_row_ = 0;
         mode_ = Mode::NormMenu;
@@ -973,8 +993,10 @@ void App::handle_key(int key) {
     } else if (action == "HKeyPlayNextSong") {
         act_next();
     } else if (action == "HKeyPlayPreviousSong") {
-        if (queue_focus_ && !audiobook_) {
-            // Queue pane in focus: only a LOCKED queue knows what was played (the played tracks sit at its end). The last item is
+        // With titles in the queue (whichever pane has the focus) the key steps back in the queue; an unlocked queue does not remember
+        // played tracks, so it says so only while the queue pane has the focus -- elsewhere the key plays the previous list track as before.
+        if (!audiobook_ && (queue_focus_ || (!queue_.empty() && queue_locked_))) {
+            // Queue titles: only a LOCKED queue knows what was played (the played tracks sit at its end). The last item is
             // the track that plays now (if it came from the queue), the one before it is the previous one: step the queue back so
             // that one is the head again and play it -- the loop order stays as it was.
             if (!queue_locked_) {

@@ -313,6 +313,7 @@ int display_width(const std::string& s);
 struct LegendGroup {
     std::string label;
     std::vector<std::string> cmds;
+    int max_lines = 1;   // 2: when the commands do not fit one row, they continue on a second row (broken between two commands, never inside one)
 };
 struct LegendRow {
     std::string tree;    // "┌─ ", "├─ " or "└─ " (three columns)

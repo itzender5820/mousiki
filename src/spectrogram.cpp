@@ -1,5 +1,6 @@
 // Spectrogram (see spectrogram.h): analysis like Audacity's spectrogram view, braille and picture output.
 #include "spectrogram.h"
+#include "hifi_bars.h"
 #include "utf8_util.h"
 
 #include <algorithm>
@@ -945,8 +946,8 @@ void SpectroAnalyzer::waterfall(const SpectroSettings& s, int w, int h, bool lin
 }
 
 SpectroAnalyzer& spectro() { static SpectroAnalyzer a; return a; }
-void spectro_feed_push(const float* lr, size_t frames, int rate) { spectro().push(lr, frames, rate); }
-bool spectro_feed_active() { return spectro().visible(); }
+void spectro_feed_push(const float* lr, size_t frames, int rate) { spectro().push(lr, frames, rate); hifi_feed_push(lr, frames, rate); }   // (the Hi-Fi bars take the same stereo feed)
+bool spectro_feed_active() { return spectro().visible() || hifi_feed_active(); }
 
 // ---- the picture in the terminal --------------------------------------------------------------------------------------
 namespace {

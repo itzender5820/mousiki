@@ -117,13 +117,14 @@ namespace {
 enum RsId {
     kRsPlayback, kRsStartMode, kRsUseModePlayer, kRsUseModeRadio, kRsUseModeBook, kRsModeOrder1, kRsModeOrder2, kRsModeOrder3, kRsBlackBg, kRsShareProfiles, kRsRemoteApp,
     kRsOnAir, kRsPulse, kRsDummy, kRsVolIndicator, kRsVisualizer, kRsStereo, kRsNormalize, kRsTuneNoise, kRsMarquee, kRsTimeshift, kRsUseOsci, kRsUseSpectro,
-    kRsGradSpeed, kRsPulseSpeed, kRsFluidity, kRsDegr, kRsVisc,
+    kRsGradSpeed, kRsPulseSpeed, kRsFluidity, kRsDegr, kRsVisc, kRsBehavior, kRsBarStyle, kRsHifiRes, kRsHifiChan, kRsHifiColor, kRsHifiScale, kRsHifiAdapt, kRsHifiSplit, kRsHifiFScale, kRsHifiGain, kRsHifiRange,
     kRsScope, kRsOsciStyle,
     kRsAudioDevice,   // [ENTER]: the CHOOSE AUDIO DEVICE overlay
     kRsTermDefaultFont, // leave the terminal's own font alone (one value for all modes: TerminalDefaultFont= in the player's config.txt)
 };
 }
 
+static bool g_rs_hifi = false;   // the Hi-Fi rows are listed (rs_set_hifi_rows)
 const std::vector<SettingsLine>& rs_layout(int tab) {
     // A header with an empty text is the blank line before the next header.
     static const std::vector<SettingsLine> on_off = {
@@ -160,14 +161,21 @@ const std::vector<SettingsLine>& rs_layout(int tab) {
         {true, -1, ""},
         {true, -1, "SPECTRUM BARS"},   // the spectrum bars under the station info
         {false, kRsVisualizer, "On/Off"},
-        {false, kRsFluidity, "Bars Fluidity"}, {false, kRsDegr, "Bars Degradation"}, {false, kRsVisc, "Bars Viscosity"},
+        {false, kRsBarStyle, "Bars Style"}, {false, kRsHifiRes, "Hi-Fi Resolution"}, {false, kRsHifiChan, "Hi-Fi Channels"}, {false, kRsHifiColor, "Hi-Fi Color"}, {false, kRsHifiScale, "Hi-Fi Height"}, {false, kRsHifiAdapt, "Hi-Fi Adapt Height"}, {false, kRsHifiSplit, "Hi-Fi Channel Gap"}, {false, kRsHifiFScale, "Hi-Fi Frequency Scale"}, {false, kRsHifiGain, "Hi-Fi Gain (dB)"}, {false, kRsHifiRange, "Hi-Fi Range (dB)"},
+        {false, kRsBehavior, "Bars Behavior"}, {false, kRsFluidity, "Bars Fluidity"}, {false, kRsDegr, "Bars Degradation"}, {false, kRsVisc, "Bars Viscosity"},
         {true, -1, ""},
         {true, -1, "OSCI/SPECTRO SETTINGS"},
         {false, kRsShareProfiles, "Modes Share Settings"},
         {false, kRsScope, "Osci/sphere"}, {false, kRsOsciStyle, "Osci style"},
     };
-    return tab == 1 ? on_off : anima;
+    if (tab == 1) return on_off;
+    if (g_rs_hifi) return anima;
+    static std::vector<SettingsLine> plain;   // without Hi-Fi its three rows are left out
+    if (plain.empty())
+        for (const auto& l : anima) if (l.header || (l.id != kRsHifiRes && l.id != kRsHifiChan && l.id != kRsHifiColor && l.id != kRsHifiScale && l.id != kRsHifiAdapt && l.id != kRsHifiSplit && l.id != kRsHifiFScale && l.id != kRsHifiGain && l.id != kRsHifiRange)) plain.push_back(l);
+    return plain;
 }
+void rs_set_hifi_rows(bool on) { g_rs_hifi = on; }
 int rs_row_count(int tab) {
     int n = 0;
     for (const auto& l : rs_layout(tab)) if (!l.header) ++n;
@@ -238,6 +246,7 @@ bool* flag_of(RadioSettings& s, int id) {
 } // namespace
 
 std::string rs_row_value(const RadioSettings& s, int tab, int row) {
+    g_rs_hifi = s.bars_style == 1;
     const int id = rs_id(tab, row);
     if (id < 0) return "";
     if (bool* f = flag_of(const_cast<RadioSettings&>(s), id)) return *f ? "true" : "false";
@@ -257,9 +266,20 @@ std::string rs_row_value(const RadioSettings& s, int tab, int row) {
         case kRsTimeshift: return std::to_string(timeshift_minutes(s)) + " min";
         case kRsGradSpeed: return fmt_speed(kSpeedSteps[nearest_step(s.gradient_wave_speed)]);
         case kRsPulseSpeed: return fmt_speed(kSpeedSteps[nearest_step(s.pulse_wave_speed)]);
-        case kRsFluidity: return std::to_string(s.visualizer_fluidity);
-        case kRsDegr: return std::to_string(s.visualizer_degradation_speed);
-        case kRsVisc: return std::to_string(s.visualizer_viscosity);
+        case kRsFluidity: return std::to_string(s.bar_fluidity());
+        case kRsBehavior: return bars_preset_name(bars_preset_of(s.bar_fluidity(), s.bar_degradation(), s.bar_viscosity()));
+        case kRsBarStyle: return s.bars_style == 1 ? "hi-fi" : "classic";
+        case kRsHifiRes: return s.hifi_resolution == 1 ? "rough" : "fine";
+        case kRsHifiChan: return s.hifi_channels == 1 ? "mono" : "stereo";
+        case kRsHifiColor: return s.hifi_color == 1 ? "corresponding" : "gradient";
+        case kRsHifiScale: return s.hifi_scale == 0 ? "full" : s.hifi_scale == 2 ? "low" : s.hifi_scale == 3 ? "very low" : "medium";
+        case kRsHifiAdapt: return s.hifi_adapt == 1 ? "on" : "off";
+        case kRsHifiSplit: return s.hifi_split == 0 ? "remove" : "add";
+        case kRsHifiFScale: { static const char* n[] = {"linear", "logarithmic", "mel", "bark", "erb"}; return n[std::clamp(s.hifi_fscale, 0, 4)]; }
+        case kRsHifiGain: return std::to_string(s.hifi_gain);
+        case kRsHifiRange: return std::to_string(s.hifi_range);
+        case kRsDegr: return std::to_string(s.bar_degradation());
+        case kRsVisc: return std::to_string(s.bar_viscosity());
         case kRsScope: return scope_mode_name(s);
         case kRsOsciStyle: return s.osci_style == 1 ? "image" : "braille";
     }
@@ -267,6 +287,7 @@ std::string rs_row_value(const RadioSettings& s, int tab, int row) {
 }
 
 void rs_row_change(RadioSettings& s, int tab, int row, int dir) {
+    g_rs_hifi = s.bars_style == 1;
     const int id = rs_id(tab, row);
     if (id < 0) return;
     if (bool* f = flag_of(s, id)) { *f = dir == 0 ? !*f : dir > 0; return; }
@@ -309,9 +330,25 @@ void rs_row_change(RadioSettings& s, int tab, int row, int dir) {
         case kRsTimeshift: step(s.timeshift_idx, 5); break;
         case kRsGradSpeed: cycle_speed(s.gradient_wave_speed, dir); break;
         case kRsPulseSpeed: cycle_speed(s.pulse_wave_speed, dir); break;
-        case kRsFluidity: cycle_int(s.visualizer_fluidity, 1, 10, dir); break;
-        case kRsDegr: cycle_int(s.visualizer_degradation_speed, 1, 10, dir); break;
-        case kRsVisc: cycle_int(s.visualizer_viscosity, 0, 10, dir); break;
+        case kRsFluidity: cycle_int(s.bar_fluidity(), 1, 10, dir); break;
+        case kRsBehavior: {
+            const int now = bars_preset_of(s.bar_fluidity(), s.bar_degradation(), s.bar_viscosity());
+            const int to = now == kBarsCustom ? (dir > 0 ? 0 : 3) : ((now + dir) % 4 + 4) % 4;
+            s.bar_fluidity() = kBarsPresets[to].fluidity; s.bar_degradation() = kBarsPresets[to].degradation; s.bar_viscosity() = kBarsPresets[to].viscosity;
+            break;
+        }
+        case kRsBarStyle: step(s.bars_style, 2); g_rs_hifi = s.bars_style == 1; break;
+        case kRsHifiRes: step(s.hifi_resolution, 2); break;
+        case kRsHifiChan: step(s.hifi_channels, 2); break;
+        case kRsHifiColor: step(s.hifi_color, 2); break;
+        case kRsHifiScale: step(s.hifi_scale, 4); break;
+        case kRsHifiAdapt: step(s.hifi_adapt, 2); break;
+        case kRsHifiSplit: step(s.hifi_split, 2); break;
+        case kRsHifiFScale: step(s.hifi_fscale, 5); break;
+        case kRsHifiGain: s.hifi_gain = std::clamp(s.hifi_gain + 2 * dir, -20, 20); break;
+        case kRsHifiRange: s.hifi_range = std::clamp(s.hifi_range + 4 * dir, 40, 100); break;
+        case kRsDegr: cycle_int(s.bar_degradation(), 1, 10, dir); break;
+        case kRsVisc: cycle_int(s.bar_viscosity(), 0, 10, dir); break;
         case kRsScope: step(s.scope_mode, 4); break;
         case kRsOsciStyle: step(s.osci_style, 2); break;
     }
@@ -684,6 +721,7 @@ const KeyAction kKeyActions[] = {
     {nullptr, "ScopeWindow", "Scope Window", ")"},            // SHIFT+9 on a German keyboard (was SHIFT+w)
     {nullptr, "SpectroWindow", "Spectrogram Window", "("},    // SHIFT+8 on a German keyboard
     {nullptr, "SpectroMenu", "Spectrogram Options", "I"},
+    {nullptr, "BarsMenu", "Spectrum Bars Options", "B"},   // SHIFT+b, as in the music player
     {nullptr, "SpectroFull", "Spectrogram Full Screen", "U"},
     {nullptr, "ScopeBig", "Oscilloscope Full Screen", "="},     // SHIFT+0 on a German keyboard: YT left, XY right, grid
     {nullptr, "NormMenu", "Normalization Overlay", "V"},
@@ -937,6 +975,19 @@ RadioSettings load_radio_settings(std::string* source_out) {
     if (auto v = get("VisualizerFluidity")) s.visualizer_fluidity = as_int(*v, s.visualizer_fluidity, 1, 10);
     if (auto v = get("VisualizerDegradationSpeed")) s.visualizer_degradation_speed = as_int(*v, s.visualizer_degradation_speed, 1, 10);
     if (auto v = get("VisualizerViscosity")) s.visualizer_viscosity = as_int(*v, s.visualizer_viscosity, 0, 10);
+    if (auto v = get("VisualizerStyle")) s.bars_style = ascii_lower_str(*v) == "hifi" ? 1 : 0;
+    if (auto v = get("HifiResolution")) s.hifi_resolution = ascii_lower_str(*v) == "rough" ? 1 : 0;
+    if (auto v = get("HifiChannels")) s.hifi_channels = ascii_lower_str(*v) == "mono" ? 1 : 0;
+    if (auto v = get("HifiScale")) { const std::string l = ascii_lower_str(*v); s.hifi_scale = l == "full" ? 0 : l == "low" ? 2 : l == "very low" ? 3 : 1; }
+    if (auto v = get("HifiFluidity")) s.hifi_fluidity = as_int(*v, s.hifi_fluidity, 1, 10);
+    if (auto v = get("HifiDegradationSpeed")) s.hifi_degradation = as_int(*v, s.hifi_degradation, 1, 10);
+    if (auto v = get("HifiViscosity")) s.hifi_viscosity = as_int(*v, s.hifi_viscosity, 0, 10);
+    if (auto v = get("HifiAdapt")) s.hifi_adapt = ascii_lower_str(*v) == "on" ? 1 : 0;
+    if (auto v = get("HifiFrequencyScale")) { const std::string l = ascii_lower_str(*v); s.hifi_fscale = l == "linear" ? 0 : (l == "logarithmic" || l == "log") ? 1 : l == "bark" ? 3 : l == "erb" ? 4 : 2; }
+    if (auto v = get("HifiGain")) s.hifi_gain = as_int(*v, s.hifi_gain, -20, 20);
+    if (auto v = get("HifiRange")) s.hifi_range = as_int(*v, s.hifi_range, 40, 100);
+    if (auto v = get("HifiSplit")) s.hifi_split = ascii_lower_str(*v) == "remove" ? 0 : 1;
+    if (auto v = get("HifiColor")) s.hifi_color = ascii_lower_str(*v) == "corresponding" ? 1 : 0;
     // The oscilloscope settings: the player's reader (viz_prefs.h). An older "FrameRate" / "OsciMusicMode" (one value for both styles)
     // gives both styles that value and the per-style keys that follow override it.
     if (auto v = get("OsciBraille")) s.osci_style = as_bool(*v, true) ? 0 : 1;   // the old name: false meant "not braille"
@@ -1102,6 +1153,19 @@ static void write_radio_file(std::ostream& o, const RadioSettings& s) {
          "VisualizerFluidity=" << s.visualizer_fluidity << "\n"
          "VisualizerDegradationSpeed=" << s.visualizer_degradation_speed << "\n"
          "VisualizerViscosity=" << s.visualizer_viscosity << "\n"
+         "VisualizerStyle=" << (s.bars_style == 1 ? "hifi" : "classic") << "\n"
+         "HifiResolution=" << (s.hifi_resolution == 1 ? "rough" : "fine") << "\n"
+         "HifiChannels=" << (s.hifi_channels == 1 ? "mono" : "stereo") << "\n"
+         "HifiScale=" << (s.hifi_scale == 0 ? "full" : s.hifi_scale == 2 ? "low" : s.hifi_scale == 3 ? "very low" : "medium") << "\n"
+         "HifiFluidity=" << s.hifi_fluidity << "\n"
+         "HifiDegradationSpeed=" << s.hifi_degradation << "\n"
+         "HifiViscosity=" << s.hifi_viscosity << "\n"
+         "HifiAdapt=" << (s.hifi_adapt == 1 ? "on" : "off") << "\n"
+         "HifiFrequencyScale=" << (s.hifi_fscale == 0 ? "linear" : s.hifi_fscale == 1 ? "logarithmic" : s.hifi_fscale == 3 ? "bark" : s.hifi_fscale == 4 ? "erb" : "mel") << "\n"
+         "HifiGain=" << s.hifi_gain << "\n"
+         "HifiRange=" << s.hifi_range << "\n"
+         "HifiSplit=" << (s.hifi_split == 0 ? "remove" : "add") << "\n"
+         "HifiColor=" << (s.hifi_color == 1 ? "corresponding" : "gradient") << "\n"
          ;
     osci_config_write(o, s, "#");
     o <<

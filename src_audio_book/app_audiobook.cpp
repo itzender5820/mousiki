@@ -390,7 +390,7 @@ bool App::book_intercept(const std::string& action, int key) {
         return true;
     }
     if (key == kKeyCtrlN) { book_note_to_overlay(); return true; }               // CTRL+n: the note of the field in the big notes overlay
-    if (action == "HKeyFetchTags") { book_set_bookmark_now(); return true; }   // SHIFT+b
+    if (action == "HKeyBookmark") { book_set_bookmark_now(); return true; }   // SHIFT+b
     if (action == "HKeyToggleMetaOnly") { book_note_new(); return true; }      // SHIFT+n
     if (action == "HKeyListOverlay") { book_notes_open(); return true; }       // SHIFT+l
     if (action == "HKeyQueueOverlay") { book_marks_open(); return true; }   // SHIFT+k: the bookmark of every book
