@@ -1007,7 +1007,8 @@ refresh rate (60, 120, 165 Hz ...):
 With the waterfall chosen ([SHIFT+i], View) the spectrogram window shows it too, at the refresh rate of the
 monitor, the graphs gliding back smoothly.
 Spectrogram and waterfall, image and braille, each keep their own values (colors, scale, gain ...): switching
-View or Style in [SHIFT+i] brings that look's values in.
+View or Style in [SHIFT+i] brings that look's values in. Each view also remembers its own style: braille for
+the spectrogram does not make the waterfall braille, and a view never opened starts as an image with defaults.
 In the window: [F] or [F11] switches to fullscreen, [T] always on top, [ESC] or [Q] close.
 Each window is a separate process that gets the audio through a pipe, so a graphics driver
 problem can only close the window, never stall the music or the terminal.

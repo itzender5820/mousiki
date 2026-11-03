@@ -1,5 +1,5 @@
 # Mousiki radio mode -- settings (separate from the music player's config.txt)
-# Written by Mousiki v4.8.0  (the first save by a newer version keeps the previous file as radio_config.txt.bak)
+# Written by Mousiki v4.9.0  (the first save by a newer version keeps the previous file as radio_config.txt.bak)
 # Location (Windows): %USERPROFILE%\.config\mousiki\radio_config.txt
 # Location (Linux/macOS): $HOME/.config/mousiki/radio_config.txt  (or ./radio_config.txt next to the program)
 # Written by the settings screen (press s in the radio); edit by hand if you like.

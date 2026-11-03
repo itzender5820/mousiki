@@ -1016,7 +1016,8 @@ With the waterfall chosen ([SHIFT+i], View) the spectrogram window shows it too,
 )WIZ",
 R"WIZ(monitor, the graphs gliding back smoothly.
 Spectrogram and waterfall, image and braille, each keep their own values (colors, scale, gain ...): switching
-View or Style in [SHIFT+i] brings that look's values in.
+View or Style in [SHIFT+i] brings that look's values in. Each view also remembers its own style: braille for
+the spectrogram does not make the waterfall braille, and a view never opened starts as an image with defaults.
 In the window: [F] or [F11] switches to fullscreen, [T] always on top, [ESC] or [Q] close.
 Each window is a separate process that gets the audio through a pipe, so a graphics driver
 problem can only close the window, never stall the music or the terminal.
@@ -1165,10 +1166,10 @@ Device and [ENTER] opens the same overlay over the settings.
 
 System Default (name)    the output the system uses now (the default: nothing chosen)
 the devices              every sound output of this computer (speakers, headphones, HDMI, USB, Bluetooth)
-
-[UP]/[DOWN] pick, [ENTER] switches at once, [r] reads the list again (a headset that was just plugged
 )WIZ",
-R"WIZ(in), [ESC] closes. The device in use is marked "in use".
+R"WIZ(
+[UP]/[DOWN] pick, [ENTER] switches at once, [r] reads the list again (a headset that was just plugged
+in), [ESC] closes. The device in use is marked "in use".
 
 SWITCHING: [[Header]]
 A track that plays goes on at the same place on the new device (a paused one stays paused); the radio
@@ -1318,9 +1319,9 @@ marquee.
 
 [MODES ON/OFF AND ORDER:][[Header]]
 [Use Music Player / Use Radio / Use Audio Books:][[Legend]]   false = the mode is left out of the [SHIFT and +] cycle;
-                                                  one mode always stays on, the remaining mode set to true,
 )WIZ",
-R"WIZ(                                                  when all others are turned off, can't be turned off...
+R"WIZ(                                                  one mode always stays on, the remaining mode set to true,
+                                                  when all others are turned off, can't be turned off...
 
 [Mode Order 1-3:][[Legend]]                                   sets the order of the cycle, just like Viz Order 1-4.
                                                   Picking a mode for a place swaps it with the place that
@@ -1416,9 +1417,9 @@ This category is only available in the audio book mode only...
                                                   modes. Another font: TerminalFont= in config.txt.
 
 [Replace Emoji:][[Legend]]                                    All (default) = every emoji in a title is drawn as a ?
-                                                  (a single one), so the frame borders stay aligned; Safe
 )WIZ",
-R"WIZ(                                                  = plain emoji (note, radio, book ...) are kept and only
+R"WIZ(                                                  (a single one), so the frame borders stay aligned; Safe
+                                                  = plain emoji (note, radio, book ...) are kept and only
                                                   the risky ones (joined ones like the black cat, flags,
                                                   skin tones, red heart-style forms, keycaps) become ?;
                                                   Off = every emoji itself is drawn.
@@ -1520,10 +1521,10 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
                                                   disk's moving gradient. With Kitty or Sixel looks 1-5 are
                                                   real pictures (the oscilloscope can be an image next to
                                                   them), without them the same looks are drawn in braille
-                                                  dots.
-[Cover Contrast:][[Legend]]                                   0% .. 100% in steps of 5%. Adds contrast to the cover,
 )WIZ",
-R"WIZ(                                                  only where it is shown through the gradient or the disk
+R"WIZ(                                                  dots.
+[Cover Contrast:][[Legend]]                                   0% .. 100% in steps of 5%. Adds contrast to the cover,
+                                                  only where it is shown through the gradient or the disk
                                                   (Cover with Gradient, ASCII with Gradient, Cover behind
                                                   Disk looks; in the audio book mode with the Book Gradient
                                                   Wave on). Just Cover and all previews stay as they are; 0%
@@ -1611,10 +1612,10 @@ R"WIZ(                                                  only where it is shown t
                                                   compressed music is bent down more (default: on).
 [Hi-Fi Frequency Scale:][[Legend]]                            (Hi-Fi only) linear, logarithmic, mel, bark or erb, as in
                                                   the spectrogram options (default: mel).
-[Hi-Fi Gain (dB):][[Legend]]                                  (Hi-Fi only) -20 to 20, moves the levels up or down
-                                                  (default: -2).
 )WIZ",
-R"WIZ([Hi-Fi Range (dB):][[Legend]]                                 (Hi-Fi only) 40 to 100, the dB range from the bottom to
+R"WIZ([Hi-Fi Gain (dB):][[Legend]]                                  (Hi-Fi only) -20 to 20, moves the levels up or down
+                                                  (default: -2).
+[Hi-Fi Range (dB):][[Legend]]                                 (Hi-Fi only) 40 to 100, the dB range from the bottom to
                                                   the top of the bars; smaller = steeper (default: 68).
 [Hi-Fi Color:][[Legend]]                                      (Hi-Fi only) Gradient = left to right as set in the
                                                   colours, Corresponding = the colours of the spectrogram.
@@ -1727,10 +1728,10 @@ OPEN: [[Header]]
 
 CONSOLE / LOGS: [[Header]]
 The top pane shows what the app has been doing: the commands it ran with their output (yt-dlp, ffmpeg,
-lyrics and cover fetches ...), sort and filter changes, queue messages, load timings and why a cover
-or a lyrics file was (not) found. It keeps the last 1500 lines of this session, and the end of the
 )WIZ",
-R"WIZ(last session's log stands above them, after a line "the last session". The files are
+R"WIZ(lyrics and cover fetches ...), sort and filter changes, queue messages, load timings and why a cover
+or a lyrics file was (not) found. It keeps the last 1500 lines of this session, and the end of the
+last session's log stands above them, after a line "the last session". The files are
 ~/.cache/mousiki/logs/console.log and console_previous.log.
 
 STATUS MESSAGES: [[Header]]
@@ -1881,13 +1882,13 @@ playlist editor of the music player.
 
 OPEN AND CHANGE TABS: [[Header]] 
 [SHIFT+k] opens the menu, [<-/->] switch the two tabs (<-/->] from every pane, also while typing). 
-Lists are stored in stationlists.txt.
+)WIZ",
+R"WIZ(Lists are stored in stationlists.txt.
 
 KEYS IN THE STATION LISTS MENU: [[Header]]
 [TAB]           name > search > STATIONS > LIST CONTENTS
 [ENTER]         in STATIONS: add the station to the end of the list.
-)WIZ",
-R"WIZ(                In LIST CONTENTS: tune it, to audition the list
+                In LIST CONTENTS: tune it, to audition the list
 [4] / [5]       move the hovered station up / down
 [DEL] or [d]    remove it
 [SHIFT+t]       sort STATIONS: list order <-> name A-Z
@@ -2034,10 +2035,10 @@ e r t d f g) and the vi-style [j] / [k]. The cheat sheet [?] always lists the de
 
 THE FILES OF THE RADIO: [[Header]]
 radio_config.txt   settings, colors, equalizer, oscilloscope (keys as HKey<Action>= lines)
-stations.txt       your station list                    presets.txt       the presets and the active one
-stationlists.txt   the saved station lists              preset_names.txt  the short names of the PRESETS pane
 )WIZ",
-R"WIZ(radio_history/     history_radio.txt and archive_radio.txt
+R"WIZ(stations.txt       your station list                    presets.txt       the presets and the active one
+stationlists.txt   the saved station lists              preset_names.txt  the short names of the PRESETS pane
+radio_history/     history_radio.txt and archive_radio.txt
 All of them live in the config folder: ~/.config/mousiki/ (Windows: %USERPROFILE%\.config\mousiki\).
 
 [[New Page]]
@@ -2158,11 +2159,11 @@ NOTE       a bookmark with a text (SHIFT+n, below); without a title it is number
 The chapter with the newest bookmark is lit in the header colour with a diamond.
 [d] in the chapter pane deletes the bookmark of the chosen chapter (a small question first).
 Before the chapter changes ([n], [b], [ENTER] on another one), the mode switches or Mousiki quits, a
-question asks "Set a bookmark here?" with the exact time: [y]/[ENTER] yes, [n] no, [ESC] stay.
+)WIZ",
+R"WIZ(question asks "Set a bookmark here?" with the exact time: [y]/[ENTER] yes, [n] no, [ESC] stay.
 The audio is paused while the question is open. Settings -> GENERAL -> BOOKMARKS -> Ask for Bookmark 
 turns it off, since it can become annoying and auto-mark is always on anyways.
-)WIZ",
-R"WIZ(
+
 [ENTER] on a chapter that was left but not bookmarked asks "Do you want to continue where you left?":
   [y] Continue there (the only answer that starts the chapter)   
   [n] Leave, keep the auto-mark, nothing is played
@@ -2296,11 +2297,11 @@ ANDROID APP: [[Header]] Mousiki Remote (remote_app/android): enter the address a
 or let it find Mousiki in the network.
 
 PHONE BROWSER: [[Header]] open the address and enter the PIN.
-The phone shows the disk, the meta data, the progress bar, the dummy buttons (working: seek,
+)WIZ",
+R"WIZ(The phone shows the disk, the meta data, the progress bar, the dummy buttons (working: seek,
 play/pause) and boxes for prev, random, next, volume, mute, playback mode, LISTS and manual --
 drawn by Mousiki in the colours of your theme. In the radio: the ON AIR sign, the station,
-)WIZ",
-R"WIZ(prev/next station, pause, live, stop.
+prev/next station, pause, live, stop.
 
 LISTS (player): on top the local list (tap a title: it plays), below the saved playlists (tap one: its titles
 go into the queue, starts it when nothing plays). A tap on the other list gives it the focus; UP / DOWN

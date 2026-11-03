@@ -1,6 +1,6 @@
 <div align="center">
     
-# 📻 Mousiki Plus v4.8.0 - Music, Radio and Audio Book Player 🎵 
+# 📻 Mousiki Plus v4.9.0 - Music, Radio and Audio Book Player 🎵 
 (Windows · Linux · macOS)  
 
 <p align="center">
@@ -58,7 +58,7 @@ And the audio book mode, the third one, with bookmarks, notes, cutting audio fil
 
 ## Table of contents
 
-- [Current Status of the Port and Modification (v4.8.0)](#current-status-of-the-port-and-modification-v480)
+- [Current Status of the Port and Modification (v4.9.0)](#current-status-of-the-port-and-modification-v490)
 - [Features at a glance](#features-at-a-glance)
   - [Music player](#music-player)
   - [Visualizations](#visualizations)
@@ -83,14 +83,14 @@ And the audio book mode, the third one, with bookmarks, notes, cutting audio fil
 - [Dependencies and security](#dependencies-and-security)
 - [Images](#images)
 
-## Current Status of the Port and Modification (v4.8.0)
+## Current Status of the Port and Modification (v4.9.0)
 
 For now the Mousiki port works well and also includes everything I at least wanted and made sense to me for a music player, so there might be no further major releases that add new features, except of bug-fixes that might appear to me or others in the future (feel free to start discussions or report issues!!). I might adjust the code to be more polished / robust and might optimize the setup release (Win version results currently in ~250MB size, setup itself ~80MB, portable .zip ~100MB)... Since v2.5.0 my version of Mousiki also builds on macOS/Linux again (`setup.sh`), which is a first step towards making it potentially integratable into the main branch of the original project (which still seems way too hard after dozens of comments in the last two weeks, at least from my perspective). The Linux/macOS builds are less tested than the Windows one, so reports from users on those platforms would help finalize it more. 
 Concerning potential new features: the online-radio function is now included (see [radio mode](#radio-player)); a mixtape creator would be cool, but I'll see. Again, feel free to give feedback in the discussions, report issues you might experience using this modified port or contributing in any other way...
 
 ## Features at a glance
 
-Everything below is in the current version (v4.8.0) and works the same on Windows, Linux and macOS but was only tested on Windows and WSL. The **[user manual](Mousiki_User_Manual/Mousiki_User_Guide.md)** describes every key and every setting; inside the app `?` opens the cheat sheet, `<` (German keyboard; `SHIFT+,` on an English one) a list of all menus and overlays to choose from, and `SHIFT+w` the help wizard. All pictures of this README are in the folder **[readme_images/](readme_images/)**.
+Everything below is in the current version (v4.9.0) and works the same on Windows, Linux and macOS but was only tested on Windows and WSL. The **[user manual](Mousiki_User_Manual/Mousiki_User_Guide.md)** describes every key and every setting; inside the app `?` opens the cheat sheet, `<` (German keyboard; `SHIFT+,` on an English one) a list of all menus and overlays to choose from, and `SHIFT+w` the help wizard. All pictures of this README are in the folder **[readme_images/](readme_images/)**.
 
 ### Music player
 

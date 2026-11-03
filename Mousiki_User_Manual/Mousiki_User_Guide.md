@@ -1,4 +1,4 @@
-# Mousiki User Guide v4.8.0 (Windows · Linux · macOS) – music player, radio and audio book player
+# Mousiki User Guide v4.9.0 (Windows · Linux · macOS) – music player, radio and audio book player
 
 ## Welcome: a quick tour
 
@@ -165,7 +165,7 @@ The key shown for each command is the **default binding**. Your own bindings may
 - **[15. Upgrades and your settings](#15-upgrades-and-your-settings)**
 - **[About this app](#about-this-app)**
   - [Original developer of v1.0](#original-developer-of-v10)
-  - [Windows port, incl. extensive modifications up to v4.8.0 (including the radio and audio book modes)](#windows-port-incl-extensive-modifications-up-to-v480-including-the-radio-and-audio-book-modes)
+  - [Windows port, incl. extensive modifications up to v4.9.0 (including the radio and audio book modes)](#windows-port-incl-extensive-modifications-up-to-v490-including-the-radio-and-audio-book-modes)
   - [Third-party software and licences](#third-party-software-and-licences)
   
 ---
@@ -892,7 +892,7 @@ The third visual for the lyrics area (and the radio's scope block): a **spectrog
 - Three places to show it: the **lyrics area** (radio: the scope block), **full screen** with frequency labels and a time ruler (`SHIFT+u`), and its own **window** drawn by the graphics card, perfectly smooth at the monitor's refresh rate (`(`, German `SHIFT+8`, English `SHIFT+9`).
 - Two **styles**: an **image** (Kitty graphics / Sixel), and **braille** for any terminal.
 - Two **views**: the **spectrogram** (frequency over time) and the **waterfall** (see below), a special view of the same analysis.
-- **Four looks, each with its own values:** the spectrogram and the waterfall, each as image and as braille, remember their own colours, scale, frequency range, gain, range, window, time span and (waterfall) graph settings. Switching *View* or *Style* in the options brings that look's values in; a look you never used starts with a copy of the values you had, so nothing changes until you change it. *Reset* (`R`) resets only the look in use. They are saved in the config file as `SpectroProfile0..3` blocks (n = 2 x view + style: view 0 spectrogram / 1 waterfall, style 0 braille / 1 image); the plain `Spectro...` keys are the look in use.
+- **Four looks, each with its own values:** the spectrogram and the waterfall, each as image and as braille, remember their own colours, scale, frequency range, gain, range, window, time span and (waterfall) graph settings. Switching *View* brings in the other view **with the style it was last shown in** (so braille chosen for the spectrogram does not show in the waterfall, and the other way round) and with its own values; a view you never opened starts as an image with the default values. Switching *Style* within a view brings in that look's values; a style you never used starts with a copy of the values you had. The last style of each view is saved as `SpectroLastStyle0` / `SpectroLastStyle1`. *Reset* (`R`) resets only the look in use. They are saved in the config file as `SpectroProfile0..3` blocks (n = 2 x view + style: view 0 spectrogram / 1 waterfall, style 0 braille / 1 image); the plain `Spectro...` keys are the look in use.
 
 **Waterfall (overlay row *View*):** the same analysis drawn as a **stack of spectra**: every graph is the spectrum of one moment (frequency from left to right, loudness as height), the **newest one in front** and the older ones behind it, each shifted a little up and to the right, so the music seems to flow away into the distance. Every graph is **filled with the spectrogram's colours** (by height: low parts dark, loud peaks in the top colour of the scheme you chose) and has a **fine black outline**, so the graphs are told apart by their outline alone; no graph gets another colour for contrast. A graph hides what is behind it. (In a Sixel terminal that shows two screen rows per picture row, such as Windows Terminal, only every second pixel row can be sent: of every two rows the darker pixel is sent, so no horizontal outline is lost.) In a small picture (the lyrics area) fewer graphs are drawn, evenly spaced, when the set number would lie closer together than their outlines are thick; the time they cover stays the same. The front graph follows the sound live; the others move back one place whenever a spacing is full. It shows in all the places of the spectrogram (lyrics area, full screen `SHIFT+u`, the settings preview), in the image style as a picture and in the braille style as **coloured lines of dots** (braille cannot draw black, so only the outlines are drawn, and a graph still hides the lines behind it). In full screen the frequencies of the front graph stand on the top ruler (`1k`, `5k`, `10k` ...). Scale, frequency range, gain, range, frequency gain, window size, zero padding and colours work as in the spectrogram. Rows that belong to one view only are shown only with it (the waterfall has no *Motion*, *Channels* or *Time span*; the spectrogram none of the waterfall's five). The **spectrogram window** (`(`) shows the waterfall too when it is chosen, drawn by the graphics card at the monitor's refresh rate: there the graphs glide back continuously with the clock instead of moving a slot at a time, the frequencies stand under the picture, and the graphs are drawn as filled shapes with outlines directly at the window's pixel size, so the *Resolution* row does not apply there. The window follows the *Style* row: *image* draws the filled graphs with their black outline, *braille* the same picture as in the lyrics field and the full screen: only the outlines, as lines of dots in the colour of their height on black (the graphs still hide what is behind them). Only simple 2D triangles and lines are drawn, so an integrated graphics chip is enough.
 
@@ -2730,12 +2730,12 @@ Installing a new version never deletes your settings (`config.txt`, `radio_confi
 | **Email** | itz.ender5820@gmail.com | **Version** | original and final v1.0 |
 | | | **Licence** | Apache Licence 2.0 |
 
-### Windows port, incl. extensive modifications up to v4.8.0 (including the radio and audio book modes)
+### Windows port, incl. extensive modifications up to v4.9.0 (including the radio and audio book modes)
 
 | | | | |
 |---|---|---|---|
 | **Developer** | Steffen Schwerdtfeger | **GitHub** | [StSchwerdtfeger](https://github.com/StSchwerdtfeger) |
-| **Email** | fanti.blub@gmail.com | **Version** | current v4.8.0 |
+| **Email** | fanti.blub@gmail.com | **Version** | current v4.9.0 |
 | | | **Licence** | Apache Licence 2.0 |
 
 ### Third-party software and licences

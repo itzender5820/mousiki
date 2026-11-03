@@ -273,6 +273,11 @@ namespace muisc {
 bool spectro_profile_key(VizPrefs& s, const std::string& key, const std::string& value) {
     std::string lk = key;
     for (char& ch : lk) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    if (lk == "spectrolaststyle0" || lk == "spectrolaststyle1") {   // the style each view was last shown in
+        const int v = lk.back() - '0';
+        s.spectro_view_style[v] = value == "0" ? 0 : value == "1" ? 1 : -1;
+        return true;
+    }
     static const std::string kHead = "spectroprofile";
     if (lk.compare(0, kHead.size(), kHead) != 0 || lk.size() <= kHead.size()) return false;
     const int n = lk[kHead.size()] - '0';
@@ -297,13 +302,22 @@ void spectro_profiles_write(std::ostream& out, const VizPrefs& s, const char* c)
         sp.style = n % 2;
         spectro_config_write(out, sp, c, ("SpectroProfile" + std::to_string(n)).c_str());
     }
+    out << c << " The style (0 braille / 1 image) the spectrogram (view 0) and the waterfall (view 1) were last shown in:\n";
+    for (int v = 0; v < 2; ++v) {
+        const int ls = v == act / 2 ? act % 2 : s.spectro_view_style[v];
+        if (ls >= 0) out << "SpectroLastStyle" << v << "=" << ls << "\n";
+    }
 }
 
 void spectro_profiles_finish(VizPrefs& s) {
     for (int n = 0; n < 4; ++n)
         if (s.spectro_have[n]) { s.spectro_slot[n].view = n / 2; s.spectro_slot[n].style = n % 2; }
     s.spectro_active = -1;
-    s.spectro_sync();
+    {   // (SpectroLastStyle<v> was read before the values in use were known: the view in use shows its own style)
+        const int keep[2] = {s.spectro_view_style[0], s.spectro_view_style[1]};
+        s.spectro_sync();
+        for (int v = 0; v < 2; ++v) if (v != s.spectro.view) s.spectro_view_style[v] = keep[v];
+    }
 }
 
 } // namespace muisc

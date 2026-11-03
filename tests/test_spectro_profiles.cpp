@@ -8,37 +8,46 @@ using namespace muisc;
 
 TEST(spectro_profiles_keep_their_own_values) {
     VizPrefs v;
-    v.spectro.style = 1;            // image
+    v.spectro.style = 0;            // the spectrogram as braille
     v.spectro_sync();
     v.spectro.scheme = 1;           // classic
     v.spectro.gain = 33;
     v.spectro_sync();
-    spectro_adjust(v.spectro, kSrView, +1);   // the waterfall, image
+    spectro_adjust(v.spectro, kSrView, +1);   // the waterfall: never shown, so an image with its own defaults
     v.spectro_sync();
     CHECK_EQ(v.spectro.view, 1);
-    CHECK_EQ(v.spectro.style, 1);
-    CHECK_EQ(v.spectro.scheme, 1);   // a look never used starts with a copy of the values in use
+    CHECK_EQ(v.spectro.style, 1);    // (not the braille of the spectrogram)
+    CHECK_EQ(v.spectro.scheme, 0);   // (not the colours of the spectrogram)
+    CHECK_EQ(v.spectro.gain, 20);
     v.spectro.scheme = 3;
     v.spectro.wf_graphs = 55;
     v.spectro_sync();
-    spectro_adjust(v.spectro, kSrStyle, -1);  // the waterfall, braille: a copy again
+    spectro_adjust(v.spectro, kSrStyle, -1);  // the waterfall as braille: a copy of the waterfall's values
     v.spectro_sync();
     CHECK_EQ(v.spectro.style, 0);
     CHECK_EQ(v.spectro.scheme, 3);
     v.spectro.scheme = 2;
     v.spectro_sync();
-    spectro_adjust(v.spectro, kSrView, -1);   // back to the spectrogram, braille
+    spectro_adjust(v.spectro, kSrView, -1);   // back to the spectrogram: braille again, as it was left
     v.spectro_sync();
     CHECK_EQ(v.spectro.view, 0);
     CHECK_EQ(v.spectro.style, 0);
-    spectro_adjust(v.spectro, kSrStyle, +1);  // the spectrogram, image: its old values
-    v.spectro_sync();
     CHECK_EQ(v.spectro.scheme, 1);
     CHECK_EQ(v.spectro.gain, 33);
-    spectro_adjust(v.spectro, kSrView, +1);   // the waterfall, image
+    spectro_adjust(v.spectro, kSrView, +1);   // and the waterfall in braille again, with its own values
+    v.spectro_sync();
+    CHECK_EQ(v.spectro.style, 0);
+    CHECK_EQ(v.spectro.scheme, 2);
+    CHECK_EQ(v.spectro.wf_graphs, 55);
+    spectro_adjust(v.spectro, kSrStyle, +1);  // the waterfall as image: its old values
     v.spectro_sync();
     CHECK_EQ(v.spectro.scheme, 3);
-    CHECK_EQ(v.spectro.wf_graphs, 55);
+    spectro_adjust(v.spectro, kSrView, -1);   // the spectrogram stays braille although the waterfall is an image now
+    v.spectro_sync();
+    CHECK_EQ(v.spectro.style, 0);
+    spectro_adjust(v.spectro, kSrView, +1);
+    v.spectro_sync();
+    CHECK_EQ(v.spectro.style, 1);
 }
 
 TEST(spectro_profiles_survive_a_config_file) {

@@ -24,7 +24,7 @@ the `PKGBUILD` with the real checksum filled in, the `.SRCINFO` and the finished
    git clone ssh://aur@aur.archlinux.org/mousiki-plus.git aur-mousiki-plus
    cp out/PKGBUILD out/.SRCINFO aur-mousiki-plus/
    cd aur-mousiki-plus
-   git add PKGBUILD .SRCINFO && git commit -m "mousiki-plus 4.8.0" && git push
+   git add PKGBUILD .SRCINFO && git commit -m "mousiki-plus 4.9.0" && git push
    ```
 
 ## For every new release

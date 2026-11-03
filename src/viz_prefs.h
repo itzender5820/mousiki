@@ -64,12 +64,16 @@ struct VizPrefs {
     bool spectro_have[4] = {false, false, false, false};
     int spectro_active = -1;
     static int spectro_slot_of(const SpectroSettings& s) { return (s.view == 1 ? 2 : 0) + (s.style == 1 ? 1 : 0); }
+    // The style (0 braille / 1 image) each view was last shown in (-1: never): switching the view brings back ITS style and ITS
+    // values, so braille chosen for the spectrogram does not show in the waterfall, and the other way round.
+    int spectro_view_style[2] = {-1, -1};
     void spectro_sync() {
         const int now = spectro_slot_of(spectro);
         if (spectro_active < 0 || now == spectro_active) {
             spectro_active = now;
             spectro_slot[now] = spectro;
             spectro_have[now] = true;
+            spectro_view_style[now / 2] = now % 2;
             return;
         }
         SpectroSettings leaving = spectro;   // (the view and style row of the old look are the ones it had)
@@ -77,15 +81,30 @@ struct VizPrefs {
         leaving.style = spectro_active % 2;
         spectro_slot[spectro_active] = leaving;
         spectro_have[spectro_active] = true;
-        if (spectro_have[now]) {
-            spectro = spectro_slot[now];
-            spectro.view = now / 2;
-            spectro.style = now % 2;
-        } else {
-            spectro_slot[now] = spectro;
-            spectro_have[now] = true;
+        spectro_view_style[spectro_active / 2] = spectro_active % 2;
+        const bool view_changed = (now / 2) != (spectro_active / 2);
+        int target = now;
+        if (view_changed) {   // the other view: in the style it had last (a view never shown starts as an image)
+            const int ls = spectro_view_style[now / 2];
+            target = (now / 2) * 2 + (ls >= 0 ? ls : 1);
         }
-        spectro_active = now;
+        if (spectro_have[target]) {
+            const bool smooth = spectro.wf_smooth;
+            spectro = spectro_slot[target];
+            spectro.wf_smooth = smooth;
+        } else if (view_changed) {   // a look never used: its own defaults, not a copy of the other view's values
+            SpectroSettings fresh;
+            fresh.wf_smooth = spectro.wf_smooth;
+            spectro = fresh;
+        } else {
+            spectro_slot[target] = spectro;   // another style of the same view: starts with a copy of the values in use
+        }
+        spectro.view = target / 2;
+        spectro.style = target % 2;
+        spectro_slot[target] = spectro;
+        spectro_have[target] = true;
+        spectro_active = target;
+        spectro_view_style[target / 2] = target % 2;
     }
     int image_scale = 2;                // image style: 1 = full, 2 = half, 3 = a third of the screen resolution (enlarged on output)
     int image_detail = 0;               // image style: 0 = normal (picture up to 560 px wide), 1 = high (up to 1024 px)
