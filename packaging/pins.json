@@ -1,6 +1,10 @@
 {
   "_note": "written by release.py pin - review the diff before committing",
   "files": {
+    "CascadiaCode-2407.24.zip": {
+      "sha256": "e67a68ee3386db63f48b9054bd196ea752bc6a4ebb4df35adce6733da50c8474",
+      "url": "https://github.com/microsoft/cascadia-code/releases/download/v2407.24/CascadiaCode-2407.24.zip"
+    },
     "ffmpeg-linux-amd64-static.tar.xz": {
       "sha256": "abda8d77ce8309141f83ab8edf0596834087c52467f6badf376a6a2a4c87cf67",
       "url": "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"

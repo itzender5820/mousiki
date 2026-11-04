@@ -2,9 +2,9 @@
   "_note": "written by release.py pin - review the diff before committing",
   "packages": {
     "deprecated": {
-      "file": "deprecated-3.0.0-py3-none-any.whl",
-      "sha256": "58204cf4a7f6270d547af5c278ee7a6bb56045a4b3d8441a1cd11660f41b7939",
-      "url": "https://files.pythonhosted.org/packages/83/ae/676feae8e4644a6d7169951a97f61c56f416c73f67bf1761f2461d75cc81/deprecated-3.0.0-py3-none-any.whl"
+      "file": "deprecated-3.0.1-py3-none-any.whl",
+      "sha256": "eda314c115e8bc0fe52b90a6869e19240ac3cedb7449adfdba5981cf9ef693e1",
+      "url": "https://files.pythonhosted.org/packages/82/f0/07de837adfa09d592747b82fd74316e88285d2d7057551f30e4b5ef81bd8/deprecated-3.0.1-py3-none-any.whl"
     },
     "jaconv": {
       "file": "jaconv-0.5.0-py3-none-any.whl",
@@ -22,9 +22,9 @@
       "url": "https://files.pythonhosted.org/packages/0f/e8/11644fe823e05c583b330e9fb81e3e8fc5d079036512a8300fc157be349d/pykakasi-2.3.0-py3-none-any.whl"
     },
     "wrapt": {
-      "file": "wrapt-2.5.1-py3-none-any.whl",
-      "sha256": "c6e6c226b1ca5402d7ae5fb34a0d21f1b49124fe4200e5884d1e19e53c47ac1d",
-      "url": "https://files.pythonhosted.org/packages/bc/0c/7da7513ddcc8f1d831ec4bfbedc9f7f174ecb91042bc16916fc1e0d06b22/wrapt-2.5.1-py3-none-any.whl"
+      "file": "wrapt-2.5.2-py3-none-any.whl",
+      "sha256": "61eb54e9540ea522c2c4752a57549a83d3c67e6704ed708403d28e067aaf90f0",
+      "url": "https://files.pythonhosted.org/packages/77/8b/1ea57b936b70f98e8e7620a352578096d778dbee95b262f73c066d210ffb/wrapt-2.5.2-py3-none-any.whl"
     }
   }
 }
