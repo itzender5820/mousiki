@@ -147,15 +147,24 @@ const CoverImage* App::player_cover() const {
     rq.album = md.album == "-" ? std::string() : md.album;
     rq.search = settings_.cover_search;
     rq.store_rev = cover_store_revision();
-    if (settings_.video_cover >= 1 && settings_.video_mode) {   // Cover, Disk or Thumbnail: the video of the track is found once per track
+    // Cover, Disk or Thumbnail: the mode of the track itself (meta editor -> COVER OPTIONS / STYLE OPTION) wins; a track without one follows
+    // the setting of the VIDEO overlay (and only while the Video mode is on)
+    const int own = cover_track_video_mode(rq.path);   // 0 as in the VIDEO overlay, 1 cover, 2 thumbnail, 3 plain disk
+    if (own == 3) return nullptr;
+    const int vmode = own == 1 ? 0 : own == 2 ? 1 : settings_.video_mode ? settings_.video_cover : 0;
+    if (vmode >= 1) {   // the video of the track is found once per track
         if (snap_track_ != rq.path || snap_rev_ != video_rev_) { snap_track_ = rq.path; snap_rev_ = video_rev_; snap_video_ = video_source_for(current_path_); }
-        if (settings_.video_cover == 2 && !snap_video_.empty()) return nullptr;   // Disk: a track with a video shows the plain disk, no cover and no thumbnail
-        if (settings_.video_cover == 1) rq.snapshot_video = snap_video_;          // Thumbnail: a frame of the video
+        if (vmode == 2 && !snap_video_.empty()) return nullptr;   // Disk: a track with a video shows the plain disk, no cover and no thumbnail
+        if (vmode == 1) rq.snapshot_video = snap_video_;          // Thumbnail: a frame of the video
     }
     return track_cover(rq);
 }
 
 bool App::album_cover_gfx(int col, int cols, int rows) const {
+    // The meta editor, the cover fetch and the video fetch build the main screen's panel behind their own screen (to know its height) and
+    // draw their own pictures into the same slot: the playing track's cover must not be written there too, or the two pictures take the slot
+    // from each other every frame (the cover of the editor flickers and goes away when another track starts to play).
+    if (mode_ == Mode::CoverFetch || mode_ == Mode::VideoFetch || (mode_ == Mode::MetaEdit && !meta_sty_from_main_)) return false;
     if (gfx_proto_ == GfxProto::None || cols < 8 || rows < 4 || eff_cover_mode() >= 5) return false;   // (5, 6: the ASCII looks are braille dots)
     const CoverImage* cover = player_cover();
     if (!cover) return false;

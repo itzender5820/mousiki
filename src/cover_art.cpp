@@ -486,7 +486,7 @@ CoverSource resolve_cover_source(const CoverRequest& rq) {
     const fs::path dir = file.parent_path();
     if (rq.search != 4) {
         for (int pass = 0; pass < 2; ++pass) {
-            const std::string choice = pass == 0 ? cover_track_choice(rq.path) : cover_album_choice(rq.album);
+            const std::string choice = pass == 0 ? (rq.ignore_track_choice ? std::string() : cover_track_choice(rq.path)) : cover_album_choice(rq.album);
             if (choice.empty()) continue;
             out.chosen = true;
             if (choice == kCoverNone) { out.none = true; out.label = "no cover chosen"; return out; }

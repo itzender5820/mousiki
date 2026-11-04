@@ -20,7 +20,11 @@ public:
     std::vector<std::pair<std::string, std::string>> all() const;   // every (track, video) pair
     void set(const std::string& track, const std::string& video);   // an empty video removes the link
     bool remove(const std::string& track);
-    bool has(const std::string& track) const;
+    bool has(const std::string& track) const;                        // a real link (not the "no video" mark)
+    // "No video for this track": removing a connection must also stop the automatic pairing by file name (video_source_for()); the mark is
+    // a link to "-". video_for(), has(), tracks_for() and all() do not show it.
+    void mark_none(const std::string& track);
+    bool is_none(const std::string& track) const;
     size_t size() const;
     // Files were renamed / moved: both sides of every link follow. Returns the number of links changed (saved at once when > 0).
     int rename_paths(const std::vector<std::pair<std::string, std::string>>& renames);

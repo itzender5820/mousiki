@@ -80,7 +80,19 @@ std::vector<LocalTrack> App::filter_local_or_folders(const std::string& raw) con
     while (i < q.size() && q[i] == ' ') ++i;
     if (q.size() >= i + 3 && q[i] == '/') ++i;
     const bool folders = q.size() >= i + 2 && (q[i] == 'f' || q[i] == 'F') && q[i + 1] == ':';
-    if (!folders) return filter_and_rank_local(raw);
+    if (!folders) {
+        // like the main UI's search: a query lists audio files only; "v:" in front of it (or "/v:") lists only the video files
+        std::string rest = raw;
+        size_t j = 0;
+        while (j < rest.size() && rest[j] == ' ') ++j;
+        if (j < rest.size() && rest[j] == '/') ++j;
+        const bool videos_only = rest.size() >= j + 2 && (rest[j] == 'v' || rest[j] == 'V') && rest[j + 1] == ':';
+        if (videos_only) { rest = rest.substr(j + 2); while (!rest.empty() && rest.front() == ' ') rest.erase(rest.begin()); }
+        std::vector<LocalTrack> v = filter_and_rank_local(rest);
+        if (videos_only) v.erase(std::remove_if(v.begin(), v.end(), [](const LocalTrack& t) { return !LocalSource::is_video_file(t.path); }), v.end());
+        else if (!rest.empty()) v.erase(std::remove_if(v.begin(), v.end(), [](const LocalTrack& t) { return LocalSource::is_video_file(t.path); }), v.end());
+        return v;
+    }
     std::vector<std::string> words;
     std::string cur;
     for (size_t k = i + 2; k <= q.size(); ++k) {

@@ -104,6 +104,7 @@ struct Choices {
     std::map<std::string, std::string> failed;          // album key -> why the last fetch found nothing
     std::map<std::string, std::string> look;            // album key (or "dir:<folder>") -> the cover look of that album ("0".."7")
     std::map<std::string, std::string> style;           // track path -> "look,contrast,brightness,colors" (-1 = as in Settings)
+    std::map<std::string, std::string> vmode;           // track path -> "1" cover / "2" video thumbnail / "3" plain disk (absent: as in the VIDEO overlay)
     std::atomic<unsigned> revision{1};
 };
 
@@ -132,7 +133,14 @@ void load_locked(Choices& c) {
         if (b == std::string::npos || a != 1) continue;
         const std::string key = line.substr(2, b - 2), val = line.substr(b + 1);
         if (val.empty()) continue;
-        if (line[0] == 'T') c.track[key] = val;
+        if (line[0] == 'T') {
+            // (an earlier version kept the video choice as a picture choice: "@cover" / "@thumbnail" -- that is a mode of its own now)
+            if (val == "@cover") c.vmode[key] = "1";
+            else if (val == "@thumbnail") c.vmode[key] = "2";
+            else if (val == "-") c.vmode[key] = "3";   // "No cover" of a track is the plain disk now ("The disk shows")
+            else c.track[key] = val;
+        }
+        else if (line[0] == 'V') c.vmode[key] = val;
         else if (line[0] == 'A') c.album[key] = val;
         else if (line[0] == 'F') c.failed[key] = val;
         else if (line[0] == 'R') c.fetched[key] = val;
@@ -152,6 +160,7 @@ void save_locked(Choices& c) {
     for (const auto& kv : c.fetched) out << "R\t" << kv.first << "\t" << kv.second << "\n";
     for (const auto& kv : c.failed) out << "F\t" << kv.first << "\t" << kv.second << "\n";
     for (const auto& kv : c.look) out << "L\t" << kv.first << "\t" << kv.second << "\n";
+    for (const auto& kv : c.vmode) out << "V\t" << kv.first << "\t" << kv.second << "\n";
     for (const auto& kv : c.style) out << "S\t" << kv.first << "\t" << kv.second << "\n";
     write_text_atomic(p, out.str());   // (never a cut-off file: every choice is in it)
 }
@@ -268,6 +277,29 @@ void set_cover_fetch_failure(const std::string& album, const std::string& reason
     if (reason.empty()) { if (c.failed.erase(key) == 0) return; }
     else c.failed[key] = r.empty() ? std::string("not found") : r;
     save_locked(c);
+}
+
+int cover_track_video_mode(const std::string& track_path) {
+    if (track_path.empty()) return 0;
+    Choices& c = choices();
+    std::lock_guard<std::mutex> lk(c.mu);
+    load_locked(c);
+    const auto it = c.vmode.find(track_path);
+    if (it == c.vmode.end()) return 0;
+    const int v = std::atoi(it->second.c_str());
+    return v >= 1 && v <= 3 ? v : 0;
+}
+
+void set_cover_track_video_mode(const std::string& track_path, int mode) {
+    if (track_path.empty()) return;
+    Choices& c = choices();
+    {
+        std::lock_guard<std::mutex> lk(c.mu);
+        load_locked(c);
+        if (mode < 1 || mode > 3) c.vmode.erase(track_path); else c.vmode[track_path] = std::to_string(mode);
+        save_locked(c);
+    }
+    cover_store_touch();
 }
 
 std::string cover_track_choice(const std::string& track_path) {

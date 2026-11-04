@@ -573,6 +573,9 @@ void export_fpcalc_to_scripts() {
 
 } // namespace
 
+// The short sample video of the Settings preview (scripts/preview_video.mp4); empty when it is not there.
+fs::path find_preview_video() { return find_scripts_file("preview_video.mp4"); }
+
 std::filesystem::path locate_script(const std::string& filename) { return find_scripts_file(filename); }
 
 // Names the rules of the kanji reader: a fingerprint of scripts/kanji_reading.py (plus a number for changes in how the program uses it).
@@ -1085,7 +1088,9 @@ int App::run() {
                        (mode_ == Mode::MetaEdit && meta_tab_ == 0 &&
                         (meta_focus_ == 0 || meta_focus_ == 2)) ||
                        (mode_ == Mode::CoverFetch && cf_tab_ == 0 && cf_focus_ == 0) ||
-                       (mode_ == Mode::VideoFetch && vf_focus_ == 0) ||
+                       (mode_ == Mode::VideoFetch && (vf_focus_ == 0 || vf_.running)) ||   // (CTRL+c cancels a running download)
+                       mode_ == Mode::VideoLink ||                                          // (CTRL+c clears the choice; a search field is in use)
+                       mode_ == Mode::VideoSearch ||
                        playlist_text_field);
 
         for (int key = term.poll_key(); key != 0; key = term.poll_key()) {
@@ -1230,7 +1235,10 @@ int App::run() {
         // Only a main-screen (or spectrogram full-screen) frame shows it: the full-screen takeovers (settings, cheat
         // sheet, playlists ...) also lay out the top panel for their sizing, which must not count as "drawn".
         const bool main_frame = frame_main_len_ != std::string::npos;
-        const bool sp_img = main_frame && spectro_area_[0] >= 0 && sp_proto != 0 && !list_overlay_active() && !queue_overlay_active();
+        // (the meta editor, the cover fetch and the video fetch lay out the main screen behind their own screen to know its height: the
+        // spectrogram of that hidden screen must not be drawn -- it took the place of their pictures as soon as a track played)
+        const bool own_screen = mode_ == Mode::CoverFetch || mode_ == Mode::VideoFetch || (mode_ == Mode::MetaEdit && !meta_sty_from_main_);
+        const bool sp_img = main_frame && !own_screen && spectro_area_[0] >= 0 && sp_proto != 0 && !list_overlay_active() && !queue_overlay_active();
         const bool sp_creator = sp_img && creator_show_;   // the creator's preview has its own spectrogram, settings and picture
         // The spectrogram's analysis keeps running while a track is loaded, shown or not (a menu or another view over it, a pause): it
         // is cheap, and the history is there when the picture is opened again -- before, the feed was switched off whenever a frame did not
@@ -1245,7 +1253,9 @@ int App::run() {
         const auto frame_now = std::chrono::steady_clock::now();
         std::string wire;   // ONE write per frame (text + picture): two writes let the terminal paint in between = flicker
         // (no heal frame under the frozen Style Option overlay: the whole screen written again every two seconds makes the picture blink)
-        const bool heal = !sty_frozen && frame_now - last_frame_written_at > std::chrono::seconds(2);
+        // (Cover Options in the meta editor: its preview is a Sixel picture too -- a whole-frame write puts the editor's text into its cells)
+        const bool cov_pic = gfx_proto_ == GfxProto::Sixel && mode_ == Mode::MetaEdit && meta_cov_open_;
+        const bool heal = !sty_frozen && !cov_pic && frame_now - last_frame_written_at > std::chrono::seconds(2);
         if (frame_str != last_frame_str || heal) {
             // The main screen: only the lines that changed (at 120 / 165 fps the whole screen every frame would be
             // megabytes per second for the terminal). Full frames: every 2 s, after a clear, or when an overlay changed.
@@ -1274,12 +1284,13 @@ int App::run() {
             }
             // Style Option overlay: a whole frame (another row selected) writes the screen's text again, also in the picture's cells
             // (Sixel shows that text until the picture is sent): the pictures go out again in this same write.
-            if (sty_frozen && sixel_on && !diffed) { gfx_.fresh = true; if (gfx2_.active) gfx2_.fresh = true; }
+            if ((sty_frozen || cov_pic) && sixel_on && !diffed) { gfx_.fresh = true; if (gfx2_.active) gfx2_.fresh = true; }
             // A floating panel (a question, the "<" menu, a small overlay) came or went: the text it left over the picture's cells
             // must be wiped. Sixel keeps its picture only while the cells are skipped, so then the cells are written as spaces and
             // the picture is sent again in the same write (nothing shows in between).
             // (under the Style Option overlay a change inside the panel -- another row selected -- leaves the picture's cells as they are)
-            const bool floating_changed = floating != last_floating && !(sty_frozen && !floating.empty() && !last_floating.empty());
+            const bool floating_changed = floating != last_floating && !((sty_frozen || cov_pic) && !floating.empty() && !last_floating.empty());
+            const bool resend_pic = cov_pic && !diffed && gfx_.active;   // whole frame: the picture's cells hold text again, so blank them and send the picture in the same write
             // A panel came, went or moved over the main screen (the spectrogram options, a menu ...): the spectrogram picture is drawn again
             // completely in this same write. The tiles it touches are sent anyway, but a terminal may also drop parts of a picture next
             // to the text that was rewritten, and a tile that did not change (a paused track) would never be sent again.
@@ -1292,7 +1303,7 @@ int App::run() {
             last_floating = floating;
             last_frame_str = std::move(frame_str);
             last_frame_written_at = frame_now;
-            gfx_fill_holes(wire, sixel_on && !(floating_changed && gfx_.active));
+            gfx_fill_holes(wire, sixel_on && !((floating_changed || resend_pic) && gfx_.active));
         }
         // The scope image goes after the text (Sixel replaces the cells; a Kitty image sits under the text and is
         // replaced in place). The text frame is often unchanged and then not sent at all, the picture still is.

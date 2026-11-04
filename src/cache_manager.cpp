@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <mutex>
+#include <vector>
 
 namespace muisc {
 
@@ -167,7 +168,10 @@ void CacheManager::record_download(const std::string& extractor, const std::stri
         fs::rename(loose, file, ec);
         if (ec) { ec.clear(); fs::copy_file(loose, file, ec); if (!ec) fs::remove(loose, ec); }
     }
-    const std::string entry = extractor + " " + id;
+    append_unique_line(file, extractor + " " + id);
+}
+
+void CacheManager::append_unique_line(const fs::path& file, const std::string& entry) {
     bool needs_newline = false;
     {
         std::ifstream in(file, std::ios::binary);
@@ -178,11 +182,71 @@ void CacheManager::record_download(const std::string& extractor, const std::stri
         }
     }
     {
+        std::error_code ec;
         std::ifstream in(file, std::ios::binary | std::ios::ate);
         if (in && in.tellg() > 0) { in.seekg(-1, std::ios::end); char last = 0; in.get(last); needs_newline = last != '\n'; }
     }
     std::ofstream out(file, std::ios::binary | std::ios::app);
     if (out) out << (needs_newline ? "\n" : "") << entry << "\n";
+}
+
+fs::path CacheManager::video_archive_path() const { return download_dir_ / "history" / "downloaded_videos.txt"; }
+
+static bool plain_video_id(const std::string& id) {
+    if (id.size() < 5 || id.size() > 40) return false;
+    for (unsigned char c : id) if (!(std::isalnum(c) || c == '_' || c == '-')) return false;
+    return true;
+}
+
+void CacheManager::record_video_download(const std::string& id, const std::string& file) const {
+    if (!plain_video_id(id)) return;
+    static std::mutex m;
+    std::lock_guard<std::mutex> lk(m);
+    std::error_code ec;
+    const fs::path arch = video_archive_path();
+    fs::create_directories(arch.parent_path(), ec);
+    if (ec) return;
+    append_unique_line(arch, "youtube " + id);
+    // id TAB file: one line per video (a new download of the same id replaces the line)
+    const fs::path map = arch.parent_path() / "downloaded_videos_files.txt";
+    std::vector<std::string> lines;
+    {
+        std::ifstream in(map, std::ios::binary);
+        std::string line;
+        while (std::getline(in, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line.empty() || line.compare(0, id.size() + 1, id + "\t") == 0) continue;
+            lines.push_back(line);
+        }
+    }
+    lines.push_back(id + "\t" + file);
+    std::ofstream out(map, std::ios::binary | std::ios::trunc);
+    for (const std::string& l : lines) out << l << "\n";
+}
+
+fs::path CacheManager::find_video_download(const std::string& id) const {
+    if (!plain_video_id(id)) return {};
+    std::error_code ec;
+    const fs::path map = video_archive_path().parent_path() / "downloaded_videos_files.txt";
+    {
+        std::ifstream in(map, std::ios::binary);
+        std::string line;
+        while (std::getline(in, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line.compare(0, id.size() + 1, id + "\t") != 0) continue;
+            const fs::path f = path_from_utf8(line.substr(id.size() + 1));
+            if (fs::is_regular_file(f, ec) && fs::file_size(f, ec) > 0) return f;
+        }
+    }
+    const std::string tag = "[" + id + "]";   // down_vid names its files "<title> [<id>].mp4"
+    for (fs::directory_iterator it(download_dir_ / "video_down", ec), end; !ec && it != end; it.increment(ec)) {
+        const std::string name = path_utf8(it->path().filename());
+        const std::string ext = path_utf8(it->path().extension());
+        if (name.find(tag) == std::string::npos || ext == ".part" || ext == ".ytdl" || ext == ".temp") continue;
+        std::error_code e2;
+        if (fs::is_regular_file(it->path(), e2) && fs::file_size(it->path(), e2) > 0) return it->path();
+    }
+    return {};
 }
 
 bool CacheManager::is_cached(const std::string& title, const std::string& ext) const {

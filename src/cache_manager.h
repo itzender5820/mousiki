@@ -40,9 +40,20 @@ public:
     // A downloaded_history.txt lying directly in the download folder is moved into the history folder first.
     void record_download(const std::string& extractor, const std::string& id) const;
 
+    // Videos: the same idea in a file of their own (the same YouTube id can be a song AND a video, so they must not share one):
+    // <download folder>/history/downloaded_videos.txt ("youtube <video id>", for `yt-dlp --download-archive` -- the PowerShell /
+    // shell function down_vid uses it) and downloaded_videos_files.txt ("<id> TAB <file>", Mousiki's own: which file a video was
+    // saved as, so a second download of the same video connects the first file instead of fetching it again).
+    fs::path video_archive_path() const;
+    void record_video_download(const std::string& id, const std::string& file) const;
+    // The file a video was downloaded to before (by Mousiki: the file list; by down_vid: "<title> [<id>].mp4" in video_down);
+    // empty when there is none or it was deleted since (then it can be fetched again).
+    fs::path find_video_download(const std::string& id) const;
+
 private:
     fs::path cache_dir_;
     fs::path download_dir_; // == cache_dir_ unless Settings sets a folder
+    static void append_unique_line(const fs::path& file, const std::string& entry);
     static std::string sanitize(const std::string& raw);
     // Old ASCII-only naming rule, used only to locate files cached
     // before sanitize() became UTF-8 aware.

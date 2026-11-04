@@ -199,7 +199,7 @@ private:
         ChildProcess* child = nullptr;
         std::string progress, file, error, title;
         fs::path track, dir;
-        std::string base;
+        std::string base, video_id;
         bool done = false;
     } vd_;
     fs::path video_down_dir() const;     // <download folder>/video_down
@@ -237,6 +237,7 @@ private:
     std::string vf_hover_;                                // the song the cursor rests on (for the automatic search)
     std::chrono::steady_clock::time_point vf_hover_since_{};
     std::deque<std::string> vf_queue_;                     // songs waiting for their search
+    std::string vf_last_queries_;                          // the texts the running / last search used (shown when it finds nothing)
     std::string vf_searching_;                             // the song whose search runs
     std::future<std::vector<OnlineResult>> vf_search_;
     mutable std::string vf_pic_key_;
@@ -254,7 +255,7 @@ private:
         std::string status, last_error;
         std::vector<std::string> done_paths;               // songs that have their video now
     } vf_;
-    void video_fetch_open();
+    void video_fetch_open(const fs::path& focus = fs::path());   // (focus: the song the cursor starts on, default the playing one)
     void video_fetch_close();
     void video_fetch_key(int key);
     void video_fetch_start();
@@ -864,7 +865,7 @@ private:
     // --- the cover of a track in the meta editor: the picture under the fields and the "Cover Options" overlay ---
     // The choice made here is kept per track (cover_store.h) and goes before the album's default and before Settings -> Cover Search
     // (except "Within File Only").
-    struct MetaCovItem { int special = 0; CoverCandidate c; };   // special: 0 a picture, 1 "automatic" (the search decides), 2 "no cover"
+    struct MetaCovItem { int special = 0; CoverCandidate c; };   // special: 0 a picture, 1 "automatic" (the search decides), 2 "no cover", 3 "video thumbnail, else cover"
     bool meta_cov_open_ = false;
     bool meta_cov_search_ = false;       // the file name search field has the keyboard
     bool meta_cov_ask_delete_ = false;

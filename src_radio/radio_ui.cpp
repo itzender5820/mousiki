@@ -1825,7 +1825,7 @@ const CheatRow kCheatRows[] = {
     {nullptr, ",/./TAB/0/R", "Equalizer: previous / next preset / zero the band / reset to Flat (SPACE on/off)"},
     {nullptr, "S/DEL/X", "Equalizer: save the curve as a custom preset (ENTER saves, ESC cancels) / delete the selected one (press twice)"},
     {"VISUALIZATIONS (MAIN UI)", ".", "Cycle the scope block: oscilloscope / sphere / spectrogram, like . in the player (rebindable; what is off on the GENERAL tab is skipped)"},
-    {nullptr, "SHIFT+i", "Spectrogram options overlay (style, motion, scale, frequencies, gain, range, window, colors, channels, time span; R = Audacity's defaults)"},
+    {nullptr, "SHIFT+i", "Spectrogram options overlay (view: spectrogram / waterfall, style, motion, scale, frequencies, gain, range, window, colors, channels, time span, the waterfall's graphs; R = Audacity's defaults)"},
     {nullptr, "SHIFT+b", "Spectrum bars overlay (under the upper pane, scrolls on a low terminal): style, Hi-Fi resolution / channels / gap / height / adapt / frequency scale / gain / range / colour, bar motion (toggle; R = defaults)"},
     {nullptr, "SHIFT+u", "Spectrogram full screen with frequency labels and time ruler (toggle; ESC closes)"},
     {nullptr, "SHIFT+0", "Oscilloscope full screen: YT mode left, XY mode right, values in the border (toggle; ESC closes; the SHIFT+o options open on top of it). The key is the character = (SHIFT+0 on a German keyboard)"},
@@ -3269,7 +3269,7 @@ std::vector<std::string> build_overlay(const Style& s, const UiModel& m, const R
     if (spo) {
         // Spectrogram options (SHIFT+i): the same rows as the player's overlay
         lines.push_back(box_top(s, W, "Spectrogram", s.border));
-        for (int r = kSrStyle; r < kSpectroRowCount; ++r) {
+        for (const int r : spectro_visible_rows(c.spectro)) {   // View (spectrogram / waterfall) first; the waterfall has its own rows
             const bool on = r == m.overlay_row;
             std::string val = spectro_row_value(c.spectro, r);
             if (r == kSrStyle && c.spectro.style == 1 && m.gfx_proto == GfxProto::None) val = "image (no Sixel/Kitty here)";
@@ -3455,16 +3455,26 @@ std::vector<std::string> build_spectro_full(const Style& s, const UiModel& m, co
     const bool image = sp.style == 1 && m.gfx_proto != GfxProto::None;
     const int unit = image ? std::max(1, m.cell_h) : 4;
     std::vector<std::string> lab(static_cast<size_t>(rows));
-    for (const auto& l : spectro_axis(sp, a.rate(), rows * unit, unit))
-        if (l.first >= 0 && l.first < rows) lab[static_cast<size_t>(l.first)] = l.second;
-    std::string title = "SPECTROGRAM";
+    const bool wf = sp.view == 1;
+    if (!wf)
+        for (const auto& l : spectro_axis(sp, a.rate(), rows * unit, unit))
+            if (l.first >= 0 && l.first < rows) lab[static_cast<size_t>(l.first)] = l.second;
+    std::string title = wf ? "WATERFALL" : "SPECTROGRAM";
     const std::string name = st.tuned_name.empty() ? st.info.station : st.tuned_name;
     if (!name.empty()) title += " - " + shown_text(name);
     if (!st.info.title.empty()) title += ": " + shown_text(st.info.artist.empty() ? st.info.title : st.info.artist + " - " + st.info.title);
     const std::string bar = s.border + c.box_vertical + kReset;
     std::vector<std::string> out;
     out.push_back(box_top(s, W, truncate_str(title, W - 6), s.border));
-    {
+    if (wf) {   // the waterfall has no time axis: the frequencies of the front graph take the ruler's row
+        std::string ruler(static_cast<size_t>(cols), ' ');
+        int cwp = 10;
+        if (image) cwp = std::max(1, m.cell_w);
+        if (sp.labels)
+            for (const auto& l : spectro_axis_x(sp, a.rate(), cols * (image ? cwp : 2), image ? cwp : 2))
+                for (size_t k = 0; k < l.second.size() && static_cast<size_t>(l.first) + k < ruler.size(); ++k) ruler[static_cast<size_t>(l.first) + k] = l.second[k];
+        out.push_back(bar + s.legend + spaces(label_w + 1) + ruler + kReset + bar);
+    } else {
         std::string ruler(static_cast<size_t>(cols), ' ');
         const int step = sp.span <= 5 ? 1 : sp.span <= 10 ? 2 : sp.span <= 30 ? 5 : 10;
         for (int t = 0; t <= sp.span; t += step) {

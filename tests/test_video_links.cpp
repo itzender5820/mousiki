@@ -1,9 +1,11 @@
 // The hand-made pairs of track and video: storage, following renames / moves, mending, and the yt-dlp command of a download.
 #include "test_framework.h"
 #include "video_links.h"
+#include "cover_store.h"
 #include "online_source.h"
 #include "app_internal.h"
 #include "settings.h"
+#include "cache_manager.h"
 
 #include <filesystem>
 #include <fstream>
@@ -105,4 +107,68 @@ TEST(video_fetch_pick_prefers_the_closest_length) {
     p = muisc::video_fetch_pick(hits, 30);                 // nothing near: the first hit
     if (p) CHECK_EQ(p->video_id, std::string("a"));
     CHECK(muisc::video_fetch_pick({}, 100) == nullptr);
+}
+
+TEST(video_downloads_are_remembered_and_found_again) {
+    const fs::path dir = fs::temp_directory_path() / "mousiki_vdl_test";
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+    fs::create_directories(dir / "video_down", ec);
+    CacheManager c;
+    c.set_download_dir(dir);
+    CHECK(c.find_video_download("dQw4w9WgXcQ").empty());   // never downloaded
+    const fs::path f = dir / "video_down" / "Some Song.mp4";
+    { std::ofstream(f, std::ios::binary) << "video"; }
+    c.record_video_download("dQw4w9WgXcQ", f.string());
+    CHECK(c.find_video_download("dQw4w9WgXcQ") == f);      // found by the file list
+    std::ifstream in(c.video_archive_path());
+    std::string line;
+    std::getline(in, line);
+    CHECK_EQ(line, std::string("youtube dQw4w9WgXcQ"));    // in yt-dlp's archive format (for down_vid)
+    c.record_video_download("dQw4w9WgXcQ", f.string());     // twice: still one archive line, one list line
+    int n = 0;
+    { std::ifstream a(c.video_archive_path()); while (std::getline(a, line)) ++n; }
+    CHECK_EQ(n, 1);
+    fs::remove(f, ec);
+    CHECK(c.find_video_download("dQw4w9WgXcQ").empty());   // the file is gone: it can be fetched again
+    const fs::path g = dir / "video_down" / "Other Title [abcDEF12345].mp4";   // a file made by down_vid
+    { std::ofstream(g, std::ios::binary) << "video"; }
+    CHECK(c.find_video_download("abcDEF12345") == g);
+    CHECK(c.find_video_download("bad id!").empty());
+    fs::remove_all(dir, ec);
+}
+
+TEST(video_links_no_video_mark_hides_the_name_match_and_persists) {
+    LinkFile lf;
+    VideoLinks& v = VideoLinks::get();
+    v.set("/m/a.mp3", "/m/clip.mp4");
+    CHECK(v.has("/m/a.mp3"));
+    v.mark_none("/m/a.mp3");                          // the connection was removed on purpose
+    CHECK(!v.has("/m/a.mp3"));
+    CHECK(v.video_for("/m/a.mp3").empty());
+    CHECK(v.is_none("/m/a.mp3"));
+    CHECK(v.all().empty());                           // (the mark is no pair)
+    CHECK(v.tracks_for("-").empty());
+    v.reload();
+    CHECK(v.is_none("/m/a.mp3"));                     // it stays across a restart
+    v.remove("/m/a.mp3");                             // [DEL] again: the automatic pairing is back
+    CHECK(!v.is_none("/m/a.mp3"));
+    v.set("/m/a.mp3", "/m/clip.mp4");                 // a new connection replaces the mark
+    v.mark_none("/m/a.mp3");
+    v.set("/m/a.mp3", "/m/other.mp4");
+    CHECK(!v.is_none("/m/a.mp3"));
+    CHECK_EQ(v.video_for("/m/a.mp3"), std::string("/m/other.mp4"));
+}
+
+TEST(cover_track_video_mode_is_kept_apart_from_the_picture_choice) {
+    set_cover_track_choice("/m/zz_modetest.mp3", "/m/cover.png");
+    CHECK_EQ(cover_track_video_mode("/m/zz_modetest.mp3"), 0);
+    set_cover_track_video_mode("/m/zz_modetest.mp3", 2);              // the video thumbnail
+    CHECK_EQ(cover_track_video_mode("/m/zz_modetest.mp3"), 2);
+    CHECK_EQ(cover_track_choice("/m/zz_modetest.mp3"), std::string("/m/cover.png"));   // the chosen picture is still there
+    set_cover_track_video_mode("/m/zz_modetest.mp3", 1);              // and back to the cover
+    CHECK_EQ(cover_track_choice("/m/zz_modetest.mp3"), std::string("/m/cover.png"));
+    set_cover_track_video_mode("/m/zz_modetest.mp3", 0);
+    CHECK_EQ(cover_track_video_mode("/m/zz_modetest.mp3"), 0);
+    set_cover_track_choice("/m/zz_modetest.mp3", "");
 }

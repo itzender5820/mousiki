@@ -411,6 +411,8 @@ std::vector<LocalTrack> App::filter_and_rank_local_view(const std::string& query
     std::vector<LocalTrack> view = filter_and_rank_local(query);
     if (local_sort_mode_ == 4 || videos_only) {   // SHIFT+t's last step (Video mode on): only the video files
         view.erase(std::remove_if(view.begin(), view.end(), [](const LocalTrack& t) { return !LocalSource::is_video_file(t.path); }), view.end());
+    } else if (!query.empty()) {   // a search lists audio files only; the videos show up in the video filter (SHIFT+t's last step, /v:)
+        view.erase(std::remove_if(view.begin(), view.end(), [](const LocalTrack& t) { return LocalSource::is_video_file(t.path); }), view.end());
     }
     if (folder_filter_.empty()) return view;
     std::vector<LocalTrack> filtered;

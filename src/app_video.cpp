@@ -27,6 +27,7 @@ std::string lower_stem(const fs::path& p) {
 std::string App::video_source_for(const fs::path& track) const {
     if (track.empty()) return std::string();
     if (LocalSource::is_video_file(track)) return path_utf8(track);
+    if (VideoLinks::get().is_none(path_utf8(track))) return std::string();   // the connection was removed on purpose: no pairing by file name either
     {   // linked by hand ([ Video Option ] in the meta editor, a Search YT download): that one, when the file is there
         const std::string linked = VideoLinks::get().video_for(path_utf8(track));
         std::error_code lec;
@@ -77,7 +78,7 @@ void App::borrow_video_tags() {
                 const auto si = by_stem.find(lower(path_utf8(vp.parent_path())) + "/" + lower(path_utf8(vp.stem())));
                 if (si != by_stem.end()) tr = si->second;
             }
-            if (tr.empty()) continue;
+            if (tr.empty() || VideoLinks::get().is_none(tr)) continue;
             const auto vit = row_meta_cache_.find(v);
             const auto tit = row_meta_cache_.find(tr);
             if (vit == row_meta_cache_.end() || tit == row_meta_cache_.end() || !tit->second.tags_resolved) continue;

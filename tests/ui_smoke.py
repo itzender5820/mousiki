@@ -87,6 +87,10 @@ class Session:
                     os.dup2(os.open(os.devnull, os.O_WRONLY), 2)
                 except OSError:
                     pass
+            try:
+                os.chdir(home)   # (the program also reads/writes ./radio_config.txt: never the one of the project folder)
+            except OSError:
+                pass
             os.execve(binary, [binary], env)
         fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", ROWS, COLS, 0, 0))
         self.screen = pyte.Screen(COLS, ROWS)
@@ -234,8 +238,11 @@ def kitty_cover_options(binary, home, scripts):
             sess.send(b"\x1b[B", 0.15)
         sess.send(b"\x1b[A", 0.3)       # (the last stop is Video Option, under the two buttons: Up is Style Option, Left goes to Cover Options)
         sess.send(b"\x1b[D", 0.3)
+        open_mark = len(sess.raw)
         sess.send(b"\r", 1.5)
-        check("COVER OPTIONS" in sess.text(), "kitty cover options: the overlay opens")
+        t0 = sess.text()
+        check("COVER OPTIONS" in t0, "kitty cover options: the overlay opens")
+        check("The disk shows" in t0, "kitty cover options: the disk modes are listed (the rest of the list may be overwritten by the picture's graphics data in this screen model)")
         def picture_after(mark, wait):
             """True when a picture (Kitty graphics transmit) arrives within `wait` seconds after `mark`: the preview is
             decoded in the background, so on a slow machine it comes late."""
@@ -250,9 +257,7 @@ def kitty_cover_options(binary, home, scripts):
             # pictures are decoded by ffmpeg: without it the preview says "(the picture cannot be read)" (a CI runner)
             print("  skipped: kitty cover options, the picture checks (ffmpeg is not installed on this machine)")
             return
-        mark = len(sess.raw)
-        sess.send(b"\x1b[B", 0.5)
-        sess.send(b"\x1b[B", 0.8)   # automatic -> no cover -> cover.png
+        mark = open_mark             # (the start is on "Automatic": its preview is the picture the search finds, here cover.png)
         shows_picture = picture_after(mark, 10.0)
         check(shows_picture, "kitty cover options: the preview of a picture is a real picture")
         if not shows_picture:
@@ -298,6 +303,38 @@ def radio_latin_toggle(binary, root, scripts):
         sess.send('"', 1.5)
         check("さくらラジオ" in sess.text(), "radio: [\"] again shows the original names")
         check(sess.alive(), "radio: the program is still running")
+    finally:
+        sess.kill()
+
+
+def radio_waterfall(binary, root, scripts):
+    """Radio mode: the spectrogram options (SHIFT+i) start with the View row; the waterfall shows its own rows and the full screen says WATERFALL."""
+    home = os.path.join(root, "radiowf_home")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    with open(os.path.join(home, ".config", "mousiki", "stations.txt"), "w", encoding="utf-8") as f:
+        f.write("# name | genre | country | codec | kbps | url | [*] favorite\n"
+                "Plain Station | Rock | US | MP3 | 128 | http://127.0.0.1:9/c | *\n")
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nStartMode=radio\n" % os.path.join(root, "music"))
+    sess = Session(binary, home, scripts, {"MOUSIKI_RADIO_NULL": "1"})
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "Plain Station" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        sess.send("I", 1.2)
+        t = sess.text()
+        check("Spectrogram" in t and "View" in t and "spectrogram" in t, "radio spectrogram options: the View row is there, set to spectrogram")
+        check("Graphs" not in t, "radio spectrogram options: the waterfall's rows are hidden in the spectrogram view")
+        sess.send(b"\x1b[C", 1.0)
+        t = sess.text()
+        check("waterfall" in t and "Graphs" in t, "radio spectrogram options: View -> waterfall shows the waterfall rows")
+        sess.send("I", 1.0)                                  # closes the overlay
+        sess.send("U", 1.5)
+        check("WATERFALL" in sess.text(), "radio: the full screen is titled WATERFALL")
+        sess.send(b"\x1b", 1.0)
+        check(sess.alive(), "radio waterfall: the program is still running")
     finally:
         sess.kill()
 
@@ -1355,6 +1392,50 @@ def disk_field_setting(binary, root, scripts):
     finally:
         sess.kill()
 
+def settings_video_preview(binary, root, scripts):
+    """ANIMA/VIZ: the Use Video row previews the sample video (scripts/preview_video.mp4), looping; a row further down stops it."""
+    if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
+        print("  skipped: settings video preview (ffmpeg / ffprobe is not installed on this machine)")
+        return
+    if not os.path.exists(os.path.join(scripts, "preview_video.mp4")):
+        print("  skipped: settings video preview (scripts/preview_video.mp4 is not there)")
+        return
+    home = os.path.join(root, "sv_home")
+    lib = os.path.join(root, "music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Alpha Song" in sess.text():
+                break
+        sess.send("s", 1.2)
+        sess.send(b"\t", 0.5)
+        sess.send(b"\t", 0.8)                               # ANIMA/VIZ
+        found = False
+        for _ in range(60):                                 # down to the Use Video row (the ON/OFF block further down the tab)
+            sess.send(b"\x1b[B", 0.15)
+            sess.pump(0.4)
+            if "Preview: Use Video" in sess.text():
+                sess.pump(1.5)
+            if "sample video" in sess.text():
+                found = True
+                break
+        check(found, "settings video preview: the Use Video row shows the sample video")
+        sess.send(b"\x1b[B", 0.3)
+        sess.pump(1.0)
+        check("sample video" not in sess.text(), "settings video preview: another row shows its own preview")
+        check(sess.alive(), "settings video preview: the program is still running")
+    finally:
+        sess.kill()
+
 def queue_shuffle(binary, root, scripts):
     """The big queue overlay (SHIFT+k): SHIFT+s shuffles the order of the queue."""
     home = os.path.join(root, "qs_home")
@@ -1439,16 +1520,20 @@ def video_overlays(binary, root, scripts):
                 break
         sess.send("Y", 1.0)
         t = sess.text()
-        check("Include Lyrics" in t and "Cover, Disk or Thumbnail" in t and "Video Option" in t and "Search YT" in t, "video overlay: the rows are listed")
+        check("Include Lyrics" in t and "Cover, Disk or Thumbnail" in t and "Video Option" in t and "Quick Search/Down. YT" in t and "General Fetch Videos Menu" in t, "video overlay: the rows are listed")
         for _ in range(4):
             sess.send(b"\x1b[B", 0.2)
         sess.send("\r", 1.0)
         t = sess.text()
-        check("VIDEO OPTION" in t and "SEARCH SONGS" in t and "SEARCH VIDEOS" in t and "Connect song and video" in t, "video option: the two search panes and the button are drawn")
+        check("VIDEO OPTION" in t and "SEARCH LOCAL SONGS" in t and "SEARCH LOCAL VIDEOS" in t and "Connect song and video" in t, "video option: the two search panes and the button are drawn")
         sess.send("a", 0.4)
         check("VIDEO OPTION" in sess.text(), "video option: typing goes into the search field")
+        sess.send(b"\x03", 0.8)                            # CTRL+c clears the choice (it must not close the program)
+        check(sess.alive() and "VIDEO OPTION" in sess.text(), "video option: CTRL+c does not quit the program")
+        sess.send(b"\x16", 1.5)                            # CTRL+v: FETCH VIDEOS for the song
+        check("FETCH VIDEOS" in sess.text() and "VIDEO OPTION" not in sess.text(), "video option: CTRL+v switches to the fetch videos overlay")
         sess.send(b"\x1b", 0.8)
-        check("VIDEO OPTION" not in sess.text(), "video option: ESC closes it")
+        check("VIDEO OPTION" not in sess.text() and "FETCH VIDEOS" not in sess.text(), "video option: ESC closes it")
         sess.send("Y", 0.8)
         sess.send(b"\x1b[B", 0.2)                          # (the cursor stays on the row that was used last: VIDEO OPTION -> SEARCH YT)
         sess.send("\r", 1.5)
@@ -1785,7 +1870,7 @@ def run_scenario(name, binary, root, scripts):
 
 
 SCENARIOS = ["narrow80", "narrow100", "main", "read_lyrics_play", "karaoke_timing", "book_speed_and_devices", "paging_and_translit_row",
-             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "translation_editor", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key", "video_overlays", "video_pair_tags", "video_fetch_flow"]
+             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "translation_editor", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key", "video_overlays", "video_pair_tags", "video_fetch_flow", "settings_video_preview", "radio_waterfall"]
 
 
 def main():

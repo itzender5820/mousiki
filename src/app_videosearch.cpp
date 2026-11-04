@@ -121,6 +121,22 @@ void App::video_search_close() {
 
 void App::video_download_start(const OnlineResult& r) {
     if (vd_.active) { vs_msg_ = "a download is running already"; vs_warn_ = true; return; }
+    {   // this video was downloaded before (by Mousiki or by down_vid) and the file is still there: no second copy, just connect it
+        const fs::path have = cache_.find_video_download(r.video_id);
+        if (!have.empty()) {
+            if (!vs_target_.empty()) {
+                VideoLinks::get().set(path_utf8(vs_target_), path_utf8(have));
+                ++video_rev_;
+                video_for_track_.clear();
+            }
+            if (settings_.video_mode) rescan_now();
+            vs_msg_ = "already downloaded: " + path_utf8(have) + (vs_target_.empty() ? std::string() : " -- connected to the song, nothing was fetched again");
+            vs_warn_ = false;
+            status_line_ = vs_msg_;
+            log_event(vs_msg_);
+            return;
+        }
+    }
     const fs::path dir = video_down_dir();
     std::error_code ec;
     fs::create_directories(dir, ec);
@@ -138,6 +154,7 @@ void App::video_download_start(const OnlineResult& r) {
     vd_.dir = dir;
     vd_.base = base;
     vd_.title = r.title;
+    vd_.video_id = r.video_id;
     vd_.track = vs_target_;
     const std::vector<std::string> args = video_download_args(r.video_id, dir, base, settings_.video_down_height);
     ConsoleLog::instance().log_basic("video download: " + command_text(args));
@@ -233,6 +250,7 @@ void App::video_search_poll() {
             msg = "download failed: " + (err.empty() ? std::string("no file was written (see the console log, lines \"video download:\")") : err);
             warn = true;
         } else {
+            cache_.record_video_download(vd_.video_id, file);   // (down_vid and the next download of this video know it now)
             if (!vd_.track.empty()) {
                 VideoLinks::get().set(path_utf8(vd_.track), file);
                 ++video_rev_;

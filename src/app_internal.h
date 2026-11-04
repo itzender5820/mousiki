@@ -75,6 +75,7 @@ std::pair<std::string, std::string> menu_tab_strip(int W, const std::string& tit
                                                    const std::string& line2 = "", int line2_cols = 0,
                                                    const std::string& tab_cur = "", const std::string& tab_oth = "");
 // Word-wraps one lyric line to `width` columns with the words already sung highlighted (defined in app.cpp).
+fs::path find_preview_video();   // scripts/preview_video.mp4 next to the program (the Settings preview of Use Video)
 std::vector<std::string> render_lyric_line_wrapped(const LyricLine& line, double elapsed, int width, bool is_active, const Settings& settings);
 // A key as it is shown to the user ("ALT+L" -> the label of this platform), and word wrapping for the help texts (app.cpp).
 std::string pretty_key(const std::string& k);

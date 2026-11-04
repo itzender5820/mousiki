@@ -2025,8 +2025,14 @@ int radio_main(int argc, char** argv) {
                 int& orow = ui.model.overlay_row;
                 if (k == 3 || k == kKeyCtrlC) { ui.model.overlay = 0; settings_save(); running = false; continue; }
                 if (arrow) {
-                    if (k == 'A') orow = orow <= kSrStyle ? kSpectroRowCount - 1 : orow - 1;   // no "Display" row (the . key's job)
-                    else if (k == 'B') orow = orow >= kSpectroRowCount - 1 ? kSrStyle : orow + 1;
+                    if (k == 'A' || k == 'B') {   // only the rows of the view in use (the waterfall has others than the spectrogram); no "Display" row (the . key's job)
+                        const std::vector<int> vis = spectro_visible_rows(cfg.spectro);
+                        int at = 0;
+                        for (size_t i = 0; i < vis.size(); ++i) if (vis[i] <= orow) at = static_cast<int>(i);
+                        const int n = static_cast<int>(vis.size());
+                        at = k == 'A' ? (at + n - 1) % n : (at + 1) % n;
+                        orow = vis[static_cast<size_t>(at)];
+                    }
                     else if (k == 'D' || k == 'C') {
                         if (orow == kSrDisplay) osci_adjust(cfg, kOrDisplay, k == 'C' ? +1 : -1);   // osci -> sphere -> spectro
                         else { spectro_adjust(cfg.spectro, orow, k == 'C' ? +1 : -1); cfg.spectro_sync(); }
@@ -2687,7 +2693,7 @@ int radio_main(int argc, char** argv) {
                     ui.model.settings.dirty = true;
                     break;
                 case 'B': ui.model.overlay = 10; ui.model.overlay_row = 0; ui.model.bars_scroll = 0; break;   // Shift+B: spectrum bars options
-                case 'I': ui.model.overlay = 6; ui.model.overlay_row = kSrStyle; break;   // Shift+I: spectrogram options
+                case 'I': ui.model.overlay = 6; ui.model.overlay_row = kSrView; break;   // Shift+I: spectrogram options
                 case 'U':                              // Shift+U: spectrogram full screen
                     ui.model.spectro_full = !ui.model.spectro_full;
                     if (ui.model.spectro_full) ui.model.scope_big = false;

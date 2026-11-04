@@ -22,6 +22,7 @@
 #include "terminal_ui.h"
 #include "volume_bar.h"
 #include "terminal_gfx.h"
+#include "video_player.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -36,7 +37,7 @@ constexpr int kPreviewX = 71;      // the column of the box's left border
 constexpr int kPreviewMinW = 107;  // narrower terminals have no room: no preview
 
 enum PvKind { kPvNone, kPvLyrics, kPvDisk, kPvCover, kPvVolume, kPvBars, kPvWave, kPvScope, kPvSpectro, kPvSphere,
-              kPvTranslit, kPvEmoji, kPvMarquee };
+              kPvTranslit, kPvEmoji, kPvMarquee, kPvVideo };
 
 }  // namespace
 
@@ -60,6 +61,9 @@ struct SettingsPreviewState {
     std::vector<float> text_audio;   // the spectrogram and spectrum bars preview's sound: a created spectrogram that reads "Mousiki Plus" (interleaved stereo, 48 kHz)
     size_t text_pos = 0;             // in frames
     bool text_made = false;
+    std::shared_ptr<VideoPlayer> vid;   // the sample video of the Use Video preview (started when that row is shown)
+    bool vid_tried = false, vid_ok = false;
+    std::string vid_key;
 };
 
 namespace {
@@ -116,7 +120,8 @@ void make_sample_cover(CoverImage& c) {
 
 PvKind kind_of(int id, const Settings& s) {
     switch (id) {
-        case kSidLyrAlign: case kSidLyrAnim: case kSidUseLyrics: case kSidUseVideo: return kPvLyrics;
+        case kSidLyrAlign: case kSidLyrAnim: case kSidUseLyrics: return kPvLyrics;
+        case kSidUseVideo: return kPvVideo;   // (a sample video; the lyrics preview when it is not there)
         case kSidDisk: case kSidDiskSpeed: return kPvDisk;
         case kSidAlbumCover: case kSidCoverMode: case kSidCoverContrast: case kSidCoverBrightness: case kSidCoverColors:
         case kSidCoverSearch: return kPvCover;
@@ -158,6 +163,10 @@ struct PvOut {
     std::string caption;
     bool picture = false;   // the rows are placeholders for a spectrogram picture the terminal draws (rows x w cells)
     int cover_mode = -1;    // >= 0: the rows are placeholders for the sample cover as a picture (Kitty / Sixel) in that Cover Mode
+    bool video = false;     // the rows are placeholders for the sample video as a picture (vw x vh pixels shown on vcols x vrows cells)
+    int vcols = 0, vrows = 0, vw = 0, vh = 0, cw0 = 10, ch0 = 20;
+    bool vfresh = false;
+    const VideoFrame* vframe = nullptr;
 };
 
 }  // namespace
@@ -179,6 +188,20 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
 
     const bool want_spec = kind == kPvSpectro;
     if (!want_spec) P.spec.set_visible(false);
+    if (kind != kPvVideo && P.vid) P.vid->stop();   // (the decoder only runs while its row is shown)
+    PvKind shown = kind;
+    if (kind == kPvVideo) {
+        if (!P.vid_tried) {   // the sample video: scripts/preview_video.mp4 (a short loop made from the Mousiki GIF)
+            P.vid_tried = true;
+            const fs::path f = find_preview_video();
+            std::error_code ec;
+            if (!f.empty() && fs::exists(f, ec)) {
+                P.vid = std::make_shared<VideoPlayer>();
+                P.vid_ok = P.vid->set_source(path_utf8(f));
+            }
+        }
+        if (!P.vid_ok) shown = kPvLyrics;   // no sample (or no ffmpeg): the lyrics stand in for it, as before
+    }
     if (kind == kPvNone) return;
 
     const std::string R = "\x1b[0m";
@@ -239,8 +262,9 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
     }
 
     PvOut out;
+    VideoFrame vscaled;   // (the sample video's frame scaled to the picture's size while the decoder catches up)
     const int cw = iw - 2;   // content width (one blank column each side)
-    switch (kind) {
+    switch (shown) {
     case kPvLyrics: {
         struct S { double at; const char* text; };
         static const S kLines[] = {{0.0, "Meow, Meooooow"}, {3.0, "Meow meow Meeeeow meow"},
@@ -612,6 +636,70 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
         out.caption = "";
         break;
     }
+    case kPvVideo: {   // the sample video, looping, drawn like the video view of the main screen
+        VideoPlayer& V = *P.vid;
+        int cw0 = 10, ch0 = 20;
+        gfx_cell_pixels(settings_.cell_pixels, cw0, ch0);
+        cw0 = std::max(4, cw0); ch0 = std::max(8, ch0);
+        const bool picture = gfx_proto_ != GfxProto::None;
+        const int avail_w = std::max(8, cw), avail_h = std::max(3, body_h);
+        int vcols = 0, vrows = 0, dw = 0, dh = 0, fw = 0, fh = 0;
+        if (picture) {
+            V.fit(avail_w * cw0, avail_h * ch0, 1.0, fw, fh);
+            vcols = std::clamp((fw + cw0 / 2) / cw0, 1, avail_w);
+            vrows = std::clamp((fh + ch0 / 2) / ch0, 1, avail_h);
+            const int maxw = gfx_proto_ == GfxProto::Sixel ? 480 : 640;
+            const double f = std::min(1.0, static_cast<double>(maxw) / (vcols * cw0));
+            dw = std::max(2, static_cast<int>(vcols * cw0 * f) & ~1);
+            dh = std::max(2, static_cast<int>(vrows * ch0 * f) & ~1);
+        } else {
+            V.fit(avail_w * 2, avail_h * 4, 2.0 * cw0 / ch0, fw, fh);
+            vcols = std::clamp((fw + 1) / 2, 1, avail_w);
+            vrows = std::clamp((fh + 3) / 4, 1, avail_h);
+            dw = vcols * 2; dh = vrows * 4;
+        }
+        double vt = P.t;
+        const double vdur = V.duration();
+        if (vdur > 1.0) vt = std::fmod(vt, vdur);
+        bool fresh = false;
+        const VideoFrame* fr = V.frame_for(vt, dw, dh, true, &fresh);
+        if (fr && (fr->w != dw || fr->h != dh)) { vscaled = VideoPlayer::resample(*fr, dw, dh); fr = &vscaled; }
+        if (!fr) {   // the decoder is starting (or failed): say it in the middle
+            std::string msg = V.status();
+            if (msg.empty()) msg = "video: ...";
+            out.rows = {truncate_str(msg, std::max(1, cw))};
+            out.w = display_width(out.rows[0]);
+            out.caption = "sample video";
+            break;
+        }
+        if (picture) {
+            for (int r = 0; r < vrows; ++r) out.rows.push_back(gfx_hole(vcols));
+            out.video = true; out.vframe = fr; out.vfresh = fresh;
+            out.vcols = vcols; out.vrows = vrows; out.vw = dw; out.vh = dh; out.cw0 = cw0; out.ch0 = ch0;
+            out.caption = "sample video (image)";
+        } else {
+            const auto cells = VideoPlayer::braille(*fr, vcols, vrows);
+            for (int r = 0; r < vrows; ++r) {
+                std::string line, last_ansi;
+                for (int c = 0; c < vcols; ++c) {
+                    const auto& cell = cells[static_cast<size_t>(r)][static_cast<size_t>(c)];
+                    if (cell.mask == 0) { line += ' '; continue; }
+                    const float tt = vcols > 1 ? static_cast<float>(c) / static_cast<float>(vcols - 1) : 0.0f;
+                    const float lvl = std::round(cell.level / 255.0f * 7.0f) / 7.0f;
+                    const std::string ansi = osci_dim_ansi(gradient_ansi(settings_.visualizer_color, settings_.visualizer_color_end, tt), 0.30f + 0.70f * lvl);
+                    if (ansi != last_ansi) { line += ansi; last_ansi = ansi; }
+                    const int cp = 0x2800 + cell.mask;
+                    line += static_cast<char>(0xE0 | (cp >> 12));
+                    line += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+                    line += static_cast<char>(0x80 | (cp & 0x3F));
+                }
+                out.rows.push_back(line + "\x1b[0m");
+            }
+            out.caption = "sample video (braille)";
+        }
+        out.w = vcols;
+        break;
+    }
     case kPvMarquee: {
         const std::string text = "Meowsome Moew Orchestra And The Best-Off-All-Meows feat. Bozai   ";
         const int w = std::max(8, std::min(cw - 8, 24));
@@ -673,6 +761,28 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
         pv_cover_pic_ = true;
         meta_sty_gfx(pv_->cover, out.cover_mode, settings_.cover_contrast, settings_.cover_brightness, settings_.cover_colors,
                      pv_->angle, inner_x + xo - 2, top + vtop, out.w, nrows);
+    }
+    if (out.video && nrows > 0 && out.vframe) {   // the sample video as a picture (it uses the picture slot gfx_, like the sample cover)
+        pv_cover_pic_ = true;
+        GfxFrame& g = gfx_;
+        const std::string key = std::to_string(out.vw) + "x" + std::to_string(out.vh) + "|" + std::to_string(out.vcols) + "x" + std::to_string(out.vrows) + "|" +
+                                std::to_string(inner_x + xo - 2) + "," + std::to_string(top + vtop);
+        const bool resized = key != P.vid_key || !g.plain || g.w != out.vw || g.h != out.vh || g.level.size() != static_cast<size_t>(out.vw) * out.vh || g.id != 0;
+        g.plain = true; g.direct = true; g.scale = 1;
+        g.out_cw = out.cw0; g.out_ch = out.ch0;
+        g.cols = out.vcols; g.rows = out.vrows; g.w = out.vw; g.h = out.vh;
+        g.col = inner_x + xo - 2; g.row = top + vtop;
+        g.id = 0; g.grid.clear(); g.cut_w = 0; g.crop = 0;
+        g.opaque = settings_.black_background;
+        g.erase = !settings_.black_background;
+        g.active = true;
+        g.fresh = out.vfresh || resized;
+        if (g.fresh) {
+            VideoPlayer::quantize(*out.vframe, g.hue, g.level);
+            const auto& pal = VideoPlayer::palette();
+            for (size_t i = 0; i < pal.size() && i < g.pal.size(); ++i) g.pal[i] = pal[i];
+            P.vid_key = key;
+        }
     }
     if (out.picture && nrows > 0) {   // where the picture goes (0-based row and column)
         pv_spectro_area_[0] = top + vtop;

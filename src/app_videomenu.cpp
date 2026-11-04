@@ -109,24 +109,39 @@ std::vector<std::string> App::build_video_menu_panel() const {
         const int gap = std::max(1, inner - display_width(l) - display_width(value));
         return l + std::string(static_cast<size_t>(gap), ' ') + value;
     };
+    // true / false switches on the right in one column; the cover choice is a selector; the three overlays are buttons
+    auto toggle = [&](bool on) { return std::string(on ? "[x] true " : "[ ] false"); };
+    auto section = [&](const std::string& title) {
+        const std::string head = "\u2500\u2500 " + title + " ";
+        std::string rule = head;
+        for (int w = display_width(head); w < inner; ++w) rule += settings_.box_horizontal;
+        return bar + " " + border + rule + R + " " + bar;
+    };
+    auto button = [&](int idx, const std::string& label) {
+        const std::string l = std::string(vmenu_sel_ == idx ? "> " : "  ") + "[ " + label + " ]";
+        return row(l, vmenu_sel_ == idx);
+    };
     std::vector<std::string> lines;
     lines.push_back(box_top("VIDEO", W, border));
     lines.push_back(row("", false));
-    lines.push_back(row(entry(vmenu_sel_ == 0, "Video Mode", settings_.video_mode ? "[x] on" : "[ ] off"), vmenu_sel_ == 0));
-    lines.push_back(row(entry(vmenu_sel_ == 1, "Include Lyrics", settings_.video_lyrics ? "[x] yes" : "[ ] no"), vmenu_sel_ == 1));
-    lines.push_back(row(entry(vmenu_sel_ == 2, "Auto Video (else Lyrics/Viz Default)", settings_.video_auto ? "[x] on" : "[ ] off"), vmenu_sel_ == 2));
-    lines.push_back(row(entry(vmenu_sel_ == 3, "Cover, Disk or Thumbnail", settings_.video_cover == 1 ? "thumbnail" : settings_.video_cover == 2 ? "disk" : "cover"), vmenu_sel_ == 3));
-    lines.push_back(row(entry(vmenu_sel_ == 4, "[ Video Option ]  connect a song and a video", ""), vmenu_sel_ == 4));
-    lines.push_back(row(entry(vmenu_sel_ == 5, "[ Search YT ]  find and download a video", ""), vmenu_sel_ == 5));
-    lines.push_back(row(entry(vmenu_sel_ == 6, "[ Fetch Videos ]  videos for all songs without one", ""), vmenu_sel_ == 6));
+    lines.push_back(section("Switches"));
+    lines.push_back(row(entry(vmenu_sel_ == 0, "Video Mode", toggle(settings_.video_mode)), vmenu_sel_ == 0));
+    lines.push_back(row(entry(vmenu_sel_ == 1, "Include Lyrics", toggle(settings_.video_lyrics)), vmenu_sel_ == 1));
+    lines.push_back(row(entry(vmenu_sel_ == 2, "Auto Video (else Lyrics/Viz Default)", toggle(settings_.video_auto)), vmenu_sel_ == 2));
+    lines.push_back(row(entry(vmenu_sel_ == 3, "Cover, Disk or Thumbnail", std::string("< ") + (settings_.video_cover == 1 ? "thumbnail" : settings_.video_cover == 2 ? "disk" : "cover") + " >"), vmenu_sel_ == 3));
+    lines.push_back(row("", false));
+    lines.push_back(section("Videos for songs"));
+    lines.push_back(button(4, "Video Option"));
+    lines.push_back(button(5, "Quick Search/Down. YT"));
+    lines.push_back(button(6, "General Fetch Videos Menu"));
     lines.push_back(row("", false));
     const char* hint = vmenu_sel_ == 0 ? "Video files are listed and the video view joins the \".\" cycle."
                      : vmenu_sel_ == 1 ? "The current lyric line under the picture (two rows are kept free for it)."
                      : vmenu_sel_ == 2 ? "A track that has a video shows it at once; a track without one jumps to the Lyrics/Viz Default of Settings."
-                     : vmenu_sel_ == 3 ? "Cover: the track's cover. Thumbnail: a frame of the track's video (else the cover). Disk: the plain disk when the track has a video."
-                     : vmenu_sel_ == 4 ? "Choose a video file for a song by hand (they are paired by file name when they are named alike)."
-                     : vmenu_sel_ == 5 ? "Search YouTube for a video of the playing song, with a preview, and download it."
-                                       : "The overlay that finds and downloads videos for the songs that have none yet (also ALT+v).";
+                     : vmenu_sel_ == 3 ? "The default for all tracks -- each track can have its own (meta editor, COVER OPTIONS). Cover: the cover. Thumbnail: a frame of the video (else the cover). Disk: the plain disk."
+                     : vmenu_sel_ == 4 ? "Connect a song and a video file by hand (they are paired by file name when they are named alike)."
+                     : vmenu_sel_ == 5 ? "Quick search on YouTube for a video of the playing song, with a preview, and download it."
+                                       : "The full-screen overlay that finds and downloads videos for all songs that have none yet (also ALT+v).";
     for (const std::string& l : wrap_lines(hint, inner, 3)) lines.push_back(row(l, false));
     for (size_t pad = wrap_lines(hint, inner, 3).size(); pad < 3; ++pad) lines.push_back(row("", false));
     lines.push_back(row("", false));
@@ -258,14 +273,23 @@ void App::video_link_key(int key) {
     const bool arrow = last_key_was_arrow();
     if (key == kKeyDelete) {   // DEL: take the connection of the locked-in song away (the second DEL confirms)
         vl_warn_ = true;
-        if (vl_lock_track_.empty() || !VideoLinks::get().has(path_utf8(vl_lock_track_))) { vl_confirm_ = false; vl_msg_ = "the locked-in song has no connected video -- nothing to remove"; return; }
-        if (!vl_confirm_) { vl_confirm_ = true; vl_msg_ = "remove the connection of this song? [DEL] again confirms, anything else cancels"; return; }
-        VideoLinks::get().remove(path_utf8(vl_lock_track_));
+        const std::string lt = vl_lock_track_.empty() ? std::string() : path_utf8(vl_lock_track_);
+        const bool was_none = !lt.empty() && VideoLinks::get().is_none(lt);
+        const bool has_now = !lt.empty() && !LocalSource::is_video_file(vl_lock_track_) && !video_source_for(vl_lock_track_).empty();
+        if (!was_none && !has_now) { vl_confirm_ = false; vl_msg_ = "the locked-in song has no video -- nothing to remove"; return; }
+        if (!vl_confirm_) {
+            vl_confirm_ = true;
+            vl_msg_ = was_none ? "this song is set to have no video. [DEL] again gives the automatic pairing by file name back, anything else cancels"
+                               : "remove the video of this song (a connection, or the match by file name)? [DEL] again confirms, anything else cancels";
+            return;
+        }
+        if (was_none) VideoLinks::get().remove(lt);          // the mark goes: the automatic pairing is back
+        else VideoLinks::get().mark_none(lt);                // no video, also not by file name
         ++video_rev_;
         video_for_track_.clear();
         vl_confirm_ = false;
         vl_warn_ = false;
-        vl_msg_ = "connection removed";
+        vl_msg_ = was_none ? "the automatic pairing by file name is back" : "removed: this song has no video now (connect one again, or [DEL] twice to give back the automatic pairing)";
         return;
     }
     vl_confirm_ = false;
@@ -292,6 +316,14 @@ void App::video_link_key(int key) {
         return;
     }
     if (key == kKeyCtrlC) { vl_lock_track_.clear(); vl_lock_video_.clear(); vl_msg_ = "choice cleared"; vl_warn_ = false; return; }
+    if (key == kKeyCtrlV) {   // FETCH VIDEOS with the cursor on this song (the locked-in one, else the one under the cursor)
+        fs::path song = vl_lock_track_;
+        if (song.empty() && !vl_tview_.empty()) song = vl_tracks_[static_cast<size_t>(vl_tview_[static_cast<size_t>(std::clamp(vl_tsel_, 0, static_cast<int>(vl_tview_.size()) - 1))])].path;
+        if (song.empty() || LocalSource::is_video_file(song)) { vl_msg_ = "choose a song (audio file) first -- [CTRL+v] fetches videos for it"; vl_warn_ = true; return; }
+        video_link_close();
+        video_fetch_open(song);
+        return;
+    }
     if (key == kKeyCtrlF) {   // the song list: all files / audio only / videos only / audio without a video
         vl_filter_ = (vl_filter_ + 1) % 4;
         vl_tsel_ = 0;
@@ -359,7 +391,7 @@ std::vector<std::string> App::build_video_link_panel(int W) const {
         }
         return pline(search_idle_sgr(settings_) + search_run(settings_, shown, !shown.empty()) + R + (focus ? "\x1b[7m \x1b[0m" : " "), display_width(shown) + 1, w);
     };
-    both(box_top(title(0, "SEARCH SONGS"), pw_l, border), box_top(title(1, "SEARCH VIDEOS"), pw_r, border));
+    both(box_top(title(0, "SEARCH LOCAL SONGS"), pw_l, border), box_top(title(1, "SEARCH LOCAL VIDEOS"), pw_r, border));
     both(search_line(0, vl_tq_, pw_l), search_line(1, vl_vq_, pw_r));
     both(box_bottom(pw_l, "", border), box_bottom(pw_r, "", border));
     const int list_rows = video_link_list_rows();
@@ -442,7 +474,7 @@ std::vector<std::string> App::build_video_link_panel(int W) const {
                       std::string(static_cast<size_t>(std::max(0, inner - lead - w1 - gap - w2)), ' ') + " " + bar);
     }
     out.push_back(bar + " " + (vl_warn_ && !vl_msg_.empty() ? std::string("\x1b[31m") : leg) + pad_right(truncate_str(vl_msg_, PW - 4), PW - 4) + R + " " + bar);
-    out.push_back(centred_bottom(settings_, PW, "[TAB] pane  [ENTER] lock in  [CTRL+f] filter  [DEL] remove connection  [ESC] close", border_bottom));
+    out.push_back(centred_bottom(settings_, PW, "[TAB] pane  [ENTER] lock in  [CTRL+f] filter  [CTRL+v] fetch videos  [DEL] remove connection  [ESC] close", border_bottom));
     return out;
 }
 

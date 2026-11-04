@@ -38,6 +38,10 @@ std::vector<CoverCandidate> cover_candidates(const std::filesystem::path& track,
 inline constexpr const char* kCoverEmbedded = "@embedded";
 inline constexpr const char* kCoverNone = "-";
 
+// What the disk shows of a track that has a video, apart from its picture choice (meta editor -> COVER OPTIONS / STYLE OPTION; the VIDEO
+// overlay holds the default for all tracks): 0 as in the VIDEO overlay, 1 the cover, 2 a frame of the video (else the cover), 3 the plain disk.
+int cover_track_video_mode(const std::string& track_path);
+void set_cover_track_video_mode(const std::string& track_path, int mode);   // 0 removes it
 std::string cover_track_choice(const std::string& track_path);               // "" = none made
 void set_cover_track_choice(const std::string& track_path, const std::string& choice);   // "" removes it
 std::string cover_album_choice(const std::string& album);                    // the default picture of an album name ("" = none made)

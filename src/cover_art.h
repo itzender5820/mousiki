@@ -104,6 +104,7 @@ struct CoverRequest {
     std::string album;    // album tag ("" = none)
     int search = 0;       // Settings -> Cover Search
     std::string snapshot_video;   // a video file whose frame is the cover (Settings: Cover or Video Snapshot); "" = the usual search
+    bool ignore_track_choice = false;   // resolve_cover_source() only: what "Automatic" would find (the picture chosen for the track is left out)
     unsigned store_rev = 0;   // cover_store_revision(): the cover is made again when a choice was made or a cover fetched / deleted
 };
 // The cover of the track, once it has been read in the background. nullptr: not read yet, or the track has none (cover_note()

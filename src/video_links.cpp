@@ -77,21 +77,38 @@ std::string VideoLinks::video_for(const std::string& track) const {
     std::lock_guard<std::mutex> lk(d_->m);
     if (!d_->loaded) const_cast<VideoLinks*>(this)->load_locked();
     auto it = d_->links.find(track);
-    return it == d_->links.end() ? std::string() : it->second;
+    return it == d_->links.end() || it->second == "-" ? std::string() : it->second;
+}
+
+bool VideoLinks::is_none(const std::string& track) const {
+    std::lock_guard<std::mutex> lk(d_->m);
+    if (!d_->loaded) const_cast<VideoLinks*>(this)->load_locked();
+    auto it = d_->links.find(track);
+    return it != d_->links.end() && it->second == "-";
+}
+
+void VideoLinks::mark_none(const std::string& track) {
+    if (track.empty()) return;
+    std::lock_guard<std::mutex> lk(d_->m);
+    if (!d_->loaded) load_locked();
+    d_->links[track] = "-";
+    save_locked();
 }
 
 std::vector<std::string> VideoLinks::tracks_for(const std::string& video) const {
     std::lock_guard<std::mutex> lk(d_->m);
     if (!d_->loaded) const_cast<VideoLinks*>(this)->load_locked();
     std::vector<std::string> out;
-    for (const auto& kv : d_->links) if (kv.second == video) out.push_back(kv.first);
+    for (const auto& kv : d_->links) if (kv.second == video && kv.second != "-") out.push_back(kv.first);
     return out;
 }
 
 std::vector<std::pair<std::string, std::string>> VideoLinks::all() const {
     std::lock_guard<std::mutex> lk(d_->m);
     if (!d_->loaded) const_cast<VideoLinks*>(this)->load_locked();
-    return std::vector<std::pair<std::string, std::string>>(d_->links.begin(), d_->links.end());
+    std::vector<std::pair<std::string, std::string>> out;
+    for (const auto& kv : d_->links) if (kv.second != "-") out.push_back(kv);
+    return out;
 }
 
 bool VideoLinks::has(const std::string& track) const { return !video_for(track).empty(); }
