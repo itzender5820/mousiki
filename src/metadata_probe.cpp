@@ -1,6 +1,7 @@
 // Track metadata via ffprobe: reads duration and tags (artist, title, album, year) for the lists and
 // the metadata panel, and every tag of a file for the queue search.
 #include "metadata_probe.h"
+#include "local_source.h"
 #include "chiptune.h"
 #include "chip_meta.h"
 #include "process_util.h"
@@ -140,6 +141,8 @@ static TrackMetadata probe_metadata_impl(const fs::path& file, const std::string
 
     std::istringstream stream(r.out);
     std::string line;
+    const bool is_video_ext = LocalSource::is_video_file(file);
+    if (is_video_ext) md.type = "video + audio";
     bool got_title = false, got_artist = false, got_album = false, got_year = false, got_rate = false, got_codec = false;
     while (std::getline(stream, line)) {
         auto eq = line.find('=');
@@ -155,7 +158,7 @@ static TrackMetadata probe_metadata_impl(const fs::path& file, const std::string
         if (key == "sample_rate") {
             if (!got_rate) { md.sampling = val + "KHz"; got_rate = true; }   // matches the mockup's (unconventional) unit label
         } else if (key == "codec_name") {
-            if (!got_codec) { md.format = to_upper(val); got_codec = true; }
+            if (!got_codec || is_video_ext) { md.format = to_upper(val); got_codec = true; }   // (a video file: the last stream is the sound)
         } else if (key == "tag:title") {
             if (!got_title) { md.name = val; got_title = true; }
         } else if (key == "tag:artist") {

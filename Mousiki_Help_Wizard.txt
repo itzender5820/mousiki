@@ -260,7 +260,8 @@ for more details.
 
 Using [SHIFT+n] toggles between showing the filename / track name in the lists, [SHIFT+t]
 changes the sorting of the local audio files: folder order, file name / title A-Z,
-artist A-Z, recently added (newest files first).
+artist A-Z, recently added (newest files first), and - while the video mode is on - only
+videos.
 
 The command [f] filters the local list by folder, which means, when a highlighted track is
 e.g. in folder with other tracks from the same album, it will then only show the files in
@@ -359,9 +360,11 @@ DIFFERENT SEARCH CAPABILITIES:[[Header]]
 [/]  open/focus the search bar. The prefix picks the source:
 
 [/]    +  query       your local library      live, as you type
+[/v:]  +  query       your video files        live (Video mode on)
 [/s:]  +  query       YouTube                 live on [ENTER]
 [/sc:] +  query       SoundCloud              live on [ENTER]
 [/b:]  +  query       Bandcamp                live on [ENTER]
+[/sv:] +  query       YouTube videos          live on [ENTER] (SEARCH YT)
 [/p:]  +  query       your saved playlists    live
 [/f:]  +  query       your folders            live
 
@@ -751,6 +754,14 @@ case the fetched file allows for such behavior.
 SWITCH THROUGH THE FIELD: [[Header]]
 [,/.]   cycles the field lyrics, sphere, oscilloscope, spectrogram back and forth; for more 
         details on those options see the chapter on VISUALIZATIONS
+[&]     VIDEO overlay[[Header]] (German SHIFT+6, other keyboards SHIFT+y): Video Mode on / off, Include
+        Lyrics, Cover, Disk or Thumbnail (the disk shows the cover, the plain disk, or a frame of the video), [ Video Option ] (connect
+        a song and a video by hand; also in the meta editor), Auto Video (a track with a video shows it, else your Lyrics/Viz setting). Search /v: lists only videos, /sv: searches YouTube for videos. Meta editor [SHIFT+v] lists only videos [ Fetch Videos ] / [ALT+v] (macOS: [SHIFT+d]) (a full-screen overlay: songs without a video on the left, the videos found on YouTube with a preview on the right; you choose, only chosen videos are downloaded; a song that has a video is not searched by itself, [r] re-fetches it after a warning that the former video is unassigned; [/] jumps to the filter field, [CTRL+f] lists missing video only / all songs / songs with a video) and [ Search YT ] (search YouTube with
+        previews, download into the folder video_down and connect it). Video mode: video files (mp4,
+        mkv, mov, avi, webm ...) are listed too ([SHIFT+t] gets a last step "videos") and the
+        VIDEO view joins the [,/.] cycle at Viz Order 5 (right after the lyrics by default): the picture of the track's video
+        with the current lyric line under it. A real picture in Kitty / Sixel terminals, braille
+        dots elsewhere. A sound file with a video of the same name beside it works too.
 [k]     opens the KARAOKE MODE[[Header]] (see respective chapter for details)
 
 LOOK OF THE LYRICS (ADJUSTABLE IN THE SETTINGS): [[Header]]
@@ -930,7 +941,7 @@ Three visualizations, one key. The music player shows them in the field right of
 WHAT IS IN THE CYCLE: [[Header]]
 A view that is switched off in the settings tab ANIMA/VIZ (Use Lyrics Engine, Use Oscilloscope,
 Use Spectrogram, Use Sphere) is skipped by [,/.]. The order of the views is set on the tab ANIMA/VIZ
-(Viz Order 1 to 4). The view Mousiki starts with is Lyrics/Viz Default on the same tab; [,/.] only
+(Viz Order 1 to 5). The view Mousiki starts with is Lyrics/Viz Default on the same tab; [,/.] only
 changes the visualizations while the program runs.
 
 WHAT THEY SHOW: [[Header]]
@@ -1472,6 +1483,8 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
 [Lyrics/Viz Default:][[Legend]]                               With what the view field starts with.
 [When No Lyrics Show][[Legend]]                               What the lyrics area shows when there are no lyrics: the
                                                   view you pick, or nothing.
+[When No Video Shows][[Legend]]                               What the video view shows when the track has no video: the
+                                                  lyrics (default), a visual or nothing.
 
 [LYRICS:][[Header]]                          
 [Lyrics Alignment][[Legend]]                                  Aligned left / center / right
@@ -1649,11 +1662,13 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
                                                   again.
 
 [VIZ/LYRICS ORDER:][[Header]]      
-[Viz Order:][[Legend]]                                        1-4, the order of the views in the [,/.] cycle.
+[Viz Order:][[Legend]]                                        1-5, the order of the views in the [,/.] cycle.
 
 [MAIN UI VIZ/LYRICS FIELD:][[Header]] 
 [Viz/Lyrics Field:][[Legend]]                                 false = no field, the meta data take its place.
 
+[Use Video:][[Legend]]                                        The video mode ([&] key) as a setting; the video view
+                                                  is the 5th place of the [,/.] cycle (Viz Order 5).
 [Use Lyrics Engine / Use Oscilloscope / Use Spectrogram / Use Sphere:][[Legend]]
                                                   When a Viz. is set to false it leaves that view out of the
                                                   [,/.] cycle entirely. The oscilloscope/spectrogram,

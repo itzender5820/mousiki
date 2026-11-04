@@ -50,6 +50,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -130,8 +131,69 @@ def resolve_fpcalc():
     return shutil.which("fpcalc") or shutil.which("fpcalc.exe")
 
 
+VIDEO_EXTS = (".mp4", ".m4v", ".mkv", ".mov", ".avi", ".webm", ".wmv", ".flv", ".mpg", ".mpeg", ".ogv", ".3gp")
+
+
+def resolve_ffmpeg():
+    override = os.environ.get("MOUSIKI_FFMPEG")
+    if override and os.path.isfile(override):
+        return override
+    here = os.path.dirname(os.path.abspath(__file__))
+    name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    for candidate in (os.path.join(os.path.dirname(here), name), os.path.join(here, name)):
+        if os.path.isfile(candidate):
+            return candidate
+    return shutil.which("ffmpeg") or shutil.which("ffmpeg.exe")
+
+
 def fingerprint(path):
-    """(duration, fingerprint) for `path`, or raise a LookupError."""
+    """(duration, fingerprint) for `path`, or raise a LookupError.
+
+    A video file is fingerprinted by its sound: the audio is cut out first
+    (ffmpeg -vn, the first DECODE_SECONDS as a temporary wav) because fpcalc
+    builds differ in how well they open video containers. The duration is
+    then the whole file's, which AcoustID wants, not the cut's.
+    """
+    if os.path.splitext(path)[1].lower() in VIDEO_EXTS:
+        ff = resolve_ffmpeg()
+        if ff:
+            tmp = None
+            try:
+                fd, tmp = tempfile.mkstemp(suffix=".wav", prefix="mousiki_fp_")
+                os.close(fd)
+                r = subprocess.run([ff, "-y", "-v", "error", "-i", path, "-vn", "-sn", "-t", str(DECODE_SECONDS),
+                                    "-ac", "2", "-ar", "44100", tmp],
+                                   capture_output=True, timeout=180)
+                if r.returncode == 0 and os.path.getsize(tmp) > 1000:
+                    _, fp = _fingerprint_file(tmp)
+                    return _video_duration(ff, path) or _, fp
+            except (OSError, subprocess.TimeoutExpired):
+                pass   # fall through: let fpcalc try the video itself
+            finally:
+                if tmp:
+                    try:
+                        os.remove(tmp)
+                    except OSError:
+                        pass
+    return _fingerprint_file(path)
+
+
+def _video_duration(ff, path):
+    """Whole-file duration in seconds via ffmpeg's banner, or 0.0 when it cannot be read."""
+    try:
+        r = subprocess.run([ff, "-hide_banner", "-i", path], capture_output=True, timeout=60,
+                           encoding="utf-8", errors="replace")
+        for line in (r.stderr or "").splitlines():
+            line = line.strip()
+            if line.startswith("Duration:"):
+                h, m, sec = line.split(",")[0].split()[1].split(":")
+                return int(h) * 3600 + int(m) * 60 + float(sec)
+    except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
+        pass
+    return 0.0
+
+
+def _fingerprint_file(path):
     exe = resolve_fpcalc()
     if not exe:
         # Name the directory that was searched: "in scripts/" alone hides

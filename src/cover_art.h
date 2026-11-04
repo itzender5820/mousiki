@@ -89,7 +89,9 @@ inline constexpr double kCoverCloseness = 0.62;
 std::filesystem::path pick_folder_picture(const std::filesystem::path& dir, const std::vector<std::string>& names, bool generic, bool any = false, bool fetched = false);
 
 // Decodes a picture file (or, with `embedded`, the picture inside an audio file) with ffmpeg: at most 640 x 640.
-bool decode_cover_file(const std::filesystem::path& file, bool embedded, CoverImage& d);
+bool decode_cover_file(const std::filesystem::path& file, bool embedded, CoverImage& d, double seek = 0.0);
+// A thumbnail of a video: a frame from about a tenth into it (at most 30 s), so it is not the black first frame.
+bool decode_video_snapshot(const std::filesystem::path& video, CoverImage& d);
 // A picture for a preview, decoded in the background and kept (the last 32): nullptr until it is ready or when it cannot be read.
 const CoverImage* preview_cover(const std::string& file, bool embedded);
 // The same for a picture that is already known to be unreadable / still loading: true while it is being read.
@@ -101,6 +103,7 @@ struct CoverRequest {
     std::string title;    // title tag, else the file name without extension
     std::string album;    // album tag ("" = none)
     int search = 0;       // Settings -> Cover Search
+    std::string snapshot_video;   // a video file whose frame is the cover (Settings: Cover or Video Snapshot); "" = the usual search
     unsigned store_rev = 0;   // cover_store_revision(): the cover is made again when a choice was made or a cover fetched / deleted
 };
 // The cover of the track, once it has been read in the background. nullptr: not read yet, or the track has none (cover_note()

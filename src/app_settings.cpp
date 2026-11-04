@@ -743,8 +743,10 @@ std::string App::settings_get_value(int row, int col) const {
             case kSidVizField: v = settings_.element_vizfield; break;
             case kSidLyricsEngine: v = settings_.element_lyrics; break;
             // "Lyrics/Viz Default" isn't a bool: it cycles sphere / osci / spectro / lyrics (see settings_options_for() and settings_commit_edit()).
-            case kSidLyricViz: return settings_.viz_default == 4 ? "last used" : viz_row_name(settings_.viz_default);
+            case kSidLyricViz: return settings_.viz_default == 4 ? "last used" : settings_.viz_default == 5 ? "video" : viz_row_name(settings_.viz_default);
             case kSidVisualizer: v = settings_.element_visualizer; break;
+            case kSidNoVideoViz: return settings_.novideo_viz == 0 ? "sphere" : settings_.novideo_viz == 1 ? "osci" : settings_.novideo_viz == 2 ? "spectro" : settings_.novideo_viz == 3 ? "none" : "lyrics";
+            case kSidUseVideo: v = settings_.video_mode; break;
             case kSidNoLyricsViz: return settings_.nolyrics_viz == 1 ? "osci" : settings_.nolyrics_viz == 2 ? "spectro" : settings_.nolyrics_viz == 3 ? "none" : "sphere";
             case kSidStereo: v = settings_.stereo; break;
             case kSidBlackBg: v = settings_.black_background; break;
@@ -785,7 +787,7 @@ std::string App::settings_get_value(int row, int col) const {
             case kSidUseOsci: v = settings_.use_osci; break;
             case kSidUseSpectro: v = settings_.use_spectro; break;
             case kSidUseSphere: v = settings_.use_sphere; break;
-            case kSidOrder1: case kSidOrder2: case kSidOrder3: case kSidOrder4:   // which view comes at that place of the "." cycle
+            case kSidOrder1: case kSidOrder2: case kSidOrder3: case kSidOrder4: case kSidOrder5:   // which view comes at that place of the "." cycle
                 return viz_row_name(settings_.viz_order[settings_item_id(settings_tab_, row) - kSidOrder1]);
             case kSidUseModePlayer: v = settings_.use_mode[0]; break;
             case kSidUseModeRadio: v = settings_.use_mode[1]; break;
@@ -871,9 +873,10 @@ std::vector<std::string> App::settings_options_for(int tab, int row) const {
         switch (settings_item_id(tab, row)) {
             case -1: return {};
             case kSidDisk: return {"Show Disk / Cover", "Remove Field"};   // (true / false)
-            case kSidLyricViz: return {"sphere", "osci", "spectro", viz_row_name(3), "last used"};   // the view the field starts with, not a bool
+            case kSidLyricViz: return {"sphere", "osci", "spectro", viz_row_name(3), "video", "last used"};   // the view the field starts with, not a bool
             case kSidNoLyricsViz: return {"sphere", "osci", "spectro", "none"};
-            case kSidOrder1: case kSidOrder2: case kSidOrder3: case kSidOrder4: return {"sphere", "osci", "spectro", viz_row_name(3)};
+            case kSidNoVideoViz: return {"lyrics", "sphere", "osci", "spectro", "none"};
+            case kSidOrder1: case kSidOrder2: case kSidOrder3: case kSidOrder4: case kSidOrder5: return {"sphere", "osci", "spectro", viz_row_name(3), "video"};
             case kSidModeOrder1: case kSidModeOrder2: case kSidModeOrder3: return {mode_row_name(0), mode_row_name(1), mode_row_name(2)};
             case kSidPlayback: return {"list", "loop", "shuffle", "stop", "queue then stop"};
             case kSidStartMode: {   // only modes that are switched on can start
@@ -956,6 +959,14 @@ void App::settings_commit_edit_impl() {
         // "Lyrics/Viz Default" and "When No Lyrics Show" are picks among views (sphere / osci / spectro, plus lyrics or none), not
         // bools: they have to be handled BEFORE the true/false gate below, or their values would bounce off it and the row
         // would never change.
+        if (id == kSidNoVideoViz) {
+            if (v == "lyrics") settings_.novideo_viz = 4;
+            else if (v == "sphere") settings_.novideo_viz = 0;
+            else if (v == "osci" || v == "oscilloscope") settings_.novideo_viz = 1;
+            else if (v == "spectro" || v == "spectrogram") settings_.novideo_viz = 2;
+            else if (v == "none" || v == "nothing") settings_.novideo_viz = 3;
+            return;
+        }
         if (id == kSidLyricViz || id == kSidNoLyricsViz) {
             int& pick = id == kSidLyricViz ? settings_.viz_default : settings_.nolyrics_viz;
             if (v == "sphere") pick = 0;
@@ -963,24 +974,29 @@ void App::settings_commit_edit_impl() {
             else if (v == "spectro" || v == "spectrogram") pick = 2;
             else if (v == "none" && id == kSidNoLyricsViz) pick = 3;
             else if ((v == "lyrics" || v == "notes") && id == kSidLyricViz) pick = 3;
+            else if (v == "video" && id == kSidLyricViz) pick = 5;       // the lyrics view with the video picture (needs the Video mode)
             else if (v == "last used" && id == kSidLyricViz) pick = 4;   // starts with the view it was left on
             if (id == kSidLyricViz && settings_.viz_default <= 3) {   // the default is also the view shown now ("last used" changes nothing)
                 settings_.element_lyrics = settings_.viz_default == 3;
                 if (settings_.viz_default < 3) settings_.lyric_viz = settings_.viz_default;
+                settings_.video_view = false;
+            } else if (id == kSidLyricViz && settings_.viz_default == 5) {
+                settings_.element_lyrics = true;
+                settings_.video_view = settings_.video_mode;
             }
             return; // anything unrecognized leaves the pick as it was
         }
         // "Viz Order 1..4": naming a view puts it at this place; the view that was there takes the place it left
         // (so the order stays a permutation of the four).
-        if (id >= kSidOrder1 && id <= kSidOrder4) {
+        if (id >= kSidOrder1 && id <= kSidOrder5) {
             int want = -1;
-            for (int i = 0; i < 4; ++i) if (v == kVizNames[i]) want = i;
+            for (int i = 0; i < 5; ++i) if (v == kVizNames[i]) want = i;
             if (v == "notes") want = 3;
             if (v == "oscilloscope") want = 1;
             if (v == "spectrogram") want = 2;
             if (want < 0) return;
             const int place = id - kSidOrder1;
-            for (int i = 0; i < 4; ++i)
+            for (int i = 0; i < 5; ++i)
                 if (settings_.viz_order[i] == want) { std::swap(settings_.viz_order[i], settings_.viz_order[place]); break; }
             return;
         }
@@ -1150,6 +1166,7 @@ void App::settings_commit_edit_impl() {
                 if (is_true && settings_.remote_pin.empty()) settings_.remote_pin = remote::net::make_pin();
                 remote_app_apply();   // starts / stops the web server right away
                 break;
+            case kSidUseVideo: if (settings_.video_mode != is_true) video_toggle(); break;   // the same as the hotkey (lists the videos, rescans)
             case kSidUseLyrics: settings_.use_lyrics = is_true; break;
             case kSidUseOsci: settings_.use_osci = is_true; break;
             case kSidUseSpectro: settings_.use_spectro = is_true; break;
@@ -1325,11 +1342,21 @@ void App::settings_cycle(int dir) {
     if (id == kSidLyricViz) {
         status_line_ = settings_.viz_default == 4
             ? "starts with: the view it was left on" + note
+            : settings_.viz_default == 5
+            ? std::string("starts with: video") + (settings_.video_mode ? std::string() : std::string(" (switch the Video mode on with ") + hotkey_text("HKeyVideo", "&") + ", until then it shows the lyrics)") + note
             : std::string("starts with: ") + kVizNames[std::clamp(settings_.viz_default, 0, 3)] + " (the \".\" key changes the view while Mousiki runs)" + note;
     }
     if (id == kSidNoLyricsViz) {
         static const char* const names[4] = {"sphere", "oscilloscope", "spectrogram", "nothing"};
         status_line_ = std::string("no lyrics: ") + names[std::clamp(settings_.nolyrics_viz, 0, 3)] + " is shown" + note;
+    }
+    if (id == kSidNoVideoViz) {
+        static const char* const names[5] = {"the sphere", "the oscilloscope", "the spectrogram", "nothing", "the lyrics"};
+        status_line_ = std::string("no video: the video view shows ") + names[std::clamp(settings_.novideo_viz, 0, 4)] + note;
+    }
+    if (id == kSidUseVideo) {
+        status_line_ = settings_.video_mode ? "video: on -- video files are listed, the video view is in the \".\" cycle" + note
+                                            : "video: off -- no video files in the lists, no video view" + note;
     }
     if (id == kSidVizField) {
         status_line_ = settings_.element_vizfield ? "viz/lyrics field: on" + note
@@ -1374,9 +1401,9 @@ void App::settings_cycle(int dir) {
         status_line_ = std::string(names[r]) + (on ? ": in the \".\" cycle" : ": switched off (not in the \".\" cycle; full screen and the windows " +
                               hotkey_text("HKeySpectroWindow", "(") + " / " + hotkey_text("HKeyScopeWindow", ")") + " still work)") + note;
     }
-    if (id >= kSidOrder1 && id <= kSidOrder4) {
+    if (id >= kSidOrder1 && id <= kSidOrder5) {
         std::string o = "\".\" cycle: ";
-        for (int i = 0; i < 4; ++i) o += std::string(i ? " > " : "") + viz_row_name(settings_.viz_order[i]);
+        for (int i = 0; i < 5; ++i) o += std::string(i ? " > " : "") + viz_row_name(settings_.viz_order[i]);
         status_line_ = o;
     }
     if (id == kSidPlayback) status_line_ = std::string("playback: ") + play_mode_name(settings_.play_mode);

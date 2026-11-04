@@ -2,6 +2,7 @@
 // Part of class App (src/app.h): The meta editor session: filters, the edit list, fetching tags, saving.
 // Split out of app.cpp; the includes are the same as there.
 #include "app.h"
+#include "video_links.h"
 #include "text_edit.h"
 #include "overlay_common.h"
 #include "remote_server.h"
@@ -188,6 +189,10 @@ void App::meta_refresh_lib_view() {
     if ((meta_resort_edited_ || meta_sort_added_) && !meta_lib_view_.empty()) keep = meta_hovering_path();
 
     meta_lib_view_ = filter_local_or_folders(meta_query_);
+    if (meta_videos_only_)   // SHIFT+v: only the video files (the search, folder view and the missing-tag filters below still apply)
+        meta_lib_view_.erase(std::remove_if(meta_lib_view_.begin(), meta_lib_view_.end(),
+                                            [](const LocalTrack& t) { return !LocalSource::is_video_file(t.path); }),
+                             meta_lib_view_.end());
 
     // Missing-tag filter ('x' / Shift+T/A/Y). meta_row_meta() is a native,
     // in-process tag read cached in row_meta_cache_, so the first pass costs
@@ -592,10 +597,42 @@ std::vector<std::string> App::build_meta_choice_panel() const {
     return lines;
 }
 
+// A video that is paired with a track (VIDEO OPTION) takes that track's tags instead of being fingerprinted: they describe the
+// same song, and a video's own sound track often fingerprints worse. Only fields the video has no value for are filled.
+bool App::meta_take_linked_tags(const std::string& video) {
+    if (!LocalSource::is_video_file(path_from_utf8(video))) return false;
+    for (const std::string& tr : VideoLinks::get().tracks_for(video)) {
+        const fs::path tp = path_from_utf8(tr);
+        std::error_code ec;
+        if (!fs::exists(tp, ec)) continue;
+        const RowMeta src = meta_row_meta(tp);
+        if (src.artist.empty() && src.title.empty() && src.album.empty() && src.year.empty()) continue;
+        const RowMeta own = meta_row_meta(path_from_utf8(video));
+        const MetaEditEntry* cur = meta_entry(video);
+        auto empty_now = [&](int f, const std::string& disk) {
+            if (cur && cur->edited[f]) return cur->value[f].empty();
+            return disk.empty();
+        };
+        const std::string vals[5] = {"", src.artist, src.title, src.album, src.year};
+        const std::string disk[5] = {"", own.artist, own.title, own.album, own.year};
+        bool any = false;
+        for (int f = 1; f <= 4; ++f) {
+            if (vals[f].empty() || !empty_now(f, disk[f])) continue;
+            MetaEditEntry& e = meta_touch_entry(video);
+            e.edited[f] = true;
+            e.value[f] = vals[f];
+            any = true;
+        }
+        if (any) { meta_persist(); return true; }
+    }
+    return false;
+}
+
 void App::meta_add_hovering_to_fetch() {
     meta_ensure_session_loaded();
     std::string path = meta_hovering_path();
     if (path.empty()) { meta_status_ = "no title selected"; return; }
+    if (meta_take_linked_tags(path)) { meta_status_ = "video: took the tags of the track it is paired with (queue it again to fetch its own)"; return; }
     for (const auto& p : meta_fetch_list_) {
         if (p == path) {
             meta_status_ = "already on the fetch list (" + std::to_string(meta_fetch_list_.size()) + " queued)";
@@ -969,6 +1006,8 @@ void App::meta_save_finish() {
     if (!job.renamed.empty()) {
         // Saved playlists hold file paths: let them follow the renamed files.
         for (const fs::path& dir : playlist_dirs()) PlaylistManager::rename_paths(dir, job.renamed);
+        VideoLinks::get().rename_paths(job.renamed);   // the track <-> video pairs follow the files too
+        video_for_track_.clear(); ++video_rev_;
     }
     if (job.ok > 0) {
         // Names and tags changed -- rebuild the lists. rescan_library() only

@@ -331,13 +331,14 @@ std::string App::render_frame(TerminalIO& term) {
         if (m == Mode::MetaEdit && meta_sty_open_ && meta_sty_from_main_) return 0;   // the Style Option panel over the main screen
         if (m == Mode::AudioDevice) return adev_from_settings_ ? 1 : 0;     // over the settings screen or over the main screen
         switch (m) {
-            case Mode::Browse: case Mode::Search: case Mode::BulkAdd: case Mode::RetryLyrics: case Mode::ClearQueue: case Mode::UpdateNotice: case Mode::QueueToPlaylist: case Mode::OsciMenu: case Mode::SpectroMenu: case Mode::NormMenu: case Mode::BarsMenu: case Mode::Equalizer: case Mode::SleepTimer: case Mode::MenuIndex: case Mode::Creator: case Mode::LyricsEdit: case Mode::BookOverlay: case Mode::AudioDevice: return 0;
+            case Mode::Browse: case Mode::Search: case Mode::BulkAdd: case Mode::RetryLyrics: case Mode::ClearQueue: case Mode::UpdateNotice: case Mode::QueueToPlaylist: case Mode::OsciMenu: case Mode::SpectroMenu: case Mode::NormMenu: case Mode::BarsMenu: case Mode::Equalizer: case Mode::SleepTimer: case Mode::MenuIndex: case Mode::Creator: case Mode::LyricsEdit: case Mode::BookOverlay: case Mode::AudioDevice: case Mode::VideoMenu: case Mode::VideoLink: case Mode::VideoSearch: return 0;
             case Mode::Settings: case Mode::ColorEdit: return 1;
             case Mode::Console: return 2;
             case Mode::Cheatsheet: return 3;
             case Mode::Playlist: return 4;
             case Mode::MetaEdit: return 5;
             case Mode::CoverFetch: return 10;
+            case Mode::VideoFetch: return 11;
             case Mode::History: return 6;
             case Mode::Karaoke: return 7;
             case Mode::Wizard: return 8;
@@ -552,6 +553,19 @@ std::string App::render_frame(TerminalIO& term) {
             out += panel.str();
         }
         return out;
+    }
+
+    if (mode_ == Mode::VideoFetch) {
+        std::ostringstream frame;
+        frame << "\x1b[2J\x1b[H\x1b[?25l";
+        const int vf_budget = overlay_budget(W);
+        gfx_.active = false;
+        gfx2_.active = false;
+        build_vf_screen(frame, W, vf_budget);   // (switches gfx_ on when the preview is drawn as a real picture)
+        std::string shown = fullscreen_out(frame);
+        frame_main_len_ = shown.size();
+        gfx_ok_ = gfx_.active;
+        return shown;
     }
 
     if (mode_ == Mode::CoverFetch) {
@@ -851,6 +865,13 @@ std::string App::render_frame(TerminalIO& term) {
         draw_floating_panel(floating, build_queue_to_playlist_panel(), kQtpPanelWidth, W);
     } else if (mode_ == Mode::UpdateNotice) {
         draw_floating_panel(floating, build_update_panel(), kUpdatePanelWidth, W);
+    } else if (mode_ == Mode::VideoMenu) {
+        draw_floating_panel(floating, build_video_menu_panel(), kVideoMenuPanelWidth, W);
+    } else if (mode_ == Mode::VideoLink) {
+        draw_floating_panel(floating, build_video_link_panel(W), std::clamp(W - 2, 70, 112), W);
+    } else if (mode_ == Mode::VideoSearch) {
+        vs_pic_ = 0;
+        draw_floating_panel(floating, build_video_search_panel(W), std::clamp(W - 2, 70, 112), W);
     } else if (mode_ == Mode::AudioDevice) {
         draw_floating_panel(floating, build_audio_device_panel(), kAudioDevicePanelWidth, W);
     } else if (mode_ == Mode::OsciMenu) {
@@ -885,7 +906,7 @@ std::string App::render_frame(TerminalIO& term) {
         const bool floating_mode = mode_ != Mode::Browse && mode_ != Mode::Search;
         const bool covered_all = list_overlay_active() || queue_overlay_active() || folder_overlay_active() || convert_overlay_active();
         if (covered_all || (mode_family(mode_) != 0)) gfx_.active = false;
-        else if (meta_sty_pic_ == 1 && mode_ == Mode::MetaEdit) {   // the preview of the Style Option panel (over the main screen) owns the picture slot: it lies inside the panel
+        else if ((meta_sty_pic_ == 1 && mode_ == Mode::MetaEdit) || (vs_pic_ == 1 && mode_ == Mode::VideoSearch)) {   // the preview of the Style Option panel (over the main screen) owns the picture slot: it lies inside the panel
             gfx_.crop = 0;
             gfx_.cut_w = 0;
         } else {
@@ -930,7 +951,7 @@ std::string App::render_frame(TerminalIO& term) {
         // the oscilloscope picture next to an album cover (second slot): a floating panel frees its columns as it does for gfx_
         if (gfx_.active && gfx2_.active) {
             gfx2_.crop = 0;
-            const bool own_second = meta_sty_pic_ == 2 && mode_ == Mode::MetaEdit;   // the Style Option preview lies inside its own panel
+            const bool own_second = (meta_sty_pic_ == 2 && mode_ == Mode::MetaEdit) || (vs_pic_ == 2 && mode_ == Mode::VideoSearch);   // the Style Option preview lies inside its own panel
             const bool floating_mode = !own_second && mode_ != Mode::Browse && mode_ != Mode::Search;
             const int fx = float_rect_[0], fy = float_rect_[1], fw = float_rect_[2], fh = float_rect_[3];
             if (floating_mode && fw > 0 && fy < gfx2_.row + gfx2_.rows && fy + fh > gfx2_.row && fx < gfx2_.col + gfx2_.cols && fx + fw > gfx2_.col)

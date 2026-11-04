@@ -55,6 +55,10 @@ public:
     // result, non-zero exit, or an unparseable link).
     std::vector<OnlineResult> list_playlist(const std::string& url, std::string* error_out = nullptr);
 
+    // Videos for the Video view (SEARCH YT): the same flat listing, without the music-only filter (a video can be a concert, a lyric
+    // video ...). Titles, channels and lengths only; the preview picture is https://i.ytimg.com/vi/<id>/mqdefault.jpg.
+    std::vector<OnlineResult> search_videos(const std::string& query, int count = 10);
+
     // SoundCloud (/sc:): yt-dlp's "scsearch" (SoundCloud's own search API).
     std::vector<OnlineResult> search_soundcloud(const std::string& query, int count = 15);
     // Bandcamp (/b:): yt-dlp has no Bandcamp search, so scripts/bandcamp_search.py asks Bandcamp's search directly

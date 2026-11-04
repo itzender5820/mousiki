@@ -416,7 +416,7 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
         kv("Year", shown.year);
         kv("Sampling", metadata_.sampling);
         kv("Type", metadata_.type);
-        kv("Format", metadata_.format);
+        kv("Format", format_text());
         kv("File size", metadata_.file_size);
         kv("Location", metadata_.location, 2);
         if (!metadata_.extra_label.empty()) kv(metadata_.extra_label, metadata_.extra_value);
@@ -526,6 +526,18 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
         // misleading status line.
     }
 
+    bool video_missing = false;   // the video view is on but this track has no video (or no room for it)
+    if (!(settings_.video_mode && settings_.video_view && has_track_ && !audiobook_) && video_.has_video()) {   // not on the video view: the decoder rests
+        // Away from the video view for a moment (sphere, lyrics ...): the decoder just waits with a full queue and the last picture
+        // stays, so coming back resynchronises at once (frame_for restarts at the sound's time when it has run away). Only a long
+        // absence ends the ffmpeg process.
+        const auto now_t = std::chrono::steady_clock::now();
+        if (video_away_since_ == std::chrono::steady_clock::time_point{}) video_away_since_ = now_t;
+        if (now_t - video_away_since_ > std::chrono::seconds(60)) { video_.stop(); video_away_since_ = {}; }
+    } else {
+        if (video_away_since_ != std::chrono::steady_clock::time_point{}) video_pic_key_.clear();   // coming back: send the picture again
+        video_away_since_ = {};
+    }
     if (!has_track_ && audiobook_) {
         // No book loaded: the stack of books builds itself up where the visualizations are.
         const std::vector<std::string> st = book_art_lines(1, book_idle_t_);
@@ -553,7 +565,22 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
             lyric_rows[start + i] =
                 gradient_ansi(settings_.disk_color, settings_.disk_color_end, t) + body + "\x1b[0m";
         }
-    } else if (!lyrics_avail) {
+    } else if (settings_.video_mode && settings_.video_view && !audiobook_ && lyrics_w >= 12 && panel_h >= 6 &&
+               [&]() {   // (false: no video for this track -> "When No Video Shows" decides, see video_missing)   // the Video view: the picture of the track's video with the current lyric line under it
+                   std::vector<std::string> line_rows;
+                   if (lyrics_avail && settings_.video_lyrics) {
+                       const double lt = elapsed - lyrics_delay;
+                       int act = 0;
+                       for (size_t i = 0; i < lines_copy.size(); ++i) { if (lines_copy[i].start_time <= lt) act = static_cast<int>(i); else break; }
+                       line_rows = render_lyric_line_wrapped(lines_copy[static_cast<size_t>(act)], lt, lyrics_w, true, settings_);
+                   }
+                   std::vector<std::string> vrows;
+                   if (!video_field_rows(vrows, lyrics_w, panel_h, 2 + disk_w + (show_disk ? sep_w : 2) + meta_w, cover_pic_img, elapsed, line_rows)) { video_missing = true; return false; }
+                   for (int i = 0; i < panel_h && i < static_cast<int>(vrows.size()); ++i) lyric_rows[static_cast<size_t>(i)] = vrows[static_cast<size_t>(i)];
+                   return true;
+               }()) {
+        // (drawn: lyric_rows hold the picture's cells and the lyric line)
+    } else if (!lyrics_avail || (video_missing && settings_.novideo_viz != 4)) {
         // A status message ("fetching...", "no lyrics found", etc.) is
         // only shown for the first 1.75s after it appears -- after that
         // the placeholder visual (sphere or osci) gets the whole panel to
@@ -586,7 +613,7 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
             // bottom row (below), so the picture never changes its size or moves while it shows.
             const int viz_rows_h = panel_h;
             // Lyrics view without lyrics: the "When No Lyrics Show" pick; otherwise the view the "." cycle is on.
-            int area_viz = settings_.element_lyrics ? settings_.nolyrics_viz : settings_.lyric_viz;
+            int area_viz = video_missing ? settings_.novideo_viz : settings_.element_lyrics ? settings_.nolyrics_viz : settings_.lyric_viz;   // (video_missing: "When No Video Shows", 3 = nothing)
             if (area_viz < 3 && !settings_.viz_usable(area_viz)) area_viz = 3;   // nothing is switched on: an empty field
             if (area_viz == 1) {
                 // XY scope: render() hands back exactly lyrics_w cells per
@@ -1035,7 +1062,8 @@ std::vector<std::string> App::build_search_bar(int total_width) const {
     } else {
         std::string rest;
         const int scope = local_query_scope(last_local_query_, rest);
-        content = scope ? "/" + std::string(1, scope == 1 ? 'r' : 'a') + ":" + rest : "/l:" + last_local_query_;
+        content = scope ? "/" + std::string(1, scope == 1 ? 'r' : 'a') + ":" + rest
+                : (last_local_query_.size() >= 2 && ascii_lower_str(last_local_query_.substr(0, 2)) == "v:") ? "/" + last_local_query_ : "/l:" + last_local_query_;
     }
 
     std::string border_ansi = ansi_for(settings_.border_color, false);

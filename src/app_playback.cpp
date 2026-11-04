@@ -358,6 +358,7 @@ void App::poll_pending_load() {
     fft_.reset(); // don't let the previous track's spectrum tail linger into this one's first frame
     scope_.reset(); // ...and don't let the previous track's waveform linger in the oscilloscope either
 
+    video_auto_apply();   // (Video overlay: Auto Video) before the lyrics are fetched, they depend on the view
     // "Lyrics Engine" (settings_.element_lyrics) off means no lyrics work at all: nothing is
     // fetched, no Python is started and there is no network access.
     if (settings_.lyrics_on() && !audiobook_) {   // (no lyrics for audio books)

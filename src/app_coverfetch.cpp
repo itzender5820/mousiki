@@ -782,7 +782,7 @@ std::vector<std::string> App::build_cf_library_panel(int total_width, int height
 
 // A picture file as a real picture (Kitty / Sixel) in the main slot gfx_, `cols` x `rows` cells at screen column / row (0-based).
 // false: the picture is not read yet or cannot be read (the caller shows braille dots / a message instead).
-bool App::cover_full_picture(const std::string& pfile, bool pemb, int pcols, int preview_rows, int scr_col, int scr_row) const {
+bool App::cover_full_picture(const std::string& pfile, bool pemb, int pcols, int preview_rows, int scr_col, int scr_row, bool second) const {
     const CoverImage* img = preview_cover(pfile, pemb);
     if (!img) return false;
     int cw0 = 10, ch0 = 20;
@@ -791,9 +791,10 @@ bool App::cover_full_picture(const std::string& pfile, bool pemb, int pcols, int
     const int cws = std::min(cw0, std::max(2, 640 / pcols)), chs = std::min(ch0, std::max(4, 640 / preview_rows));
     const int w = pcols * cws, h = preview_rows * chs;
     const std::string key = img->key + "|" + std::to_string(w) + "x" + std::to_string(h) + "|" + std::to_string(scr_col);
-    GfxFrame& g = gfx_;
-    if (key != cf_pic_key_ || g.level.size() != static_cast<size_t>(w) * h) {
-        cf_pic_key_ = key;
+    GfxFrame& g = second ? gfx2_ : gfx_;
+    std::string& pic_key = second ? vs_pic_key_ : cf_pic_key_;
+    if (key != pic_key || g.level.size() != static_cast<size_t>(w) * h || g.id != (second ? 1 : 0)) {
+        pic_key = key;
         const CoverScaled& cs = cover_scaled(*img, w, h, true, 0);
         g.level.assign(static_cast<size_t>(w) * h, 0);
         g.hue.assign(static_cast<size_t>(w) * h, 0);
@@ -810,7 +811,7 @@ bool App::cover_full_picture(const std::string& pfile, bool pemb, int pcols, int
     g.plain = true; g.direct = true; g.scale = 1; g.out_cw = cw0; g.out_ch = ch0;
     g.cols = pcols; g.rows = preview_rows; g.w = w; g.h = h;
     g.col = scr_col; g.row = scr_row;
-    g.id = 0; g.grid.clear(); g.cut_w = 0; g.crop = 0;
+    g.id = second ? 1 : 0; g.grid.clear(); g.cut_w = 0; g.crop = 0;
     g.opaque = settings_.black_background; g.erase = !settings_.black_background;
     g.active = true;
     return true;

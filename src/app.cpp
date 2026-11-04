@@ -666,6 +666,7 @@ App::App(Settings* shared, bool audiobook) : audiobook_(audiobook), settings_(sh
     }
 
     }
+    local_source_.set_include_video(settings_.video_mode);   // (Video mode: video files are part of the library)
     all_local_tracks_ = local_source_.scan(library_roots(), &local_scan_diagnostics_);
     exclude_book_files(all_local_tracks_);   // the audio books are not part of the music library
     scanned_book_path_ = settings_.audiobook_path;
@@ -680,7 +681,7 @@ App::App(Settings* shared, bool audiobook) : audiobook_(audiobook), settings_(sh
 // the OPTION key on a Mac; the label shown for it follows the platform (pretty_key()).
 struct NamedComboKey { const char* name; int code; };
 static const NamedComboKey kComboKeys[] = {
-    {"ALT+L", kKeyAltL}, {"ALT+C", kKeyAltC}, {"CTRL+L", kKeyCtrlL}, {"CTRL+SHIFT+U", kKeyCtrlShiftU}, {"CTRL+SHIFT+Z", kKeyCtrlShiftZ},
+    {"ALT+L", kKeyAltL}, {"ALT+C", kKeyAltC}, {"ALT+V", kKeyAltV}, {"CTRL+L", kKeyCtrlL}, {"CTRL+SHIFT+U", kKeyCtrlShiftU}, {"CTRL+SHIFT+Z", kKeyCtrlShiftZ},
     {"CTRL+T", kKeyCtrlT}, {"CTRL+Z", kKeyCtrlZ},
     {"°", kKeyDegree},   // SHIFT+^ on a German keyboard: two UTF-8 bytes, joined into one key by poll_key()
 };
@@ -1033,7 +1034,7 @@ int App::run() {
         // the protocol setting changes
         // (the cover is a picture in the cover looks 0-4 -- the default is 2 -- so the terminal is asked at the start whatever the oscilloscope / spectrogram styles are: before, with braille styles the cover stayed braille until an image style was chosen once)
         // (the Settings previews, the meta editor and the cover fetch show pictures too: with braille styles in use nothing had asked the terminal yet, so they fell back to braille)
-        const bool pictures_wanted = mode_ == Mode::Settings || mode_ == Mode::ColorEdit || mode_ == Mode::MetaEdit || mode_ == Mode::CoverFetch;
+        const bool pictures_wanted = mode_ == Mode::Settings || mode_ == Mode::ColorEdit || mode_ == Mode::MetaEdit || mode_ == Mode::CoverFetch || mode_ == Mode::VideoFetch;
         if ((settings_.osci_style == 1 || settings_.spectro.style == 1 || audiobook_ || pictures_wanted || settings_.cover_mode <= 4) && gfx_probed_pref_ != settings_.gfx_protocol) {
             if (gfx_shown) { write_frame(gfx_clear(gfx_proto_)); gfx_shown = false; }
             gfx_proto_ = gfx_probe(settings_.gfx_protocol);
@@ -1084,6 +1085,7 @@ int App::run() {
                        (mode_ == Mode::MetaEdit && meta_tab_ == 0 &&
                         (meta_focus_ == 0 || meta_focus_ == 2)) ||
                        (mode_ == Mode::CoverFetch && cf_tab_ == 0 && cf_focus_ == 0) ||
+                       (mode_ == Mode::VideoFetch && vf_focus_ == 0) ||
                        playlist_text_field);
 
         for (int key = term.poll_key(); key != 0; key = term.poll_key()) {
@@ -1112,6 +1114,7 @@ int App::run() {
         }
         poll_pending_bulk_add();
         poll_pending_atp();
+        borrow_video_tags();
         poll_pending_row_meta_tags();
         poll_pending_meta_fetch(); // AcoustID results -> pending edits
         poll_cover_fetch();        // the cover fetch overlay: index, fetch list
@@ -1119,6 +1122,8 @@ int App::run() {
         poll_kanji_reader();       // kanji of Japanese texts read by pykakasi (when installed), in the background
         poll_name_lookup();        // the Latin name of an artist in Chinese characters (MusicBrainz, in the background)
         poll_meta_save();          // the next slice of a running save
+        video_search_poll();       // a finished video search / download
+        video_fetch_poll();        // FETCH VIDEOS: pairings made, the end of a batch
         if (audiobook_) book_poll();   // the loaded chapter's tags, a running tag save
         audio_device_apply();           // a changed sound output (overlay, Settings discard, the other mode) reaches the player
         readlyrics_poll();         // a finished lyrics translation
@@ -1191,14 +1196,14 @@ int App::run() {
             std::this_thread::sleep_for(std::chrono::milliseconds(40));
             continue;
         }
-        // The Style Option overlay opened from the main screen (SHIFT+s): the main screen behind it stands still. Its disk and
+        // The Style Option overlay opened from the main screen (SHIFT+s), and SEARCH YT while its thumbnail is a picture: the main screen behind it stands still. Its disk and
         // visualizations would change lines every frame, and each of those line writes lands next to the preview picture (Sixel
         // replaces the cells under it): the picture then flickers. Only the panel (and its preview picture) is live.
         bool sty_frozen = false;
         {
             static std::string frozen_body;
             static int frozen_cols = -1, frozen_rows = -1;
-            const bool freeze = mode_ == Mode::MetaEdit && meta_sty_from_main_ && frame_main_len_ != std::string::npos && frame_main_len_ <= frame_str.size();
+            const bool freeze = ((mode_ == Mode::MetaEdit && meta_sty_from_main_) || (mode_ == Mode::VideoSearch && vs_pic_ != 0)) && frame_main_len_ != std::string::npos && frame_main_len_ <= frame_str.size();   // (SEARCH YT with a thumbnail picture freezes the main screen too: the line writes of the live screen next to a Sixel picture wipe it)
             // (the look chosen in the panel is shown behind it at once: the frozen screen is taken again when the look changes)
             const std::string look_sig = std::to_string(eff_cover_mode()) + "|" + std::to_string(eff_cover_contrast()) + "|" + std::to_string(eff_cover_brightness()) + "|" +
                                          std::to_string(eff_cover_colors()) + "|" + (settings_.album_cover ? "a" : "d");
@@ -1426,6 +1431,9 @@ void App::shutdown() {
     }
     if (convert_overlay_open_) convert_overlay_close();
     converter_.cancel();
+    if (vd_.active) { std::lock_guard<std::mutex> lk(vd_.child_m); if (vd_.child) vd_.child->kill(); }
+    if (vd_.thread.joinable()) vd_.thread.join();
+    video_fetch_cancel_and_join();
     if (load_thread_.joinable()) load_thread_.join();
     if (search_thread_.joinable()) search_thread_.join();
     if (device_worker_thread_.joinable()) device_worker_thread_.join();

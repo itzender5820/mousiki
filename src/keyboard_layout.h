@@ -26,5 +26,7 @@ std::string default_size_mode_key(bool next);
 // The DEFAULT key of the CHOOSE AUDIO DEVICE overlay (HKeyAudioDevice): "°" (SHIFT+^) where the keyboard has it on that key (German,
 // Austrian, Swiss), "&" elsewhere (US / UK keyboards have no °; "%" is the music player's "queue item to the bottom").
 std::string default_audio_device_key();
+// The Video mode key: "&" (SHIFT+6) on German / Austrian / Swiss keyboards, where "&" is free (the audio device key is "°" there); "Y" elsewhere.
+std::string default_video_key();
 
 } // namespace muisc

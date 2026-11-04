@@ -639,9 +639,11 @@ namespace {
 #if defined(__APPLE__)
 constexpr const char* kLyricsTimingKey = "J";       // the default on a Mac (settings.cpp)
 constexpr const char* kCoverFetchKey = "Q";
+constexpr const char* kVideoFetchKey = "D";
 #else
 constexpr const char* kLyricsTimingKey = "ALT+L";
 constexpr const char* kCoverFetchKey = "ALT+C";
+constexpr const char* kVideoFetchKey = "ALT+V";
 #endif
 struct MenuIdxEntry { const char* cat; const char* title; const char* action; const char* fallback; };
 // (SYSTEM first: it is the top left corner of the index)
@@ -651,6 +653,8 @@ const MenuIdxEntry kMenuIdxPlayer[] = {
     {"SYSTEM",           "Help wizard",               "HKeyWizard",         "W"},
     {"SYSTEM",           "Cheat sheet",               "HKeyCheatsheet",     "?"},
     {"LYRICS",           "Karaoke",                   "HKeyKaraoke",        "k"},
+    {"LYRICS",           "Video overlay",            "HKeyVideo",          "&"},
+    {"LYRICS",           "Fetch videos",             "HKeyVideoFetch",     kVideoFetchKey},
     {"LYRICS",           "Read lyrics",               "HKeyReadLyrics",     "CTRL+L"},
     {"LYRICS",           "Lyrics timing",             "HKeyLyricsTiming",   kLyricsTimingKey},
     {"LYRICS",           "Retry given lyrics",              "HKeyRetryLyrics",    "l"},

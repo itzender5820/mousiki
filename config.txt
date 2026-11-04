@@ -116,7 +116,21 @@ LyricViz=osci
 ## sphere = the audio-reactive ball | osci = the oscilloscope (both drawn in the VIZ colors) | spectro = the spectrogram (default)
 ## (LyricViz and ElimentLyrics are where the "." key left the field; the next start begins with VizDefault, see below; VizDefault=last keeps them.)
 VizDefault=osci
-## The view the field starts with when Mousiki opens: sphere | osci | spectro | lyrics | last (= the view it was left on, "last used" in Settings -> ANIMA/VIZ -> Lyrics/Viz Default)
+## The view the field starts with when Mousiki opens: sphere | osci | spectro | lyrics | video | last (= the view it was left on, "last used" in Settings -> ANIMA/VIZ -> Lyrics/Viz Default)
+VideoLyrics=true
+## true = the current lyric line is shown under the video's picture (the & overlay: Include Lyrics)
+VideoAuto=true
+## true = a track that has a video switches the field to the video view, a track without one to the Lyrics/Viz Default view
+VideoCover=cover
+## cover = the disk shows the track's cover; thumbnail = a frame of the track's video (the cover, then the disk, when it has no video); disk = a track with a video shows the plain disk (no cover, no thumbnail)
+VideoDownHeight=720
+## the highest picture height of a video that Search YT downloads (into <download folder>/video_down)
+VideoMode=false
+## true = video files (mp4, mkv, mov, avi, webm ...) are listed too and the "video" view joins the "." cycle after the lyrics: the picture of the track's video with the current lyric line under it. HKeyVideo ("&" = SHIFT+6 on a German keyboard, SHIFT+y elsewhere) switches it.
+VideoView=false
+## true = the field is on the video view right now (VizDefault=last keeps it; VizDefault=video starts with it)
+NoVideoViz=lyrics
+## What the video view shows while the track has no video (lyrics | sphere | osci | spectro | none, default lyrics).
 NoLyricsViz=osci
 ## What the field shows while the lyrics view is on but no lyrics are available (sphere | osci | spectro | none, default spectro).
 ## Picking one turns its "Use ..." switch below on; switching that off again moves this pick to the next visual that is on.
@@ -127,8 +141,8 @@ UseSphere=true
 ## false = left out entirely: not in the "." cycle of the lyrics area. The windows
 ## (SHIFT+8 spectrogram, SHIFT+9 oscilloscope on a German keyboard) and the full screen (SHIFT+u) work either way.
 ## Switching a view off moves LyricViz / NoLyricsViz on to the next visual that is on, and UseLyrics=false turns ElimentLyrics off.
-VizOrder=sphere,osci,spectro,lyrics
-## the order of the views when you press "." (sphere, osci, spectro, lyrics in any order); Settings -> ON/OFF -> Viz Order 1..4
+VizOrder=sphere,osci,spectro,lyrics,video
+## the order of the views when you press "." (sphere, osci, spectro, lyrics, video in any order); Settings -> ANIMA/VIZ -> Viz Order 1..5
 ## Oscilloscope (SHIFT+o overlay), one block per style: braille = Osci<name>, image = OsciImage<name>. Each style keeps its own values.
 ## Decay = afterglow 0.00-0.99 | DotThreshold 0.01-1.00 (braille: lower = thicker line) | TailBrightness 0.00-1.00 | Interpolation = connect the
 ## samples with lines | ZAxis = beam intensity (ZDepth 0-1, ZSource speed|level) | TraceLength 128-8192 samples | Rotate = 45 degrees (mid vertical) |
@@ -553,6 +567,7 @@ HKeyReadLyrics="CTRL+L"
 HKeyQueueUndoClear="CTRL+SHIFT+Z"
 HKeyQueueToPlaylist="CTRL+SHIFT+U"
 HKeyCoverFetch="ALT+C"
+HKeyVideoFetch="ALT+V"
 HKeyStyleOptions="S"
 HKeyBulkAdd="G"
 HKeyAddToPlaylist="A"

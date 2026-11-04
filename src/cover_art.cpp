@@ -9,6 +9,7 @@
 #include "process_util.h"
 #include <algorithm>
 #include <array>
+#include <cstdio>
 #include <cctype>
 #include <chrono>
 #include <cmath>
@@ -281,8 +282,10 @@ namespace {
 // ffmpeg writes the picture as one PAM image (a tiny header, then RGBA bytes) at most 640 x 640; the grey level of it is
 // 0.15 + 0.85 * luminance, times the alpha -- the same as the audio book cover's.
 } // namespace
-bool decode_cover_file(const fs::path& file, bool embedded, CoverImage& d) {
-    Args cmd = {"ffmpeg", "-v", "error", "-i", path_utf8(file)};
+bool decode_cover_file(const fs::path& file, bool embedded, CoverImage& d, double seek) {
+    Args cmd = {"ffmpeg", "-v", "error"};
+    if (seek > 0.0) { char b[32]; std::snprintf(b, sizeof b, "%.2f", seek); cmd.push_back("-ss"); cmd.push_back(b); }
+    cmd.push_back("-i"); cmd.push_back(path_utf8(file));
     if (embedded) cmd.push_back("-an");
     cmd.insert(cmd.end(), {"-vf", "scale=w=640:h=640:force_original_aspect_ratio=decrease", "-frames:v", "1",
                            "-f", "image2pipe", "-vcodec", "pam", "-pix_fmt", "rgba", "-"});
@@ -335,6 +338,16 @@ std::vector<std::string> cover_search_names(const CoverRequest& rq, const fs::pa
     return names;
 }
 bool decode_picture(const fs::path& file, bool embedded, CoverImage& d) { return decode_cover_file(file, embedded, d); }
+}  // namespace
+bool decode_video_snapshot(const fs::path& video, CoverImage& d) {
+    double dur = 0.0;
+    const ProcResult r = run_capture({"ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path_utf8(video)});
+    if (r.ok()) { try { dur = std::stod(r.out); } catch (...) { dur = 0.0; } }
+    const double at = dur > 2.0 ? std::min(30.0, dur * 0.1) : 0.0;
+    if (decode_cover_file(video, false, d, at)) return true;
+    return at > 0.0 && decode_cover_file(video, false, d, 0.0);
+}
+namespace {
 
 CoverImage load_track_cover(CoverRequest rq, std::string key) {
     CoverImage d;
@@ -346,6 +359,20 @@ CoverImage load_track_cover(CoverRequest rq, std::string key) {
     // the names the folder's pictures are compared with: the album, the title and the file's own name without a track number
     const std::vector<std::string> names = cover_search_names(rq, file);
     std::string tried;
+    // Settings -> Cover, Disk or Thumbnail: a frame of the track's video first; the usual search (the chosen cover, the file, the folder,
+    // the disk) is the fallback when it cannot be read.
+    if (!rq.snapshot_video.empty()) {
+        CoverImage t;
+        t.key = key;
+        if (decode_video_snapshot(path_from_utf8(rq.snapshot_video), t)) {
+            d = std::move(t);
+            d.dir = path_utf8(dir); d.album = rq.album;
+            d.source = path_utf8(path_from_utf8(rq.snapshot_video).filename()) + " (video snapshot)";
+            ConsoleLog::instance().log_basic("album cover: using a frame of " + rq.snapshot_video);
+            return d;
+        }
+        tried += "the video's frame could not be read; ";
+    }
     // What the user chose beats the search (except with "Within File Only", which looks at the files alone): first the picture chosen
     // for this track, then the one chosen for its album name.
     if (rq.search != 4) {
@@ -406,7 +433,7 @@ CoverImage load_track_cover(CoverRequest rq, std::string key) {
 }
 
 std::string request_key(const CoverRequest& rq) {
-    return rq.path + "\n" + rq.title + "\n" + rq.album + "\n" + std::to_string(rq.search) + "\n" + std::to_string(rq.store_rev);
+    return rq.path + "\n" + rq.title + "\n" + rq.album + "\n" + std::to_string(rq.search) + "\n" + std::to_string(rq.store_rev) + "\n" + rq.snapshot_video;
 }
 
 // the single slot: the cover that is ready, and the one being read

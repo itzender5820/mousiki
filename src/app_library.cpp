@@ -2,6 +2,7 @@
 // Part of class App (src/app.h): The library: row titles, the search, sort and filter of the local list, folders, playlists on disk, rescan.
 // Split out of app.cpp; the includes are the same as there.
 #include "app.h"
+#include "video_links.h"
 #include "text_edit.h"
 #include "overlay_common.h"
 #include "remote_server.h"
@@ -330,6 +331,7 @@ const char* App::sort_mode_name(int mode, bool meta_only) {
         case 1: return meta_only ? "title A-Z" : "file name A-Z";
         case 2: return "artist A-Z";
         case 3: return "recently added";
+        case 4: return "videos";
         default: return "folder order";
     }
 }
@@ -397,8 +399,19 @@ void App::apply_local_sort(std::vector<LocalTrack>& tracks) const {
 // local_view_ must go through this (or refresh_local_view()): the background
 // tag resolver re-filters the list every time new tags land, and a rebuild
 // that skipped the folder filter silently undid 'f' a frame or two later.
-std::vector<LocalTrack> App::filter_and_rank_local_view(const std::string& query) const {
+std::vector<LocalTrack> App::filter_and_rank_local_view(const std::string& query_in) const {
+    // "v:" in front of the query (/v:): only the video files, whatever the SHIFT+t step is (they are listed while the Video mode is on)
+    std::string query = query_in;
+    bool videos_only = false;
+    if (query.size() >= 2 && ascii_lower_str(query.substr(0, 2)) == "v:") {
+        videos_only = true;
+        query = query.substr(2);
+        while (!query.empty() && query.front() == ' ') query.erase(query.begin());
+    }
     std::vector<LocalTrack> view = filter_and_rank_local(query);
+    if (local_sort_mode_ == 4 || videos_only) {   // SHIFT+t's last step (Video mode on): only the video files
+        view.erase(std::remove_if(view.begin(), view.end(), [](const LocalTrack& t) { return !LocalSource::is_video_file(t.path); }), view.end());
+    }
     if (folder_filter_.empty()) return view;
     std::vector<LocalTrack> filtered;
     filtered.reserve(view.size());
@@ -537,6 +550,11 @@ void App::rescan_library() {
     std::vector<std::string> diagnostics;
     all_local_tracks_ = local_source_.scan(library_roots(), &diagnostics);
     exclude_book_files(all_local_tracks_);
+    if (settings_.video_mode && VideoLinks::get().size() > 0) {   // a linked video that moved is found again by its file name
+        std::vector<std::string> vids;
+        for (const auto& t : all_local_tracks_) if (LocalSource::is_video_file(t.path)) vids.push_back(path_utf8(t.path));
+        if (VideoLinks::get().mend(vids) > 0) { video_for_track_.clear(); ++video_rev_; }
+    }
     scanned_book_path_ = settings_.audiobook_path;
     search_idx_.clear();
     refresh_local_view(); // applies the active query/sort/filter to the new set
@@ -569,7 +587,7 @@ void App::update_live_search_preview() {
         return;
     }
     size_t plen = 0;
-    if (online_prefix(buf, plen) >= 0) {   // online: nothing until ENTER
+    if (online_prefix(buf, plen) >= 0 || (buf.size() >= 3 && ascii_lower_str(buf.substr(0, 3)) == "sv:")) {   // online (and "sv:", the video search): nothing until ENTER
         list_source_ = pre_search_list_source_;
         local_view_ = filter_and_rank_local_view(pre_search_local_query_);
         selected_ = 0;
@@ -625,6 +643,14 @@ void App::submit_search() {
         return;
     }
     size_t plen = 0;
+    if (buf.size() >= 3 && ascii_lower_str(buf.substr(0, 3)) == "sv:") {   // /sv: search videos on YouTube (SEARCH YT) to download
+        std::string query = buf.substr(3);
+        while (!query.empty() && query.front() == ' ') query.erase(query.begin());
+        video_search_open(query);
+        return;
+    }
+    if (buf.size() >= 2 && ascii_lower_str(buf.substr(0, 2)) == "v:" && !settings_.video_mode)
+        status_line_ = "/v: lists the videos while the Video mode is on (" + hotkey_text("HKeyVideo", "&") + " -> Video Mode)";
     if (const int src = online_prefix(buf, plen); src >= 0) {   // s: YouTube, sc: SoundCloud, b: Bandcamp
         std::string query = buf.substr(plen);
         while (!query.empty() && query.front() == ' ') query.erase(query.begin());

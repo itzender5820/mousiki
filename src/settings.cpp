@@ -353,6 +353,7 @@ void apply_default_hotkeys(Settings& s) {
             // "k" opens the karaoke overlay; Refresh UI is on "r" (migrated below).
             {"HKeyRefreshUi",                   "r"},
             {"HKeyKaraoke",                     "k"},
+            {"HKeyVideo",                       default_video_key()},   // "&" (SHIFT+6) on German / Austrian / Swiss keyboards, else "Y" (SHIFT+y)
             // The mode switch (SHIFT and + / SHIFT and - on a German keyboard: the characters '*' and '_') and the karaoke
             // overlay's lyrics size keys. The two pairs share their characters on purpose: they work in different places
             // (the size keys only inside the karaoke overlay).
@@ -474,6 +475,11 @@ void apply_default_hotkeys(Settings& s) {
             {"HKeyCoverFetch",                  "Q"},             // cover fetch overlay (SHIFT+q on a Mac: no OPTION key, which types special characters there)
 #else
             {"HKeyCoverFetch",                  "ALT+C"},         // cover fetch overlay (MusicBrainz / Cover Art Archive)
+#endif
+#if defined(__APPLE__)
+            {"HKeyVideoFetch",                  "D"},             // fetch videos overlay (SHIFT+d on a Mac: no OPTION key, which types special characters there)
+#else
+            {"HKeyVideoFetch",                  "ALT+V"},         // fetch videos overlay (yt-dlp)
 #endif
             {"HKeyStyleOptions",                "S"},             // SHIFT+s: the Style Option overlay (cover look, contrast, brightness, colors) of the playing track
             {"HKeyReadLyrics",                  "CTRL+L"},        // READ LYRICS overlay
@@ -622,7 +628,7 @@ static std::string unquote(const std::string& s) {
     return t;
 }
 
-static const char* viz_default_name(int v) { return v == 0 ? "sphere" : v == 1 ? "osci" : v == 2 ? "spectro" : v == 3 ? "lyrics" : "last"; }
+static const char* viz_default_name(int v) { return v == 0 ? "sphere" : v == 1 ? "osci" : v == 2 ? "spectro" : v == 3 ? "lyrics" : v == 5 ? "video" : "last"; }
 
 static bool parse_bool(const std::string& v) {
     std::string s = trim_ws(v);
@@ -894,7 +900,7 @@ static Settings load_from_config(const fs::path& path) {
             {"ElimentDisk", "Eliment_disk"}, {"ElimentDummyButtons", "Element_dummy_buttons"},
             {"ElimentQueue", "Eliment_queue"}, {"ElimentWaveForm", "Eliment_waveform_progress_bar"},
             {"ElimentLyrics", "Eliment_lyrics"}, {"VizLyricsField", "Eliment_vizfield"}, {"LyricsPlaceholderBall", "Eliment_lyrics_placeholder_ball"},
-            {"LyricViz", "lyric_viz"}, {"NoLyricsViz", "nolyrics_viz"}, {"VizDefault", "viz_default"},
+            {"LyricViz", "lyric_viz"}, {"NoLyricsViz", "nolyrics_viz"}, {"VizDefault", "viz_default"}, {"NoVideoViz", "novideo_viz"}, {"VideoMode", "video_mode"}, {"VideoLyrics", "video_lyrics"}, {"VideoAuto", "video_auto"}, {"VideoCover", "video_cover"}, {"VideoDownHeight", "video_down_height"}, {"VideoView", "video_view"},
             {"Visualizer", "Eliment_visualizer"},
             {"VisualizerFluidity", "visualizer_fluidity"}, {"DiskRotationSpeed", "disk_rotation_speed"},
             {"VisualizerDegradationSpeed", "visualizer_degradation_speed"}, {"VisualizerViscosity", "visualizer_viscosity"},
@@ -1115,6 +1121,12 @@ static Settings load_from_config(const fs::path& path) {
         if (key == "Eliment_waveform_progress_bar" || key == "Element_waveform") { s.element_waveform = parse_bool(value); continue; }
         if (key == "Eliment_lyrics" || key == "Element_lyrics") { s.element_lyrics = parse_bool(value); continue; }
         if (key == "Eliment_vizfield") { s.element_vizfield = parse_bool(value); continue; }
+        if (key == "video_mode") { s.video_mode = parse_bool(value); continue; }
+        if (key == "video_view") { s.video_view = parse_bool(value); continue; }
+        if (key == "video_lyrics") { s.video_lyrics = parse_bool(value); continue; }
+        if (key == "video_auto") { s.video_auto = parse_bool(value); continue; }
+        if (key == "video_cover") { std::string v = ascii_lower_str(trim_ws(unquote(value))); s.video_cover = (v == "snapshot" || v == "thumbnail" || v == "1" || v == "true") ? 1 : (v == "disk" || v == "2") ? 2 : 0; continue; }
+        if (key == "video_down_height") { try { s.video_down_height = std::clamp(std::stoi(value), 144, 2160); } catch (...) {} continue; }
         if (key == "UseLyrics") { s.use_lyrics = parse_bool(value); continue; }
         if (key == "UseOscilloscope") { s.use_osci = parse_bool(value); continue; }
         if (key == "UseSpectrogram") { s.use_spectro = parse_bool(value); continue; }
@@ -1129,12 +1141,17 @@ static Settings load_from_config(const fs::path& path) {
                 if (ch != ',' && ch != ' ' && ch != '>' && ch != ';') { item += static_cast<char>(std::tolower(static_cast<unsigned char>(ch))); continue; }
                 if (item.empty()) continue;
                 int id = (item == "sphere") ? 0 : (item == "osci" || item == "oscilloscope") ? 1
-                       : (item == "spectro" || item == "spectrogram") ? 2 : (item == "lyrics") ? 3 : -1;
+                       : (item == "spectro" || item == "spectrogram") ? 2 : (item == "lyrics") ? 3 : (item == "video") ? 4 : -1;
                 if (id >= 0 && std::find(order.begin(), order.end(), id) == order.end()) order.push_back(id);
                 item.clear();
             }
-            for (int id = 0; id < 4; ++id) if (std::find(order.begin(), order.end(), id) == order.end()) order.push_back(id);
-            for (int i = 0; i < 4; ++i) s.viz_order[i] = order[static_cast<size_t>(i)];
+            // an older list without "video": the video view comes right after the lyrics, where it always was
+            if (std::find(order.begin(), order.end(), 4) == order.end()) {
+                auto it = std::find(order.begin(), order.end(), 3);
+                order.insert(it == order.end() ? order.end() : it + 1, 4);
+            }
+            for (int id = 0; id < 5; ++id) if (std::find(order.begin(), order.end(), id) == order.end()) order.push_back(id);
+            for (int i = 0; i < 5; ++i) s.viz_order[i] = order[static_cast<size_t>(i)];
             continue;
         }
         if (key == "Eliment_lyrics_placeholder_ball" || key == "Element_lyrics_placeholder_ball") {
@@ -1160,6 +1177,7 @@ static Settings load_from_config(const fs::path& path) {
             else if (v == "osci" || v == "oscilloscope") s.viz_default = 1;
             else if (v == "spectro" || v == "spectrogram") s.viz_default = 2;
             else if (v == "lyrics") s.viz_default = 3;
+            else if (v == "video") s.viz_default = 5;
             else if (v == "last" || v == "last used" || v == "last_used" || v == "lastused") s.viz_default = 4;
             have_viz_default = true;
             continue;
@@ -1171,6 +1189,16 @@ static Settings load_from_config(const fs::path& path) {
             else if (v == "sphere") s.nolyrics_viz = 0;
             else if (v == "spectro" || v == "spectrogram") s.nolyrics_viz = 2;
             else if (v == "none" || v == "off" || v == "nothing") s.nolyrics_viz = 3;
+            continue;
+        }
+        if (key == "novideo_viz") {
+            std::string v = value;
+            for (char& c : v) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (v == "osci" || v == "oscilloscope") s.novideo_viz = 1;
+            else if (v == "sphere") s.novideo_viz = 0;
+            else if (v == "spectro" || v == "spectrogram") s.novideo_viz = 2;
+            else if (v == "none" || v == "off" || v == "nothing") s.novideo_viz = 3;
+            else if (v == "lyrics") s.novideo_viz = 4;
             continue;
         }
         if (key == "osci_stereo") continue; // retired setting: old configs may still contain it, it is ignored
@@ -1521,7 +1549,13 @@ static Settings load_from_config(const fs::path& path) {
     if (s.viz_default <= 3) {   // 4 = last used: the view the "." key left (ElimentLyrics / LyricViz) stays
         s.element_lyrics = s.viz_default == 3;
         if (s.viz_default < 3) s.lyric_viz = s.viz_default;
+        s.video_view = false;
+    } else if (s.viz_default == 5) {   // video: the lyrics view with the picture (needs the Video mode, else it is just the lyrics)
+        s.element_lyrics = true;
+        s.video_view = true;
     }
+    if (!s.video_mode) s.video_view = false;
+    if (!s.element_lyrics) s.video_view = false;
     return s;
 }
 
@@ -1918,6 +1952,21 @@ static void write_settings(std::ostream& out, const Settings& s) {
     out << "## (LyricViz and ElimentLyrics are where the \".\" key left the field; the next start begins with VizDefault, see below; VizDefault=last keeps them.)\n";
     out << "VizDefault=" << viz_default_name(s.viz_default) << "\n";
     out << "## The view the field starts with when Mousiki opens: sphere | osci | spectro | lyrics | last (= the view it was left on, \"last used\" in Settings -> ANIMA/VIZ -> Lyrics/Viz Default)\n";
+    out << "VideoLyrics=" << tf(s.video_lyrics) << "\n";
+    out << "## true = the current lyric line is shown under the video's picture (the & overlay: Include Lyrics)\n";
+    out << "## true = the saved translation of the current lyric line is shown under the video (the second reserved row, when the line does not need it)\n";
+    out << "VideoAuto=" << tf(s.video_auto) << "\n";
+    out << "## true = a track that has a video switches the field to the video view, a track without one to the Lyrics/Viz Default view\n";
+    out << "VideoCover=" << (s.video_cover == 1 ? "thumbnail" : s.video_cover == 2 ? "disk" : "cover") << "\n";
+    out << "## cover = the disk shows the track's cover; thumbnail = a frame of the track's video (the cover, then the disk, when it has no video); disk = a track with a video shows the plain disk (no cover, no thumbnail)\n";
+    out << "VideoDownHeight=" << s.video_down_height << "\n";
+    out << "## the highest picture height of a video that Search YT downloads (into <download folder>/video_down)\n";
+    out << "VideoMode=" << tf(s.video_mode) << "\n";
+    out << "## true = video files (mp4, mkv, mov, avi, webm ...) are listed too and the \"video\" view joins the \".\" cycle after the lyrics: it plays the picture of the track's video in the field with the current lyric line under it. HKeyVideo (\"&\" = SHIFT+6 on a German keyboard, SHIFT+y elsewhere) switches it.\n";
+    out << "VideoView=" << tf(s.video_view) << "\n";
+    out << "## true = the field is on the video view right now (VizDefault=last keeps it; VizDefault=video starts with it)\n";
+    out << "NoVideoViz=" << (s.novideo_viz == 0 ? "sphere" : s.novideo_viz == 1 ? "osci" : s.novideo_viz == 2 ? "spectro" : s.novideo_viz == 3 ? "none" : "lyrics") << "\n";
+    out << "## what the video view shows while the track has no video: lyrics, sphere, osci, spectro or none\n";
     out << "NoLyricsViz=" << (s.nolyrics_viz == 1 ? "osci" : s.nolyrics_viz == 2 ? "spectro" : s.nolyrics_viz == 3 ? "none" : "sphere") << "\n";
     out << "## What the field shows while the lyrics view is on but no lyrics are available (sphere | osci | spectro | none).\n";
     out << "## Picking one turns its \"Use ...\" switch below on; switching that off again moves this pick to the next visual that is on.\n";
@@ -1928,10 +1977,10 @@ static void write_settings(std::ostream& out, const Settings& s) {
     out << "## false = left out of the lyrics area: not in the \".\" cycle. The windows\n";
     out << "## (SHIFT+8 spectrogram, SHIFT+9 oscilloscope) and the full screen (SHIFT+u) work either way.\n";
     {
-        static const char* const viz_names[4] = {"sphere", "osci", "spectro", "lyrics"};
+        static const char* const viz_names[5] = {"sphere", "osci", "spectro", "lyrics", "video"};
         out << "VizOrder=";
-        for (int i = 0; i < 4; ++i) out << (i ? "," : "") << viz_names[std::clamp(s.viz_order[i], 0, 3)];
-        out << "\n## the order of the views when you press \".\" (sphere, osci, spectro, lyrics in any order); set it on Settings -> ANIMA/VIZ -> Viz Order 1..4\n";
+        for (int i = 0; i < 5; ++i) out << (i ? "," : "") << viz_names[std::clamp(s.viz_order[i], 0, 4)];
+        out << "\n## the order of the views when you press \".\" (sphere, osci, spectro, lyrics, video in any order); set it on Settings -> ANIMA/VIZ -> Viz Order 1..5\n";
     }
     osci_config_write(out, s, "##");
     spectro_config_write(out, s.spectro, "##");
@@ -2245,7 +2294,7 @@ void copy_look(const Settings& src, Settings& dst) {
     MOUSIKI_LOOK(volume_indicator); MOUSIKI_LOOK(volume_gradient); MOUSIKI_LOOK(element_vizfield); MOUSIKI_LOOK(element_lyrics);
     MOUSIKI_LOOK(lyric_viz); MOUSIKI_LOOK(nolyrics_viz); MOUSIKI_LOOK(use_lyrics); MOUSIKI_LOOK(use_osci); MOUSIKI_LOOK(use_spectro);
     MOUSIKI_LOOK(use_sphere); MOUSIKI_LOOK(viz_default); MOUSIKI_LOOK(element_visualizer); MOUSIKI_LOOK(waveform_smooth);
-    for (int i = 0; i < 4; ++i) dst.viz_order[i] = src.viz_order[i];
+    for (int i = 0; i < 5; ++i) dst.viz_order[i] = src.viz_order[i];
     MOUSIKI_LOOK(meta_only); MOUSIKI_LOOK(visualizer_fluidity); MOUSIKI_LOOK(visualizer_degradation_speed); MOUSIKI_LOOK(visualizer_viscosity);
     MOUSIKI_LOOK(bars_style); MOUSIKI_LOOK(hifi_resolution); MOUSIKI_LOOK(hifi_channels); MOUSIKI_LOOK(hifi_color); MOUSIKI_LOOK(hifi_scale); MOUSIKI_LOOK(hifi_adapt); MOUSIKI_LOOK(hifi_fluidity); MOUSIKI_LOOK(hifi_degradation); MOUSIKI_LOOK(hifi_viscosity); MOUSIKI_LOOK(hifi_fscale); MOUSIKI_LOOK(hifi_gain); MOUSIKI_LOOK(hifi_range); MOUSIKI_LOOK(hifi_split);
     MOUSIKI_LOOK(viz_style); MOUSIKI_LOOK(viz_bands); MOUSIKI_LOOK(viz_density); MOUSIKI_LOOK(disk_rotation_speed);

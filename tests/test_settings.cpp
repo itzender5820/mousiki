@@ -416,3 +416,86 @@ TEST(settings_old_fetch_tags_binding_becomes_the_bookmark_and_the_bars_get_shift
     CHECK_EQ(d.hotkeys.at("HKeyBookmark"), std::string("B"));
     CHECK_EQ(d.hotkeys.at("HKeyBarsMenu"), std::string("B"));
 }
+
+TEST(settings_video_mode_defaults_off_and_round_trips) {
+    mt::TempHome home;
+    Settings s = load_settings();
+    CHECK(!s.video_mode);
+    CHECK(!s.video_view);
+    CHECK(s.hotkeys["HKeyVideo"] == "&" || s.hotkeys["HKeyVideo"] == "Y");
+    s.video_mode = true;
+    s.element_lyrics = true;
+    s.video_view = true;
+    s.viz_default = 4;   // last used: the video view stays
+    save_settings(s);
+    Settings b = load_settings();
+    CHECK(b.video_mode);
+    CHECK(b.video_view);
+    b.viz_default = 5;   // video
+    b.video_view = false;
+    save_settings(b);
+    Settings c = load_settings();
+    CHECK_EQ(c.viz_default, 5);
+    CHECK(c.element_lyrics);
+    CHECK(c.video_view);
+    // without the Video mode the view falls back to the lyrics
+    c.video_mode = false;
+    save_settings(c);
+    const Settings d = load_settings();
+    CHECK(!d.video_view);
+}
+
+TEST(settings_viz_order_has_five_places_and_novideo_pick) {
+    mt::TempHome home;
+    Settings s = load_settings();
+    CHECK_EQ(s.viz_order[4], 4);                 // video is the fifth place by default
+    CHECK_EQ(s.novideo_viz, 4);                  // lyrics when there is no video
+    CHECK(!s.viz_usable(4));                     // "Use Video" = the Video mode, off by default
+    s.video_mode = true;
+    CHECK(s.viz_usable(4));
+    CHECK_EQ(s.viz_step(0, 1, false), 1);        // the video view is never a "default" step target
+    const int o[5] = {4, 3, 2, 1, 0};
+    for (int i = 0; i < 5; ++i) s.viz_order[i] = o[i];
+    s.novideo_viz = 2;
+    save_settings(s);
+    const Settings b = load_settings();
+    for (int i = 0; i < 5; ++i) CHECK_EQ(b.viz_order[i], o[i]);
+    CHECK_EQ(b.novideo_viz, 2);
+}
+
+TEST(settings_old_viz_order_gets_video_after_lyrics) {
+    mt::TempHome home;
+    Settings s = load_settings();
+    save_settings(s);
+    // rewrite the order the way config files of the earlier versions have it (four names)
+    const auto path = config_path();
+    std::string text;
+    { std::ifstream in(path); std::stringstream ss; ss << in.rdbuf(); text = ss.str(); }
+    const size_t p = text.find("VizOrder=");
+    CHECK(p != std::string::npos);
+    const size_t e = text.find('\n', p);
+    text.replace(p, e - p, "VizOrder=lyrics,sphere,spectro,osci");
+    { std::ofstream out(path); out << text; }
+    const Settings b = load_settings();
+    const int want[5] = {3, 4, 0, 2, 1};
+    for (int i = 0; i < 5; ++i) CHECK_EQ(b.viz_order[i], want[i]);
+}
+
+TEST(settings_video_overlay_options_round_trip) {
+    mt::TempHome home;
+    Settings s = load_settings();
+    CHECK(s.video_lyrics);
+    CHECK_EQ(s.video_cover, 0);
+    CHECK_EQ(s.video_down_height, 720);
+    CHECK(s.video_auto);   // (on by default: a track with a video shows it)
+    s.video_auto = false;
+    s.video_lyrics = false;
+    s.video_cover = 2;
+    s.video_down_height = 1080;
+    save_settings(s);
+    const Settings b = load_settings();
+    CHECK(!b.video_auto);
+    CHECK(!b.video_lyrics);
+    CHECK_EQ(b.video_cover, 2);
+    CHECK_EQ(b.video_down_height, 1080);
+}

@@ -46,6 +46,8 @@ inline const RefHotkeyRow kRefRows[] = {
     {nullptr, "HKeyToggleLyricsBack", "Viz./Lyrics Cycle Backward"},
     {nullptr, "HKeyRetryLyrics", "Retry Lyrics"},
     {nullptr, "HKeyKaraoke", "Karaoke Overlay"},
+    {nullptr, "HKeyVideoFetch", "Open Fetch Videos"},
+    {nullptr, "HKeyVideo", "Video Overlay"},          // video files in the library + the "video" view (picture with the lyric line)
     {nullptr, "HKeyLyricsTiming", "Lyrics Timing Overlay"},   // shift synced lyrics earlier / later
     {nullptr, "HKeyReadLyrics", "Read Lyrics Overlay"},       // saved lyrics as text, files + translations
     {nullptr, "HKeyKaraokeBigger", "Karaoke Lyrics Bigger"},  // inside the karaoke overlay (size 1-5)
@@ -127,7 +129,7 @@ inline constexpr int kRefEnd = kRefStart + kRefRowCount;
 enum SetId {
     kSidVizField, kSidDisk, kSidDummy, kSidQueue, kSidWave, kSidLyricsEngine, kSidLyricViz, kSidVisualizer, kSidNoLyricsViz,
     kSidStereo, kSidNormalize, kSidMetaOnly, kSidEmoji, kSidMarquee, kSidUseLyrics, kSidUseOsci, kSidUseSpectro, kSidUseSphere,
-    kSidOrder1, kSidOrder2, kSidOrder3, kSidOrder4,
+    kSidOrder1, kSidOrder2, kSidOrder3, kSidOrder4, kSidOrder5, kSidUseVideo, kSidNoVideoViz,
     kSidPlayback, kSidStartMode, kSidBlackBg, kSidShareProfiles, kSidRemoteApp, kSidUpdateCheck, kSidMediaKeys, kSidUseTermSettings, kSidTermSize, kSidFullScreen, kSidLatinLookup, kSidLatinMacrons, kSidLatinWo, kSidLatinHanzi, kSidLyricsVariants, kSidRateCap, kSidTrackBuffer,
     kSidVisFluidity, kSidWaveStyle, kSidDiskSpeed, kSidVisDegr, kSidVisVisc, kSidLyrAlign, kSidLyrAnim,
     kSidVolIndicator,
@@ -176,6 +178,7 @@ inline const std::vector<SetLine>& settings_layout(int tab) {
     static const std::vector<SetLine> anima = {
         {true, -1, "LYRICS/VIZ FIELD"},
         {false, kSidLyricViz, "Lyrics/Viz Default"}, {false, kSidNoLyricsViz, "When No Lyrics Show"},
+        {false, kSidNoVideoViz, "When No Video Shows"},
         {true, -1, ""},
         {true, -1, "LYRICS"},
         {false, kSidLyrAlign, "Lyrics Alignment"}, {false, kSidLyrAnim, "Lyrics Animation"},
@@ -206,10 +209,10 @@ inline const std::vector<SetLine>& settings_layout(int tab) {
         {true, -1, ""},
         {true, -1, "VIZ/LYRICS ORDER"},
         {false, kSidOrder1, "Viz Order 1"}, {false, kSidOrder2, "Viz Order 2"},
-        {false, kSidOrder3, "Viz Order 3"}, {false, kSidOrder4, "Viz Order 4"},
+        {false, kSidOrder3, "Viz Order 3"}, {false, kSidOrder4, "Viz Order 4"}, {false, kSidOrder5, "Viz Order 5"},
         {true, -1, ""},
         {true, -1, "MAIN UI VIZ/LYRICS FIELD"},   // the field right of the meta data
-        {false, kSidVizField, "Viz/Lyrics Field"}, {false, kSidUseLyrics, "Use Lyrics Engine"},
+        {false, kSidVizField, "Viz/Lyrics Field"}, {false, kSidUseLyrics, "Use Lyrics Engine"}, {false, kSidUseVideo, "Use Video"},
         {false, kSidUseOsci, "Use Oscilloscope"},                                            // false: left out entirely
         {false, kSidUseSpectro, "Use Spectrogram"}, {false, kSidUseSphere, "Use Sphere"},    // (not in the "." cycle)
     };
@@ -303,10 +306,10 @@ inline int settings_item_line(int tab, int row) {
     for (const auto& l : settings_layout(tab)) { if (!l.header && n++ == row) return line; ++line; }
     return 0;
 }
-inline const char* const kVizNames[4] = {"sphere", "osci", "spectro", "lyrics"};   // viz_order values, row values
+inline const char* const kVizNames[5] = {"sphere", "osci", "spectro", "lyrics", "video"};   // viz_order values, row values
 // The name of mode `m` (0 music player, 1 radio, 2 audio books) on a row: the words of config.txt.
 inline const char* mode_row_name(int m) { return m == 1 ? "radio" : m == 2 ? "audiobook" : "player"; }
 // The name of view `i` on a row: the audio book player calls the lyrics view "notes".
-inline const char* viz_row_name(int i) { return (g_settings_book_layout && i == 3) ? "notes" : kVizNames[i < 0 ? 0 : i > 3 ? 3 : i]; }
+inline const char* viz_row_name(int i) { return (g_settings_book_layout && i == 3) ? "notes" : kVizNames[i < 0 ? 0 : i > 4 ? 4 : i]; }
 
 } // namespace muisc

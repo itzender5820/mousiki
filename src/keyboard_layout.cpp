@@ -137,6 +137,11 @@ std::string default_audio_device_key() {
     return (c == "de" || c == "at" || c == "ch") ? "°" : "&";
 }
 
+std::string default_video_key() {
+    const std::string c = keyboard_layout_code();
+    return (c == "de" || c == "at" || c == "ch") ? "&" : "Y";
+}
+
 std::string mode_key_label(int ch) {
     if (ch == 0) return "-";
     if (ch == '*') return mode_switch_key_label();

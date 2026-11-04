@@ -70,7 +70,7 @@ bool App::queue_overlay_active() const {
     if (mode_ == Mode::AudioDevice) return !adev_from_settings_;
     switch (mode_) {
         case Mode::Browse: case Mode::Search: case Mode::BulkAdd:
-        case Mode::RetryLyrics: case Mode::ClearQueue: case Mode::UpdateNotice: case Mode::QueueToPlaylist: case Mode::OsciMenu: case Mode::SpectroMenu: case Mode::NormMenu: case Mode::BarsMenu: case Mode::Equalizer: case Mode::SleepTimer: case Mode::MenuIndex: case Mode::Creator: case Mode::LyricsEdit: case Mode::BookOverlay: return true;
+        case Mode::RetryLyrics: case Mode::ClearQueue: case Mode::UpdateNotice: case Mode::QueueToPlaylist: case Mode::OsciMenu: case Mode::SpectroMenu: case Mode::NormMenu: case Mode::BarsMenu: case Mode::Equalizer: case Mode::SleepTimer: case Mode::MenuIndex: case Mode::Creator: case Mode::LyricsEdit: case Mode::BookOverlay: case Mode::VideoMenu: case Mode::VideoLink: case Mode::VideoSearch: return true;
         default: return false;
     }
 }

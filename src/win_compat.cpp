@@ -516,6 +516,10 @@ int win_poll_key() {
             g_last_key_was_arrow = false;
             return kKeyAltC;
         }
+        if ((st & LEFT_ALT_PRESSED) != 0 && !ctrl && k.wVirtualKeyCode == 'V') {   // Alt+V: the fetch videos overlay
+            g_last_key_was_arrow = false;
+            return kKeyAltV;
+        }
     }
 
     // Ctrl+C / Ctrl+X / Ctrl+V -- the clipboard keys of the single-line text

@@ -232,7 +232,8 @@ def kitty_cover_options(binary, home, scripts):
         sess.send(b"\t", 0.5)
         for _ in range(12):
             sess.send(b"\x1b[B", 0.15)
-        sess.send(b"\x1b[D", 0.3)       # (the last stop is Style Option: Left goes to Cover Options)
+        sess.send(b"\x1b[A", 0.3)       # (the last stop is Video Option, under the two buttons: Up is Style Option, Left goes to Cover Options)
+        sess.send(b"\x1b[D", 0.3)
         sess.send(b"\r", 1.5)
         check("COVER OPTIONS" in sess.text(), "kitty cover options: the overlay opens")
         def picture_after(mark, wait):
@@ -785,7 +786,8 @@ def main_session(binary, root, scripts):
         sess.send(b"\t", 0.5)
         for _ in range(12):
             sess.send(b"\x1b[B", 0.15)
-        sess.send(b"\x1b[D", 0.3)       # the two buttons sit side by side: the last stop is Style Option, Left goes to Cover Options
+        sess.send(b"\x1b[A", 0.3)       # the last stop is Video Option, under the two buttons: Up is Style Option
+        sess.send(b"\x1b[D", 0.3)       # the two buttons sit side by side: Left goes to Cover Options
         sess.send(b"\r", 1.5)
         check("COVER OPTIONS" in sess.text(), "cover options: the overlay opens")
         sess.send("t", 1.0)
@@ -1341,7 +1343,7 @@ def disk_field_setting(binary, root, scripts):
         t = sess.text()
         check("DISK / COVER OPTIONS" in t and "Eliment Disk / Cover" in t and "Album Cover" in t, "disk field: the tab has DISK and DISK / COVER OPTIONS")
         check(t.index("Disk Speed") < t.index("DISK / COVER OPTIONS") < t.index("Album Cover"), "disk field: Disk Speed is under DISK, Album Cover under DISK / COVER OPTIONS")
-        for _ in range(4):                                  # to Eliment Disk / Cover
+        for _ in range(5):                                  # to Eliment Disk (after Lyrics/Viz Default, When No Lyrics Show, When No Video Shows)
             sess.send(b"\x1b[B", 0.2)
         sess.pump(0.6)
         check("Show Disk / Cover" in sess.text(), "disk field: the row says Show Disk / Cover")
@@ -1413,6 +1415,159 @@ def queue_shuffle(binary, root, scripts):
         check(sess.alive(), "queue shuffle: a second SHIFT+u (nothing to undo) is harmless")
         check(sess.alive(), "queue shuffle: the program is still running")
         sess.send(b"\x1b", 0.8)
+    finally:
+        sess.kill()
+
+
+def video_overlays(binary, root, scripts):
+    """The & overlay (VIDEO), VIDEO OPTION, SEARCH YT and the [ Video Option ] button of the meta editor open, show their rows and close."""
+    home = os.path.join(root, "vo_home")
+    lib = os.path.join(root, "music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nHKeyVideo=Y\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Alpha Song" in sess.text():
+                break
+        sess.send("Y", 1.0)
+        t = sess.text()
+        check("Include Lyrics" in t and "Cover, Disk or Thumbnail" in t and "Video Option" in t and "Search YT" in t, "video overlay: the rows are listed")
+        for _ in range(4):
+            sess.send(b"\x1b[B", 0.2)
+        sess.send("\r", 1.0)
+        t = sess.text()
+        check("VIDEO OPTION" in t and "SEARCH SONGS" in t and "SEARCH VIDEOS" in t and "Connect song and video" in t, "video option: the two search panes and the button are drawn")
+        sess.send("a", 0.4)
+        check("VIDEO OPTION" in sess.text(), "video option: typing goes into the search field")
+        sess.send(b"\x1b", 0.8)
+        check("VIDEO OPTION" not in sess.text(), "video option: ESC closes it")
+        sess.send("Y", 0.8)
+        sess.send(b"\x1b[B", 0.2)                          # (the cursor stays on the row that was used last: VIDEO OPTION -> SEARCH YT)
+        sess.send("\r", 1.5)
+        t = sess.text()
+        check("SEARCH YT" in t and "video_down" in t, "search yt: the panel names the download folder")
+        sess.send(b"\x1b", 0.8)
+        check("SEARCH YT" not in sess.text(), "search yt: ESC closes it")
+        sess.send(b"\x1bv", 1.5)
+        t = sess.text()
+        check("FETCH VIDEOS" in t and "VIDEOS FOR THE SONG" in t and "Alpha Song" in t, "fetch videos: ALT+v opens the full-screen overlay with the songs and the videos pane")
+        sess.send(b"\x1b", 0.8)
+        check("FETCH VIDEOS" not in sess.text(), "fetch videos: ESC closes it")
+        sess.send("M", 1.5)
+        check("Video Option" in sess.text(), "meta editor: the [ Video Option ] button is there")
+        sess.send(b"\x1b", 0.8)
+        check(sess.alive(), "video overlays: the program is still running")
+    finally:
+        sess.kill()
+
+
+def video_fetch_flow(binary, root, scripts):
+    """FETCH VIDEOS with a fake yt-dlp: the videos of the song under the cursor are searched by themselves, two hits demand a choice,
+    only the chosen video is downloaded."""
+    import subprocess, stat
+    home = os.path.join(root, "vff_home")
+    lib = os.path.join(root, "vff_music")
+    fake = os.path.join(root, "vff_bin")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    os.makedirs(fake)
+    make_wav(os.path.join(lib, "Alpha Song.wav"), 5)
+    clip = os.path.join(root, "vff_clip.mp4")
+    r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=64x48:rate=5:duration=2", "-pix_fmt", "yuv420p", clip], capture_output=True)
+    if r.returncode != 0:
+        print("  (skipped: ffmpeg could not make the test clip)")
+        return
+    yt = os.path.join(fake, "yt-dlp")
+    with open(yt, "w") as f:
+        f.write("""#!/bin/bash
+if [[ "$*" == *"ytsearch"* ]]; then
+  echo '{"id":"AAAAAAAAAAA","title":"Alpha Song (Official Video)","uploader":"Chan One","duration":212}'
+  echo '{"id":"BBBBBBBBBBB","title":"Alpha Song live","channel":"Chan Two","duration":301}'
+  exit 0
+fi
+out=""
+while [ $# -gt 0 ]; do if [ "$1" = "-o" ]; then out="$2"; fi; shift; done
+f="${out/\\%(ext)s/mp4}"
+echo "download:PCT 50.0%"
+cp "@CLIP@" "$f"
+echo "FILE:$f"
+""".replace("@CLIP@", clip))
+    os.chmod(yt, os.stat(yt).st_mode | stat.S_IEXEC)
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % lib)
+    sess = Session(binary, home, scripts, {"PATH": fake + os.pathsep + os.environ.get("PATH", "")}, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Alpha Song" in sess.text():
+                break
+        sess.send(b"\x1bv", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Alpha Song live" in sess.text():
+                break
+        t = sess.text()
+        check("Alpha Song (Official Video)" in t and "Alpha Song live" in t, "fetch videos: the videos of the song under the cursor are searched by themselves")
+        check("[?]" in t, "fetch videos: several videos -> the song waits for a choice")
+        sess.send("F", 1.0)
+        check("choose one" in sess.text() or "nothing chosen" in sess.text(), "fetch videos: nothing is downloaded without a choice")
+        sess.send("\r", 0.6)      # into the videos
+        sess.send(b"\x1b[B", 0.3)  # the second one
+        sess.send("\r", 0.8)      # choose it
+        check("[x]" in sess.text(), "fetch videos: the choice is marked")
+        sess.send("F", 0.5)
+        for _ in range(30):
+            sess.pump(0.5)
+            if "downloaded and paired" in sess.text():
+                break
+        check("1 of 1 chosen videos downloaded and paired" in sess.text(), "fetch videos: the chosen video is downloaded and paired")
+        links = os.path.join(home, ".config", "mousiki", "video_links.txt")
+        ok = os.path.exists(links) and "Alpha Song" in open(links, encoding="utf-8").read()
+        check(ok, "fetch videos: the pairing is saved")
+    finally:
+        sess.kill()
+
+
+def video_pair_tags(binary, root, scripts):
+    """A video that is paired with a track (same name beside it) shows that track's artist and title in the library list."""
+    home = os.path.join(root, "vp_home")
+    lib = os.path.join(root, "vp_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    os.makedirs(lib)
+    import subprocess
+    ff = ["ffmpeg", "-v", "error", "-y"]
+    r1 = subprocess.run(ff + ["-f", "lavfi", "-i", "sine=frequency=440:duration=3", "-metadata", "artist=Pairartist", "-metadata", "title=Pairtitle",
+                              os.path.join(lib, "Pair Song.mp3")], capture_output=True)
+    r2 = subprocess.run(ff + ["-f", "lavfi", "-i", "testsrc=size=64x48:rate=5:duration=3", "-pix_fmt", "yuv420p", os.path.join(lib, "Pair Song.mp4")], capture_output=True)
+    if r1.returncode != 0 or r2.returncode != 0:
+        print("  (skipped: ffmpeg could not make the test files)")
+        return
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nVideoMode=true\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(30):
+            sess.pump(0.5)
+            if sess.text().count("Pairartist") >= 2:
+                break
+        check(sess.text().count("Pairartist") >= 2, "video pair tags: the paired video row shows the artist of its track")
     finally:
         sess.kill()
 
@@ -1624,7 +1779,7 @@ def run_scenario(name, binary, root, scripts):
 
 
 SCENARIOS = ["narrow80", "narrow100", "main", "read_lyrics_play", "karaoke_timing", "book_speed_and_devices", "paging_and_translit_row",
-             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "translation_editor", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key"]
+             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "translation_editor", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key", "video_overlays", "video_pair_tags", "video_fetch_flow"]
 
 
 def main():

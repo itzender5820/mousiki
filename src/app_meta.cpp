@@ -336,6 +336,17 @@ void App::handle_meta_key(int key) {
         }
         if (key == 'a') { meta_add_hovering_to_fetch(); return; } // queue it for AcoustID, like the main queue's 'a'
         if (key == 'F' && !arrow) { meta_add_view_to_fetch(); return; } // SHIFT+f: the whole (filtered) pane
+        if (key == 'V' && !arrow) {   // SHIFT+v: the pane lists only the videos
+            meta_videos_only_ = !meta_videos_only_;
+            meta_lib_selected_ = 0;
+            meta_refresh_lib_view();
+            meta_status_ = meta_videos_only_
+                ? (settings_.video_mode ? "video only: on -- " + std::to_string(meta_lib_view_.size()) + " videos"
+                                        : std::string("video only: on -- the Video mode is off, so no videos are listed (")
+                                          + hotkey_text("HKeyVideo", "&") + " -> Video Mode)")
+                : "video only: off";
+            return;
+        }
         if (key == 'r') { meta_toggle_resort(); return; } // toggle: edited files on top vs. alphabetical order
         if (key == 'n' && !arrow) { meta_toggle_sort_added(); return; } // toggle: recently added files first
         // Missing-tag filters. 'T'/'Y' have no other meaning here; 'A' is
@@ -366,9 +377,9 @@ void App::handle_meta_key(int key) {
         if (path.empty()) { meta_focus_ = 1; meta_field_editing_ = false; return; }
         if (meta_field_ >= kMetaFieldCount) {   // the "Cover Options" button below the fields
             meta_field_editing_ = false;
-            if (arrow && (key == 'A' || key == 'B')) { meta_field_ = meta_nav(meta_field_, kMetaFieldCount + 2, key == 'A'); return; }
-            if (arrow && (key == 'C' || key == 'D')) { meta_field_ = meta_field_ == kMetaFieldCount ? kMetaFieldCount + 1 : kMetaFieldCount; return; }   // the two buttons side by side
-            if (key == '\r' || key == '\n') { if (meta_field_ == kMetaFieldCount) meta_cov_open(); else meta_sty_open(); }
+            if (arrow && (key == 'A' || key == 'B')) { meta_field_ = meta_nav(meta_field_, kMetaFieldCount + 3, key == 'A'); return; }
+            if (arrow && (key == 'C' || key == 'D')) { meta_field_ = kMetaFieldCount + ((meta_field_ - kMetaFieldCount) + (key == 'C' ? 1 : 2)) % 3; return; }   // the three buttons side by side   // the two buttons side by side
+            if (key == '\r' || key == '\n') { if (meta_field_ == kMetaFieldCount) meta_cov_open(); else if (meta_field_ == kMetaFieldCount + 1) meta_sty_open(); else video_link_open(path_from_utf8(path), Mode::MetaEdit); }
             return;
         }
 
@@ -400,7 +411,7 @@ void App::handle_meta_key(int key) {
             // arms this one (caret starts at the end, same as a fresh
             // PATHS-row edit). Everything else is a no-op -- typing on a
             // merely-highlighted field would be surprising.
-            if (arrow && (key == 'A' || key == 'B')) { meta_field_ = meta_nav(meta_field_, kMetaFieldCount + 2, key == 'A'); return; }
+            if (arrow && (key == 'A' || key == 'B')) { meta_field_ = meta_nav(meta_field_, kMetaFieldCount + 3, key == 'A'); return; }
             if (key == '\r' || key == '\n') {
                 if (e && e->needs_choice(meta_field_)) { meta_choice_open(); return; }   // several candidates: pick one first
                 meta_field_editing_ = true;
@@ -674,13 +685,15 @@ std::vector<std::string> App::build_meta_fields_panel(int total_width, int heigh
             const int pic_rows = height - pic_first;
             if (row == btn_row) {
                 const bool hov = (meta_focus_ == 2) && meta_field_ >= kMetaFieldCount;
-                const std::string b1 = "[ Cover Options ]", b2 = "[ Style Option ]";
-                const int total = display_width(b1) + 2 + display_width(b2);
+                std::string b1 = "[ Cover Options ]", b2 = "[ Style Option ]", b3 = "[ Video Option ]";
+                if (display_width(b1) + display_width(b2) + display_width(b3) + 4 > inner) { b1 = "[ Cover ]"; b2 = "[ Style ]"; b3 = "[ Video ]"; }   // a narrow pane: short labels, still one line
+                const int total = display_width(b1) + 2 + display_width(b2) + 2 + display_width(b3);
                 const int left = std::max(0, (inner - total) / 2);
                 const std::string lit = cursor_sgr(settings_.list_cursor_color, settings_.list_cursor_bg_color), plain = header_sgr(settings_);
                 const std::string base = ansi_for(settings_.list_color, false);
                 padded = std::string(static_cast<size_t>(left), ' ') + (hov && meta_field_ == kMetaFieldCount ? lit : plain) + b1 + "\x1b[0m" + base + "  "
-                       + (hov && meta_field_ == kMetaFieldCount + 1 ? lit : plain) + b2 + "\x1b[0m" + base;
+                       + (hov && meta_field_ == kMetaFieldCount + 1 ? lit : plain) + b2 + "\x1b[0m" + base + "  "
+                       + (hov && meta_field_ == kMetaFieldCount + 2 ? lit : plain) + b3 + "\x1b[0m" + base;
                 padded += std::string(static_cast<size_t>(std::max(0, inner - left - total)), ' ');
             } else if (row >= pic_first && pic_rows >= 3) {
                 if (row == pic_first) cover_pane_cache = meta_cover_pane(inner, pic_rows);
@@ -917,7 +930,8 @@ void App::build_meta_screen(std::ostringstream& frame, int W, int target_height)
     if (meta_tab_ == 0 && meta_focus_ == 2) {
         const MetaEditEntry* he = meta_entry(meta_hovering_path());
         if (meta_field_ == kMetaFieldCount) enter_hint = "[ENTER] Cover Options\001Cover";
-        else if (meta_field_ > kMetaFieldCount) enter_hint = "[ENTER] Style Option\001Style";
+        else if (meta_field_ == kMetaFieldCount + 1) enter_hint = "[ENTER] Style Option\001Style";
+        else if (meta_field_ == kMetaFieldCount + 2) enter_hint = "[ENTER] Video Option\001Video";
         else if (he && meta_field_ >= 0 && he->needs_choice(meta_field_)) enter_hint = "[ENTER] Choose";
     }
     // The legend is a small tree table: one row per group of commands (label | commands), joined by tree lines. Four rows
@@ -936,7 +950,7 @@ void App::build_meta_screen(std::ostringstream& frame, int W, int target_height)
         groups.push_back({"Move", {lr, "[TAB] Focus", "[\u2191\u2193] Navi.", "[SHIFT+\u2191\u2193] Page\001Page", "[CTRL+\u2191\u2193] Top/bottom\001Top/bot.", enter_hint, "[SHIFT+p] Play", "[SHIFT+c] Current song\001Current"}});
         groups.back().max_lines = 2;   // Move: a second row when SHIFT+c and the others do not fit one (120 columns)
         groups.push_back({"Fetch", {"[a] To list", "[SHIFT+f] All searched to fetch list\001Searched to list", "\002Single track\003", fetch_missing, "[SHIFT+n] (Re-)fetch all\001(Re-)fetch all"}});
-        groups.push_back({"Filter", {"[f] Folder view\001Folders", "[r] Recently edited first\001Edited", "[n] Recently added first\001Added", "[x/T/A/L/Y] Specific missing tags\001Missing", rescan, "[t] ASCII / Full Resolution\001ASCII/Full"}});
+        groups.push_back({"Filter", {"[SHIFT+v] Video only\001Video", "[f] Folder view\001Folders", "[r] Recently edited first\001Edited", "[n] Recently added first\001Added", "[x/T/A/L/Y] Specific missing tags\001Missing", rescan, "[t] ASCII / Full Resolution\001ASCII/Full"}});
         groups.back().max_lines = 2;   // Filter: two rows too, broken between two commands
     } else {
         LegendGroup mv{"Move", {meta_fetch_focus_ == 1 ? std::string("[\u2190\u2192] Option") : lr, "[TAB] Focus"}};

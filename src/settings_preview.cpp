@@ -116,7 +116,7 @@ void make_sample_cover(CoverImage& c) {
 
 PvKind kind_of(int id, const Settings& s) {
     switch (id) {
-        case kSidLyrAlign: case kSidLyrAnim: case kSidUseLyrics: return kPvLyrics;
+        case kSidLyrAlign: case kSidLyrAnim: case kSidUseLyrics: case kSidUseVideo: return kPvLyrics;
         case kSidDisk: case kSidDiskSpeed: return kPvDisk;
         case kSidAlbumCover: case kSidCoverMode: case kSidCoverContrast: case kSidCoverBrightness: case kSidCoverColors:
         case kSidCoverSearch: return kPvCover;
@@ -126,11 +126,13 @@ PvKind kind_of(int id, const Settings& s) {
         case kSidUseOsci: return kPvScope;   // (Modes Share Settings: no preview)
         case kSidUseSpectro: return kPvSpectro;
         case kSidUseSphere: return kPvSphere;
-        case kSidLyricViz: case kSidNoLyricsViz: {
+        case kSidLyricViz: case kSidNoLyricsViz: case kSidNoVideoViz: {
             // Lyrics/Viz Defaults is edited in viz_default (0 sphere, 1 osci, 2 spectro, 3 lyrics, 4 last used: the view in use, lyric_viz);
             // lyric_viz alone is only what the field shows now, so the preview showed the wrong picture until the row was changed twice.
-            int v = id == kSidLyricViz ? s.viz_default : s.nolyrics_viz;
+            int v = id == kSidLyricViz ? s.viz_default : id == kSidNoVideoViz ? s.novideo_viz : s.nolyrics_viz;
+            if (id == kSidNoVideoViz && v == 4) v = 3;   // the lyrics (3 = lyrics here); "none" has nothing to preview, shown as the lyrics too
             if (id == kSidLyricViz && v == 4) v = s.lyric_viz;
+            if (id == kSidLyricViz && v == 5) v = 3;   // video: previewed as the lyrics
             return v == 0 ? kPvSphere : v == 1 ? kPvScope : v == 2 ? kPvSpectro : kPvLyrics;
         }
         case kSidLatinMacrons: case kSidLatinWo: case kSidLatinHanzi: case kSidLatinLookup: return kPvTranslit;

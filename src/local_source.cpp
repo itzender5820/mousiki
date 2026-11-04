@@ -35,6 +35,11 @@ bool LocalSource::is_audio_file(const fs::path& p) {
     return exts.count(ext) > 0 || is_chiptune_file(p);
 }
 
+bool LocalSource::is_video_file(const fs::path& p) {
+    static const std::set<std::string> exts = {".mp4", ".m4v", ".mkv", ".mov", ".avi", ".webm", ".wmv", ".flv", ".mpg", ".mpeg", ".ogv", ".3gp"};
+    return exts.count(ascii_lower_str(path_str(p.extension()))) > 0;
+}
+
 std::vector<LocalTrack> LocalSource::scan(const std::vector<std::string>& custom_paths,
                                            std::vector<std::string>* diagnostics) const {
     std::vector<LocalTrack> tracks;
@@ -95,7 +100,7 @@ std::vector<LocalTrack> LocalSource::scan(const std::vector<std::string>& custom
             std::error_code fec;
             bool is_file = entry.is_regular_file(fec);
             if (fec) continue; // couldn't stat it (cloud placeholder, permissions, ...) -- skip, don't crash
-            if (is_file && is_audio_file(entry.path())) {
+            if (is_file && (is_audio_file(entry.path()) || (include_video_ && is_video_file(entry.path())))) {
                 {   // the folder of the creator (^ overlay) holds files that are only listed in that overlay
                     const std::string dir_key = path_str(entry.path().parent_path());
                     auto it = creator_dirs.find(dir_key);

@@ -13,6 +13,7 @@
 #include <map>
 #include <set>
 #include <memory>
+#include "video_player.h"
 #include <mutex>
 #include <string>
 #include <thread>
@@ -57,7 +58,7 @@
 
 namespace muisc {
 
-enum class Mode { Browse, Search, Settings, ColorEdit, Console, Cheatsheet, BulkAdd, RetryLyrics, Playlist, MetaEdit, CoverFetch, History, ClearQueue, OsciMenu, NormMenu, BarsMenu, Equalizer, SleepTimer, LyricsEdit, Karaoke, SpectroMenu, Wizard, ReadLyrics, Creator, MenuIndex, UpdateNotice, QueueToPlaylist, BookOverlay, AudioDevice };
+enum class Mode { Browse, Search, Settings, ColorEdit, Console, Cheatsheet, BulkAdd, RetryLyrics, Playlist, MetaEdit, CoverFetch, History, ClearQueue, OsciMenu, NormMenu, BarsMenu, Equalizer, SleepTimer, LyricsEdit, Karaoke, SpectroMenu, Wizard, ReadLyrics, Creator, MenuIndex, UpdateNotice, QueueToPlaylist, BookOverlay, AudioDevice, VideoMenu, VideoLink, VideoSearch, VideoFetch };
 enum class ListSource { Local, Online, Playlist, Folder };
 
 // One row of the main UI's "/f:" folder list: a folder that directly
@@ -147,7 +148,131 @@ private:
     ListSource pre_search_list_source_ = ListSource::Local;
     std::string pre_search_local_query_;
     std::string last_online_query_;
-    int local_sort_mode_ = 0; // 0=folder order, 1=title A-Z, 2=artist A-Z, 3=recently added (newest first)
+    int local_sort_mode_ = 0; // 0=folder order, 1=title A-Z, 2=artist A-Z, 3=recently added (newest first), 4=only videos (Video mode on)
+    // Video mode (app_video.cpp)
+    mutable VideoPlayer video_;
+    std::string format_text() const;   // the Format line: the file type; "MP3, MP4" for a track paired with a video, "MP4" for a video
+    mutable std::string fmt_key_, fmt_val_;
+    mutable std::string video_for_track_;   // the track video_ was pointed at
+    mutable std::string video_pic_key_;
+    void video_auto_apply();
+    mutable std::string snap_track_, snap_video_;   // the video whose frame is the cover (Cover or Video Snapshot), found once per track
+    mutable unsigned snap_rev_ = 0;
+    unsigned video_rev_ = 1;   // bumped when the pairing of tracks and videos changed (a link made / removed / mended)
+    // --- VIDEO (HKeyVideo) and VIDEO OPTION / SEARCH YT (src/app_videomenu.cpp, src/app_videosearch.cpp) ---
+    int vmenu_sel_ = 0;
+    void video_menu_open();
+    void video_menu_close();
+    void video_menu_change(int row, int dir);
+    void video_menu_key(int key);
+    std::vector<std::string> build_video_menu_panel() const;
+    static constexpr int kVideoMenuPanelWidth = 74;
+    struct VLEntry { fs::path path; std::string label, folder, hay; bool video = false; };
+    std::vector<VLEntry> vl_tracks_, vl_videos_;
+    std::vector<int> vl_tview_, vl_vview_;
+    std::string vl_tq_, vl_vq_, vl_msg_;
+    int vl_pane_ = 0, vl_tsel_ = 0, vl_vsel_ = 0, vl_filter_ = 0;
+    fs::path vl_lock_track_, vl_lock_video_;
+    bool vl_warn_ = false, vl_confirm_ = false;
+    Mode vl_return_mode_ = Mode::Browse;
+    void video_link_show_current(const fs::path& track);
+    void video_link_open(const fs::path& target, Mode return_mode);
+    void video_link_close();
+    void video_link_rebuild();
+    void video_link_do();
+    void video_link_key(int key);
+    int video_link_list_rows() const;
+    std::string video_link_label(const fs::path& p) const;
+    std::vector<std::string> build_video_link_panel(int W) const;
+    // SEARCH YT
+    std::string vs_query_, vs_query_for_, vs_msg_;
+    std::vector<OnlineResult> vs_results_;
+    std::future<std::vector<OnlineResult>> vs_future_;
+    bool vs_busy_ = false, vs_warn_ = false, vs_by_tags_ = false;   // vs_by_tags_: the query is "artist title" (CTRL+t), else the file name
+    int vs_pane_ = 0, vs_sel_ = 0;
+    fs::path vs_target_;                 // the song the download is for
+    struct VideoDownload {
+        bool active = false;
+        std::thread thread;
+        std::mutex m;
+        std::mutex child_m;
+        ChildProcess* child = nullptr;
+        std::string progress, file, error, title;
+        fs::path track, dir;
+        std::string base;
+        bool done = false;
+    } vd_;
+    fs::path video_down_dir() const;     // <download folder>/video_down
+    std::string video_search_default_query() const;
+    void video_search_start();
+    void video_search_close();
+    void video_download_start(const OnlineResult& r);
+    void video_search_poll();
+    std::vector<std::string> video_search_preview(const OnlineResult& r, int cols, int rows) const;
+    void video_search_open();
+    void video_search_open(const std::string& query);   // /sv:query
+    void video_search_key(int key);
+    std::vector<std::string> build_video_search_panel(int W) const;
+    // FETCH VIDEOS (ALT+v, src/app_videofetch.cpp): a full-screen overlay like the cover fetch menu: the songs on the left, the videos found
+    // for the hovered song (to choose from) and the preview of the hovered video on the right.
+    struct VFEntry {
+        fs::path path;
+        std::string label, folder, hay;
+        double seconds = -1.0;
+        bool has_video = false;          // (only the playing song is listed with a video: it can be changed)
+        bool refetch = false;            // the re-fetch of a song with a video was confirmed (then it is searched like the others)
+        bool searched = false, searching = false, queued = false;
+        std::vector<OnlineResult> cands;
+        int choice = -1;                 // the active choice (index into cands), -1 = none
+    };
+    struct VFJob { fs::path track; std::string label, base, video_id, title; };
+    std::vector<VFEntry> vf_all_;
+    std::vector<int> vf_view_;
+    std::string vf_query_, vf_msg_;
+    int vf_focus_ = 1, vf_sel_ = 0, vf_cand_sel_ = 0, vf_src_ = 0, vf_filter_ = 0;   // vf_filter_: 0 missing video only, 1 all songs, 2 songs with a video; focus: 0 filter field, 1 songs, 2 videos; vf_src_: 0 file name + tags, 1 file name, 2 tags
+    mutable int vf_page_rows_ = 10;
+    mutable int vf_art_col_ = 0;                         // the screen column where the right pane starts (the preview picture)
+    bool vf_warn_ = false;
+    std::string vf_confirm_;                               // the song whose re-fetch waits for the confirmation
+    std::string vf_hover_;                                // the song the cursor rests on (for the automatic search)
+    std::chrono::steady_clock::time_point vf_hover_since_{};
+    std::deque<std::string> vf_queue_;                     // songs waiting for their search
+    std::string vf_searching_;                             // the song whose search runs
+    std::future<std::vector<OnlineResult>> vf_search_;
+    mutable std::string vf_pic_key_;
+    mutable int vl_marq_[6] = {-1, -1, -1, -1, -1, -1};     // marquees of the VIDEO OPTION panel: song row, video row, locked song, locked video, 'now' line, folder line
+    mutable std::chrono::steady_clock::time_point vl_marq_since_[6]{};
+    mutable int vf_marq_ = -1;                             // marquee of the song under the cursor (restarts when the cursor moves)
+    mutable std::chrono::steady_clock::time_point vf_marq_since_{};
+    struct VideoFetchRun {
+        std::thread thread;
+        mutable std::mutex m, child_m;
+        ChildProcess* child = nullptr;
+        std::atomic<bool> cancel{false}, linked{false};
+        bool running = false, finished = false;
+        int total = 0, done = 0, ok = 0, failed = 0;
+        std::string status, last_error;
+        std::vector<std::string> done_paths;               // songs that have their video now
+    } vf_;
+    void video_fetch_open();
+    void video_fetch_close();
+    void video_fetch_key(int key);
+    void video_fetch_start();
+    void video_fetch_poll();
+    void video_fetch_rebuild_list();
+    void video_fetch_refilter();
+    void video_fetch_cancel_and_join();
+    void video_fetch_enqueue(const std::string& path, bool front);
+    void video_fetch_clear_searches();
+    int video_fetch_nav(int selected, int total, bool up) const;
+    const VFEntry* video_fetch_hovered() const;
+    void build_vf_screen(std::ostringstream& frame, int W, int target_height) const;
+    std::vector<std::string> build_vf_songs_panel(int w, int h) const;
+    std::vector<std::string> build_vf_choice_panel(int w, int h) const;
+    mutable std::chrono::steady_clock::time_point video_away_since_{};   // since when the field is not on the video view     // size / place of the picture last built
+    std::string video_source_for(const fs::path& track) const;
+    void video_toggle();
+    bool video_field_rows(std::vector<std::string>& rows, int W, int H, int area_col, bool second_slot, double t, const std::vector<std::string>& line_rows) const;
     long long added_time_of(const fs::path& p) const;   // file_added_time(), looked up once per file (cleared on rescan)
     mutable std::mutex added_time_mutex_;
     mutable std::unordered_map<std::string, long long> added_time_cache_;   // mode 3: when each file arrived (looked up once per rescan / choice of the mode)
@@ -335,6 +460,15 @@ private:
     std::vector<std::string> build_queue_overlay_panel(int panel_w, int queue_rows) const;
 
     mutable std::mutex row_meta_mutex_;
+    // Videos of the library that are paired with a track show that track's artist / title / album / year in the lists while the
+    // video has none of its own (guarded by row_meta_mutex_): what was copied into row_meta_cache_, so it can be taken out again.
+    std::unordered_map<std::string, RowMeta> borrowed_tags_;
+    uint64_t bv_ver_ = 0, bv_rev_ = 0;
+    size_t bv_n_ = 0;
+    bool bv_mode_ = false;
+public:
+    void borrow_video_tags();
+private:
     std::unordered_map<std::string, RowMeta> row_meta_cache_;
     std::atomic<bool> row_meta_resolver_started_{false};
     void launch_row_meta_resolver();
@@ -569,7 +703,7 @@ private:
     int cf_filter_ = 0;                 // 0 all albums, 1 no cover, 2 one cover, 3 several covers, 4 previous unsuccessful fetch
     bool cf_full_res_ = true;          // [t]: the cover as a real picture (cover fetch menu and meta editor; the default) (Kitty / Sixel) instead of braille dots
     mutable int cf_art_col_ = 0;        // screen column of the ALBUM ART pane (set while drawing)
-    bool cover_full_picture(const std::string& pfile, bool pemb, int pcols, int preview_rows, int scr_col, int scr_row) const;
+    bool cover_full_picture(const std::string& pfile, bool pemb, int pcols, int preview_rows, int scr_col, int scr_row, bool second = false) const;
     mutable bool cf_cur_fallback_ = false;   // the picture playback would use is another album's (loose name match in the folder)
     mutable std::string cf_pic_key_;    // what the picture in gfx_ shows
     int cf_selected_ = 0, cf_art_sel_ = 0, cf_list_sel_ = 0;
@@ -697,6 +831,8 @@ private:
     // queues the folder's titles, ENTER opens / closes it.
     struct MetaFolderRow { bool header = false; int lib = 0; std::string folder, name; int num = 0, count = 0; bool closed = false; };
     bool meta_folder_view_ = false;
+    bool meta_videos_only_ = false;   // SHIFT+v in the meta editor: the library pane lists only the video files
+    bool meta_take_linked_tags(const std::string& video);   // a video paired with a track: its pending tags become the track's (false: nothing to take)
     std::string meta_folder_hover_;
     std::unordered_set<std::string> meta_folder_closed_;
     std::vector<MetaFolderRow> meta_folder_rows() const;
@@ -754,6 +890,8 @@ private:
     // Style Option preview as a real picture: 0 = none this frame, 1 = it is in gfx_, 2 = in gfx2_ (over the main screen, whose own cover
     // picture keeps gfx_). The picture lies inside its own panel, so the panel must not crop it.
     mutable int meta_sty_pic_ = 0;
+    mutable int vs_pic_ = 0;                                       // SEARCH YT: the thumbnail is a picture in gfx_ (1) / gfx2_ (2) inside the panel, 0: braille
+    mutable std::string vs_pic_key_;
     mutable std::string sty2_key_;                                  // what the preview in gfx2_ shows
     mutable std::chrono::steady_clock::time_point sty2_at_{};
     bool meta_sty_from_main_ = false;   // opened by HKeyStyleOptions: ESC returns to the main UI

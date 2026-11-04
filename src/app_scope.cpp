@@ -182,6 +182,7 @@ std::string App::enforce_visual_switches(int changed) {
     // 1. explicit picks
     if (changed == kSidLyricViz && s.viz_default <= 3 && !s.viz_usable(s.viz_default)) { set_use(s.viz_default, true); add(std::string(use_rows[s.viz_default]) + " turned on"); }
     if (changed == kSidNoLyricsViz && s.nolyrics_viz <= 2 && !s.viz_usable(s.nolyrics_viz)) { set_use(s.nolyrics_viz, true); add(std::string(use_rows[s.nolyrics_viz]) + " turned on"); }
+    if (changed == kSidNoVideoViz && s.novideo_viz <= 2 && !s.viz_usable(s.novideo_viz)) { set_use(s.novideo_viz, true); add(std::string(use_rows[s.novideo_viz]) + " turned on"); }
     // 2. what a switch that is off takes with it
     if (!s.use_lyrics && s.element_lyrics) { s.element_lyrics = false; add("the field no longer shows the lyrics"); }
     if (s.viz_default <= 3 && !s.viz_usable(s.viz_default)) {
@@ -192,6 +193,10 @@ std::string App::enforce_visual_switches(int changed) {
         const int n = s.viz_step(s.nolyrics_viz, 1, true);
         s.nolyrics_viz = n != s.nolyrics_viz ? n : 3;
         add(std::string("When No Lyrics Show -> ") + (s.nolyrics_viz == 3 ? "none" : names[s.nolyrics_viz]));
+    }
+    if (s.novideo_viz <= 2 && !s.viz_usable(s.novideo_viz)) {
+        s.novideo_viz = 4;
+        add("When No Video Shows -> lyrics");
     }
     if (s.lyric_viz <= 2 && !s.viz_usable(s.lyric_viz)) {
         const int n = s.viz_step(s.lyric_viz, 1, true);

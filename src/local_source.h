@@ -37,7 +37,14 @@ public:
     // Case-insensitive substring match against title.
     std::optional<LocalTrack> find(const std::string& query, const std::vector<std::string>& custom_paths = {}) const;
 
+    // Video files (mp4, mkv, mov, avi, webm ...): listed only while the Video mode is on (set_include_video(true)); they play as audio
+    // (ffmpeg decodes the sound) and the Video view shows their picture. ".webm" can also be an audio-only download.
+    static bool is_video_file(const fs::path& p);
+    void set_include_video(bool on) { include_video_ = on; }
+    bool include_video() const { return include_video_; }
+
 private:
+    bool include_video_ = false;
     static bool is_audio_file(const fs::path& p);
 };
 

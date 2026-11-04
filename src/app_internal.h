@@ -97,6 +97,7 @@ std::string normalize_hotkey_string(std::string s);   // what was typed into a k
 // Floating-panel legends (defined here so every panel file uses the same ones; used by the EQ / oscilloscope / spectrogram panels and the
 // audio book tag editor).
 // A bottom border with its text centred in it (the dashes are split evenly on both sides).
+std::vector<std::string> video_download_args(const std::string& id, const std::filesystem::path& dir, const std::string& base_name, int max_height);   // the yt-dlp command of a video download (app_videosearch.cpp)
 inline std::string centred_bottom(const Settings& s, int W, const std::string& text, const std::string& colour) {
     const std::string t = " " + truncate_str(text, W - 6) + " ";
     const int dashes = std::max(0, W - 2 - display_width(t));

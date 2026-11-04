@@ -279,6 +279,8 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "HKeySearch", "READ LYRICS: search EVERY lyrics file by name (all lyrics folders of the library) instead of the playing track's lyrics: type to filter, UP/DOWN pick, ENTER shows the file, ESC closes the search (CTRL+L opens the playing track's lyrics again)"},
         {nullptr, "#a  CTRL+n", "ADD LYRICS MANUALLY: assign a .lrc / .txt file to a track by hand (the overlay legend lists its keys); [a] in READ LYRICS and karaoke, CTRL+n also in the re-fetch form; the old lyrics are kept as an older version"},
         {nullptr, "#LEFT/RIGHT  TAB  UP/DOWN  t  SHIFT+t  d  e", "READ LYRICS: choose the file / translation, TAB switches the pane, scroll   [t] translate   [SHIFT+t] show / next / hide translations   [d] delete a translation   [SHIFT+e] edit / add a translation by hand   [e] export the lyrics into lyrics/export   [ESC] close (the overlay legend lists the rest)"},
+        {nullptr, "HKeyVideoFetch", "FETCH VIDEOS overlay (ALT+v): full-screen, songs on the left, the videos found on YouTube (yt-dlp, searched by file name and tags by themselves for the song under the cursor) with a preview on the right. Several hits demand a choice (ENTER); SHIFT+f downloads only the chosen videos into video_down and pairs them with their songs. / jumps to the filter field, CTRL+f lists missing video only / all songs / songs with a video; a song that has a video is not searched by itself, r re-fetches it after a warning that the former video is unassigned"},
+        {nullptr, "HKeyVideo", "VIDEO overlay (& = SHIFT+6 on a German keyboard, else SHIFT+y): Video Mode, Include Lyrics, Auto Video (a track with a video shows it; turning Video mode on jumps to it), Cover, Disk or Thumbnail, [ Video Option ] (connect a song and a video), [ Search YT ] (find, preview, download), [ Fetch Videos ] (full-screen, ALT+v). Video mode: video files (mp4, mkv, mov, avi, webm ...) join the library (SHIFT+t gets a last step that shows only them) and the \"video\" view joins the . cycle after the lyrics: the picture of the track's video with the current lyric line under it (a sound file with a video of the same name beside it works too)"},
         {nullptr, "HKeyKaraoke", "Karaoke overlay: the lyrics over the whole screen, sung words highlighted (toggle; fetches the lyrics even with the lyrics engine off; playback keys keep working)"},
         {nullptr, "#@KARAOKESIZE", "Karaoke overlay: lyrics bigger / smaller, sizes 1-5 (saved when the overlay closes)"},
         // --- Search ---
@@ -287,9 +289,11 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "#/a:", "Search ALBUMS only: type a: first (e.g. a:abbey road) -- only the album tag is matched (tags are read in the background, so it gets more complete after a moment)"},
         {nullptr, "#/p:", "Search saved playlists (type /p:query)"},
         {nullptr, "#/f:", "Search folders (type /f:query), ENTER lists all files of that folder"},
+        {nullptr, "#/v:", "Search VIDEO files only (Video mode on), e.g. /v:live"},
         {"SEARCH ONLINE (MAIN UI)", "#/s:", "Search online (YouTube; type s:query)"},
         {nullptr, "#/sc:", "Search SoundCloud (type it in the search box; ENTER plays, the download key saves it)"},
         {nullptr, "#/b:", "Search Bandcamp (tracks; ENTER plays the free stream, the download key saves it)"},
+        {nullptr, "#/sv:", "Search videos on YouTube: ENTER opens SEARCH YT with the query searched, to download a video for the playing song"},
         // --- Queue ---
         {"QUEUE (MAIN UI)", "HKeyAddHoveringSongToQueue", "Add hovering track of the library pane as NEXT (repeated presses keep their order; does nothing while the queue pane is focused)"},
         {nullptr, "HKeyQueueAddEnd", "Add hovering track to the END of the queue"},
@@ -348,6 +352,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "#x, SHIFT+/t/a/l/y", "Filter + sort the library pane by missing metadata: x = missing any, SHIFT+t = title, SHIFT+a = artist, SHIFT+l = album, SHIFT+y = year (same order as the fields)"},
         {nullptr, "#SHIFT+p", "Meta editor (library pane / fetch list): start the hovering track"},
         {"META EDITOR: FETCH LIST AND TAGS", "#a", "Meta editor: add the hovering file (folder view: the hovering folder) to the fetch list"},
+        {nullptr, "#SHIFT+v", "Meta editor (library pane): toggle \"video only\" -- the pane lists only the video files (a video paired with a track takes its tags; others are fingerprinted by their own sound)"},
         {nullptr, "#SHIFT+f", "Meta editor (library pane): add the full list -- every title the pane shows now (search and missing-tag filter applied) -- to the fetch list"},
                 {nullptr, "#TAB  LEFT/RIGHT  SPACE (Fetch List)", "Meta editor, Fetch List tab: TAB moves between the list and the fetch option line; LEFT/RIGHT move over the boxes, SPACE ticks one (missing only / all exclude the rest; the tag boxes combine); ENTER fetches the full list"},
         {nullptr, "#UP/DOWN  ENTER  DEL/d  ESC", "Meta editor choice overlay: select / take it / discard the fetched value and all options / close"},

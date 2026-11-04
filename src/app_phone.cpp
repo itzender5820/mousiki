@@ -355,7 +355,7 @@ std::vector<std::string> App::build_phone_screen(int W, int H, std::vector<remot
             kv("Album", md.album);
             kv("Year", md.year);
             kv("Sampling", metadata_.sampling);
-            kv("Format", metadata_.format);
+            kv("Format", format_text());
             kv("Type", metadata_.type);
             kv("File size", metadata_.file_size);
         }

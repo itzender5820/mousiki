@@ -309,6 +309,7 @@ void App::launch_row_meta_resolver() {
                         const std::string key = path_utf8((*paths)[i]);
                         const auto it = row_meta_cache_.find(key);
                         if (it == row_meta_cache_.end() || !it->second.tags_resolved) continue;
+                        if (borrowed_tags_.count(key)) continue;   // a video showing the tags of its track: not its own
                         out[key] = TagCacheEntry{(*stamps)[i], it->second};
                     }
                 }

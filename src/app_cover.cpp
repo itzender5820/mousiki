@@ -147,6 +147,11 @@ const CoverImage* App::player_cover() const {
     rq.album = md.album == "-" ? std::string() : md.album;
     rq.search = settings_.cover_search;
     rq.store_rev = cover_store_revision();
+    if (settings_.video_cover >= 1 && settings_.video_mode) {   // Cover, Disk or Thumbnail: the video of the track is found once per track
+        if (snap_track_ != rq.path || snap_rev_ != video_rev_) { snap_track_ = rq.path; snap_rev_ = video_rev_; snap_video_ = video_source_for(current_path_); }
+        if (settings_.video_cover == 2 && !snap_video_.empty()) return nullptr;   // Disk: a track with a video shows the plain disk, no cover and no thumbnail
+        if (settings_.video_cover == 1) rq.snapshot_video = snap_video_;          // Thumbnail: a frame of the video
+    }
     return track_cover(rq);
 }
 

@@ -85,24 +85,41 @@ struct Settings : VizPrefs {
     bool use_sphere = true;
     // The order of the views in the "." cycle (ANIMA/VIZ tab: "Viz Order 1..4"): a permutation of
     // 0 = sphere, 1 = oscilloscope, 2 = spectrogram, 3 = lyrics. config.txt: VizOrder=sphere,osci,spectro,lyrics.
-    int viz_order[4] = {0, 1, 2, 3};
+    int viz_order[5] = {0, 1, 2, 3, 4};   // (4 = video, "Viz Order 5"; config.txt: VizOrder=sphere,osci,spectro,lyrics,video)
     // The view the field starts with when Mousiki opens (ANIMA/VIZ tab: "Lyrics/Viz Default"): 0 = sphere, 1 = oscilloscope,
     // 2 = spectrogram, 3 = lyrics. The "." key changes the view live, but that is not remembered: the next start begins with
     // this one again; 4 = "last used": it starts with the view it was left on. config.txt: VizDefault=sphere|osci|spectro|lyrics|last.
-    int viz_default = 1;
+    int viz_default = 1;   // (5 = video, see video_mode)
+    // Video mode (HKeyVideo, "&" = SHIFT+6 on a German keyboard): video files are listed and the "Video" view joins the "." cycle right
+    // after the lyrics (and the Lyrics/Viz Default list). The field then shows the picture of the track's video with the current lyric
+    // line under it. video_view = the field is on that view right now (it also sets element_lyrics: the lyrics are fetched).
+    // config.txt: VideoMode=, VideoView=.
+    bool video_mode = false;
+    bool video_view = false;
+    // The & overlay (HKeyVideo): "Include Lyrics" = the current lyric line is shown under the picture; "Cover or Video Snapshot": 0 = the
+    // disk shows the track's cover as always, 1 = a frame (a thumbnail) of the track's video, with the cover / the disk when the track has no
+    // video. config.txt: VideoLyrics=, VideoCover=cover|snapshot.
+    bool video_lyrics = true;
+    bool video_auto = true;           // Auto Video: a track that has a video switches the field to the video view, one without it to the Lyrics/Viz Default (VideoAuto=)
+    int video_cover = 0;              // Cover, Disk or Thumbnail (VideoCover=): 0 cover, 1 thumbnail (a frame of the video), 2 disk (plain disk for a track with a video)
+    // Where downloaded videos go (Search YT): <download folder>/video_down; and the quality cap (height in pixels) of such a download.
+    int video_down_height = 720;   // config.txt: VideoDownHeight=
+    // "When No Video Shows" (ANIMA/VIZ tab): what the field shows on the video view while the track has no video: 0 sphere, 1 oscilloscope,
+    // 2 spectrogram, 3 nothing, 4 the lyrics (the default). config.txt: NoVideoViz=lyrics|sphere|osci|spectro|none.
+    int novideo_viz = 4;
     // The field shows lyrics (and they are fetched) right now: field on, lyrics allowed, lyrics view selected.
     bool lyrics_on() const { return element_vizfield && use_lyrics && element_lyrics; }
     // Is that view (0..3) switched on at all?
-    bool viz_usable(int v) const { return v == 0 ? use_sphere : v == 1 ? use_osci : v == 2 ? use_spectro : use_lyrics; }
+    bool viz_usable(int v) const { return v == 0 ? use_sphere : v == 1 ? use_osci : v == 2 ? use_spectro : v == 3 ? use_lyrics : video_mode; }
     // The next / previous switched-on view after `cur` in viz_order (dir > 0 forward). `only_visuals` leaves the lyrics
-    // (3) out. Returns cur when there is no other one.
+    // (3) out. The video view (4) is never returned: it is not a default. Returns cur when there is no other one.
     int viz_step(int cur, int dir, bool only_visuals) const {
         int pos = 0;
-        for (int i = 0; i < 4; ++i) if (viz_order[i] == cur) pos = i;
-        for (int k = 1; k <= 4; ++k) {
-            const int c = viz_order[((pos + (dir > 0 ? k : -k)) % 4 + 4) % 4];
+        for (int i = 0; i < 5; ++i) if (viz_order[i] == cur) pos = i;
+        for (int k = 1; k <= 5; ++k) {
+            const int c = viz_order[((pos + (dir > 0 ? k : -k)) % 5 + 5) % 5];
             if (c == cur) break;
-            if (viz_usable(c) && !(only_visuals && c == 3)) return c;
+            if (viz_usable(c) && c != 4 && !(only_visuals && c == 3)) return c;
         }
         return cur;
     }

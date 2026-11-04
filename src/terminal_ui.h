@@ -117,6 +117,8 @@ constexpr int kKeyCtrlShiftRight = 323;
 
 // Alt+C -- the cover fetch overlay (main UI). A modifier combination, so a sentinel like kKeyAltL; bindable (HKeyCoverFetch).
 constexpr int kKeyAltC = 324;
+// Alt+V -- the FETCH VIDEOS overlay (main UI); bindable (HKeyVideoFetch).
+constexpr int kKeyAltV = 331;
 
 // The character '°' (SHIFT+^ on a German / Austrian / Swiss keyboard): outside text fields poll_key() joins its two UTF-8 bytes
 // (C2 B0) into this one key, so it can be a hotkey (the CHOOSE AUDIO DEVICE overlay, HKeyAudioDevice). In a text field the bytes

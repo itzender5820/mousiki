@@ -134,6 +134,10 @@ void App::handle_key(int key) {
         return;
     }
 
+    if (mode_ == Mode::VideoMenu) { video_menu_key(key); return; }
+    if (mode_ == Mode::VideoLink) { video_link_key(key); return; }
+    if (mode_ == Mode::VideoSearch) { video_search_key(key); return; }
+    if (mode_ == Mode::VideoFetch) { video_fetch_key(key); return; }
     if (mode_ == Mode::AudioDevice) { audio_device_key(key); return; }   // CHOOSE AUDIO DEVICE (src/app_audiodevice.cpp)
 
     if (mode_ == Mode::UpdateNotice) {
@@ -726,7 +730,7 @@ void App::handle_key(int key) {
             const int sel = selected_, scr = scroll_;
             const ListSource src = list_source_;
             submit_search();
-            mode_ = Mode::Browse;
+            if (mode_ == Mode::Search) mode_ = Mode::Browse;   // ("/sv:" opened SEARCH YT: that stays)
             const size_t len = (list_source_ == ListSource::Local) ? local_view_.size()
                              : (list_source_ == ListSource::Folder) ? folder_view_.size()
                              : (list_source_ == ListSource::Playlist) ? playlist_view_.size() : 0;
@@ -864,6 +868,9 @@ void App::handle_key(int key) {
         lyrics_edit_open();
     } else if (action == "HKeyStyleOptions") {   // SHIFT+s: the Style Option overlay of the playing track
         meta_open_style_playing();
+    } else if (action == "HKeyVideoFetch") {      // ALT+v: find and download videos for the songs that have none
+        if (audiobook_) status_line_ = "fetch videos: music player only";
+        else video_fetch_open();
     } else if (action == "HKeyCoverFetch") {     // ALT+c: fetch album covers (MusicBrainz / Cover Art Archive)
         if (audiobook_) status_line_ = "cover fetch: music player only";
         else cf_open();
@@ -1036,23 +1043,39 @@ void App::handle_key(int key) {
         // other place that starts a fetch is track load (poll_pending_load),
         // so without it the lyrics would not appear until the next track.
         // Views switched off on the ANIMA/VIZ tab (Use Lyrics / Oscilloscope / Spectrogram / Sphere) are left out.
-        const int cur = settings_.element_lyrics ? 3 : settings_.lyric_viz == 1 ? 1 : settings_.lyric_viz == 2 ? 2 : 0;
-        const int next = settings_.viz_step(cur, action == "HKeyToggleLyricsBack" ? -1 : 1, false);
-        static const char* const view_names[4] = {"sphere", "oscilloscope", "spectrogram", "lyrics"};
+        // The Video view (4) is the fifth place of the order (Viz Order 5) while the Video mode is on; it is the lyrics view with the picture.
+        const bool vid = settings_.video_mode && !audiobook_;
+        const int cur = settings_.element_lyrics ? ((vid && settings_.video_view) ? 4 : 3) : settings_.lyric_viz == 1 ? 1 : settings_.lyric_viz == 2 ? 2 : 0;
+        std::vector<int> ord;
+        for (int i = 0; i < 5; ++i) if (settings_.viz_order[i] != 4 || vid) ord.push_back(settings_.viz_order[i]);   // (Viz Order 1..5)
+        const int dir = action == "HKeyToggleLyricsBack" ? -1 : 1;
+        int next = cur;
+        {
+            int pos = 0;
+            for (size_t i = 0; i < ord.size(); ++i) if (ord[i] == cur) pos = static_cast<int>(i);
+            const int n = static_cast<int>(ord.size());
+            for (int k = 1; k <= n; ++k) {
+                const int c = ord[static_cast<size_t>(((pos + dir * k) % n + n) % n)];
+                if (c == 4 ? vid : settings_.viz_usable(c)) { next = c; break; }
+            }
+        }
+        static const char* const view_names[5] = {"sphere", "oscilloscope", "spectrogram", "lyrics", "video"};
         if (!settings_.element_vizfield) {
             status_line_ = "the Viz/Lyrics field is switched off (Settings > ANIMA/VIZ > Viz/Lyrics Field)";
         } else if (next == cur) {
             status_line_ = std::string("lyrics area: ") + view_names[cur] + " (the other views are switched off on Settings -> ANIMA/VIZ)";
-        } else if (next == 3) {                    // -> lyrics
+        } else if (next >= 3) {                    // -> lyrics, or the video (lyrics with the picture)
             settings_.element_lyrics = true;
+            settings_.video_view = next == 4;
             if (has_track_) {
                 std::string artist = (metadata_.artist == "-") ? "" : metadata_.artist;
                 last_lyrics_status_.clear(); // fresh 1.75s caption window, not a leftover from before it was off
                 launch_lyrics_fetch(metadata_.name, artist, current_path_);
             }
-            status_line_ = "lyrics area: lyrics";
+            status_line_ = std::string("lyrics area: ") + view_names[next];
         } else {
             settings_.element_lyrics = false;
+            settings_.video_view = false;
             settings_.lyric_viz = next;   // 0 sphere, 1 osci, 2 spectro
             status_line_ = std::string("lyrics area: ") + view_names[next];
         }
@@ -1192,8 +1215,10 @@ void App::handle_key(int key) {
                 status_line_ = "not a cached stream";
             }
         }
-    } else if (action == "HKeyCycleSortMode") { // cycle local-list sort mode (folder order -> title A-Z -> artist A-Z -> recently added)
-        local_sort_mode_ = (local_sort_mode_ + 1) % 4;
+    } else if (action == "HKeyVideo") {
+        video_menu_open();   // the VIDEO overlay (its first row is the Video mode switch)
+    } else if (action == "HKeyCycleSortMode") { // cycle local-list sort mode (folder order -> title A-Z -> artist A-Z -> recently added [-> only videos, while the Video mode is on])
+        local_sort_mode_ = (local_sort_mode_ + 1) % (settings_.video_mode ? 5 : 4);
         if (local_sort_mode_ == 3) { std::lock_guard<std::mutex> lk(added_time_mutex_); added_time_cache_.clear(); }   // fresh times each time the mode is chosen
         refresh_local_view();
         log_event(std::string("sort: ") + sort_mode_name(local_sort_mode_, settings_.meta_only));

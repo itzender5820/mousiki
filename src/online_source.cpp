@@ -67,6 +67,11 @@ std::vector<OnlineResult> OnlineSource::search(const std::string& query, int cou
     return search_via_ytdlp(query, count);
 }
 
+std::vector<OnlineResult> OnlineSource::search_videos(const std::string& query, int count) {
+    ProcResult r = run_capture({"yt-dlp", "-4", "--no-warnings", "--ignore-errors", "--flat-playlist", "-j", "ytsearch" + std::to_string(count) + ":" + query});
+    return parse_json_lines(r.out);
+}
+
 // One JSON object per line with a page URL instead of a video id (SoundCloud via yt-dlp, Bandcamp via the script):
 // the URL becomes the result's id (see OnlineResult).
 static std::vector<OnlineResult> parse_url_lines(const std::string& out) {
