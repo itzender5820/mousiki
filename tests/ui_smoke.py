@@ -1473,6 +1473,9 @@ def video_fetch_flow(binary, root, scripts):
     """FETCH VIDEOS with a fake yt-dlp: the videos of the song under the cursor are searched by themselves, two hits demand a choice,
     only the chosen video is downloaded."""
     import subprocess, stat
+    if shutil.which("ffmpeg") is None:
+        print("  skipped: fetch videos flow (ffmpeg is not installed on this machine)")
+        return
     home = os.path.join(root, "vff_home")
     lib = os.path.join(root, "vff_music")
     fake = os.path.join(root, "vff_bin")
@@ -1542,6 +1545,9 @@ echo "FILE:$f"
 
 def video_pair_tags(binary, root, scripts):
     """A video that is paired with a track (same name beside it) shows that track's artist and title in the library list."""
+    if shutil.which("ffmpeg") is None:
+        print("  skipped: paired video tags (ffmpeg is not installed on this machine)")
+        return
     home = os.path.join(root, "vp_home")
     lib = os.path.join(root, "vp_music")
     os.makedirs(os.path.join(home, ".config", "mousiki"))
