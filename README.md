@@ -1,16 +1,5 @@
 <div align="center">Mousiki 🎵
 
-<p align="center">
-  <a href="https://opensource.org/" target="_blank">
-    <img src="https://i0.wp.com/opensource.org/wp-content/uploads/2023/03/cropped-OSI-horizontal-large.png?fit=640%2C229&quality=80&ssl=1" alt="OSI" height="52" />
-  </a>
-  &nbsp;
-  <a href="https://www.apache.org/" target="_blank">
-    <img src="https://www.apache.org/images/oakleaf.svg" alt="Apache" height="52" />
-  </a>
-</p>
-
-
 > [!NOTE]
 > **Developer note:** Mousiki is released under the Apache License 2.0.
 > You are free to use, modify, fork, re-distribute, and sell the software,
