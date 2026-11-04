@@ -128,6 +128,11 @@ target_include_directories(fpcalc_tool PRIVATE "${CHROMAPRINT_DIR}" "${CHROMAPRI
 # The target is called fpcalc_tool so the CMake name is unambiguous, but the
 # program must be called fpcalc: fetch_meta.py looks it up by file name.
 set_target_properties(fpcalc_tool PROPERTIES OUTPUT_NAME fpcalc)
+# Chromaprint's matcher scales rand() by 0.001f / RAND_MAX, which Clang (macOS) reports as a harmless int -> float rounding warning;
+# the vendored file stays untouched.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  target_compile_options(fpcalc_tool PRIVATE -Wno-implicit-const-int-float-conversion)
+endif()
 target_compile_definitions(fpcalc_tool PRIVATE
     # Chromaprint is compiled straight into this executable, so its API must not
     # be __declspec(dllimport) — that is what CHROMAPRINT_NODLL switches off.

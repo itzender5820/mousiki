@@ -28,6 +28,7 @@ std::string first_code(const std::string& v) {
 }
 
 #if !defined(_WIN32)
+#if !defined(__APPLE__)   // (only the Linux branch below reads "key: value" lines: on macOS it would be unused)
 std::string value_after(const std::string& text, const std::string& key) {   // "key: value" line
     std::istringstream in(text);
     std::string line;
@@ -40,6 +41,7 @@ std::string value_after(const std::string& text, const std::string& key) {   // 
     }
     return "";
 }
+#endif
 
 #if defined(__APPLE__)
 // macOS: the layout NAME of the selected input source ("German", "U.S.", "British", "Austrian", ...)
