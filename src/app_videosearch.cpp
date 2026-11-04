@@ -412,8 +412,21 @@ std::vector<std::string> App::build_video_search_panel(int W) const {
         const std::string info = cur ? truncate_str(cur->title + "  (" + cur->uploader + (cur->duration_sec >= 0 ? ", " + vs_clock_text(cur->duration_sec) : std::string()) + ")", inner) : std::string();
         out.push_back(line(hdr + info + R, display_width(info)));
         const fs::path dir = video_down_dir();
-        const std::string dest = "Downloads go to " + path_utf8(dir) + (vs_target_.empty() ? "" : "  as  " + safe_file_name(path_utf8(vs_target_.stem())) + ".mp4");
-        const std::string d = truncate_str(dest, inner);
+        const std::string head = "Downloads go to ";
+        const std::string tail = vs_target_.empty() ? "" : "  as  " + safe_file_name(path_utf8(vs_target_.stem())) + ".mp4";
+        std::string where = path_utf8(dir);
+        // a path too long for the panel loses its beginning, not its end (the folder's name is what matters)
+        const int room = std::max(8, inner - display_width(head) - display_width(tail));
+        if (display_width(where) > room) {
+            std::string cutp = where;
+            while (display_width(cutp) > room - 3 && !cutp.empty()) {
+                size_t i = 1;
+                while (i < cutp.size() && (static_cast<unsigned char>(cutp[i]) & 0xC0) == 0x80) ++i;
+                cutp.erase(0, i);
+            }
+            where = "..." + cutp;
+        }
+        const std::string d = truncate_str(head + where + tail, inner);
         out.push_back(line(leg + d + R, display_width(d)));
     }
     {

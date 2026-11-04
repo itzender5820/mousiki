@@ -1425,7 +1425,7 @@ def video_overlays(binary, root, scripts):
     lib = os.path.join(root, "music")
     os.makedirs(os.path.join(home, ".config", "mousiki"))
     with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
-        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nHKeyVideo=Y\n" % lib)
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nHKeyVideo=Y\nHKeyVideoFetch=ALT+V\n" % lib)   # (ALT+V is the default on Linux / Windows only: on macOS it is SHIFT+d)
     sess = Session(binary, home, scripts, quiet_stderr=True)
     try:
         for _ in range(30):
