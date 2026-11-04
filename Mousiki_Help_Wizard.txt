@@ -657,7 +657,14 @@ created with Mousiki are stored in its own format, but they can be exported in M
 Both dialogs have a scope row: export: [Currently (filtered) list] writes every playlist the
 (filtered) list shows; import: [Whole folder] takes every file of the folder. Defaults: the "export" and "import" folders inside the playlist folder. Import
 never touches its files: a COPY goes to "imported_lists" in the playlist folder, which so holds
-only the given lists. FILTER: [c] shows only created playlists, [g] all given ones (playlist folder + imported_lists).
+only the given lists. A track whose file is not on this computer (a list from someone else) is looked up
+in your library: first by FILE NAME (extension, track number, case and punctuation do not count), then by TITLE
+AND ARTIST, each at least 75 % alike (typos, "(Remastered)" and the order of the words in a name do not count; the
+#EXTINF line, tags and file names are compared). Japanese, Korean and Chinese text is also compared by its Latin
+spelling, so "米津玄師" finds "Kenshi Yonezu". A track without any artist is taken only on a title that is at least
+90 % alike and only when exactly one library track fits. What is not found stays in the list as missing; the status
+line counts the matches.
+FILTER: [c] shows only created playlists, [g] all given ones (playlist folder + imported_lists).
 DELETE PLAYLIST: Use [DEL/d] to delete a playlist.
 
 [[New Page]]

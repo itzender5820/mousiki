@@ -111,6 +111,7 @@ The key shown for each command is the **default binding**. Your own bindings may
 - **[6. Playlists](#6-playlists)**
   - [Add a track straight to a playlist (`SHIFT+a`)](#add-a-track-straight-to-a-playlist-shifta)
   - [What `ENTER` does in the playlist editor](#what-enter-does-in-the-playlist-editor)
+  - [Importing a list from another computer](#importing-a-list-from-another-computer)
   - [Exporting a playlist (M3U8 / M3U)](#exporting-a-playlist-m3u8--m3u)
   - [Leaving](#leaving)
 - **[7. Meta editor](#7-meta-editor)**
@@ -1361,7 +1362,7 @@ When the meta editor **renames** a file, every saved playlist that contains it i
 | `D` / `DEL` / `BACKSPACE` | Remove the highlighted track (track list focused). On the Saved Playlists tab, `DEL` deletes the selected playlist after a Yes/No confirmation. |
 | `e` | On the Saved Playlists tab (list focused): **export** the selected playlist (or, with the scope *Currently (filtered) list*, every playlist the (filtered) list shows) as **M3U8** (default) or **M3U** files. See *Exporting a playlist* below. |
 | `c` / `g` | On the Saved Playlists tab (list focused): **filter** the list: `c` shows only the playlists **created** in the program (the playlist folder itself), `g` shows **all given** playlists: the playlist folder and `imported_lists` together (the `export` and `import` folders are never listed); the same key again goes back (the title says `[CREATED]` / `[ALL GIVEN]`; in the combined list the imported ones carry a `↓`). |
-| `i` | On the Saved Playlists tab (list focused): **import** `.m3u` / `.m3u8` files from a folder (default: the `import` folder inside the playlist folder, or the PLAYLIST IMPORT PATH if one is set). `SPACE` marks a file, `a` marks all, `TAB` goes folder field -> list -> scope row (*Marked / hovered* or *Whole folder*: every file of the folder), `ENTER` imports, `ESC` cancels. The files in the import folder are **never removed or changed**: the import makes a **copy** in the `imported_lists` folder inside the playlist folder, so the playlist folder itself holds only the playlists you created (the filter keys `c` / `g` tell them apart: created only / everything). Missing files and stream URLs are skipped and counted in the status line. |
+| `i` | On the Saved Playlists tab (list focused): **import** `.m3u` / `.m3u8` files from a folder (default: the `import` folder inside the playlist folder, or the PLAYLIST IMPORT PATH if one is set). `SPACE` marks a file, `a` marks all, `TAB` goes folder field -> list -> scope row (*Marked / hovered* or *Whole folder*: every file of the folder), `ENTER` imports, `ESC` cancels. The files in the import folder are **never removed or changed**: the import makes a **copy** in the `imported_lists` folder inside the playlist folder, so the playlist folder itself holds only the playlists you created (the filter keys `c` / `g` tell them apart: created only / everything). A track whose file does not exist on this computer (a list from someone else) is **looked up in your library**, see *Importing a list from another computer* below; what is not found stays in the list as missing, and stream URLs are skipped. The status line counts the matches, the missing files and the URLs. |
 | `CTRL+s` | Save the playlist (from every pane of the Create/Edit tab, also while typing) |
 | `SHIFT+←` / `SHIFT+→`, `HOME` / `END` | Mark text / jump to the start or end in the name and search fields |
 | `CTRL+C` / `CTRL+X` / `CTRL+V` | Copy, cut and paste text in those fields |
@@ -1380,6 +1381,17 @@ Only tracks can be added, not playlist rows or folder rows (the status line says
 | Library picker | Adds the highlighted track to the playlist. (Typing in this pane filters the library live.) |
 | Saved Playlists, search box | Moves focus to the list |
 | Saved Playlists, list | Loads the selected playlist into the editor |
+
+### Importing a list from another computer
+
+The paths in a playlist made elsewhere (`D:\Music\...`, another user name, another drive) rarely exist here. For every track whose file is not found, the import looks into your **library** (the folders of LOCAL PATH) in two steps, in this order:
+
+1. **File name.** The name without folder and extension: `Queen\01 - Bohemian Rhapsody.flac` finds `Bohemian Rhapsody.mp3`. Case, accents, spaces, punctuation, bracketed parts such as `(Remastered)` and a leading track number do not count. With several files of that name the one in a folder of the same name wins. A file of the same name is **not** taken when both sides name an artist (the `#EXTINF` line of the list and the tag of the file) and the two are clearly different (a second `Intro`).
+2. **Title and artist, fuzzy.** Both must be **at least 75 % alike** (similarity = 1 - edit distance / length of the longer text, so `Wonderwal` finds `Wonderwall`). The list side comes from the `#EXTINF` line (`Artist - Title`), from the file name (`Artist - Title.mp3`) and the folder name; the library side from the tags (as far as they have been read - the library reads them in the background after a scan) and from the file names and folders. The order of the words in a name does not matter (`Yonezu Kenshi` = `Kenshi Yonezu`). A track with **no artist anywhere** is taken only on a title that is at least 90 % alike, and only when exactly one library track fits - otherwise it would be a guess.
+
+**Japanese, Korean and Chinese** text is compared twice, as written and by its Latin spelling (the same spelling as the *Latin letters* switch, `SHIFT+'`): a list with `米津玄師 - Lemon` finds `Kenshi Yonezu - Lemon`, `さくら` finds `Sakura`, `사랑` finds `Sarang`, and the other way round. Chinese characters whose language cannot be told (Japanese or Chinese?) stay as written unless LatinHanziDefault or the reading file (`kanji_readings.txt`) says otherwise, so those compare only when both lists use the same characters.
+
+A found track is stored with the **path of your library file**, so it plays and works like any other track of the list; tracks that are not found keep their original path and are skipped when the list is queued. The import never changes the files of the library. The match is made once, when the list is imported: after adding the missing music to your library, import the list again (the copy in `imported_lists` gets the name with ` (2)`).
 
 ### Exporting a playlist (M3U8 / M3U)
 

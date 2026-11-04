@@ -42,6 +42,9 @@ The latest larger feature additions are the mentioned **[radio player mode](#rad
 
 <p align="center"><img width="800" alt="preview" src="readme_images/mousiki_xy_mode_osci.gif" /></p>
 
+<p align="center"><img width="800" alt="preview" src="readme_images/out_720_25.gif" /></p>
+
+
 My current setup looks like the last .gif and the below images. The current default config.txt uses the below theme too. It is adjusted to fit my cyber-cat themed **MeowerShell** terminal setup [(see Gihub repository for config files)](https://github.com/StSchwerdtfeger/Meower-Shell), which includes FastFetch, Oh-My-Posh and loads of recommendations for lovers of the terminal, e.g. helpful apps like yazi, fzf fuzzy search ...
 
 <p align="center"><img width="850" height="397" alt="grafik" src="readme_images/intro_main_ui.png" /></p>
@@ -137,7 +140,7 @@ Everything below is in the current version (v4.9.0) and works the same on Window
 <p align="center"><img width="850" alt="Karaoke mode" src="readme_images/changes_19_2.png" /></p>
 
 ### Playlists, meta data, history, conversion
-- **Playlist editor** (`SHIFT+p`): create and edit playlists from local or downloaded tracks (library sortable with `SHIFT+t`, `/f:` searches folders), import and export M3U / M3U8.
+- **Playlist editor** (`SHIFT+p`): create and edit playlists from local or downloaded tracks (library sortable with `SHIFT+t`, `/f:` searches folders), import and export M3U / M3U8 (tracks of a list from another computer are found in your library by file name, then by fuzzy title + artist, also via the Latin spelling of Japanese / Korean / Chinese).
 
 <p align="center"><img width="850" alt="The playlist editor" src="readme_images/changes_09.png" /></p>
 

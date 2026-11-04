@@ -317,7 +317,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "#UP/DOWN", "Navigate the focused list/picker (fixed arrow keys)"},
         {nullptr, "#ENTER", "Add hovering track to playlist / load selected playlist"},
         {nullptr, "#e", "Saved Playlists tab: export the hovered playlist, or with the scope Currently (filtered) list every playlist the (filtered) list shows, as M3U8 (default) or M3U -- overlay with folder, format, scope (default folder: export, inside the playlist folder)"},
-        {nullptr, "#i", "Saved Playlists tab: import .m3u / .m3u8 files from a folder (default: import, inside the playlist folder) -- SPACE marks, a marks all, scope Whole folder; the files stay, a copy goes to imported_lists"},
+        {nullptr, "#i", "Saved Playlists tab: import .m3u / .m3u8 files from a folder (default: import, inside the playlist folder) -- SPACE marks, a marks all, scope Whole folder; the files stay, a copy goes to imported_lists; tracks not found on this computer are looked up in the library by file name, then by title + artist (>= 75 %, also via Latin spelling of Japanese / Korean / Chinese)"},
         {nullptr, "#c / g", "Saved Playlists tab: filter the list: c = only the playlists created here (the playlist folder), g = all given: the playlist folder and imported_lists together (the export and import folders are never listed); the same key again = back"},
         {nullptr, "#SHIFT+r / SHIFT+a / SHIFT+u", "Library picker (box not typed into yet): rescan the library / add the whole hovering folder / undo the last add; with /f: the folders are rows, ENTER opens / closes one"},
         {nullptr, "#4 / 5", "Move the hovering track up/down"},

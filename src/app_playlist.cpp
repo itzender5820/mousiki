@@ -27,6 +27,7 @@
 #include "update_check.h"
 #include "open_url.h"
 #include "app_settings_tables.h"
+#include "playlist_match.h"
 #include <cstring>
 #include <algorithm>
 #include <cctype>
@@ -407,12 +408,16 @@ std::string import_url_decode(const std::string& s) {
 // the track paths. Relative paths are resolved against the file's own folder;
 // stream URLs are skipped (a playlist here is local files only), "file://" URLs
 // are unwrapped. Returns false if the file cannot be read.
-bool import_parse_m3u(const fs::path& file, std::string* name_out, std::vector<fs::path>* tracks_out, int* skipped_urls) {
+// `extinf_out` (optional, one per track) gets the "Artist - Title" of the entry's #EXTINF line ({} when it has none).
+struct ExtInf { std::string artist, title; };
+bool import_parse_m3u(const fs::path& file, std::string* name_out, std::vector<fs::path>* tracks_out, int* skipped_urls,
+                      std::vector<ExtInf>* extinf_out = nullptr) {
     std::ifstream in(file, std::ios::binary);
     if (!in.is_open()) return false;
     std::string line;
     bool first = true;
     std::error_code ec;
+    ExtInf pending;
     while (std::getline(in, line)) {
         if (first && line.compare(0, 3, "\xEF\xBB\xBF") == 0) line.erase(0, 3); // UTF-8 BOM
         first = false;
@@ -424,9 +429,21 @@ bool import_parse_m3u(const fs::path& file, std::string* name_out, std::vector<f
                 while (!n.empty() && n.front() == ' ') n.erase(n.begin());
                 if (!n.empty()) *name_out = n;
             }
+            if (line.compare(0, 8, "#EXTINF:") == 0) {   // "#EXTINF:215,Artist - Title"
+                pending = ExtInf();
+                const size_t comma = line.find(',');
+                if (comma != std::string::npos) {
+                    std::string t = line.substr(comma + 1);
+                    while (!t.empty() && t.front() == ' ') t.erase(t.begin());
+                    while (!t.empty() && t.back() == ' ') t.pop_back();
+                    const size_t sep = t.find(" - ");
+                    if (sep != std::string::npos) { pending.artist = t.substr(0, sep); pending.title = t.substr(sep + 3); }
+                    else pending.title = t;
+                }
+            }
             continue;
         }
-        if (line.compare(0, 7, "http://") == 0 || line.compare(0, 8, "https://") == 0) { if (skipped_urls) ++*skipped_urls; continue; }
+        if (line.compare(0, 7, "http://") == 0 || line.compare(0, 8, "https://") == 0) { if (skipped_urls) ++*skipped_urls; pending = ExtInf(); continue; }
         if (line.compare(0, 7, "file://") == 0) line = import_url_decode(line.substr(7));
         fs::path p = path_from_utf8(line);
 #if !defined(_WIN32)
@@ -438,6 +455,8 @@ bool import_parse_m3u(const fs::path& file, std::string* name_out, std::vector<f
 #endif
         if (p.is_relative()) p = file.parent_path() / p;
         if (tracks_out) tracks_out->push_back(p.lexically_normal());
+        if (extinf_out) extinf_out->push_back(pending);
+        pending = ExtInf();
     }
     return true;
 }
@@ -498,14 +517,36 @@ void App::playlist_import_run() {
     else if (pick.empty()) pick.push_back(std::clamp(playlist_import_selected_, 0, static_cast<int>(playlist_import_files_.size()) - 1));
 
     const fs::path dir = playlists_dir();
-    int imported = 0, tracks_total = 0, missing_total = 0, urls = 0;
+    int imported = 0, tracks_total = 0, missing_total = 0, urls = 0, by_name = 0, by_tags = 0;
     std::string last_name, error;
     std::error_code ec;
+    // Entries whose file does not exist here (a list from another computer) are looked for in the library: by file name,
+    // then by title and artist (playlist_match.h). The matcher is built when the first such entry turns up.
+    std::vector<MatchTrack> lib_tracks;
+    std::unique_ptr<PlaylistMatcher> matcher;
+    auto matcher_get = [&]() -> PlaylistMatcher& {
+        if (!matcher) {
+            std::lock_guard<std::mutex> lk(row_meta_mutex_);
+            lib_tracks.reserve(all_local_tracks_.size());
+            for (const auto& t : all_local_tracks_) {
+                MatchTrack m;
+                m.path = path_utf8(t.path);
+                m.stem = t.title;
+                m.folder = t.folder_artist;
+                const auto it = row_meta_cache_.find(m.path);
+                if (it != row_meta_cache_.end() && it->second.tags_resolved) { m.tag_title = it->second.title; m.tag_artist = it->second.artist; }
+                lib_tracks.push_back(std::move(m));
+            }
+            matcher.reset(new PlaylistMatcher(lib_tracks));
+        }
+        return *matcher;
+    };
     for (int idx : pick) {
         const fs::path file = path_from_utf8(playlist_import_files_[idx]);
         std::string name;
         std::vector<fs::path> paths;
-        if (!import_parse_m3u(file, &name, &paths, &urls)) { error = "cannot read " + path_utf8(file.filename()); continue; }
+        std::vector<ExtInf> infos;
+        if (!import_parse_m3u(file, &name, &paths, &urls, &infos)) { error = "cannot read " + path_utf8(file.filename()); continue; }
         if (paths.empty()) { error = path_utf8(file.filename()) + " has no tracks"; continue; }
         if (name.empty()) name = path_utf8(file.stem());
         // The editor's name field takes 25 characters; keep imported names inside that, and never
@@ -519,12 +560,27 @@ void App::playlist_import_run() {
         Playlist pl;
         pl.name = unique;
         pl.imported = true;   // a copy in <playlists>/imported_lists; the file in the import folder stays where it is
-        for (const auto& p : paths) {
+        for (size_t pi = 0; pi < paths.size(); ++pi) {
+            const fs::path& p = paths[pi];
             PlaylistTrack t;
             t.path = p;
             t.title = path_utf8(p.stem());
             t.artist = path_utf8(p.parent_path().filename());
             t.missing = !fs::exists(p, ec);
+            if (t.missing && !all_local_tracks_.empty()) {   // not here: is the song in the own library?
+                MatchEntry me;
+                me.path = path_utf8(p);
+                if (pi < infos.size()) { me.extinf_artist = infos[pi].artist; me.extinf_title = infos[pi].title; }
+                const MatchResult mr = matcher_get().find(me);
+                if (mr.kind != MatchKind::None && mr.index >= 0) {
+                    const LocalTrack& lt = all_local_tracks_[static_cast<size_t>(mr.index)];
+                    t.path = lt.path;
+                    t.title = lt.title;
+                    t.artist = lt.folder_artist;
+                    t.missing = false;
+                    if (mr.kind == MatchKind::FileName) ++by_name; else ++by_tags;
+                }
+            }
             if (t.missing) ++missing_total;
             pl.tracks.push_back(std::move(t));
         }
@@ -542,6 +598,8 @@ void App::playlist_import_run() {
     playlist_status_ = "imported " + std::to_string(imported) + " playlist" + (imported == 1 ? "" : "s")
                      + (imported == 1 ? " \"" + last_name + "\"" : std::string())
                      + " (" + std::to_string(tracks_total) + " track" + (tracks_total == 1 ? "" : "s") + ")"
+                     + (by_name + by_tags > 0 ? ", " + std::to_string(by_name + by_tags) + " found in your library ("
+                            + std::to_string(by_name) + " by file name, " + std::to_string(by_tags) + " by title and artist)" : std::string())
                      + (missing_total > 0 ? ", " + std::to_string(missing_total) + " file(s) not found (kept, skipped when queued)" : std::string())
                      + (urls > 0 ? ", " + std::to_string(urls) + " stream URL(s) left out" : std::string())
                      + (error.empty() ? std::string() : "; " + error);
