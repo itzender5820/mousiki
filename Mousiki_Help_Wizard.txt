@@ -526,8 +526,9 @@ The cover of the highlighted track is shown under the fields. Move down to the b
 [ Cover Options ] and hit [ENTER]: choose a picture for THIS track (inside the file, in its
 folder, in its fetched_covers folder, the album's covers), "Automatic" (Settings -> Cover
 Search decides); above them "The disk shows": as in the VIDEO menu / the cover / the video thumbnail (a frame of
-THIS track's video) / the plain disk. Delete a picture from the disk ([DEL], not the one inside a file)
-or search pictures by file name ([/]); [TAB] stops at the disk options, the pictures and the search field. The choice goes before the album default of
+THIS track's video) / the plain disk. Delete a picture from the disk ([DEL]); [DEL] on Automatic or on the picture inside the file gives
+the track NO cover (the disk is shown; Automatic brings a cover back). The cover shown in the edit pane
+follows the choice (cover / video frame / plain disk). Search pictures by file name ([/]); [TAB] stops at the disk options, the pictures and the search field. The choice goes before the album default of
 the cover fetch menu and before the Cover Search setting (except "Within File Only").
 Next to it sits the button [ Style Option ] (move there with [->] or [ENTER] on it): a small
 overlay with the look of THIS track (as in Settings, Disk, Just Cover, Cover with Gradient, the
@@ -757,7 +758,7 @@ SWITCH THROUGH THE FIELD: [[Header]]
         details on those options see the chapter on VISUALIZATIONS
 [&]     VIDEO overlay[[Header]] (German SHIFT+6, other keyboards SHIFT+y): Video Mode on / off, Include
         Lyrics, Cover, Disk or Thumbnail (the disk shows the cover, the plain disk, or a frame of the video), [ Video Option ] (connect
-        a song and a video by hand; also in the meta editor; [CTRL+v] there switches to Fetch Videos for the locked-in song), Auto Video (a track with a video shows it, else your Lyrics/Viz setting), [ Quick Search/Down. YT ] (search and download one video). Search /v: lists only videos, /sv: searches YouTube for videos. Meta editor [SHIFT+v] lists only videos [ General Fetch Videos Menu ] / [ALT+v] (macOS: [SHIFT+d]) (a full-screen overlay: songs without a video on the left, the videos found on YouTube with a preview on the right; you choose, only chosen videos are downloaded; a song that has a video is not searched by itself, [r] re-fetches it after a warning that the former video is unassigned; [/] jumps to the filter field, [CTRL+f] lists missing video only / all songs / songs with a video) and [ Search YT ] (search YouTube with
+        a song and a video by hand; also in the meta editor; [ALT+v] there switches to Fetch Videos for the locked-in song), Auto Video (a track with a video shows it; the next track without one returns to the view you had before, and a view chosen with [.] / [,] stays), [ Quick Search/Down. YT ] (search and download one video). Search /v: lists only videos, /sv: searches YouTube for videos. Meta editor [SHIFT+v] lists only videos [ General Fetch Videos Menu ] / [ALT+v] (macOS: [SHIFT+d]) (a full-screen overlay: songs without a video on the left, the videos found on YouTube with a preview on the right; you choose, only chosen videos are downloaded; a song that has a video is not searched by itself, [r] re-fetches it after a warning that the former video is unassigned; [/] jumps to the filter field, [CTRL+f] lists missing video only / all songs / songs with a video) and [ Search YT ] (search YouTube with
         previews, download into the folder video_down and connect it). Video mode: video files (mp4,
         mkv, mov, avi, webm ...) are listed too ([SHIFT+t] gets a last step "videos") and the
         VIDEO view joins the [,/.] cycle at Viz Order 5 (right after the lyrics by default): the picture of the track's video

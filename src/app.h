@@ -704,6 +704,7 @@ private:
     int cf_filter_ = 0;                 // 0 all albums, 1 no cover, 2 one cover, 3 several covers, 4 previous unsuccessful fetch
     bool cf_full_res_ = true;          // [t]: the cover as a real picture (cover fetch menu and meta editor; the default) (Kitty / Sixel) instead of braille dots
     mutable int cf_art_col_ = 0;        // screen column of the ALBUM ART pane (set while drawing)
+    bool cover_full_picture_img(const CoverImage* img, int pcols, int preview_rows, int scr_col, int scr_row, bool second = false) const;
     bool cover_full_picture(const std::string& pfile, bool pemb, int pcols, int preview_rows, int scr_col, int scr_row, bool second = false) const;
     mutable bool cf_cur_fallback_ = false;   // the picture playback would use is another album's (loose name match in the folder)
     mutable std::string cf_pic_key_;    // what the picture in gfx_ shows
@@ -865,6 +866,8 @@ private:
     // --- the cover of a track in the meta editor: the picture under the fields and the "Cover Options" overlay ---
     // The choice made here is kept per track (cover_store.h) and goes before the album's default and before Settings -> Cover Search
     // (except "Within File Only").
+    int auto_prev_view_ = 3;        // Auto Video: the view before a track with a video took the field (0..2 a visual, 3 lyrics)
+    bool auto_prev_set_ = false;
     struct MetaCovItem { int special = 0; CoverCandidate c; };   // special: 0 a picture, 1 "automatic" (the search decides), 2 "no cover", 3 "video thumbnail, else cover"
     bool meta_cov_open_ = false;
     bool meta_cov_search_ = false;       // the file name search field has the keyboard

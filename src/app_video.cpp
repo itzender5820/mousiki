@@ -145,13 +145,19 @@ std::string App::format_text() const {
 void App::video_auto_apply() {
     if (audiobook_ || !settings_.video_mode || !settings_.video_auto || !current_is_local_ || current_path_.empty()) return;
     if (!video_source_for(current_path_).empty()) {
+        if (!settings_.video_view) {   // the view you were on (changed with "." / ",") comes back on a track without a video
+            auto_prev_view_ = settings_.element_lyrics ? 3 : std::clamp(settings_.lyric_viz, 0, 2);
+            auto_prev_set_ = true;
+        }
         settings_.element_lyrics = true;
         settings_.video_view = true;
         return;
     }
-    const int d = settings_.viz_default;   // 0..3 a view, 4 last used, 5 video (no video here: the lyrics)
+    if (!settings_.video_view) return;   // a track without a video on another view: the view you chose stays
     settings_.video_view = false;
-    if (d <= 2) { settings_.element_lyrics = false; settings_.lyric_viz = d; }
+    int back = auto_prev_set_ ? auto_prev_view_ : settings_.viz_default;   // 0..3 a view, 4 last used, 5 video (no video here: the lyrics)
+    auto_prev_set_ = false;
+    if (back <= 2) { settings_.element_lyrics = false; settings_.lyric_viz = back; }
     else settings_.element_lyrics = true;
 }
 

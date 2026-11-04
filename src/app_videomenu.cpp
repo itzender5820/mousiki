@@ -316,10 +316,10 @@ void App::video_link_key(int key) {
         return;
     }
     if (key == kKeyCtrlC) { vl_lock_track_.clear(); vl_lock_video_.clear(); vl_msg_ = "choice cleared"; vl_warn_ = false; return; }
-    if (key == kKeyCtrlV) {   // FETCH VIDEOS with the cursor on this song (the locked-in one, else the one under the cursor)
+    if (key_is("HKeyVideoFetch", key) && !(key >= 32 && key < 127)) {   // ALT+v (the key of the FETCH VIDEOS overlay itself; CTRL+v pastes into the search fields): FETCH VIDEOS with the cursor on this song (the locked-in one, else the one under the cursor)
         fs::path song = vl_lock_track_;
         if (song.empty() && !vl_tview_.empty()) song = vl_tracks_[static_cast<size_t>(vl_tview_[static_cast<size_t>(std::clamp(vl_tsel_, 0, static_cast<int>(vl_tview_.size()) - 1))])].path;
-        if (song.empty() || LocalSource::is_video_file(song)) { vl_msg_ = "choose a song (audio file) first -- [CTRL+v] fetches videos for it"; vl_warn_ = true; return; }
+        if (song.empty() || LocalSource::is_video_file(song)) { vl_msg_ = "choose a song (audio file) first -- [ALT+v] fetches videos for it"; vl_warn_ = true; return; }
         video_link_close();
         video_fetch_open(song);
         return;
@@ -474,7 +474,7 @@ std::vector<std::string> App::build_video_link_panel(int W) const {
                       std::string(static_cast<size_t>(std::max(0, inner - lead - w1 - gap - w2)), ' ') + " " + bar);
     }
     out.push_back(bar + " " + (vl_warn_ && !vl_msg_.empty() ? std::string("\x1b[31m") : leg) + pad_right(truncate_str(vl_msg_, PW - 4), PW - 4) + R + " " + bar);
-    out.push_back(centred_bottom(settings_, PW, "[TAB] pane  [ENTER] lock in  [CTRL+f] filter  [CTRL+v] fetch videos  [DEL] remove connection  [ESC] close", border_bottom));
+    out.push_back(centred_bottom(settings_, PW, "[TAB] pane  [ENTER] lock in  [CTRL+f] filter  [ALT+v] fetch videos  [DEL] remove connection  [ESC] close", border_bottom));
     return out;
 }
 

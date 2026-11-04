@@ -38,6 +38,42 @@ std::vector<std::string> App::meta_cover_pane(int inner, int rows) const {
     rq.album = meta_hover_values_[static_cast<size_t>(MetaField::Album)];
     rq.search = settings_.cover_search;
     rq.store_rev = cover_store_revision();
+    // what the disk shows of this track (Cover Options / Style Option / VIDEO menu): the cover, a frame of its video, or the plain disk
+    const int own = cover_track_video_mode(path);
+    const bool has_video = !video_source_for(path_from_utf8(path)).empty();
+    const int vm = own == 1 ? 0 : own == 2 ? 1 : own == 3 ? 2 : settings_.video_mode ? settings_.video_cover : 0;   // 0 cover, 1 thumbnail, 2 plain disk
+    const bool plain_disk = own == 3 || (own == 0 && vm == 2 && has_video);
+    const bool overlay_up0 = meta_choice_open_ || meta_cov_open_ || meta_sty_open_ || meta_save_.active;
+    if (plain_disk) {
+        const auto lines = cover_preview_lines(std::string(), false, std::min(inner, rows * 2), rows, "plain disk (no cover)");
+        std::vector<std::string> out;
+        const int cols = std::min(inner, rows * 2), lpad = std::max(0, (inner - cols) / 2);
+        for (int r = 0; r < rows; ++r) {
+            const std::string row = r < static_cast<int>(lines.size()) ? lines[static_cast<size_t>(r)] : std::string(static_cast<size_t>(cols), ' ');
+            out.push_back(std::string(static_cast<size_t>(lpad), ' ') + row + "\x1b[0m" + std::string(static_cast<size_t>(std::max(0, inner - lpad - cols)), ' '));
+        }
+        return out;
+    }
+    if ((own == 2 || (own == 0 && vm == 1)) && has_video) {   // thumbnail: a frame of the video is the current picture
+        CoverRequest tq = rq;
+        tq.snapshot_video = video_source_for(path_from_utf8(path));
+        if (const CoverImage* img = track_cover(tq)) {
+            if (cf_full_res_ && gfx_proto_ != GfxProto::None && !overlay_up0 &&
+                cover_full_picture_img(img, inner, rows, meta_pane_col_ + 2, 4 + kMetaFieldCount + 3)) {
+                std::vector<std::string> pic;
+                for (int r = 0; r < rows; ++r) pic.push_back(gfx_hole(inner));
+                return pic;
+            }
+            const int cols = std::min(inner, rows * 2), lpad = std::max(0, (inner - cols) / 2);
+            const auto lines = album_cover_lines_for(*img, 0, settings_.cover_contrast, settings_.cover_brightness, settings_.cover_colors, 0.0, cols, rows);
+            std::vector<std::string> out;
+            for (int r = 0; r < rows; ++r) {
+                const std::string row = r < static_cast<int>(lines.size()) ? lines[static_cast<size_t>(r)] : std::string(static_cast<size_t>(cols), ' ');
+                out.push_back(std::string(static_cast<size_t>(lpad), ' ') + row + "\x1b[0m" + std::string(static_cast<size_t>(std::max(0, inner - lpad - cols)), ' '));
+            }
+            return out;
+        }
+    }
     const CoverSource src = resolve_cover_source(rq);
     const bool overlay_up = meta_choice_open_ || meta_cov_open_ || meta_sty_open_ || meta_save_.active;   // (a picture would be drawn over a floating panel)
     if (cf_full_res_ && gfx_proto_ != GfxProto::None && !overlay_up && !src.none && !src.file.empty()) {
@@ -81,7 +117,7 @@ void App::meta_cov_open() {
     const std::string cur = cover_track_choice(path);
     for (size_t i = 0; i < meta_cov_items_.size(); ++i) {
         const auto& it = meta_cov_items_[i];
-        if ((cur.empty() && it.special == 1) || (it.special == 0 && choice_of(it.c) == cur)) { meta_cov_sel_ = static_cast<int>(i); break; }
+        if ((cur.empty() && it.special == 1) || (cur == kCoverNone && it.special == 2) || (it.special == 0 && choice_of(it.c) == cur)) { meta_cov_sel_ = static_cast<int>(i); break; }
     }
 }
 
@@ -144,9 +180,11 @@ void App::meta_cov_rebuild() {
             ++count;
         }
     }
+    const bool shows_none = q.empty() && cover_track_choice(meta_cov_track_) == kCoverNone;
+    if (shows_none) meta_cov_items_.insert(meta_cov_items_.begin() + 5, MetaCovItem{2, {}});   // (listed only while it is the choice: [DEL] on Automatic sets it)
     {   // the picture in use goes to the top of the pictures (right under "Automatic"): the way to the options above it is short
         const std::string use = cover_track_choice(meta_cov_track_);
-        const size_t top = q.empty() ? 5 : 0;
+        const size_t top = q.empty() ? (shows_none ? 6 : 5) : 0;
         if (!use.empty()) {
             for (size_t i = top + 1; i < meta_cov_items_.size(); ++i) {
                 const MetaCovItem& it = meta_cov_items_[i];
@@ -499,6 +537,7 @@ bool App::handle_meta_cov_key(int key) {
         std::string choice;
         std::string what;
         if (it.special == 1) { choice = ""; what = "automatic: Settings -> Cover Search decides again"; }
+        else if (it.special == 2) { choice = kCoverNone; what = "no cover (the disk is shown)"; }
         else { choice = choice_of(it.c); what = it.c.label; }
         if (it.special >= 10) {   // Cover, Disk or Thumbnail of this track: a mode of its own, the picture choice stays as it is
             const int mode = it.special - 10;
@@ -517,8 +556,15 @@ bool App::handle_meta_cov_key(int key) {
     }
     if ((key == kKeyDelete || key == 127 || key == 'd') && n > 0) {
         const MetaCovItem& it = meta_cov_items_[static_cast<size_t>(meta_cov_sel_)];
-        if (it.special != 0) { meta_cov_msg_ = "nothing to delete here"; return true; }
-        if (!cover_deletable(it.c)) { meta_cov_msg_ = "the picture inside a file cannot be deleted"; return true; }
+        if (it.special == 1 || (it.special == 0 && it.c.kind == CoverCandidate::Embedded)) {   // no picture to take away: this track gets no cover at all
+            set_cover_track_choice(meta_cov_track_, kCoverNone);
+            meta_cov_msg_ = "no cover for this track now: the disk is shown (pick Automatic to get a picture back)";
+            meta_cov_rebuild();
+            for (size_t i = 0; i < meta_cov_items_.size(); ++i) if (meta_cov_items_[i].special == 2) { meta_cov_sel_ = static_cast<int>(i); break; }
+            return true;
+        }
+        if (it.special != 0) { meta_cov_msg_ = it.special == 2 ? "this track has no cover already" : "nothing to delete here"; return true; }
+        if (!cover_deletable(it.c)) { meta_cov_msg_ = "this picture cannot be deleted"; return true; }
         meta_cov_ask_delete_ = true;
         return true;
     }
@@ -561,6 +607,7 @@ std::vector<std::string> App::build_meta_cov_panel(int screen_w) const {
             const MetaCovItem& it = meta_cov_items_[static_cast<size_t>(meta_cov_sel_)];
             if (it.special == 0) { file = path_utf8(it.c.file); emb = it.c.kind == CoverCandidate::Embedded; }
             else if (it.special == 13) msg = "the plain disk";
+            else if (it.special == 2) msg = "no cover: the disk is shown";
             else if (it.special == 12 && !video_source_for(path_from_utf8(meta_cov_track_)).empty()) msg = "a frame of the video";
             else {   // Automatic (and the disk options that show the cover): the picture the search finds for the track, without its own choice
                 CoverRequest rq;
@@ -609,6 +656,8 @@ std::vector<std::string> App::build_meta_cov_panel(int screen_w) const {
             top.push_back({k, std::string(it.special - 10 == vmode_now ? "(o) " : "( ) ") + labels[it.special - 10]});
         } else if (it.special == 1) {
             pics.push_back({k, std::string(cur.empty() ? "(o) " : "( ) ") + "Automatic (as in Settings)"});
+        } else if (it.special == 2) {
+            pics.push_back({k, "(o) No cover: the disk is shown"});
         } else {
             pics.push_back({k, std::string(choice_of(it.c) == cur ? "[x] " : "[ ] ") + it.c.label});
         }
@@ -645,7 +694,7 @@ std::vector<std::string> App::build_meta_cov_panel(int screen_w) const {
     }
     std::string msg = meta_cov_ask_delete_ ? "Delete this picture from the disk?   [Y]es   [N]o" : meta_cov_msg_;
     lines.push_back(obar + pad_right(truncate_str(" " + msg, inner), inner) + obar);
-    lines.push_back(box_bottom(W, "[↑↓] select  [ENTER] use  [TAB] disk/pictures/search  [t] ASCII/full  [DEL] delete  [ESC] close", border));
+    lines.push_back(box_bottom(W, "[↑↓] select  [ENTER] use  [TAB] disk/pictures/search  [t] ASCII/full  [DEL] delete picture / no cover  [ESC] close", border));
     return lines;
 }
 

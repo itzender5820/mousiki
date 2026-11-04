@@ -783,7 +783,10 @@ std::vector<std::string> App::build_cf_library_panel(int total_width, int height
 // A picture file as a real picture (Kitty / Sixel) in the main slot gfx_, `cols` x `rows` cells at screen column / row (0-based).
 // false: the picture is not read yet or cannot be read (the caller shows braille dots / a message instead).
 bool App::cover_full_picture(const std::string& pfile, bool pemb, int pcols, int preview_rows, int scr_col, int scr_row, bool second) const {
-    const CoverImage* img = preview_cover(pfile, pemb);
+    return cover_full_picture_img(preview_cover(pfile, pemb), pcols, preview_rows, scr_col, scr_row, second);
+}
+
+bool App::cover_full_picture_img(const CoverImage* img, int pcols, int preview_rows, int scr_col, int scr_row, bool second) const {
     if (!img) return false;
     int cw0 = 10, ch0 = 20;
     gfx_cell_pixels(settings_.cell_pixels, cw0, ch0);

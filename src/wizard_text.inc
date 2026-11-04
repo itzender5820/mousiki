@@ -530,13 +530,14 @@ The cover of the highlighted track is shown under the fields. Move down to the b
 [ Cover Options ] and hit [ENTER]: choose a picture for THIS track (inside the file, in its
 folder, in its fetched_covers folder, the album's covers), "Automatic" (Settings -> Cover
 Search decides); above them "The disk shows": as in the VIDEO menu / the cover / the video thumbnail (a frame of
-THIS track's video) / the plain disk. Delete a picture from the disk ([DEL], not the one inside a file)
-or search pictures by file name ([/]); [TAB] stops at the disk options, the pictures and the search field. The choice goes before the album default of
+THIS track's video) / the plain disk. Delete a picture from the disk ([DEL]); [DEL] on Automatic or on the picture inside the file gives
+the track NO cover (the disk is shown; Automatic brings a cover back). The cover shown in the edit pane
+follows the choice (cover / video frame / plain disk). Search pictures by file name ([/]); [TAB] stops at the disk options, the pictures and the search field. The choice goes before the album default of
 the cover fetch menu and before the Cover Search setting (except "Within File Only").
-Next to it sits the button [ Style Option ] (move there with [->] or [ENTER] on it): a small
-overlay with the look of THIS track (as in Settings, Disk, Just Cover, Cover with Gradient, the
 )WIZ",
-R"WIZ(Cover behind Disk looks, the ASCII looks), its own Cover Contrast, Cover Brightness and Cover
+R"WIZ(Next to it sits the button [ Style Option ] (move there with [->] or [ENTER] on it): a small
+overlay with the look of THIS track (as in Settings, Disk, Just Cover, Cover with Gradient, the
+Cover behind Disk looks, the ASCII looks), its own Cover Contrast, Cover Brightness and Cover
 Colors, and the look of its whole ALBUM (no album tag: of that folder). With the Video mode on a row "Use Cover or Thumbnail" sets the cover / video thumbnail / disk of THIS track (the same choice as in Cover Options; the VIDEO overlay holds the default). [<-][->] change a row,
 [DEL] or [d] puts it back to "as in Settings". [t] switches between a real picture
 (Kitty / Sixel terminals, the default) and braille dots. A wide terminal adds a preview of the cover with the
@@ -660,11 +661,11 @@ editor. YouTube/SoundCloud/Bandcamp tracks are downloaded into the
 download folder first.
 
 PLAYLISTS TAB: [[Header]]
-SEARCH AND ADD TO QUEUE: Search and choose a playlist and hit [ENTER] to add to queue.
+)WIZ",
+R"WIZ(SEARCH AND ADD TO QUEUE: Search and choose a playlist and hit [ENTER] to add to queue.
 EXPORT/IMPORT: Use [e/i] to import or export playlists in the M3U/M3U8 format. Playlists
 created with Mousiki are stored in its own format, but they can be exported in M3U/M3U8.
-)WIZ",
-R"WIZ(Both dialogs have a scope row: export: [Currently (filtered) list] writes every playlist the
+Both dialogs have a scope row: export: [Currently (filtered) list] writes every playlist the
 (filtered) list shows; import: [Whole folder] takes every file of the folder. Defaults: the "export" and "import" folders inside the playlist folder. Import
 never touches its files: a COPY goes to "imported_lists" in the playlist folder, which so holds
 only the given lists. A track whose file is not on this computer (a list from someone else) is looked up
@@ -763,7 +764,7 @@ SWITCH THROUGH THE FIELD: [[Header]]
         details on those options see the chapter on VISUALIZATIONS
 [&]     VIDEO overlay[[Header]] (German SHIFT+6, other keyboards SHIFT+y): Video Mode on / off, Include
         Lyrics, Cover, Disk or Thumbnail (the disk shows the cover, the plain disk, or a frame of the video), [ Video Option ] (connect
-        a song and a video by hand; also in the meta editor; [CTRL+v] there switches to Fetch Videos for the locked-in song), Auto Video (a track with a video shows it, else your Lyrics/Viz setting), [ Quick Search/Down. YT ] (search and download one video). Search /v: lists only videos, /sv: searches YouTube for videos. Meta editor [SHIFT+v] lists only videos [ General Fetch Videos Menu ] / [ALT+v] (macOS: [SHIFT+d]) (a full-screen overlay: songs without a video on the left, the videos found on YouTube with a preview on the right; you choose, only chosen videos are downloaded; a song that has a video is not searched by itself, [r] re-fetches it after a warning that the former video is unassigned; [/] jumps to the filter field, [CTRL+f] lists missing video only / all songs / songs with a video) and [ Search YT ] (search YouTube with
+        a song and a video by hand; also in the meta editor; [ALT+v] there switches to Fetch Videos for the locked-in song), Auto Video (a track with a video shows it; the next track without one returns to the view you had before, and a view chosen with [.] / [,] stays), [ Quick Search/Down. YT ] (search and download one video). Search /v: lists only videos, /sv: searches YouTube for videos. Meta editor [SHIFT+v] lists only videos [ General Fetch Videos Menu ] / [ALT+v] (macOS: [SHIFT+d]) (a full-screen overlay: songs without a video on the left, the videos found on YouTube with a preview on the right; you choose, only chosen videos are downloaded; a song that has a video is not searched by itself, [r] re-fetches it after a warning that the former video is unassigned; [/] jumps to the filter field, [CTRL+f] lists missing video only / all songs / songs with a video) and [ Search YT ] (search YouTube with
 )WIZ",
 R"WIZ(        previews, download into the folder video_down and connect it). Video mode: video files (mp4,
         mkv, mov, avi, webm ...) are listed too ([SHIFT+t] gets a last step "videos") and the

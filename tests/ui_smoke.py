@@ -1530,8 +1530,8 @@ def video_overlays(binary, root, scripts):
         check("VIDEO OPTION" in sess.text(), "video option: typing goes into the search field")
         sess.send(b"\x03", 0.8)                            # CTRL+c clears the choice (it must not close the program)
         check(sess.alive() and "VIDEO OPTION" in sess.text(), "video option: CTRL+c does not quit the program")
-        sess.send(b"\x16", 1.5)                            # CTRL+v: FETCH VIDEOS for the song
-        check("FETCH VIDEOS" in sess.text() and "VIDEO OPTION" not in sess.text(), "video option: CTRL+v switches to the fetch videos overlay")
+        sess.send(b"\x1bv", 1.5)                           # ALT+v: FETCH VIDEOS for the song
+        check("FETCH VIDEOS" in sess.text() and "VIDEO OPTION" not in sess.text(), "video option: ALT+v switches to the fetch videos overlay")
         sess.send(b"\x1b", 0.8)
         check("VIDEO OPTION" not in sess.text() and "FETCH VIDEOS" not in sess.text(), "video option: ESC closes it")
         sess.send("Y", 0.8)
