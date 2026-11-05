@@ -17,9 +17,15 @@ fast, focused TUI (Terminal User Interface) without unnecessary interface layers
 h spectrum visualizers, synced lyrics, and online streaming, all without leaving your terminal.
 
 ``Personal preference is not a compromise—it's the design goal.``
+</div>
 
-[FOR WIN32 CLICK HERE](https://github.com/StSchwerdtfeger/Mousiki-Windows-Native-Port)
+> [!NOTE]
+> **Development Status: Temporarily on Hold**
+> Upstream development for Mousiki are paused due to academic commitments.
+> * **Looking for more features?** Check out the actively maintained, full-featured fork **[Mousiki Plus](https://github.com/StSchwerdtfeger/mousiki-plus)** by [@StSchwerdtfeger](https://github.com/StSchwerdtfeger)
+> * **Looking for tiny and minimal?** This version stays lightweight
 
+<div along="center">
 ## Preview
 
 ![Mousiki Preview](./preview.gif)
