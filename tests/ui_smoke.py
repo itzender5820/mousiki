@@ -339,6 +339,62 @@ def radio_waterfall(binary, root, scripts):
         sess.kill()
 
 
+def radio_station_edit(binary, root, scripts):
+    """Radio mode, big STATIONS overlay (SHIFT+l): SHIFT+c edits every field of an entry, DEL deletes after a warning, SHIFT+u takes it back; the files follow."""
+    home = os.path.join(root, "radioedit_home")
+    cfgdir = os.path.join(home, ".config", "mousiki")
+    os.makedirs(cfgdir)
+    sfile = os.path.join(cfgdir, "stations.txt")
+    with open(sfile, "w", encoding="utf-8") as f:
+        f.write("# my stations\n# name | genre | country | codec | kbps | url | [*] favorite\n"
+                "Alpha Radio | Rock | US | MP3 | 128 | http://127.0.0.1:9/a | *\n"
+                "Bravo Radio | Jazz | DE | AAC | 64 | http://127.0.0.1:9/b\n"
+                "Charlie Radio | Pop | FR | MP3 | 96 | http://127.0.0.1:9/c\n")
+    with open(os.path.join(cfgdir, "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nStartMode=radio\n" % os.path.join(root, "music"))
+    def file_text():
+        with open(sfile, encoding="utf-8") as f:
+            return f.read()
+    sess = Session(binary, home, scripts, {"MOUSIKI_RADIO_NULL": "1"})
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "Alpha Radio" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        sess.send("L", 1.2)
+        t = sess.text()
+        check("[SHIFT+c] Edit entry" in t and "[DEL] Delete" in t and "[SHIFT+u] Undo" in t, "radio stations overlay: the legend shows Edit entry / Delete / Undo")
+        sess.send(b"\x1b[B", 0.4)                           # Bravo
+        sess.send("C", 1.0)
+        t = sess.text()
+        check("Edit entry" in t and "PRESET NAME:" in t and "URL:" in t and "KBPS:" in t, "radio stations overlay: SHIFT+c opens the entry editor with all fields")
+        sess.send("X", 0.4)                                  # typed into NAME
+        sess.send(b"\t", 0.3)
+        sess.send("Bravo2", 0.4)                              # PRESET NAME
+        sess.send(b"\r", 1.2)
+        txt = file_text()
+        check("Bravo RadioX" in txt and "# my stations" in txt, "radio stations overlay: the edited name is saved, the comment at the top stays")
+        check("Bravo2" in sess.text(), "radio stations overlay: the preset name shows in the list")
+        sess.send(b"\x1b[3~", 0.8)                           # DEL
+        t = sess.text()
+        check("Delete station" in t and "all presets" in t, "radio stations overlay: DEL asks first")
+        sess.send("n", 0.6)
+        check("Bravo RadioX" in file_text(), "radio stations overlay: N keeps the station")
+        sess.send(b"\x1b[3~", 0.8)
+        sess.send("y", 1.2)
+        txt = file_text()
+        check("Bravo" not in txt and "Alpha Radio" in txt and "Charlie Radio" in txt, "radio stations overlay: Y removes the station from stations.txt")
+        sess.send("U", 1.2)
+        txt = file_text()
+        check("Bravo RadioX" in txt and txt.index("Alpha Radio") < txt.index("Bravo RadioX") < txt.index("Charlie Radio"), "radio stations overlay: SHIFT+u brings it back at its place")
+        sess.send("U", 1.0)
+        check("Bravo Radio |" in file_text() and "RadioX" not in file_text(), "radio stations overlay: SHIFT+u again takes the edit back")
+        check(sess.alive(), "radio stations overlay: the program is still running")
+    finally:
+        sess.kill()
+
+
 def selftest_command(binary, scripts):
     """`mousiki --selftest-fetch` starts the fetch health check (offline part here) and passes its exit code on."""
     import subprocess
@@ -1870,7 +1926,7 @@ def run_scenario(name, binary, root, scripts):
 
 
 SCENARIOS = ["narrow80", "narrow100", "main", "read_lyrics_play", "karaoke_timing", "book_speed_and_devices", "paging_and_translit_row",
-             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "translation_editor", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key", "video_overlays", "video_pair_tags", "video_fetch_flow", "settings_video_preview", "radio_waterfall"]
+             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "translation_editor", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key", "video_overlays", "video_pair_tags", "video_fetch_flow", "settings_video_preview", "radio_waterfall", "radio_station_edit"]
 
 
 def main():

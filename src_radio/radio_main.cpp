@@ -414,13 +414,20 @@ int radio_main(int argc, char** argv) {
         return check_geometry(frame, ui.model) ? 0 : 2;
     }
     if (mode == "--dump-stations") {
-        // The big STATIONS overlay: --dump-stations [search [add|alias]]
+        // The big STATIONS overlay: --dump-stations [search [add|edit|delete]]
         apply_test_size(ui.model);
         ui.model.stov.open = true;
         if (argc > 2) { ui.model.search = argv[2]; ui.refilter(); }
         const std::string how = argc > 3 ? argv[3] : "";
         if (how == "add") { ui.model.stov.add_open = true; ui.model.stov.add_url = "https://example.org/stream.mp3"; ui.model.stov.add_edit[0].to_end(ui.model.stov.add_url); }
-        if (how == "alias" && !ui.stations.empty()) { ui.model.stov.alias_open = true; ui.model.stov.alias_idx = 0; ui.model.stov.alias_text = "DLF"; ui.model.stov.alias_edit.to_end(ui.model.stov.alias_text); }
+        if (how == "edit" && !ui.stations.empty()) {
+            StationsOverlay& so = ui.model.stov;
+            const Station& st0 = ui.stations[0];
+            so.edit_open = true; so.edit_idx = 0;
+            const std::string v[StationsOverlay::kEditFields] = {st0.name, st0.preset_name, st0.url, st0.genre, st0.country, st0.codec_hint, std::to_string(st0.bitrate_hint)};
+            for (int f = 0; f < StationsOverlay::kEditFields; ++f) { so.edit_text[f] = v[f]; so.edit_ed[f].to_end(v[f]); }
+        }
+        if (how == "delete" && !ui.stations.empty()) ui.model.stov.del_idx = 0;
         auto frame = render_radio_frame(ui.model, engine.status(), engine, cfg);
         print_plain(frame);
         return check_geometry(frame, ui.model) ? 0 : 2;
@@ -814,18 +821,130 @@ int radio_main(int argc, char** argv) {
                  + (saved ? "  (saved to " + where + ")" : "  -- NOT saved: " + err + " (it stays in the list until you quit)");
         so.add_open = false; so.add_error.clear(); set_text_entry(false);
     };
-    auto stov_alias_commit = [&]() {
+    // Deleting / editing a station changes the station list under everything that holds station INDICES (presets, station lists, the
+    // history of tuned stations, the list editor): each change is one undo step (SHIFT+u) with a copy of all of them.
+    struct StationUndo {
+        std::vector<Station> stations;
+        std::vector<PresetBank> banks;
+        std::vector<int> presets;
+        int bank_active = 0;
+        std::vector<StationList> lists;
+        std::vector<int> history;
+        std::vector<int> lm_items;
+        std::string what;
+    };
+    std::vector<StationUndo> stov_undo;
+    auto stov_snapshot = [&](const std::string& what) {
+        ui.sync_active();
+        stov_undo.push_back({ui.stations, ui.model.banks, ui.model.presets, ui.model.bank_active, ui.model.lists, history, ui.model.lmenu.items, what});
+        if (stov_undo.size() > 20) stov_undo.erase(stov_undo.begin());
+        ui.model.stov.undo_count = static_cast<int>(stov_undo.size());
+    };
+    // The stream that plays goes on whatever happens to the list: only its index is looked up again (by its URL; -1 = not in the list).
+    auto stov_resync_tuned = [&]() {
+        const RadioStatus rs = engine.status();
+        if (rs.tuned_url.empty()) return;
+        int found = -1;
+        for (size_t i = 0; i < ui.stations.size(); ++i) if (same_stream_url(ui.stations[i].url, rs.tuned_url)) { found = static_cast<int>(i); break; }
+        if (found != rs.tuned_index) engine.set_tuned_index(found);
+    };
+    auto stov_refresh = [&]() {
+        ui.refilter(); ui.refilter_menu(); ui.refilter_presets(); ui.refilter_lists_stations(); ui.refilter_saved_lists(); ui.refilter_main_lists();
+        UiModel& um = ui.model;
+        um.cursor = std::clamp(um.cursor, 0, std::max(0, static_cast<int>(um.visible.size()) - 1));
+    };
+    // Writes everything a change touches; returns "" or what could not be written.
+    auto stov_persist_all = [&]() -> std::string {
+        std::string err, bad;
+        if (!save_all_stations(ui.stations, nullptr, &err)) bad = err;
+        else if (!save_preset_names(ui.stations)) bad = "cannot write " + preset_names_path();
+        else if (!ui.persist()) bad = "cannot write " + presets_path();
+        else if (!save_station_lists(ui.stations, ui.model.lists)) bad = "cannot write " + station_lists_path();
+        return bad;
+    };
+    auto stov_delete = [&](int idx) {
         StationsOverlay& so = ui.model.stov;
-        if (so.alias_idx >= 0 && so.alias_idx < static_cast<int>(ui.stations.size())) {
-            std::string t = so.alias_text;
-            while (!t.empty() && t.back() == ' ') t.pop_back();
-            ui.stations[static_cast<size_t>(so.alias_idx)].preset_name = t;
-            const bool ok = save_preset_names(ui.stations);
-            so.flash = (t.empty() ? "Preset name removed for \"" : "Preset name set for \"") + ui.stations[static_cast<size_t>(so.alias_idx)].name + "\""
-                     + (ok ? "" : "  -- NOT saved: cannot write " + preset_names_path());
-            ui.refilter();   // the search also looks at the preset name
+        if (idx < 0 || idx >= static_cast<int>(ui.stations.size())) return;
+        if (ui.stations.size() <= 1) { so.flash = "the last station cannot be deleted"; return; }
+        stov_snapshot("delete");
+        const std::string nm = ui.stations[static_cast<size_t>(idx)].name;
+        ui.stations.erase(ui.stations.begin() + idx);
+        auto fix_slot = [&](int& v) { if (v == idx) v = -1; else if (v > idx) --v; };
+        for (auto& b : ui.model.banks) for (int& v : b.slots) fix_slot(v);
+        for (int& v : ui.model.presets) fix_slot(v);
+        auto fix_items = [&](std::vector<int>& items) {
+            items.erase(std::remove(items.begin(), items.end(), idx), items.end());
+            for (int& v : items) if (v > idx) --v;
+        };
+        for (auto& l : ui.model.lists) fix_items(l.items);
+        fix_items(history);
+        fix_items(ui.model.lmenu.items);
+        stov_resync_tuned();
+        stov_refresh();
+        const std::string bad = stov_persist_all();
+        so.flash = "Deleted \"" + nm + "\"  (SHIFT+u undoes it)" + (bad.empty() ? "" : "  -- NOT saved: " + bad);
+    };
+    auto stov_undo_do = [&]() {
+        StationsOverlay& so = ui.model.stov;
+        if (stov_undo.empty()) { so.flash = "nothing to undo"; return; }
+        StationUndo u = std::move(stov_undo.back());
+        stov_undo.pop_back();
+        so.undo_count = static_cast<int>(stov_undo.size());
+        ui.stations = std::move(u.stations);
+        ui.model.banks = std::move(u.banks);
+        ui.model.presets = std::move(u.presets);
+        ui.model.bank_active = u.bank_active;
+        ui.model.lists = std::move(u.lists);
+        history = std::move(u.history);
+        ui.model.lmenu.items = std::move(u.lm_items);
+        stov_resync_tuned();
+        stov_refresh();
+        const std::string bad = stov_persist_all();
+        so.flash = "Undone: " + u.what + (bad.empty() ? "" : "  -- NOT saved: " + bad);
+    };
+    auto stov_edit_open = [&](int idx) {
+        StationsOverlay& so = ui.model.stov;
+        const Station& st0 = ui.stations[static_cast<size_t>(idx)];
+        so.edit_open = true; so.edit_idx = idx; so.edit_field = 0; so.edit_error.clear(); so.flash.clear();
+        const std::string v[StationsOverlay::kEditFields] = {st0.name, st0.preset_name, st0.url, st0.genre, st0.country, st0.codec_hint, st0.bitrate_hint > 0 ? std::to_string(st0.bitrate_hint) : std::string("0")};
+        for (int f = 0; f < StationsOverlay::kEditFields; ++f) { so.edit_text[f] = v[f]; so.edit_ed[f].to_end(v[f]); }
+        set_text_entry(true);
+    };
+    auto stov_edit_commit = [&]() {
+        StationsOverlay& so = ui.model.stov;
+        if (so.edit_idx < 0 || so.edit_idx >= static_cast<int>(ui.stations.size())) { so.edit_open = false; set_text_entry(false); return; }
+        auto trim = [](std::string t) {
+            while (!t.empty() && (t.back() == ' ' || t.back() == '\t')) t.pop_back();
+            size_t b = 0; while (b < t.size() && (t[b] == ' ' || t[b] == '\t')) ++b;
+            t.erase(0, b);
+            for (auto& c : t) if (c == '|') c = '/'; else if (static_cast<unsigned char>(c) < 32) c = ' ';
+            return t;
+        };
+        const std::string name = trim(so.edit_text[0]), pre = trim(so.edit_text[1]), url = trim(so.edit_text[2]);
+        const std::string genre = trim(so.edit_text[3]), country = trim(so.edit_text[4]), codec = trim(so.edit_text[5]), kbps_s = trim(so.edit_text[6]);
+        if (name.empty()) { so.edit_error = "The name cannot be empty"; so.edit_field = 0; return; }
+        if (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0 && url.rfind("lavfi:", 0) != 0) { so.edit_error = "Not a stream address: it has to start with http:// or https://"; so.edit_field = 2; return; }
+        for (size_t i = 0; i < ui.stations.size(); ++i)
+            if (static_cast<int>(i) != so.edit_idx && same_stream_url(ui.stations[i].url, url)) {
+                so.edit_error = "That address is already station no. " + std::to_string(i + 1) + ": \"" + ui.stations[i].name + "\""; so.edit_field = 2; return;
+            }
+        int kbps = 0;
+        if (!kbps_s.empty()) {
+            for (char c : kbps_s) if (c < '0' || c > '9') { so.edit_error = "KBPS is a number (0 = unknown)"; so.edit_field = 6; return; }
+            kbps = std::min(99999, std::atoi(kbps_s.c_str()));
         }
-        so.alias_open = false; set_text_entry(false);
+        Station& st0 = ui.stations[static_cast<size_t>(so.edit_idx)];
+        if (st0.name == name && st0.preset_name == pre && st0.url == url && st0.genre == genre && st0.country == country && st0.codec_hint == codec && st0.bitrate_hint == kbps) {
+            so.edit_open = false; so.edit_error.clear(); set_text_entry(false); so.flash = "nothing changed"; return;
+        }
+        stov_snapshot("edit of \"" + st0.name + "\"");
+        if (st0.dial_mhz == dial_for_name(st0.name)) st0.dial_mhz = dial_for_name(name);
+        st0.name = name; st0.preset_name = pre; st0.url = url; st0.genre = genre; st0.country = country; st0.codec_hint = codec; st0.bitrate_hint = kbps;
+        stov_resync_tuned();
+        stov_refresh();
+        const std::string bad = stov_persist_all();
+        so.flash = "Saved \"" + name + "\"  (SHIFT+u undoes it)" + (bad.empty() ? "" : "  -- NOT saved: " + bad);
+        so.edit_open = false; so.edit_error.clear(); set_text_entry(false);
     };
 
     // ---- RADIO BROWSER menu (Shift+S) ----------------------------------------------------------------
@@ -1895,13 +2014,24 @@ int radio_main(int argc, char** argv) {
                 continue;
             }
             // ------------------------------------------------------------------ SHIFT+o / SHIFT+v overlays (main screen)
-            if (ui.model.stov.open && (ui.model.stov.add_open || ui.model.stov.alias_open) && !ui.model.cheat_open) {
+            if (ui.model.stov.open && ui.model.stov.del_idx >= 0 && !ui.model.cheat_open) {   // the warning before a deletion
+                StationsOverlay& so = ui.model.stov;
+                if (k == 3) { running = false; continue; }
+                if (!arrow && (k == 'y' || k == 'Y')) { const int d = so.del_idx; so.del_idx = -1; stov_delete(d); }
+                else if ((!arrow && (k == 'n' || k == 'N')) || (k == 27 && !arrow)) { so.del_idx = -1; so.flash = "kept"; }
+                continue;
+            }
+            if (ui.model.stov.open && (ui.model.stov.add_open || ui.model.stov.edit_open) && !ui.model.cheat_open) {
                 StationsOverlay& so = ui.model.stov;
                 if (k == 3) { set_text_entry(false); running = false; continue; }
-                if (k == 27 && !arrow) { so.add_open = false; so.alias_open = false; so.add_error.clear(); set_text_entry(false); continue; }
-                if (so.alias_open) {
-                    if (k == 13 || k == 10) stov_alias_commit();
-                    else edit_text_key(so.alias_text, so.alias_edit, k, 120, nullptr);
+                if (k == 27 && !arrow) { so.add_open = false; so.edit_open = false; so.add_error.clear(); so.edit_error.clear(); set_text_entry(false); continue; }
+                if (so.edit_open) {
+                    constexpr int nf = StationsOverlay::kEditFields;
+                    auto go = [&](int f) { so.edit_field = (f % nf + nf) % nf; so.edit_ed[so.edit_field].to_end(so.edit_text[so.edit_field]); };
+                    if (k == 13 || k == 10) stov_edit_commit();
+                    else if (k == 9 || (arrow && k == 'B')) go(so.edit_field + 1);
+                    else if (arrow && k == 'A') go(so.edit_field - 1);
+                    else if (edit_text_key(so.edit_text[so.edit_field], so.edit_ed[so.edit_field], k, 500, nullptr)) so.edit_error.clear();   // (Left / Right / Home / End move the caret)
                     continue;
                 }
                 if (k == 13 || k == 10) { stov_add_commit(); continue; }
@@ -2581,12 +2711,12 @@ int radio_main(int argc, char** argv) {
                     continue;
                 }
                 if (!arrow && k == 'C') {
-                    if (um.cursor >= 0 && um.cursor < nvis && !um.search_lists) {
-                        so.alias_idx = um.visible[static_cast<size_t>(um.cursor)];
-                        so.alias_text = ui.stations[static_cast<size_t>(so.alias_idx)].preset_name;
-                        so.alias_edit.to_end(so.alias_text);
-                        so.alias_open = true; so.flash.clear(); set_text_entry(true);
-                    }
+                    if (um.cursor >= 0 && um.cursor < nvis && !um.search_lists) stov_edit_open(um.visible[static_cast<size_t>(um.cursor)]);
+                    continue;
+                }
+                if (!arrow && k == 'U') { if (!um.search_lists) stov_undo_do(); continue; }
+                if (k == kKeyDelete) {
+                    if (um.cursor >= 0 && um.cursor < nvis && !um.search_lists) { so.del_idx = um.visible[static_cast<size_t>(um.cursor)]; so.flash.clear(); }
                     continue;
                 }
                 {   // keys that would open another menu are ignored here

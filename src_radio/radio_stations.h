@@ -48,6 +48,9 @@ void set_storage_files(const std::string& stations_file, const std::string& list
 // the stations file, so they move with it when the PATHS tab changes the folder. load_stations() fills Station::preset_name.
 std::string preset_names_path();
 bool save_preset_names(const std::vector<Station>& all);
+// Writes the WHOLE in-memory list to the stations file (after a station was deleted, edited or came back): the file load_stations()
+// used, else a new one. The comment lines at the top of an existing file are kept. Returns false and fills `err` on failure.
+bool save_all_stations(const std::vector<Station>& all, std::string* where = nullptr, std::string* err = nullptr);
 bool append_station_to_file(const Station& st, const std::vector<Station>& all, std::string* where = nullptr, std::string* err = nullptr);
 
 // True when two stream URLs are the same stream spelled differently: scheme (http / https), host case, a trailing "/"

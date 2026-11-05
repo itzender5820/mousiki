@@ -1864,7 +1864,7 @@ const CheatRow kCheatRows[] = {
     {nullptr, "P:", "Typed into the empty box (or /p:): search the STATION LISTS; ENTER shows the hovered list in STATIONS and tunes its first station"},
     {nullptr, "S:", "Typed into the empty box: back to searching the stations"},
     // --- Text fields ---
-    {"TEXT FIELDS (SEARCH BOXES, PRESET NAME BOX, RADIO BROWSER PANES)", "LEFT / RIGHT", "Move the caret"},
+    {"TEXT FIELDS (SEARCH BOXES, STATION EDITOR, RADIO BROWSER PANES)", "LEFT / RIGHT", "Move the caret"},
     {nullptr, "SHIFT+LEFT/RIGHT", "Mark text (extend the selection); typing or pasting replaces it"},
     {nullptr, "HOME / END", "Caret to the start / end of the text"},
     {nullptr, "BACKSPACE / DEL", "Delete the marked text, else the character before / under the caret"},
@@ -1897,7 +1897,9 @@ const CheatRow kCheatRows[] = {
     {"BIG STATIONS OVERLAY (SHIFT+l)", "/", "Search like in the main screen (typo tolerant; p: searches the station lists, ENTER opens one and tunes its first station, s: back to stations)"},
     {nullptr, "UP / DOWN", "Move the cursor; ENTER tunes the hovered station; n / b / # / p / x / + / - work as in the main screen"},
     {nullptr, "A", "Add a station by its stream URL (TAB: URL <-> NAME; an empty NAME becomes the host name); saved to stations.txt"},
-    {nullptr, "SHIFT+c", "Give the hovered station a PRESET NAME: a shorter second name shown in the PRESETS pane (empty = the station's own name)"},
+    {nullptr, "SHIFT+c", "Edit entry: name, PRESET NAME (a shorter second name for the PRESETS pane), URL, genre, country, codec, kbps (TAB / UP / DOWN: field, ENTER saves)"},
+    {nullptr, "DEL", "Delete the hovered station (a warning asks Y / N first); it leaves stations.txt, the presets and the station lists"},
+    {nullptr, "SHIFT+u", "Undo the last deletion or edit of a station (up to 20 steps)"},
     {nullptr, "SHIFT+t", "Sort: list order <-> name A-Z"},
     {nullptr, "ESC / SHIFT+l", "Clear the search, leave a list, then close the overlay"},
     {"LISTENING HISTORY MENU (h)", "LEFT / RIGHT / TAB / 1 2 3", "Switch tab: HISTORY / TOP CHANNELS / HABITS"},
@@ -2171,14 +2173,29 @@ std::vector<std::string> build_cheatsheet(const Style& s, const UiModel& m, int 
 // The big STATIONS overlay (key L): the main STATIONS pane with the whole screen for its rows.
 // ===========================================================================================
 constexpr int kAddOverlayW = 76;
-constexpr int kAliasOverlayW = 64;
+constexpr int kEditOverlayW = 76;
+constexpr int kDelOverlayW = 64;
+
+// The key legend of the big STATIONS overlay: a group continues on further rows when its keys do not fit one (broken between two
+// commands, never inside one), so on a narrow terminal nothing is cut off. The pane gives the rows the legend needs.
+static std::vector<LegendGroup> stations_legend_groups(const StationsOverlay& so) {
+    std::vector<LegendGroup> g;
+    g.push_back({"Move", {"[\u2191\u2193] Navi.", "[ENTER] Tune/Open", "[/] Search", "[p:] Lists", "[ESC] Clear / Exit\001Exit"}, 3});
+    g.push_back({"Edit", {"[a] Add URL", "[SHIFT+c] Edit entry\001Edit", "[DEL] Delete\001Del",
+                          so.undo_count > 0 ? "[SHIFT+u] Undo (" + std::to_string(so.undo_count) + ")\001Undo" : "[SHIFT+u] Undo"}, 3});
+    g.push_back({"Playback", {"[n/b/#] Next / back / random\001Next/Back", "[p] Mute", "[x] Stop", "[+/-] Volume"}, 3});
+    g.push_back({"View", {"[SHIFT+t] Sort", "[L] Close"}, 3});
+    return g;
+}
 
 std::vector<std::string> build_stations_overlay(const Style& s, const UiModel& m, const RadioStatus& st, int W, int rows) {
     const StationsOverlay& so = m.stov;
     const std::vector<Station> none;
     const auto& stations = m.stations ? *m.stations : none;
     std::vector<std::string> out = build_search(s, m, st, W);                 // the same search box as the main screen
-    const int hint_rows = 4;                                                  // three legend rows + the status line
+    // the legend as tall as it has to be (a third of the screen at most), then the status line
+    const int legend_rows = static_cast<int>(layout_legend_tree(stations_legend_groups(so), W - 1, std::max(3, rows / 3)).size());
+    const int hint_rows = legend_rows + 1;
     const int body = std::max(3, rows - static_cast<int>(out.size()) - 2 - hint_rows);   // rows between the pane's borders
     const int inner = W - 4;
     const std::string sep = s.c.list_separator;
@@ -2244,11 +2261,7 @@ std::vector<std::string> build_stations_overlay(const Style& s, const UiModel& m
         const int hidden = std::max(0, total - (first + rowsn));
         out.push_back(box_bottom(s, W, hidden > 0 ? "( " + std::to_string(hidden) + " more )" : "", s.border_bottom));
     }
-    push_legend(out, s, {
-        {"Move", {"[\u2191\u2193] Navi.", "[ENTER] Tune/Open", "[/] Search", "[p:] Lists", "[a] Add URL", "[SHIFT+c] Change name\001Name", "[ESC] Clear / Exit\001Exit"}},
-        {"Playback", {"[n/b/#] Next / back / random\001Next/Back", "[p] Mute", "[x] Stop", "[+/-] Volume"}},
-        {"View", {"[SHIFT+t] Sort", "[L] Close"}},
-    }, W, 3);
+    push_legend(out, s, stations_legend_groups(so), W, std::max(3, rows / 3));
     out.push_back(seg_line({{s.header, utf8_take(so.flash, W)}}, W));
     while (static_cast<int>(out.size()) < rows) out.push_back(spaces(W));
     out.resize(static_cast<size_t>(rows));
@@ -2271,15 +2284,29 @@ std::vector<std::string> build_stations_overlay(const Style& s, const UiModel& m
         panel.push_back(box_bottom(s, pw, "[ENTER] add  [TAB] URL / NAME  [ESC] cancel", s.border_bottom));
         splice_panel(panel, pw);
     }
-    if (so.alias_open) {
-        const int pw = std::min(kAliasOverlayW, W), pi = pw - 4;
+    if (so.edit_open) {
+        static const char* const labels[StationsOverlay::kEditFields] = {"NAME:        ", "PRESET NAME: ", "URL:         ", "GENRE:       ", "COUNTRY:     ", "CODEC:       ", "KBPS:        "};
+        static const char* const helps[StationsOverlay::kEditFields] = {
+            "The station's name in the lists", "A shorter name for the PRESETS pane; empty = the station name", "http(s) stream address",
+            "e.g. Jazz", "e.g. DE", "AAC, MP3 ... (shown until the stream tells)", "0 = unknown"};
+        const int pw = std::min(kEditOverlayW, W), pi = pw - 4;
         std::vector<std::string> panel;
-        const std::string who = so.alias_idx >= 0 && so.alias_idx < static_cast<int>(stations.size()) ? stations[static_cast<size_t>(so.alias_idx)].name : "";
-        panel.push_back(box_top(s, pw, "Preset name", s.border));
-        panel.push_back(box_line(s, seg_line({{s.header, utf8_take(who, pi)}}, pi), s.border));
-        panel.push_back(box_line(s, field_row(base, "Name in the PRESETS pane: ", so.alias_text, so.alias_edit, true, pi, "", s.legend, false), s.border));
-        panel.push_back(box_line(s, seg_line({{s.legend, "A shorter name for the preset slots; empty = the station name"}}, pi), s.border));
-        panel.push_back(box_bottom(s, pw, "[ENTER] save  [ESC] cancel", s.border_bottom));
+        panel.push_back(box_top(s, pw, "Edit entry", s.border));
+        for (int f = 0; f < StationsOverlay::kEditFields; ++f)
+            panel.push_back(box_line(s, field_row(base, labels[f], so.edit_text[f], so.edit_ed[f], so.edit_field == f, pi, "", s.legend, false), s.border));
+        panel.push_back(box_line(s, seg_line({{s.legend, so.edit_error.empty() ? std::string(helps[std::clamp(so.edit_field, 0, StationsOverlay::kEditFields - 1)]) : so.edit_error}}, pi), s.border));
+        panel.push_back(box_bottom(s, pw, "[ENTER] save  [TAB/\u2191\u2193] field  [ESC] cancel", s.border_bottom));
+        splice_panel(panel, pw);
+    }
+    if (so.del_idx >= 0 && so.del_idx < static_cast<int>(stations.size())) {
+        const int pw = std::min(kDelOverlayW, W), pi = pw - 4;
+        const Station& d = stations[static_cast<size_t>(so.del_idx)];
+        std::vector<std::string> panel;
+        panel.push_back(box_top(s, pw, "Delete station", s.border));
+        panel.push_back(box_line(s, seg_line({{s.header, utf8_take(d.name, pi)}}, pi), s.border));
+        panel.push_back(box_line(s, seg_line({{"\x1b[41;97m", pad_right(utf8_take(" Removed from the stations file, all presets and lists.", pi), pi)}}, pi), s.border));
+        panel.push_back(box_line(s, seg_line({{s.legend, "SHIFT+u takes it back as long as Mousiki runs."}}, pi), s.border));
+        panel.push_back(box_bottom(s, pw, "[Y]es delete  [N]o / [ESC] keep", s.border_bottom));
         splice_panel(panel, pw);
     }
     return out;

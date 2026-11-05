@@ -223,7 +223,7 @@ struct HistoryModel {
 // An expansion of the main STATIONS pane: it shows (and edits) the very same state as the main screen -- the same search
 // box (`/`, `p:` searches the station lists, ENTER opens one), `visible`, `cursor`, sort and active list -- just with the
 // whole screen for the rows and one more column (the PRESET NAME). `a` adds a station by its stream URL, SHIFT+c sets the
-// hovered station's second name for the PRESETS pane.
+// hovered station's entry (name, preset name, URL ...), DEL removes it (after a warning), SHIFT+u takes the last change back.
 struct StationsOverlay {
     bool open = false;
     std::string flash;
@@ -234,11 +234,17 @@ struct StationsOverlay {
     int add_field = 0;
     std::string add_url, add_name, add_error;
     EditState add_edit[2];
-    // SHIFT+c: the PRESET NAME of station `alias_idx` (empty = back to the station's own name)
-    bool alias_open = false;
-    int alias_idx = -1;
-    std::string alias_text;
-    EditState alias_edit;
+    // SHIFT+c: EDIT ENTRY -- every field of station `edit_idx` (name, preset name, URL, genre, country, codec, kbps)
+    static constexpr int kEditFields = 7;
+    bool edit_open = false;
+    int edit_idx = -1;
+    int edit_field = 0;
+    std::string edit_text[kEditFields];
+    EditState edit_ed[kEditFields];
+    std::string edit_error;
+    // DEL: the warning before a station is removed (-1 = none)
+    int del_idx = -1;
+    int undo_count = 0;   // how many deletions / edits SHIFT+u can take back (shown in the legend)
 };
 
 // The record overlay's choices (y): seconds back from the moment it opened; 0 = from now on, -1 = the whole buffer.

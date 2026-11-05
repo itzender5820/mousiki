@@ -2284,16 +2284,18 @@ Two tabs, switched with `←` / `→` like the player's playlist editor (see [Me
 
 ### 11.9 Big STATIONS overlay (`SHIFT+l`)
 
-The STATIONS pane with the whole screen for its rows and an extra **PRESET NAME** column. It shares the search box and the state of the main screen (`/`, `p:`, `s:`, `SHIFT+t`; `ESC` clears the search, leaves a list, then closes). `ENTER` tunes the hovered station and `n` `b` `#` `p` `x` `+` `-` work as on the main screen. Keys that would open another menu are ignored while it is open.
+The STATIONS pane with the whole screen for its rows and an extra **PRESET NAME** column; here the station list is also edited (add, edit, delete, undo). It shares the search box and the state of the main screen (`/`, `p:`, `s:`, `SHIFT+t`; `ESC` clears the search, leaves a list, then closes). `ENTER` tunes the hovered station and `n` `b` `#` `p` `x` `+` `-` work as on the main screen. Keys that would open another menu are ignored while it is open.
 
 ![Big stations overlay](images_radio/radio_big_station_list.png)
 
-*The big STATIONS overlay with the PRESET NAME column.*
+*The big STATIONS overlay with the PRESET NAME column. Its key legend takes as many rows as it needs, so nothing is cut off on a narrow terminal.*
 
 | Key | What it does |
 |---|---|
 | `a` | **Add a station by its stream URL.** `TAB` switches URL ↔ NAME, an empty NAME becomes the host name. The station is appended to the end (so the preset slots stay valid) and written to `stations.txt`. A stream that is already in the list is refused. |
-| `SHIFT+c` | Give the hovered station a **preset name**: a shorter second name that is shown in the PRESETS pane instead of the station name (empty = the station's own name again). It is stored in `preset_names.txt` and the search also looks at it. |
+| `SHIFT+c` | **Edit entry** of the hovered station: NAME, PRESET NAME (a shorter second name shown in the PRESETS pane instead of the station name; empty = the station's own name), URL, GENRE, COUNTRY, CODEC and KBPS. `TAB` / `↑` `↓` move between the fields, `ENTER` saves, `ESC` cancels. A name must not be empty, the URL has to be an `http(s)` address that no other station has, KBPS is a number. The change is written to `stations.txt` (the comment lines at its top stay) and `preset_names.txt`; presets and station lists follow the new name and URL. The search also looks at the preset name. |
+| `DEL` | **Delete** the hovered station, after a warning (`Y` deletes, `N` / `ESC` keeps it). It leaves `stations.txt`, every preset slot and every station list; a stream that plays at that moment goes on. The last station of the list cannot be deleted. |
+| `SHIFT+u` | **Undo** the last deletion or edit (up to 20 steps while the radio runs): the station comes back at its place, in its presets and station lists, and the files are written again. The legend shows how many steps are left. |
 | `SHIFT+l` / `ESC` | Close |
 
 ### 11.10 Timeshift and recording (`SPACE`, `[`, `]`, `{`, `}`, `y`)

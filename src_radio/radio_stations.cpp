@@ -247,6 +247,47 @@ bool append_station_to_file(const Station& st, const std::vector<Station>& all, 
     return static_cast<bool>(out);
 }
 
+bool save_all_stations(const std::vector<Station>& all, std::string* where, std::string* err) {
+    std::vector<fs::path> candidates;
+    const char* home = std::getenv("HOME");
+    if (!home || !*home) home = std::getenv("USERPROFILE");
+    if (!g_stations_file.empty()) candidates.push_back(fs::path(g_stations_file));
+    if (home && *home) candidates.push_back(fs::path(home) / ".config" / "mousiki" / "stations.txt");
+    candidates.push_back(fs::path("stations.txt"));
+    fs::path target = !g_stations_file.empty() || (home && *home) ? candidates.front() : fs::path("stations.txt");
+    for (const auto& c : candidates) {
+        std::error_code ec;
+        if (fs::exists(c, ec) && !parse_file(c).empty()) { target = c; break; }
+    }
+    std::string head;   // the comment lines before the first station line stay
+    {
+        std::ifstream in(target);
+        std::string line;
+        while (in && std::getline(in, line)) {
+            const std::string t = trim_ws(line);
+            if (!t.empty() && t[0] != '#') break;
+            head += line + "\n";
+        }
+    }
+    if (head.empty())
+        head = "# Mousiki radio mode -- station list (written by the radio; see radio/stations.txt for the format)\n"
+               "# name | genre | country | codec | kbps | url | [*] favorite\n";
+    std::error_code ec;
+    if (target.has_parent_path()) fs::create_directories(target.parent_path(), ec);
+    const fs::path tmp = fs::path(target.string() + ".tmp");
+    {
+        std::ofstream out(tmp, std::ios::binary);
+        if (!out) { if (err) *err = "cannot write " + target.string(); return false; }
+        out << head;
+        for (const auto& st : all) out << station_line(st) << "\n";
+        if (!out) { if (err) *err = "cannot write " + target.string(); return false; }
+    }
+    fs::rename(tmp, target, ec);
+    if (ec) { fs::remove(tmp, ec); if (err) *err = "cannot write " + target.string(); return false; }
+    if (where) *where = target.string();
+    return true;
+}
+
 int preset_slot_for_key(int key) {
     if (key <= 0 || key > 255) return -1;
     for (int i = 0; i < kPresetCount; ++i) if (kPresetKeys[i] == key) return i;

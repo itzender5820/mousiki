@@ -211,7 +211,7 @@ private:
 // cancelled session can finish winding down after the engine is gone.
 struct Session {
     Station station;
-    int index = -1;
+    std::atomic<int> index{-1};   // set_tuned_index() moves it when the station list changes under a playing stream
     std::shared_ptr<Ring> ring;
     unsigned gen = 0;
     // Timeshift: the worker writes everything into the store; the ring only gets it while `shifted` is false (live
@@ -1031,6 +1031,11 @@ RadioStatus RadioEngine::status() const {
         st.info = s->info;
     }
     return st;
+}
+
+void RadioEngine::set_tuned_index(int index) {
+    std::lock_guard<std::mutex> lk(impl_->session_m);
+    if (impl_->session) impl_->session->index = index;
 }
 
 FftVisualizer& RadioEngine::fft() { return impl_->fft; }

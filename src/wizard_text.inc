@@ -1837,8 +1837,13 @@ THE BIG STATIONS OVERLAY: [[Header]]
 )WIZ",
 R"WIZ([SHIFT+l] shows the STATIONS pane over the whole screen plus a PRESET NAME column.
 [a] adds a station by its stream URL ([TAB] switches URL <-> NAME; an empty name becomes the host name).
-[SHIFT+c] gives the hovered station a preset name: a shorter second name shown in the PRESETS pane, 
-which only has little space so it gives you the possibility to specify it by your own demands.
+[SHIFT+c] edits the hovered entry: name, preset name (a shorter second name shown in the PRESETS pane,
+which only has little space), URL, genre, country, codec and kbps. [TAB] or [UP]/[DOWN] switch the field,
+[ENTER] saves, [ESC] cancels.
+[DEL] deletes the hovered station after a warning ([Y] deletes, [N] keeps it); it leaves the stations file, the
+presets and the station lists, the stream that plays goes on.
+[SHIFT+u] undoes the last deletion or edit (up to 20 steps while the radio runs).
+The key legend at the bottom takes as many rows as it needs.
 
 [[New Page]]
 3.1.2 PRESETS [[Header]]
@@ -1992,14 +1997,14 @@ move, [HOME]/[END] jump to the ends.
 A new HISTORY line starts whenever the channel, the artist or the title changes. Lines heard for less
 than 3 seconds are dropped. A session ends after a gap of 30 minutes. The newest 10 000 lines are
 kept one by one; older ones are folded into lifetime totals, so TOP CHANNELS and HABITS stay lifetime
-figures.
+)WIZ",
+R"WIZ(figures.
 
 HEARD A SONG ON THE RADIO? DOWNLOAD IT: [[Header]]
 The radio writes down the artist and title the stream sends. On the HISTORY tab [y] on a line opens an
 overlay that searches YouTube for "artist title". [ENTER] downloads the hovered result into the
 download folder (yt-dlp, opus), [TAB] edits the search query, [ESC] closes. A result is marked
-)WIZ",
-R"WIZ([ok] done, [..] downloading, [!!] failed.
+[ok] done, [..] downloading, [!!] failed.
 This is the online search of the music player reached from the radio, so a song you only heard once
 on air ends up in your local library (after a rescan with [SHIFT+r] in the player).
 
@@ -2127,12 +2132,12 @@ image is done by Kamara Rahmat (iyaniyan; taken from Unsplash).
 
 BOOK COVER: [[Header]]
 The option [Book Cover] in Settings, GENERAL, set to true shows the cover image found in the book's 
-folder instead (a file named cover, folder, front or albumart, else the first picture there; 
+)WIZ",
+R"WIZ(folder instead (a file named cover, folder, front or albumart, else the first picture there; 
 jpg, png, webp ...; no picture file: the cover art inside the first audio file is used). The 
 gradient wave can also be toggled via [Book gradient]. With the wave on, [Cover Brightness]
 (50% = as it is) and [Cover Colors] (how much of the cover's own colours shines through the
-)WIZ",
-R"WIZ(gradient) work on the book's cover too (Settings, ANIMA/VIZ, BOOK COVER).
+gradient) work on the book's cover too (Settings, ANIMA/VIZ, BOOK COVER).
 
 A book without a cover image keeps the default picture. Switching Book Cover on shows in the 
 status line which protocol is used and the cover file found (or why there is none; the console log, t, 
@@ -2251,14 +2256,14 @@ It has a search pane on top ([/] types, the words narrow the list) and the audio
 [ENTER]        on a chapter plays it (the bookmark question first), [CTRL+p] plays it from its start 
                and the overlay stays,
 [f]            opens the book in the chapter pane.
-
+)WIZ",
+R"WIZ(
 LISTENING/READING HISTORY [SHIFT+h]: [[Header]] 
 The listening history made for books, in its own file reading_history.json. Every chapter
 you listen to is recorded. Change tab via  [<-]/[->] or [1] to [4]. 
 Given tabs are HISTORY, TOP CHAPTERS, TOP BOOKS, HABITS.
 [ENTER] on a chapter opens its book and plays it. [ESC] closes.
-)WIZ",
-R"WIZ(
+
 [[New Page]]
 4.1.5 CHAPTER MARKS AND CUTTING [[Header]]
 

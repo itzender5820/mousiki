@@ -106,6 +106,8 @@ public:
     // and everything else happens on worker threads.
     void tune(const Station& st, int index);
     void stop();
+    // The station list changed (a station was deleted or came back): the playing stream goes on, only its index in the list moves (-1 = not in the list).
+    void set_tuned_index(int index);
     // Starts the current station again from scratch (works for stations that are not in the list too).
     void reconnect();
 

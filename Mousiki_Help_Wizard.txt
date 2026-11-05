@@ -1821,8 +1821,13 @@ KEYS ON THE MAIN SCREEN: [[Header]]
 THE BIG STATIONS OVERLAY: [[Header]]
 [SHIFT+l] shows the STATIONS pane over the whole screen plus a PRESET NAME column.
 [a] adds a station by its stream URL ([TAB] switches URL <-> NAME; an empty name becomes the host name).
-[SHIFT+c] gives the hovered station a preset name: a shorter second name shown in the PRESETS pane, 
-which only has little space so it gives you the possibility to specify it by your own demands.
+[SHIFT+c] edits the hovered entry: name, preset name (a shorter second name shown in the PRESETS pane,
+which only has little space), URL, genre, country, codec and kbps. [TAB] or [UP]/[DOWN] switch the field,
+[ENTER] saves, [ESC] cancels.
+[DEL] deletes the hovered station after a warning ([Y] deletes, [N] keeps it); it leaves the stations file, the
+presets and the station lists, the stream that plays goes on.
+[SHIFT+u] undoes the last deletion or edit (up to 20 steps while the radio runs).
+The key legend at the bottom takes as many rows as it needs.
 
 [[New Page]]
 3.1.2 PRESETS [[Header]]
