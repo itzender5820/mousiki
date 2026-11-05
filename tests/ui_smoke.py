@@ -24,6 +24,7 @@ import select
 import shutil
 import signal
 import struct
+import subprocess
 import sys
 import tempfile
 import time
@@ -71,6 +72,9 @@ class Session:
         env = dict(os.environ, HOME=home, USERPROFILE=home, TERM="xterm-256color", LANG="C.UTF-8")
         env.pop("KITTY_WINDOW_ID", None)
         env.pop("WT_SESSION", None)
+        # headless runs (CI): no system media session (MPNowPlayingInfoCenter / MPRIS) and no real sound card, unless a scenario asks for them
+        env["MOUSIKI_NO_MEDIA"] = "1"
+        env["MOUSIKI_NULL_AUDIO"] = "1"
         if scripts:
             env["MOUSIKI_SCRIPTS_DIR"] = scripts
         env.update(env_extra or {})
@@ -929,6 +933,17 @@ def main_session(binary, root, scripts):
         check(not sess.alive(), "quit: the program ends after the quit key")
         if sess.alive():
             print("\n".join("%2d %s" % (i, l.rstrip()) for i, l in enumerate(sess.screen.display) if l.strip()))
+            # where is it stuck? (a CI run cannot be looked at): the stacks of all threads (macOS) and the end of the program's own log
+            if sys.platform == "darwin":
+                try:
+                    r = subprocess.run(["/usr/bin/sample", str(sess.pid), "2"], capture_output=True, text=True, timeout=60)
+                    print("---- sample of the hanging program ----\n" + r.stdout[-12000:])
+                except Exception as e:
+                    print("sample failed:", e)
+            logf = os.path.join(home, ".cache", "mousiki", "logs", "console.log")
+            if os.path.exists(logf):
+                with open(logf, errors="replace") as f:
+                    print("---- end of console.log ----\n" + "".join(f.readlines()[-40:]))
     finally:
         sess.kill()
 
