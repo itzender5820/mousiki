@@ -82,7 +82,7 @@ jobs:
       - name: Upload binaries to sign
         if: inputs.sign == 'true'
         id: up-bin
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f   # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9   # v7.0.2
         with:
           name: unsigned-binaries
           path: ${{ runner.temp }}/to-sign/*
@@ -119,7 +119,7 @@ jobs:
       - name: Upload installer to sign
         if: inputs.sign == 'true'
         id: up-setup
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f   # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9   # v7.0.2
         with:
           name: unsigned-installer
           path: ${{ runner.temp }}/installer-to-sign/*
@@ -160,7 +160,7 @@ jobs:
           PY
           powershell -NoProfile -Command "Get-ChildItem packaging/dist/*-setup.exe | ForEach-Object { '{0}: {1}' -f \$_.Name, (Get-AuthenticodeSignature \$_).Status }"
 
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f   # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9   # v7.0.2
         with:
           name: dist-windows
           path: |
@@ -186,7 +186,7 @@ jobs:
           fi
       - name: Build
         run: python3 packaging/release.py build --target linux --install-deps $SRC_ARGS $BUILD_ARGS
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f   # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9   # v7.0.2
         with:
           name: dist-linux
           path: |
@@ -212,7 +212,7 @@ jobs:
           fi
       - name: Build
         run: python3 packaging/release.py build --target macos --install-deps $SRC_ARGS $BUILD_ARGS
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f   # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9   # v7.0.2
         with:
           name: dist-macos
           path: |
@@ -281,7 +281,7 @@ jobs:
       - name: Keep the attestation bundle
         if: ${{ steps.attest.outputs.bundle-path != '' }}
         run: cp "${{ steps.attest.outputs.bundle-path }}" packaging/dist/mousiki-release.intoto.jsonl
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f   # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9   # v7.0.2
         with:
           name: mousiki-release
           path: packaging/dist/*
