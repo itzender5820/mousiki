@@ -86,6 +86,36 @@ TEST(text_edit_paint_fits_the_width) {
     CHECK(sel.s.find("\x1b[7m") != std::string::npos);   // the marked text is in reverse video
 }
 
+namespace {
+std::string strip_sgr(const std::string& in) {
+    std::string out;
+    for (size_t i = 0; i < in.size(); ++i) {
+        if (in[i] == '\x1b') { while (i < in.size() && in[i] != 'm') ++i; continue; }
+        out += in[i];
+    }
+    return out;
+}
+}
+
+TEST(text_edit_paint_follows_the_marking_in_both_directions) {
+    const std::string s = "abcdefghijklmnopqrstuvwxyz";
+    // marking towards the start from the end: the caret (leading) is at offset 3, far left of the window that shows the end
+    const EditPaint left = paint_edit_field(s, 3, 26, 10, "", true);
+    CHECK(strip_sgr(left.s).rfind("defghijklm", 0) == 0);          // the window starts at the caret
+    CHECK_EQ(left.caret, 0);                                        // ... which sits at its left edge
+    CHECK(left.s.find("\x1b[7m") != std::string::npos);            // the marked text is shown
+    CHECK_EQ(display_width(strip_sgr(left.s)), left.cols);
+    CHECK(left.cols <= 10);
+    // marking towards the end: the caret (leading) is at the right edge
+    const EditPaint right = paint_edit_field(s, 20, 5, 10, "", true);
+    CHECK_EQ(right.caret, 9);
+    CHECK(strip_sgr(right.s).find('t') != std::string::npos);       // the text before the caret is visible (the caret itself is the block)
+    // near the end of the text no blank space is left behind it
+    const EditPaint tail = paint_edit_field(s, 24, 26, 10, "", true);
+    CHECK(strip_sgr(tail.s).find('z') != std::string::npos);
+    CHECK(tail.cols <= 10);
+}
+
 TEST(text_edit_block_caret_on_a_wide_character_keeps_the_width) {
     // The caret on a double-width character (Japanese ...) must not make the painted row narrower than it is counted.
     const std::string s = "ab \xE3\x83\x91\xE3\x83\xBC\xE3\x83\xA9";   // "ab パーラ"

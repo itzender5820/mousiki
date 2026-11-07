@@ -329,7 +329,8 @@ inline EditPaint paint_edit_field(const std::string& s, size_t caret, size_t anc
     EditPaint out;
     if (w < 1) w = 1;
     le_clamp(s, caret, anchor);
-    if (anchor > caret) std::swap(anchor, caret);
+    const bool caret_left = caret < anchor;   // marking towards the start: the caret is the LEFT end of the marked range
+    const size_t sel_a = std::min(caret, anchor), sel_b = std::max(caret, anchor);
 
     const std::vector<size_t> cuts = utf8_cuts(s);
     std::vector<int> col(cuts.size(), 0); // col[i] = display column of cuts[i]
@@ -340,18 +341,27 @@ inline EditPaint paint_edit_field(const std::string& s, size_t caret, size_t anc
         for (size_t i = 0; i < cuts.size(); ++i) if (cuts[i] == off) return i;
         return cuts.size() - 1;
     };
-    const size_t caret_i = idx_of(caret);
-    const size_t anchor_i = idx_of(anchor);
+    const size_t caret_i = idx_of(caret);   // the moving end of the marked range: the window follows it, in both directions
+    const size_t sel_a_i = idx_of(sel_a);
+    const size_t sel_b_i = idx_of(sel_b);
 
-    // The leftmost window that still keeps the caret inside it: starting any
-    // further left would push the caret past the right edge, starting further
-    // right would hide text the caret is sitting on.
     const int caret_col = col[caret_i];
-    const int target = caret_col - (w - 1);
     size_t lo_i = 0;
-    for (size_t i = 0; i <= caret_i; ++i) {
-        if (col[i] >= target) { lo_i = i; break; }
-        lo_i = caret_i;
+    if (caret_left) {
+        // Marking towards the start: the caret leads, so it sits at the LEFT edge and the marked text runs to its right (the window
+        // stops short of the end of the text so no blank space is left behind it).
+        const int max_start = std::max(0, col.back() - (w - 1));
+        const int want = std::min(caret_col, max_start);
+        for (size_t i = 0; i <= caret_i; ++i) { if (col[i] <= want) lo_i = i; else break; }
+    } else {
+        // The leftmost window that still keeps the caret inside it: starting any
+        // further left would push the caret past the right edge, starting further
+        // right would hide text the caret is sitting on.
+        const int target = caret_col - (w - 1);
+        for (size_t i = 0; i <= caret_i; ++i) {
+            if (col[i] >= target) { lo_i = i; break; }
+            lo_i = caret_i;
+        }
     }
     size_t hi_i = lo_i;
     while (hi_i + 1 < cuts.size() && col[hi_i + 1] - col[lo_i] <= w) ++hi_i;
@@ -367,9 +377,11 @@ inline EditPaint paint_edit_field(const std::string& s, size_t caret, size_t anc
         if (sel) out.s += "\x1b[7m" + body + "\x1b[0m" + restore;
         else out.s += body;
     };
+    // (a caret at the left end of a marked range gets no block: the first marked character stays readable, the marking shows where it is)
+    const bool draw_block = block && !(caret_left && sel_a_i != sel_b_i);
     for (size_t i = lo_i; i < hi_i; ++i) {
-        const bool sel = (i >= anchor_i && i < caret_i);
-        if (block && i == caret_i) {
+        const bool sel = (i >= sel_a_i && i < sel_b_i);
+        if (draw_block && i == caret_i) {
             // The block covers as many columns as the character it replaces: a double-width one (Japanese, Chinese,
             // Korean, emoji) drawn as a single block made the row one column short and pushed the right border in.
             const int cw = std::max(1, col[i + 1] - col[i]);
@@ -382,10 +394,10 @@ inline EditPaint paint_edit_field(const std::string& s, size_t caret, size_t anc
     // Caret at (or beyond) the end of the window: there is no character to
     // replace, so the block is appended -- which only fits because the window
     // above reserves the column (col[caret_i] - col[lo_i] <= w-1).
-    if (block && caret_i >= hi_i) emit(0, 0, false, "\u2588");
+    if (draw_block && caret_i >= hi_i) emit(0, 0, false, "\u2588");
 
     out.cols = col[hi_i] - col[lo_i];
-    if (block && caret_i >= hi_i) out.cols += 1;
+    if (draw_block && caret_i >= hi_i) out.cols += 1;
     return out;
 }
 
