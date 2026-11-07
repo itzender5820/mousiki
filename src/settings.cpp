@@ -1143,7 +1143,11 @@ static Settings load_from_config(const fs::path& path) {
         if (key == "video_contrast") { s.video_contrast = std::clamp((std::atoi(trim_ws(unquote(value)).c_str()) + 2) / 5 * 5, 0, 100); continue; }
         if (key == "video_colors") { s.video_colors = std::clamp((std::atoi(trim_ws(unquote(value)).c_str()) + 2) / 5 * 5, 0, 100); continue; }
         if (key == "video_mp3") { s.video_mp3 = parse_bool(value) || ascii_lower_str(trim_ws(unquote(value))) == "on"; continue; }
-        if (key == "video_clap") { s.video_clap = parse_bool(value); continue; }
+        if (key == "video_clap") {   // text | clap | none (true / false of the first version: clap / text)
+            const std::string v = ascii_lower_str(trim_ws(unquote(value)));
+            s.video_clap = (v == "none" || v == "off" || v == "nothing") ? 2 : (v == "text" || v == "text note" || v == "false") ? 0 : 1;
+            continue;
+        }
         if (key == "video_round") { s.video_round = parse_bool(value) || ascii_lower_str(trim_ws(unquote(value))) == "on"; continue; }
         if (key == "video_chroma") { s.video_chroma = chroma_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
         if (key == "cover_chroma") { s.cover_chroma = chroma_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
@@ -2002,7 +2006,7 @@ static void write_settings(std::ostream& out, const Settings& s) {
     out << "VideoContrast=" << s.video_contrast << "\n## 0 .. 100 (percent, steps of 5) -- more contrast for the video's picture (0 = as it is)\n";
     out << "VideoColors=" << s.video_colors << "\n## 0 .. 100 (percent, steps of 5) -- the video's colours (0 = greyscale, 100 = as they are)\n";
     out << "VideoRound=" << tf(s.video_round) << "\n## Rounded Corners: the corners of the video's picture are cut round like the corners of the UI (a track can have its own: Style Option): true | false\n";
-    out << "VideoClap=" << tf(s.video_clap) << "\n## Show Clap Loading: a small clapperboard in the border colours while a video loads, in the small field and in the big video overlay (else the text \"video: starting ...\"): true | false\n";
+    out << "VideoClap=" << (s.video_clap == 2 ? "none" : s.video_clap == 0 ? "text note" : "clap") << "\n## Show Clap Loading: what shows while a video loads, in the small field and in the big video overlay: text note (\"video: starting ...\") | clap (a small clapperboard in the border colours) | none\n";
     out << "VideoChroma=" << chroma_name(s.video_chroma) << "\n## chromatic aberration of the video's picture (red and blue pushed apart, more towards the corners; works with every effect): off | subtle | medium | strong\n";
     out << "VideoResolution=" << video_res_name(s.video_res) << "\n";
     out << "## the sharpness of the video's picture: standard (up to 640 px wide, Sixel 480; the soft look) | high (1280 px, Sixel 720; Kitty in true colour) | full (1920 px, Sixel 960; Kitty in true colour). Wider pictures need more of the terminal and the processor\n";

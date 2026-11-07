@@ -1526,6 +1526,18 @@ def disk_field_setting(binary, root, scripts):
         sess.send(b"\x1b[C", 1.0)
         check("Show Disk / Cover" in sess.text() and "Disk / Cover field removed" not in sess.text(), "disk field: Show Disk / Cover brings the preview back")
         check(sess.alive(), "disk field: the program is still running")
+        for _ in range(4):                                  # up to Show Clap Loading (yt-dlp mp3 from mp4, Video Buffer and Video Resolution are in between)
+            sess.send(b"\x1b[A", 0.2)
+        sess.pump(0.8)
+        t = sess.text()
+        check("Show Clap Loading" in t and "loading: clap" in t, "show clap loading: the preview shows the clap (the default)")
+        sess.send(b"\x1b[C", 0.8)
+        t = sess.text()
+        check("loading: none" in t, "show clap loading: right arrow goes on to none")
+        sess.send(b"\x1b[D", 0.4)
+        sess.send(b"\x1b[D", 0.8)
+        t = sess.text()
+        check("loading: text note" in t and "video: starting" in t, "show clap loading: the text note shows the message")
     finally:
         sess.kill()
 

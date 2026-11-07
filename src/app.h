@@ -335,6 +335,7 @@ private:
     mutable std::string vtr_key_;
     mutable std::vector<std::string> vtr_lines_;
     mutable std::chrono::steady_clock::time_point vtr_at_{};   // when the lookup was made (an empty result is looked up again after a few seconds: a translation may have been saved meanwhile)
+    void clap_loading_fill(std::vector<std::string>& rows, int W, int H, int abs_col, int abs_row, GfxFrame& g, std::string& key_ref, int id) const;   // the small clapperboard while a video loads (picture or braille)
     bool video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, int abs_row, bool second_slot, double t, int mode,
                     const std::vector<std::string>& ov, int ov_w, bool flush_bottom = false, bool trim_right = false) const;
     std::string build_video_full(int W, const char* clear_prefix) const;

@@ -133,8 +133,8 @@ VideoContrast=0
 ## 0 .. 100 (percent, steps of 5) -- more contrast for the video's picture (0 = as it is)
 VideoColors=100
 ## 0 .. 100 (percent, steps of 5) -- the video's colours (0 = greyscale, 100 = as they are)
-VideoClap=true
-## Show Clap Loading: a small clapperboard in the border colours while a video loads, in the small field and in the big video overlay (else the text "video: starting ..."): true | false
+VideoClap=clap
+## Show Clap Loading: what shows while a video loads, in the small field and in the big video overlay: text note ("video: starting ...") | clap (a small clapperboard in the border colours) | none
 VideoChroma=off
 ## chromatic aberration of the video's picture (red and blue pushed apart, more towards the corners; works with every effect): off | subtle | medium | strong
 VideoRound=false

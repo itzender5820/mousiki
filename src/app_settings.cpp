@@ -752,7 +752,7 @@ std::string App::settings_get_value(int row, int col) const {
             case kSidVideoColors: return std::to_string(std::clamp(settings_.video_colors, 0, 100)) + "%";
             case kSidVideoChroma: return chroma_name(settings_.video_chroma);
             case kSidVideoRound: return settings_.video_round ? "on" : "off";
-            case kSidVideoClap: return settings_.video_clap ? "on" : "off";
+            case kSidVideoClap: return settings_.video_clap == 2 ? "none" : settings_.video_clap == 0 ? "text note" : "clap";
             case kSidCoverChroma: return chroma_name(settings_.cover_chroma);
             case kSidVideoRes: return video_res_label(settings_.video_res, gfx_proto_ == GfxProto::Sixel);
             case kSidVideoBuffer: return std::to_string(settings_.video_buffer) + " MB";
@@ -891,7 +891,8 @@ std::vector<std::string> App::settings_options_for(int tab, int row) const {
             case kSidVideoFx: { std::vector<std::string> o; for (int i = 0; i < kVideoFxShown; ++i) o.push_back(video_fx_name(kVideoFxOrder[i])); return o; }
             case kSidVideoContrast: case kSidVideoColors: { std::vector<std::string> o; for (int i = 0; i <= 100; i += 5) o.push_back(std::to_string(i) + "%"); return o; }
             case kSidVideoChroma: case kSidCoverChroma: return {"off", "subtle", "medium", "strong"};
-            case kSidVideoRound: case kSidVideoClap: return {"off", "on"};
+            case kSidVideoRound: return {"off", "on"};
+            case kSidVideoClap: return {"text note", "clap", "none"};
             case kSidVideoRes: return {video_res_label(0, gfx_proto_ == GfxProto::Sixel), video_res_label(1, gfx_proto_ == GfxProto::Sixel), video_res_label(2, gfx_proto_ == GfxProto::Sixel)};
             case kSidVideoMp3: return {"false", "true"};
             case kSidVideoBuffer: { std::vector<std::string> o; for (int c : kVideoBufferChoices) o.push_back(std::to_string(c) + " MB"); return o; }
@@ -987,7 +988,7 @@ void App::settings_commit_edit_impl() {
             video_pic_key_.clear();
             return;
         }
-        if (id == kSidVideoClap) { settings_.video_clap = v == "on"; video_pic_key_.clear(); return; }
+        if (id == kSidVideoClap) { settings_.video_clap = v == "none" ? 2 : v == "text note" ? 0 : 1; video_pic_key_.clear(); return; }
         if (id == kSidVideoRound) { settings_.video_round = v == "on"; video_pic_key_.clear(); return; }
         if (id == kSidVideoChroma) { settings_.video_chroma = chroma_from(v); video_pic_key_.clear(); return; }
         if (id == kSidCoverChroma) { settings_.cover_chroma = chroma_from(v); cover_pic_key_.clear(); return; }
@@ -1393,7 +1394,7 @@ void App::settings_cycle(int dir) {
     if (id == kSidVideoSize) status_line_ = std::string("video size: ") + (settings_.video_size == 1 ? "cropped -- two columns are cut off each side of the picture" : settings_.video_size == 2 ? "full -- the picture fills the field, cropped to fit, the lyric line as a small box over it" : settings_.video_size == 3 ? "framed -- like full, one row and two columns smaller on every side" : "regular -- the whole picture") + note;
     if (id == kSidVideoContrast) status_line_ = "video contrast: " + std::to_string(settings_.video_contrast) + "% -- more contrast for the video's picture (0 = as it is)" + note;
     if (id == kSidVideoColors) status_line_ = "video colors: " + std::to_string(settings_.video_colors) + "% -- 0 = greyscale, 100 = the video's own colours" + note;
-    if (id == kSidVideoClap) status_line_ = settings_.video_clap ? "show clap loading: on -- a small clapperboard shows while a video loads" : "show clap loading: off -- the text \"video: starting ...\" shows while a video loads";
+    if (id == kSidVideoClap) status_line_ = settings_.video_clap == 1 ? "show clap loading: clap -- a small clapperboard shows while a video loads" : settings_.video_clap == 0 ? "show clap loading: text note -- the text \"video: starting ...\" shows while a video loads" : "show clap loading: none -- nothing shows while a video loads";
     if (id == kSidVideoRound) status_line_ = settings_.video_round ? "video rounded corners: on -- the corners of the picture are cut round like the corners of the UI" : "video rounded corners: off";
     if (id == kSidVideoChroma) status_line_ = std::string("video chromatic aberration: ") + chroma_name(settings_.video_chroma) + " -- red and blue are pushed apart, more towards the corners; works with every effect" + note;
     if (id == kSidCoverChroma) status_line_ = std::string("cover chromatic aberration: ") + chroma_name(settings_.cover_chroma) + " -- for a cover that shows its own colours (Just Cover, Cover Colors above 0, the ASCII looks)" + note;

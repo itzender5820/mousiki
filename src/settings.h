@@ -107,7 +107,7 @@ struct Settings : VizPrefs {
     int video_contrast = 0;           // Video Contrast (VideoContrast=): 0..100 %, steps of 5 (0 = as it is)
     int video_colors = 100;           // Video Colors (VideoColors=): 0..100 %, steps of 5 (0 = greyscale, 100 = the video's own colours)
     bool video_mp3 = true;            // yt-dlp mp3 from mp4 (VideoMp3=): a video downloaded in SEARCH YT without a target song also gets its sound as an mp3 song
-    bool video_clap = true;           // Show Clap Loading (VideoClap=): a small clapperboard while a video loads (else the text "video: starting ...")
+    int video_clap = 1;               // Show Clap Loading (VideoClap=): what shows while a video loads: 0 text note ("video: starting ..."), 1 clap (a small clapperboard), 2 none
     bool video_round = false;         // Rounded Corners of the video picture (VideoRound=): the picture's corners are cut round, like the corners of the UI
     int video_chroma = 0;             // Video Chromatic Aberration (VideoChroma=): 0 off, 1 subtle, 2 medium, 3 strong
     int cover_chroma = 0;             // Cover Chromatic Aberration (CoverChroma=): the same, for covers that show their own colours

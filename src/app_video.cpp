@@ -373,6 +373,91 @@ namespace {
 std::vector<unsigned char> clapper_open_mask(int w, int h, int art);   // (below, with the clapperboard art)
 }
 
+// The loading picture of a video: a small open clapperboard in the middle of a W x H cell box (rows: H strings of W columns, set here). In a
+// Kitty / Sixel terminal a real picture, transparent round the board (placeholders in `rows`, the picture in `g` with the Kitty id `id`;
+// `key` remembers what was made), else braille dots. The colours are the border gradient, dimmed. abs_col / abs_row: 0-based, where the box starts.
+void App::clap_loading_fill(std::vector<std::string>& rows, int W, int H, int abs_col, int abs_row, GfxFrame& g, std::string& key_ref, int id) const {
+    int cw0 = 10, ch0 = 20;
+    gfx_cell_pixels(settings_.cell_pixels, cw0, ch0);
+    cw0 = std::max(4, cw0); ch0 = std::max(8, ch0);
+    const bool picture = gfx_proto_ != GfxProto::None;
+    if (H < 4 || W < 12) return;
+        // The video is loading: a small open clapperboard in the middle of the picture's place instead of the message (a real picture,
+        // transparent round the board, where the terminal has one; else braille dots), in the colours of the border gradient.
+        const int mrows = H >= 6 ? 4 : 3;
+        int rc0 = 255, gc0 = 255, bc0 = 255, rc1 = 255, gc1 = 255, bc1 = 255;
+        if (!try_parse_rgb(settings_.border_color, rc0, gc0, bc0)) { rc0 = gc0 = bc0 = 255; }
+        rc1 = rc0; gc1 = gc0; bc1 = bc0;
+        if (settings_.border_smooth && !try_parse_rgb(settings_.border_color_bottom, rc1, gc1, bc1)) { rc1 = rc0; gc1 = gc0; bc1 = bc0; }
+        auto mix = [&](float u, int& r, int& g, int& b) {
+            u = std::clamp(u, 0.0f, 1.0f);
+            r = static_cast<int>((rc0 + (rc1 - rc0) * u) * 0.6f); g = static_cast<int>((gc0 + (gc1 - gc0) * u) * 0.6f); b = static_cast<int>((bc0 + (bc1 - bc0) * u) * 0.6f);   // (dimmed: it is only a placeholder)
+        };
+        if (picture) {
+            const int S = mrows * ch0;                                        // the board is square: S x S pixels
+            const int mcols = std::min(W, (S + cw0 - 1) / cw0);
+            const int iw = mcols * cw0, ih = mrows * ch0;
+            const int lead = (W - mcols) / 2, top = (H - mrows) / 2;
+            const std::string key = "clap|" + std::to_string(iw) + "x" + std::to_string(ih) + "|" + std::to_string(abs_col + lead) + "," + std::to_string(abs_row + top) + "|" +
+                                    settings_.border_color + settings_.border_color_bottom + (settings_.border_smooth ? "s" : "");
+                        g.plain = true; g.direct = true; g.scale = 1; g.truecolor = false;
+            g.out_cw = cw0; g.out_ch = ch0;
+            g.cols = mcols; g.rows = mrows; g.w = iw; g.h = ih;
+            g.col = abs_col + lead; g.row = abs_row + top;
+            g.id = id; g.grid.clear(); g.crop = 0;
+            g.cut_c = g.cut_r = g.cut_w = g.cut_h = g.cut2_w = 0;
+            g.opaque = settings_.black_background;
+            g.erase = !settings_.black_background;
+            g.active = true;
+            const bool again = key != key_ref || g.hue.size() != static_cast<size_t>(iw) * ih;
+            g.fresh = again;
+            if (again) {
+                const std::vector<unsigned char> m = clapper_open_mask(iw, ih, S);
+                VideoFrame f;
+                f.w = iw; f.h = ih; f.rgb.resize(static_cast<size_t>(iw) * ih * 3);
+                for (int y = 0; y < ih; ++y) {
+                    int r, gg, b;
+                    mix(static_cast<float>(y) / static_cast<float>(std::max(1, ih - 1)), r, gg, b);
+                    for (int x = 0; x < iw; ++x) {
+                        const size_t i = (static_cast<size_t>(y) * iw + x) * 3;
+                        f.rgb[i] = static_cast<uint8_t>(r); f.rgb[i + 1] = static_cast<uint8_t>(gg); f.rgb[i + 2] = static_cast<uint8_t>(b);
+                    }
+                }
+                VideoPlayer::quantize(f, g.hue, g.level);
+                for (size_t i = 0; i < m.size(); ++i) g.level[i] = m[i];   // (the opacity: 0 round the board)
+                const auto& pal = VideoPlayer::palette();
+                for (size_t i = 0; i < pal.size() && i < g.pal.size(); ++i) g.pal[i] = pal[i];
+                key_ref = key;
+            }
+            for (int r = 0; r < H; ++r)
+                rows[static_cast<size_t>(r)] = (r >= top && r < top + mrows)
+                    ? std::string(static_cast<size_t>(lead), ' ') + gfx_hole(mcols) + std::string(static_cast<size_t>(std::max(0, W - lead - mcols)), ' ')
+                    : std::string(static_cast<size_t>(W), ' ');
+        } else {
+            const int mcols = std::min(W, mrows * 2);                          // braille: 2 x 4 dots per cell, the dots are square
+            const int top = (H - mrows) / 2, lead = (W - mcols) / 2;
+            const std::vector<unsigned char> m = clapper_open_mask(mcols * 2, mrows * 4, mrows * 4);
+            static const int dxs[8] = {0, 0, 0, 1, 1, 1, 0, 1}, dys[8] = {0, 1, 2, 0, 1, 2, 3, 3};
+            for (int r = 0; r < mrows; ++r) {
+                int cr, cg, cb;
+                mix((static_cast<float>(r) + 0.5f) / static_cast<float>(mrows), cr, cg, cb);
+                std::string line = std::string(static_cast<size_t>(lead), ' ') + "\x1b[38;2;" + std::to_string(cr) + ";" + std::to_string(cg) + ";" + std::to_string(cb) + "m";
+                for (int c = 0; c < mcols; ++c) {
+                    int v = 0;
+                    for (int k = 0; k < 8; ++k)
+                        if (m[static_cast<size_t>(r * 4 + dys[k]) * static_cast<size_t>(mcols * 2) + static_cast<size_t>(c * 2 + dxs[k])] >= 100) v |= 1 << k;
+                    if (v == 0) { line += ' '; continue; }
+                    const unsigned cp = 0x2800u + static_cast<unsigned>(v);
+                    line += static_cast<char>(0xE0 | (cp >> 12));
+                    line += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+                    line += static_cast<char>(0x80 | (cp & 0x3F));
+                }
+                line += "\x1b[0m" + std::string(static_cast<size_t>(std::max(0, W - lead - mcols)), ' ');
+                rows[static_cast<size_t>(top + r)] = line;
+            }
+        }
+}
+
 // Draws the video's picture into a box of W x H cells (rows: H strings of W columns, the picture's cells as placeholders in a
 // picture terminal or braille dots). mode 0: the whole picture, centred | 1: the same with two columns cut off each side | 2: fills
 // the box, cropped to fit. `ov`: lyric rows (width ov_w) as a small black box over the bottom of the box (cut out of the picture).
@@ -580,82 +665,11 @@ bool App::video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, 
             else rows[static_cast<size_t>(r)] = dots(r, 0, W);
         }
     }
-    if (!frame && settings_.video_clap && video_.status() == "video: starting ..." && H >= 4 && W >= 12) {
-        // The video is loading: a small open clapperboard in the middle of the picture's place instead of the message (a real picture,
-        // transparent round the board, where the terminal has one; else braille dots), in the colours of the border gradient.
-        const int mrows = H >= 6 ? 4 : 3;
-        int rc0 = 255, gc0 = 255, bc0 = 255, rc1 = 255, gc1 = 255, bc1 = 255;
-        if (!try_parse_rgb(settings_.border_color, rc0, gc0, bc0)) { rc0 = gc0 = bc0 = 255; }
-        rc1 = rc0; gc1 = gc0; bc1 = bc0;
-        if (settings_.border_smooth && !try_parse_rgb(settings_.border_color_bottom, rc1, gc1, bc1)) { rc1 = rc0; gc1 = gc0; bc1 = bc0; }
-        auto mix = [&](float u, int& r, int& g, int& b) {
-            u = std::clamp(u, 0.0f, 1.0f);
-            r = static_cast<int>((rc0 + (rc1 - rc0) * u) * 0.6f); g = static_cast<int>((gc0 + (gc1 - gc0) * u) * 0.6f); b = static_cast<int>((bc0 + (bc1 - bc0) * u) * 0.6f);   // (dimmed: it is only a placeholder)
-        };
-        if (picture) {
-            const int S = mrows * ch0;                                        // the board is square: S x S pixels
-            const int mcols = std::min(W, (S + cw0 - 1) / cw0);
-            const int iw = mcols * cw0, ih = mrows * ch0;
-            const int lead = (W - mcols) / 2, top = (H - mrows) / 2;
-            const std::string key = "clap|" + std::to_string(iw) + "x" + std::to_string(ih) + "|" + std::to_string(abs_col + lead) + "," + std::to_string(abs_row + top) + "|" +
-                                    settings_.border_color + settings_.border_color_bottom + (settings_.border_smooth ? "s" : "");
-            GfxFrame& g = second_slot ? gfx2_ : gfx_;
-            g.plain = true; g.direct = true; g.scale = 1; g.truecolor = false;
-            g.out_cw = cw0; g.out_ch = ch0;
-            g.cols = mcols; g.rows = mrows; g.w = iw; g.h = ih;
-            g.col = abs_col + lead; g.row = abs_row + top;
-            g.id = second_slot ? 1 : 0; g.grid.clear(); g.crop = 0;
-            g.cut_c = g.cut_r = g.cut_w = g.cut_h = g.cut2_w = 0;
-            g.opaque = settings_.black_background;
-            g.erase = !settings_.black_background;
-            g.active = true;
-            const bool again = key != video_pic_key_ || g.hue.size() != static_cast<size_t>(iw) * ih;
-            g.fresh = again;
-            if (again) {
-                const std::vector<unsigned char> m = clapper_open_mask(iw, ih, S);
-                VideoFrame f;
-                f.w = iw; f.h = ih; f.rgb.resize(static_cast<size_t>(iw) * ih * 3);
-                for (int y = 0; y < ih; ++y) {
-                    int r, gg, b;
-                    mix(static_cast<float>(y) / static_cast<float>(std::max(1, ih - 1)), r, gg, b);
-                    for (int x = 0; x < iw; ++x) {
-                        const size_t i = (static_cast<size_t>(y) * iw + x) * 3;
-                        f.rgb[i] = static_cast<uint8_t>(r); f.rgb[i + 1] = static_cast<uint8_t>(gg); f.rgb[i + 2] = static_cast<uint8_t>(b);
-                    }
-                }
-                VideoPlayer::quantize(f, g.hue, g.level);
-                for (size_t i = 0; i < m.size(); ++i) g.level[i] = m[i];   // (the opacity: 0 round the board)
-                const auto& pal = VideoPlayer::palette();
-                for (size_t i = 0; i < pal.size() && i < g.pal.size(); ++i) g.pal[i] = pal[i];
-                video_pic_key_ = key;
-            }
-            for (int r = 0; r < H; ++r)
-                rows[static_cast<size_t>(r)] = (r >= top && r < top + mrows)
-                    ? std::string(static_cast<size_t>(lead), ' ') + gfx_hole(mcols) + std::string(static_cast<size_t>(std::max(0, W - lead - mcols)), ' ')
-                    : std::string(static_cast<size_t>(W), ' ');
-        } else {
-            const int mcols = std::min(W, mrows * 2);                          // braille: 2 x 4 dots per cell, the dots are square
-            const int top = (H - mrows) / 2, lead = (W - mcols) / 2;
-            const std::vector<unsigned char> m = clapper_open_mask(mcols * 2, mrows * 4, mrows * 4);
-            static const int dxs[8] = {0, 0, 0, 1, 1, 1, 0, 1}, dys[8] = {0, 1, 2, 0, 1, 2, 3, 3};
-            for (int r = 0; r < mrows; ++r) {
-                int cr, cg, cb;
-                mix((static_cast<float>(r) + 0.5f) / static_cast<float>(mrows), cr, cg, cb);
-                std::string line = std::string(static_cast<size_t>(lead), ' ') + "\x1b[38;2;" + std::to_string(cr) + ";" + std::to_string(cg) + ";" + std::to_string(cb) + "m";
-                for (int c = 0; c < mcols; ++c) {
-                    int v = 0;
-                    for (int k = 0; k < 8; ++k)
-                        if (m[static_cast<size_t>(r * 4 + dys[k]) * static_cast<size_t>(mcols * 2) + static_cast<size_t>(c * 2 + dxs[k])] >= 100) v |= 1 << k;
-                    if (v == 0) { line += ' '; continue; }
-                    const unsigned cp = 0x2800u + static_cast<unsigned>(v);
-                    line += static_cast<char>(0xE0 | (cp >> 12));
-                    line += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
-                    line += static_cast<char>(0x80 | (cp & 0x3F));
-                }
-                line += "\x1b[0m" + std::string(static_cast<size_t>(std::max(0, W - lead - mcols)), ' ');
-                rows[static_cast<size_t>(top + r)] = line;
-            }
-        }
+    const bool loading = !frame && video_.status() == "video: starting ...";
+    if (loading && settings_.video_clap == 1 && H >= 4 && W >= 12) {
+        clap_loading_fill(rows, W, H, abs_col, abs_row, second_slot ? gfx2_ : gfx_, video_pic_key_, second_slot ? 1 : 0);
+    } else if (loading && settings_.video_clap == 2) {
+        // "none": nothing at all while the video loads (an empty field)
     } else if (!frame) {   // no picture (yet): say why, in the middle of the picture's place, instead of a mute empty field
         std::string msg = video_.status();
         if (msg.empty()) msg = "video: ...";

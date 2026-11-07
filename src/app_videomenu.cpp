@@ -114,10 +114,10 @@ void App::video_menu_change(int row, int dir) {
             force_redraw_ = true;
             break;
         }
-        case 12:   // Show Clap Loading
-            settings_.video_clap = !settings_.video_clap;
-            set_config_value("VideoClap", settings_.video_clap ? "true" : "false");
-            status_line_ = settings_.video_clap ? "show clap loading: on -- a small clapperboard shows while a video loads" : "show clap loading: off -- the text \"video: starting ...\" shows while a video loads";
+        case 12:   // Show Clap Loading: text note / clap / none
+            settings_.video_clap = (std::clamp(settings_.video_clap, 0, 2) + (dir < 0 ? 2 : 1)) % 3;
+            set_config_value("VideoClap", settings_.video_clap == 2 ? "none" : settings_.video_clap == 0 ? "text note" : "clap");
+            status_line_ = settings_.video_clap == 1 ? "show clap loading: clap -- a small clapperboard shows while a video loads" : settings_.video_clap == 0 ? "show clap loading: text note -- the text \"video: starting ...\" shows while a video loads" : "show clap loading: none -- nothing shows while a video loads";
             video_pic_key_.clear();
             break;
         default: break;
@@ -368,7 +368,7 @@ std::vector<std::string> App::build_video_menu_panel() const {
         lines.push_back(row(entry(vmenu_sel_ == 10, "Resolution", std::string("< ") + video_res_label(settings_.video_res, gfx_proto_ == GfxProto::Sixel) + " >"), vmenu_sel_ == 10));
         lines.push_back(row(entry(vmenu_sel_ == 11, "Buffer", "< " + std::to_string(settings_.video_buffer) + " MB >"), vmenu_sel_ == 11));
     }
-    lines.push_back(row(entry(vmenu_sel_ == 12, "Show Clap Loading", toggle(settings_.video_clap)), vmenu_sel_ == 12));
+    lines.push_back(row(entry(vmenu_sel_ == 12, "Show Clap Loading", std::string("< ") + (settings_.video_clap == 2 ? "none" : settings_.video_clap == 0 ? "text note" : "clap") + " >"), vmenu_sel_ == 12));
     lines.push_back(button(13, "Full Screen Video"));
     lines.push_back(section("Videos for songs"));
     lines.push_back(button(14, "Manually Couple Local Files"));

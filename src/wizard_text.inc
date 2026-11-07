@@ -1233,7 +1233,7 @@ SETTING[[Header]]                       [WHAT IT DOES][[Header]]
 [Video Resolution][[Legend]]              standard / high / full: sharper, on Kitty in true colour. Also in
                               Style Option.
 [Video Buffer][[Legend]]                  MB of frames kept ahead.
-[Show Clap Loading][[Legend]]             on / off: a small clapperboard while a video loads.
+[Show Clap Loading][[Legend]]             text note / clap / none while a video loads.
 These are also rows of the VIDEO SETTINGS overlay [&]; in the big video overlay [SHIFT+s] opens 
 them as a panel.
 
@@ -1900,7 +1900,7 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
 [Video Rounded Corners][[Legend]] Cut the picture's corners round, like the UI: off / on (per track in Style Option).
 [Video Resolution][[Legend]]                                  standard / high / full: how sharp the picture is.
 [Video Buffer][[Legend]]                                      MB of decoded frames kept ahead of the picture.
-[Show Clap Loading][[Legend]]                                  on / off: a small clapperboard (border colours) while a video loads.
+[Show Clap Loading][[Legend]]                                  text note / clap (a small clapperboard in the border colours) / none: what shows while a video loads.
 [yt-dlp mp3 from mp4][[Legend]]                               true / false: SEARCH YT also saves a video's sound as an mp3 (no song as target).
 
 [DISK:][[Header]]

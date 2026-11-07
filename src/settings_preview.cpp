@@ -37,7 +37,7 @@ constexpr int kPreviewX = 71;      // the column of the box's left border
 constexpr int kPreviewMinW = 107;  // narrower terminals have no room: no preview
 
 enum PvKind { kPvNone, kPvLyrics, kPvDisk, kPvCover, kPvVolume, kPvBars, kPvWave, kPvScope, kPvSpectro, kPvSphere,
-              kPvTranslit, kPvEmoji, kPvMarquee, kPvVideo };
+              kPvTranslit, kPvEmoji, kPvMarquee, kPvVideo, kPvClap };
 
 }  // namespace
 
@@ -121,7 +121,8 @@ void make_sample_cover(CoverImage& c) {
 PvKind kind_of(int id, const Settings& s) {
     switch (id) {
         case kSidLyrAlign: case kSidLyrAnim: case kSidUseLyrics: return kPvLyrics;
-        case kSidUseVideo: case kSidVideoSize: case kSidVideoFx: case kSidVideoRes: case kSidVideoBuffer: case kSidVideoMp3: case kSidVideoContrast: case kSidVideoColors: case kSidVideoChroma: case kSidVideoRound: case kSidVideoClap: return kPvVideo;   // (a sample video; the lyrics preview when it is not there)
+        case kSidUseVideo: case kSidVideoSize: case kSidVideoFx: case kSidVideoRes: case kSidVideoBuffer: case kSidVideoMp3: case kSidVideoContrast: case kSidVideoColors: case kSidVideoChroma: case kSidVideoRound: return kPvVideo;   // (a sample video; the lyrics preview when it is not there)
+        case kSidVideoClap: return kPvClap;
         case kSidDisk: case kSidDiskSpeed: return kPvDisk;
         case kSidAlbumCover: case kSidCoverMode: case kSidCoverContrast: case kSidCoverBrightness: case kSidCoverColors: case kSidCoverChroma:
         case kSidCoverSearch: return kPvCover;
@@ -163,6 +164,7 @@ struct PvOut {
     std::string caption;
     bool picture = false;   // the rows are placeholders for a spectrogram picture the terminal draws (rows x w cells)
     int cover_mode = -1;    // >= 0: the rows are placeholders for the sample cover as a picture (Kitty / Sixel) in that Cover Mode
+    bool clap = false;      // Show Clap Loading: the rows are made in the box (the loading picture of a video as it would show)
     bool video = false;     // the rows are placeholders for the sample video as a picture (vw x vh pixels shown on vcols x vrows cells)
     int vcols = 0, vrows = 0, vw = 0, vh = 0, cw0 = 10, ch0 = 20;
     bool vfresh = false;
@@ -723,6 +725,11 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
         out.caption = settings_.marquee ? "Marquee on: the title scrolls" : "Marquee off: cut with ...";
         break;
     }
+    case kPvClap: {   // what shows while a video loads: the text note, the small clapperboard (a picture or braille) or nothing
+        out.clap = true;
+        out.caption = settings_.video_clap == 1 ? "loading: clap" : settings_.video_clap == 0 ? "loading: text note" : "loading: none";
+        break;
+    }
     default: return;
     }
 
@@ -761,6 +768,18 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
         frame << dash << "┘" << R;
     }
     const int inner_x = x0 + 1;
+    if (out.clap) {   // the loading picture of a video, made by the same code as the video view (the box inside is iw x body_h cells)
+        out.rows.assign(static_cast<size_t>(body_h), std::string(static_cast<size_t>(iw), ' '));
+        out.w = iw;
+        if (settings_.video_clap == 1) {
+            clap_loading_fill(out.rows, iw, body_h, inner_x - 1, top, gfx_, P.vid_key, 0);
+            if (gfx_proto_ != GfxProto::None && body_h >= 4) pv_cover_pic_ = true;   // (the picture uses the picture slot gfx_, like the sample cover)
+        } else if (settings_.video_clap == 0) {
+            const std::string msg = "video: starting ...";
+            const int pad = std::max(0, (iw - display_width(msg)) / 2);
+            out.rows[static_cast<size_t>(body_h / 2)] = std::string(static_cast<size_t>(pad), ' ') + msg + std::string(static_cast<size_t>(std::max(0, iw - pad - display_width(msg))), ' ');
+        }
+    }
     const int nrows = std::min(static_cast<int>(out.rows.size()), body_h);
     const int vtop = std::max(0, (body_h - nrows) / 2);
     const int xo = out.w > 0 ? std::max(1, (iw - out.w) / 2 + 1) : 2;

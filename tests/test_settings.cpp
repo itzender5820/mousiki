@@ -488,8 +488,8 @@ TEST(settings_video_overlay_options_round_trip) {
     CHECK_EQ(s.video_cover, 0);
     CHECK_EQ(s.video_down_height, 720);
     CHECK(s.video_auto);   // (on by default: a track with a video shows it)
-    CHECK(s.video_clap);   // (Show Clap Loading: on by default)
-    s.video_clap = false;
+    CHECK_EQ(s.video_clap, 1);   // (Show Clap Loading: clap by default)
+    s.video_clap = 2;
     s.video_auto = false;
     s.video_lyrics = false;
     s.video_cover = 2;
@@ -497,7 +497,7 @@ TEST(settings_video_overlay_options_round_trip) {
     save_settings(s);
     const Settings b = load_settings();
     CHECK(!b.video_auto);
-    CHECK(!b.video_clap);
+    CHECK_EQ(b.video_clap, 2);
     CHECK(!b.video_lyrics);
     CHECK_EQ(b.video_cover, 2);
     CHECK_EQ(b.video_down_height, 1080);
