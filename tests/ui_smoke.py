@@ -1517,7 +1517,7 @@ def disk_field_setting(binary, root, scripts):
         t = sess.text()
         check("DISK / COVER OPTIONS" in t and "Eliment Disk / Cover" in t and "Album Cover" in t, "disk field: the tab has DISK and DISK / COVER OPTIONS")
         check(t.index("Disk Speed") < t.index("DISK / COVER OPTIONS") < t.index("Album Cover"), "disk field: Disk Speed is under DISK, Album Cover under DISK / COVER OPTIONS")
-        for _ in range(13):                                 # to Eliment Disk (after Lyrics/Viz Default, When No Lyrics Show, When No Video Shows, Video Size, Video Effect, Video Resolution, Video Buffer, yt-dlp mp3 from mp4)
+        for _ in range(14):                                 # to Eliment Disk (after Lyrics/Viz Default: When No Lyrics Show, When No Video Shows, Lyrics Alignment, Lyrics Animation, Video Size, Effect, Contrast, Colors, Chromatic Aberration, Rounded Corners, Resolution, Buffer, yt-dlp mp3 from mp4)
             sess.send(b"\x1b[B", 0.2)
         sess.pump(0.6)
         check("Show Disk / Cover" in sess.text(), "disk field: the row says Show Disk / Cover")
@@ -2020,7 +2020,8 @@ def video_fullscreen_sizes(binary, root, scripts):
         # Style Option (SHIFT+s) of the playing track: the rows of its video
         sess.send("S", 1.5)
         for _ in range(10):                                  # (a busy machine draws the overlay a little later)
-            if "Video Chromatic Aberration" in sess.text():
+            tt = sess.text()
+            if "Video Chromatic Aberration" in tt and "Cover Chromatic Aberration" in tt and "Video Contrast" in tt and "Video Effect" in tt:
                 break
             sess.pump(0.5)
         t = sess.text()
