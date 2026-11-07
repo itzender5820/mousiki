@@ -409,8 +409,9 @@ std::vector<std::string> App::meta_sty_preview(int prev_w, int rows, const Cover
             // where the panel stands on the screen (the same arithmetic as draw_floating_panel()): the picture goes into the preview column
             const int W = meta_sty_panel_width(screen_w), panel_h = rows + 2;
             const int start_col = 1 + std::max(0, (screen_w - W) / 2);
-            const int start_row = std::clamp(1 + std::max(0, (term_rows_ - panel_h) / 2 - kFloatingPanelUpShift), 1, std::max(1, term_rows_ - panel_h));
-            if (cf_full_res_ && m <= 4 && meta_sty_gfx(*img, m, contrast, brightness, colors, chroma, angle, (start_col - 1) + 1 + (kMetaStyPanelWidth - 2) + 1 + lpad0, start_row, dw, dh)) {
+            const int start_row = std::clamp(1 + std::max(0, (term_rows_ - panel_h) / 2 - kFloatingPanelUpShift + 1), 1, std::max(1, term_rows_ - panel_h));   // (the panel stands one row lower than the other floating panels)
+            const int top0 = std::max(0, (rows - 1 - dh) / 2);   // the disk is centred in the rows above the note
+            if (cf_full_res_ && m <= 4 && meta_sty_gfx(*img, m, contrast, brightness, colors, chroma, angle, (start_col - 1) + 1 + (kMetaStyPanelWidth - 2) + 1 + lpad0, start_row + top0, dw, dh)) {
                 for (int r = 0; r < dh; ++r) disk.push_back(gfx_hole(dw));
                 note += "  (image)";
             } else {
@@ -426,8 +427,10 @@ std::vector<std::string> App::meta_sty_preview(int prev_w, int rows, const Cover
         plain_disk();
     }
     const int lpad = std::max(0, (prev_w - dw) / 2);
+    const int top = std::max(0, (rows - 1 - dh) / 2);
     for (int r = 0; r < rows - 1; ++r) {
-        const std::string row = r < static_cast<int>(disk.size()) ? disk[static_cast<size_t>(r)] : std::string(static_cast<size_t>(dw), ' ');
+        const int dr = r - top;
+        const std::string row = dr >= 0 && dr < static_cast<int>(disk.size()) ? disk[static_cast<size_t>(dr)] : std::string(static_cast<size_t>(dw), ' ');
         out.push_back(std::string(static_cast<size_t>(lpad), ' ') + row + "\x1b[0m" + std::string(static_cast<size_t>(std::max(0, prev_w - lpad - dw)), ' '));
     }
     const std::string t = truncate_str(note, prev_w);
@@ -480,14 +483,16 @@ std::vector<std::string> App::build_meta_sty_panel(int screen_w) const {
     // the left column, one string per row (left_w columns each)
     std::vector<std::string> left;
     auto plain = [&](const std::string& t) { return pad_right(truncate_str(t, left_w), left_w); };
-    left.push_back(plain(" Only for this track (last row: its whole album)."));
-    left.push_back(plain(""));
+    {   // the note in the header colour (the empty row after it is gone)
+        const std::string hc = ansi_for(settings_.header_color, false);
+        left.push_back(hc + plain(" Only for this track (last row: its whole album).") + (hc.empty() ? "" : "\x1b[0m"));
+    }
     const int first_video = settings_.video_mode ? 6 : -1;
     const int album_row = static_cast<int>(rows.size()) - 1;
     auto head = [&](const char* name) {   // a category line (not a row of the list)
         std::string t = std::string(" \u2500\u2500 ") + name + " ";
         while (display_width(t) < left_w - 1) t += "\u2500";
-        left.push_back(pad_right(truncate_str(t, left_w - 1), left_w - 1) + " ");
+        left.push_back(border + pad_right(truncate_str(t, left_w - 1), left_w - 1) + (border.empty() ? "" : "\x1b[0m") + " ");
     };
     for (int i = 0; i < static_cast<int>(rows.size()); ++i) {
         if (i == 0) head("Cover");
@@ -498,7 +503,6 @@ std::vector<std::string> App::build_meta_sty_panel(int screen_w) const {
         if (i == meta_sty_sel_) t = "\x1b[7m" + t + "\x1b[0m";
         left.push_back(t);
     }
-    left.push_back(plain(""));
     left.push_back(plain(meta_sty_msg_.empty() ? std::string() : " " + meta_sty_msg_));
     const int body_rows = with_prev ? std::max(15, static_cast<int>(left.size())) : static_cast<int>(left.size());
     while (static_cast<int>(left.size()) < body_rows) left.push_back(plain(""));

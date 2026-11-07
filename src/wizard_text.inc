@@ -1233,6 +1233,7 @@ SETTING[[Header]]                       [WHAT IT DOES][[Header]]
 [Video Resolution][[Legend]]              standard / high / full: sharper, on Kitty in true colour. Also in
                               Style Option.
 [Video Buffer][[Legend]]                  MB of frames kept ahead.
+[Show Clap Loading][[Legend]]             on / off: a small clapperboard while a video loads.
 These are also rows of the VIDEO SETTINGS overlay [&]; in the big video overlay [SHIFT+s] opens 
 them as a panel.
 
@@ -1265,9 +1266,9 @@ KEY[[Header]]                     ACTION[[Header]]
 [SHIFT+g]               grid and scales
 [SHIFT+s]               a panel for effect, contrast, colors and chromatic aberration
 [ESC] or [v] or [>]     close
- A track without a video shows a little film clapperboard (its arm slowly closes and opens while
 )WIZ",
-R"WIZ(it sways) and the note to fetch a video with [ALT+v] or pair a local one with [SHIFT+m]. A track
+R"WIZ( A track without a video shows a little film clapperboard (its arm slowly closes and opens while
+it sways) and the note to fetch a video with [ALT+v] or pair a local one with [SHIFT+m]. A track
 can have its own video on / off, size and effect: Style Option [SHIFT+s].
 
 [VIDEO OPTION [SHIFT+m]:][[Header]]
@@ -1400,9 +1401,9 @@ monitor, the graphs gliding back smoothly.
 Spectrogram and waterfall, image and braille, each keep their own values (colors, scale, gain ...):
 switching
 View or Style in [SHIFT+i] brings that look's values in. Each view also remembers its own style: braille
-for the spectrogram does not make the waterfall braille, and a view never opened starts as an image with
 )WIZ",
-R"WIZ(defaults.
+R"WIZ(for the spectrogram does not make the waterfall braille, and a view never opened starts as an image with
+defaults.
 In the window: [F] or [F11] switches to fullscreen, [T] always on top, [ESC] or [Q] close.
 Each window is a separate process that gets the audio through a pipe, so a graphics driver
 problem can only close the window, never stall the music or the terminal.
@@ -1557,9 +1558,9 @@ System Default (name)    the output the system uses now (the default: nothing ch
 the devices              every sound output of this computer (speakers, headphones, HDMI, USB, Bluetooth)
 
 [UP]/[DOWN] pick, [ENTER] switches at once, [r] reads the list again (a headset that was just plugged
-in), [ESC] closes. The device in use is marked "in use".
 )WIZ",
-R"WIZ(
+R"WIZ(in), [ESC] closes. The device in use is marked "in use".
+
 SWITCHING: [[Header]]
 A track that plays goes on at the same place on the new device (a paused one stays paused); the radio
 stream goes on without stopping. A device that is not there (unplugged) plays on the default one until
@@ -1709,9 +1710,9 @@ marquee.
 [MODES ON/OFF AND ORDER:][[Header]]
 [Use Music Player / Use Radio / Use Audio Books:][[Legend]]   false = the mode is left out of the [SHIFT and +] cycle;
                                                   one mode always stays on, the remaining mode set to true,
-                                                  when all others are turned off, can't be turned off...
 )WIZ",
-R"WIZ(
+R"WIZ(                                                  when all others are turned off, can't be turned off...
+
 [Mode Order 1-3:][[Legend]]                                   sets the order of the cycle, just like Viz Order 1-4.
                                                   Picking a mode for a place swaps it with the place that
                                                   held it; [SHIFT and +/-] walks cycles through the set
@@ -1810,9 +1811,9 @@ This category is only available in the audio book mode only...
                                                   annoying and auto-marks are set anyways, but in case you
                                                   want to set several bookmarks in a chapter, this may help
                                                   you. Note that notes are also a kind of special book mark
-                                                  and also include I time-stamp to which one can move...
 )WIZ",
-R"WIZ(
+R"WIZ(                                                  and also include I time-stamp to which one can move...
+
 [TEXT AND TRANSLITERATION (JAP./KOR./CHIN.):][[Header]]
 [Terminal Default Font:][[Legend]]                            false (default) = Mousiki's window uses Cascadia Mono
                                                   (Windows Terminal: the profile "Mousiki"; macOS Terminal,
@@ -1899,6 +1900,7 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
 [Video Rounded Corners][[Legend]] Cut the picture's corners round, like the UI: off / on (per track in Style Option).
 [Video Resolution][[Legend]]                                  standard / high / full: how sharp the picture is.
 [Video Buffer][[Legend]]                                      MB of decoded frames kept ahead of the picture.
+[Show Clap Loading][[Legend]]                                  on / off: a small clapperboard (border colours) while a video loads.
 [yt-dlp mp3 from mp4][[Legend]]                               true / false: SEARCH YT also saves a video's sound as an mp3 (no song as target).
 
 [DISK:][[Header]]
@@ -1917,11 +1919,11 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
                                                   2. Cover with Gradient - a grey version of the cover
                                                   under the disk's gradient colours, a slow wave that moves
                                                   diagonally over the picture, from the upper left to the
-                                                  lower right.
+)WIZ",
+R"WIZ(                                                  lower right.
                                                   3. Cover behind Disk - the grey cover in full resolution
                                                   behind the turning disk: the dots of the disk are
-)WIZ",
-R"WIZ(                                                  pinholes through which the cover shines at full
+                                                  pinholes through which the cover shines at full
                                                   brightness; the rest is the terminal background, like a
                                                   sheet of paper in front of the cover. The dots stay on
                                                   their grid and only the pattern of the disk turns.
@@ -2006,11 +2008,11 @@ R"WIZ(                                                  pinholes through which t
                                                   centre of the circle two cells in from the left. Right of
                                                   the toggle: gradient / no gradient, where gradient = the
                                                   VIZ colours gradient from left to right, like the
-                                                  oscilloscope is using... [<-/->] switch between the two
+)WIZ",
+R"WIZ(                                                  oscilloscope is using... [<-/->] switch between the two
                                                   values of the row, [ENTER] changes the options.
                                                   Default: the moving braille blocks (disk), in all modes.
-)WIZ",
-R"WIZ(
+
 [SPECTRUM BARS:][[Header]]               
 [On/Off:][[Legend]]                                           shows or hides the spectrum bars under the meta data
                                                   field.
@@ -2106,12 +2108,12 @@ R"WIZ(
                                                   and keeps its narrator, publisher and year and other meta
                                                   data. The music player's library leaves files stored in
                                                   this folder out (also from its searches): the book folder
-                                                  may lie INSIDE a music folder, but may not be one (a
+)WIZ",
+R"WIZ(                                                  may lie INSIDE a music folder, but may not be one (a
                                                   conflict message will says so!).
 
 In the audio book mode the GENERAL and ANIMA/VIZ tabs only show what a book needs (no lyrics, no disk
-)WIZ",
-R"WIZ(speed, no TRANSLITERATION category). The audio book mode has its own look: colours and theme, elements,
+speed, no TRANSLITERATION category). The audio book mode has its own look: colours and theme, elements,
 visualizations, borders, play mode and sound are kept in audiobook_config.txt, apart from the player and
 the radio. Paths, hotkeys, the mode switches and the like are the same in all three modes (config.txt).
 Changing LOCAL PATH rescans at once. Changing the playlist or history folder copies what is there; nothing
@@ -2252,12 +2254,12 @@ A preset is a named set of 16 station slots on the keys:
 
 Press one on the main screen to recall that slot. [SHIFT+<-/->] switches to the previous / next
 preset. The name of the active preset list is in the pane title: e.g. PRESETS (Morning).
-
+)WIZ",
+R"WIZ(
 THE PRESETS MENU:[[Header]] 
 [SHIFT+p] opens it and is where preset lists can be created. A small [◀] behind a pane's 
 title shows which pane is focused, just as in the music palyer. Names are 1 to 24 characters 
-)WIZ",
-R"WIZ(and unique. Every change is written to presets.txt at once.
+and unique. Every change is written to presets.txt at once.
 
 KEYS IN THE PRESETS MENU: [[Header]]
 [TAB]                  SEARCH > SELECT PRESET > STATIONS
@@ -2416,12 +2418,12 @@ As usual [s] opens the radio settings. Same frame, tab strip and editing keys as
 [ESC] / [q] discards (asks first when something changed).
 
 The settings are stored in radio_config.txt, separate from the config.txt of the player. 
-Colors are not carried over between the two modes: the radio has its own palette and its 
+)WIZ",
+R"WIZ(Colors are not carried over between the two modes: the radio has its own palette and its 
 own theme choice, unless the option "Shared profile" is set to true.
 
 COLORS (ONLY THE RADIO HAS): [[Header]]
-)WIZ",
-R"WIZ(ON_AIR            the diagonal gradient of the ON AIR sign, the needle, the lamp and LIVE
+ON_AIR            the diagonal gradient of the ON AIR sign, the needle, the lamp and LIVE
 OSCI              left / right color of the oscilloscope
 FREQUENCY_BAR     the line and ticks of the dial / the numbers and dots
 VOLUME            current / possible part of the volume bar
@@ -2543,11 +2545,11 @@ META DATA: [[Header]]
 Given are book, author, narrator, chapter (number and title), publisher, genre, the length 
 of the book and how much of it has been heard, then sampling, format and file size.
 
-MENUS FROM OTHER MODES: [[Header]] 
+)WIZ",
+R"WIZ(MENUS FROM OTHER MODES: [[Header]] 
 The converter [SHIFT+c] works on the audio books and searches folders with [/f:]. The equalizer
 [SHIFT+e] and sleept timer [SHIFT+z] is also available in this mode. 
-)WIZ",
-R"WIZ(
+
 
 [[New Page]]
 4.1.2 BOOK TAGS [[Header]]
@@ -2671,11 +2673,11 @@ number, time, title, length. You set them while listening:
 [m]        a mark at the point you listen at. The first mark adds the start (0:00:00, "Chapter 1"). 
            A new mark is called "Chapter N" (the standard titles are renumbered when one is inserted); 
            the title field opens with it selected:[ENTER] keeps it, typing replaces it.
-[a]        a mark by its time, h:mm:ss (or m:ss), then the title.        
+)WIZ",
+R"WIZ([a]        a mark by its time, h:mm:ss (or m:ss), then the title.        
 [t] / [r]  change the time / the title.
 [x]        deletes the mark.                                              
-)WIZ",
-R"WIZ([ENTER]    plays from the mark.
+[ENTER]    plays from the mark.
 [<-]/[->]  seek: 5 seconds, faster and faster the longer the key is held, up to minutes. [p] pauses.
 
 The marks are saved in the book's .cue after every change (REM CHAPTER lines).

@@ -132,7 +132,7 @@ inline constexpr int kRefEnd = kRefStart + kRefRowCount;
 enum SetId {
     kSidVizField, kSidDisk, kSidDummy, kSidQueue, kSidWave, kSidLyricsEngine, kSidLyricViz, kSidVisualizer, kSidNoLyricsViz,
     kSidStereo, kSidNormalize, kSidMetaOnly, kSidEmoji, kSidMarquee, kSidUseLyrics, kSidUseOsci, kSidUseSpectro, kSidUseSphere,
-    kSidOrder1, kSidOrder2, kSidOrder3, kSidOrder4, kSidOrder5, kSidUseVideo, kSidNoVideoViz, kSidVideoSize, kSidVideoFx, kSidVideoContrast, kSidVideoColors, kSidVideoChroma, kSidVideoRound, kSidVideoRes, kSidVideoBuffer, kSidVideoMp3, kSidCoverChroma,
+    kSidOrder1, kSidOrder2, kSidOrder3, kSidOrder4, kSidOrder5, kSidUseVideo, kSidNoVideoViz, kSidVideoSize, kSidVideoFx, kSidVideoContrast, kSidVideoColors, kSidVideoChroma, kSidVideoRound, kSidVideoClap, kSidVideoRes, kSidVideoBuffer, kSidVideoMp3, kSidCoverChroma,
     kSidPlayback, kSidStartMode, kSidBlackBg, kSidShareProfiles, kSidRemoteApp, kSidUpdateCheck, kSidMediaKeys, kSidUseTermSettings, kSidTermSize, kSidFullScreen, kSidLatinLookup, kSidLatinMacrons, kSidLatinWo, kSidLatinHanzi, kSidLyricsVariants, kSidRateCap, kSidTrackBuffer,
     kSidVisFluidity, kSidWaveStyle, kSidDiskSpeed, kSidVisDegr, kSidVisVisc, kSidLyrAlign, kSidLyrAnim,
     kSidVolIndicator,
@@ -187,7 +187,7 @@ inline const std::vector<SetLine>& settings_layout(int tab) {
         {false, kSidLyrAlign, "Lyrics Alignment"}, {false, kSidLyrAnim, "Lyrics Animation"},
         {true, -1, ""},
         {true, -1, "VIDEO"},
-        {false, kSidVideoSize, "Video Size"}, {false, kSidVideoFx, "Video Effect"}, {false, kSidVideoContrast, "Video Contrast"}, {false, kSidVideoColors, "Video Colors"}, {false, kSidVideoChroma, "Video Chromatic Aberration"}, {false, kSidVideoRound, "Video Rounded Corners"}, {false, kSidVideoRes, "Video Resolution"}, {false, kSidVideoBuffer, "Video Buffer"}, {false, kSidVideoMp3, "yt-dlp mp3 from mp4"},
+        {false, kSidVideoSize, "Video Size"}, {false, kSidVideoFx, "Video Effect"}, {false, kSidVideoContrast, "Video Contrast"}, {false, kSidVideoColors, "Video Colors"}, {false, kSidVideoChroma, "Video Chromatic Aberration"}, {false, kSidVideoRound, "Video Rounded Corners"}, {false, kSidVideoClap, "Show Clap Loading"}, {false, kSidVideoRes, "Video Resolution"}, {false, kSidVideoBuffer, "Video Buffer"}, {false, kSidVideoMp3, "yt-dlp mp3 from mp4"},
         {true, -1, ""},
         {true, -1, "DISK"},
         {false, kSidDisk, "Eliment Disk / Cover"}, {false, kSidDiskSpeed, "Disk Speed"},

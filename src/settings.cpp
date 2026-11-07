@@ -913,7 +913,7 @@ static Settings load_from_config(const fs::path& path) {
             {"ElimentDisk", "Eliment_disk"}, {"ElimentDummyButtons", "Element_dummy_buttons"},
             {"ElimentQueue", "Eliment_queue"}, {"ElimentWaveForm", "Eliment_waveform_progress_bar"},
             {"ElimentLyrics", "Eliment_lyrics"}, {"VizLyricsField", "Eliment_vizfield"}, {"LyricsPlaceholderBall", "Eliment_lyrics_placeholder_ball"},
-            {"LyricViz", "lyric_viz"}, {"NoLyricsViz", "nolyrics_viz"}, {"VizDefault", "viz_default"}, {"NoVideoViz", "novideo_viz"}, {"VideoMode", "video_mode"}, {"VideoLyrics", "video_lyrics"}, {"VideoAuto", "video_auto"}, {"VideoCover", "video_cover"}, {"VideoSize", "video_size"}, {"VideoFx", "video_fx"}, {"VideoResolution", "video_resolution"}, {"VideoContrast", "video_contrast"}, {"VideoColors", "video_colors"}, {"VideoChroma", "video_chroma"}, {"VideoRound", "video_round"}, {"CoverChroma", "cover_chroma"}, {"VideoBuffer", "video_buffer"}, {"VideoMp3", "video_mp3"}, {"VideoFullLyrics", "video_full_lyrics"}, {"VideoDownHeight", "video_down_height"}, {"VideoView", "video_view"},
+            {"LyricViz", "lyric_viz"}, {"NoLyricsViz", "nolyrics_viz"}, {"VizDefault", "viz_default"}, {"NoVideoViz", "novideo_viz"}, {"VideoMode", "video_mode"}, {"VideoLyrics", "video_lyrics"}, {"VideoAuto", "video_auto"}, {"VideoCover", "video_cover"}, {"VideoSize", "video_size"}, {"VideoFx", "video_fx"}, {"VideoResolution", "video_resolution"}, {"VideoContrast", "video_contrast"}, {"VideoColors", "video_colors"}, {"VideoChroma", "video_chroma"}, {"VideoRound", "video_round"}, {"VideoClap", "video_clap"}, {"CoverChroma", "cover_chroma"}, {"VideoBuffer", "video_buffer"}, {"VideoMp3", "video_mp3"}, {"VideoFullLyrics", "video_full_lyrics"}, {"VideoDownHeight", "video_down_height"}, {"VideoView", "video_view"},
             {"Visualizer", "Eliment_visualizer"},
             {"VisualizerFluidity", "visualizer_fluidity"}, {"DiskRotationSpeed", "disk_rotation_speed"},
             {"VisualizerDegradationSpeed", "visualizer_degradation_speed"}, {"VisualizerViscosity", "visualizer_viscosity"},
@@ -1143,6 +1143,7 @@ static Settings load_from_config(const fs::path& path) {
         if (key == "video_contrast") { s.video_contrast = std::clamp((std::atoi(trim_ws(unquote(value)).c_str()) + 2) / 5 * 5, 0, 100); continue; }
         if (key == "video_colors") { s.video_colors = std::clamp((std::atoi(trim_ws(unquote(value)).c_str()) + 2) / 5 * 5, 0, 100); continue; }
         if (key == "video_mp3") { s.video_mp3 = parse_bool(value) || ascii_lower_str(trim_ws(unquote(value))) == "on"; continue; }
+        if (key == "video_clap") { s.video_clap = parse_bool(value); continue; }
         if (key == "video_round") { s.video_round = parse_bool(value) || ascii_lower_str(trim_ws(unquote(value))) == "on"; continue; }
         if (key == "video_chroma") { s.video_chroma = chroma_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
         if (key == "cover_chroma") { s.cover_chroma = chroma_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
@@ -2001,6 +2002,7 @@ static void write_settings(std::ostream& out, const Settings& s) {
     out << "VideoContrast=" << s.video_contrast << "\n## 0 .. 100 (percent, steps of 5) -- more contrast for the video's picture (0 = as it is)\n";
     out << "VideoColors=" << s.video_colors << "\n## 0 .. 100 (percent, steps of 5) -- the video's colours (0 = greyscale, 100 = as they are)\n";
     out << "VideoRound=" << tf(s.video_round) << "\n## Rounded Corners: the corners of the video's picture are cut round like the corners of the UI (a track can have its own: Style Option): true | false\n";
+    out << "VideoClap=" << tf(s.video_clap) << "\n## Show Clap Loading: a small clapperboard in the border colours while a video loads, in the small field and in the big video overlay (else the text \"video: starting ...\"): true | false\n";
     out << "VideoChroma=" << chroma_name(s.video_chroma) << "\n## chromatic aberration of the video's picture (red and blue pushed apart, more towards the corners; works with every effect): off | subtle | medium | strong\n";
     out << "VideoResolution=" << video_res_name(s.video_res) << "\n";
     out << "## the sharpness of the video's picture: standard (up to 640 px wide, Sixel 480; the soft look) | high (1280 px, Sixel 720; Kitty in true colour) | full (1920 px, Sixel 960; Kitty in true colour). Wider pictures need more of the terminal and the processor\n";

@@ -1329,6 +1329,7 @@ private:
     // content it's supposed to be floating over. Vertically centered
     // against term_rows_, nudged up a few rows rather than dead-center.
     std::vector<std::string> panel_gradient(const std::vector<std::string>& lines) const;   // BorderGradient=smooth for a stamped panel
+    int meta_sty_start_row(int panel_h) const { return std::clamp(1 + std::max(0, (term_rows_ - panel_h) / 2 - kFloatingPanelUpShift + 1), 1, std::max(1, term_rows_ - panel_h)); }   // the Style Option panel stands one row lower
     void draw_floating_panel(std::ostringstream& frame, const std::vector<std::string>& lines, int panel_w, int W, int fixed_col = 0, bool exact_center = false, int fixed_row = 0) const;   // fixed_row > 0: the panel's first row (it only grows downwards)
     static constexpr int kFloatingPanelUpShift = 3; // rows nudged above true vertical center
 

@@ -646,7 +646,7 @@ std::string App::render_frame(TerminalIO& term) {
         }
         if (meta_sty_open_) {
             std::ostringstream panel;
-            draw_floating_panel(panel, build_meta_sty_panel(W), meta_sty_panel_width(W), W);
+            { const auto sty = build_meta_sty_panel(W); draw_floating_panel(panel, sty, meta_sty_panel_width(W), W, 0, false, meta_sty_start_row(static_cast<int>(sty.size()))); }
             shown += panel.str();
             gfx_ok_ = gfx_.active;   // (the preview is a real picture when the terminal can show one and [t] says so)
         }
@@ -940,7 +940,7 @@ std::string App::render_frame(TerminalIO& term) {
     } else if (mode_ == Mode::MetaEdit) {   // the Style Option panel of the playing track (HKeyStyleOptions), over the main screen
         meta_refresh_hover_values();
         meta_sty_pic_ = 0;
-        draw_floating_panel(floating, build_meta_sty_panel(W), meta_sty_panel_width(W), W);
+        { const auto sty = build_meta_sty_panel(W); draw_floating_panel(floating, sty, meta_sty_panel_width(W), W, 0, false, meta_sty_start_row(static_cast<int>(sty.size()))); }
     }
     out += floating.str();
     // A picture (not a beam) under a floating panel: only the pixels the panel covers are left out. `full` is the picture as made; the hole

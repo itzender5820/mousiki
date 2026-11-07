@@ -121,7 +121,7 @@ void make_sample_cover(CoverImage& c) {
 PvKind kind_of(int id, const Settings& s) {
     switch (id) {
         case kSidLyrAlign: case kSidLyrAnim: case kSidUseLyrics: return kPvLyrics;
-        case kSidUseVideo: case kSidVideoSize: case kSidVideoFx: case kSidVideoRes: case kSidVideoBuffer: case kSidVideoMp3: case kSidVideoContrast: case kSidVideoColors: case kSidVideoChroma: case kSidVideoRound: return kPvVideo;   // (a sample video; the lyrics preview when it is not there)
+        case kSidUseVideo: case kSidVideoSize: case kSidVideoFx: case kSidVideoRes: case kSidVideoBuffer: case kSidVideoMp3: case kSidVideoContrast: case kSidVideoColors: case kSidVideoChroma: case kSidVideoRound: case kSidVideoClap: return kPvVideo;   // (a sample video; the lyrics preview when it is not there)
         case kSidDisk: case kSidDiskSpeed: return kPvDisk;
         case kSidAlbumCover: case kSidCoverMode: case kSidCoverContrast: case kSidCoverBrightness: case kSidCoverColors: case kSidCoverChroma:
         case kSidCoverSearch: return kPvCover;

@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <sstream>
+#include <unordered_set>
 
 namespace muisc {
 
@@ -28,7 +29,7 @@ namespace muisc {
 
 void App::video_menu_open() {
     if (audiobook_) { status_line_ = "video: not available in the audio book player"; return; }
-    vmenu_sel_ = std::clamp(vmenu_sel_, 0, 17);
+    vmenu_sel_ = std::clamp(vmenu_sel_, 0, 18);
     vdel_stage_ = 0;
     mode_ = Mode::VideoMenu;
     force_redraw_ = true;
@@ -113,6 +114,12 @@ void App::video_menu_change(int row, int dir) {
             force_redraw_ = true;
             break;
         }
+        case 12:   // Show Clap Loading
+            settings_.video_clap = !settings_.video_clap;
+            set_config_value("VideoClap", settings_.video_clap ? "true" : "false");
+            status_line_ = settings_.video_clap ? "show clap loading: on -- a small clapperboard shows while a video loads" : "show clap loading: off -- the text \"video: starting ...\" shows while a video loads";
+            video_pic_key_.clear();
+            break;
         default: break;
     }
 }
@@ -265,7 +272,7 @@ bool App::video_full_key(int key) {
 
 void App::video_menu_key(int key) {
     const bool arrow = last_key_was_arrow();
-    constexpr int kRows = 18;
+    constexpr int kRows = 19;
     if (vdel_stage_ > 0) {   // a question is open over the overlay
         const bool tab = !arrow && key == '\t';
         if ((arrow && (key == 'C' || key == 'D')) || tab) { vdel_sel_ = 1 - vdel_sel_; return; }
@@ -292,20 +299,20 @@ void App::video_menu_key(int key) {
     }
     if (arrow && key == 'A') { vmenu_sel_ = (vmenu_sel_ + kRows - 1) % kRows; return; }
     if (arrow && key == 'B') { vmenu_sel_ = (vmenu_sel_ + 1) % kRows; return; }
-    if (arrow && (key == 'C' || key == 'D')) { if (vmenu_sel_ <= 11) video_menu_change(vmenu_sel_, key == 'C' ? 1 : -1); return; }
+    if (arrow && (key == 'C' || key == 'D')) { if (vmenu_sel_ <= 12) video_menu_change(vmenu_sel_, key == 'C' ? 1 : -1); return; }
     if (!arrow && (key == '\r' || key == '\n' || key == ' ')) {
-        if (vmenu_sel_ <= 11) { video_menu_change(vmenu_sel_, 1); return; }
-        if (vmenu_sel_ == 12) { video_menu_close(); video_full_toggle(); return; }
-        if (vmenu_sel_ == 13) { video_menu_close(); video_link_open(has_track_ ? current_path_ : fs::path(), Mode::Browse); return; }
-        if (vmenu_sel_ == 14) { video_menu_close(); video_search_open(); return; }
-        if (vmenu_sel_ == 15) { video_menu_close(); video_fetch_open(); return; }
-        if (vmenu_sel_ == 16 || vmenu_sel_ == 17) {   // Delete Current Video / Refetch this Video: a question first
+        if (vmenu_sel_ <= 12) { video_menu_change(vmenu_sel_, 1); return; }
+        if (vmenu_sel_ == 13) { video_menu_close(); video_full_toggle(); return; }
+        if (vmenu_sel_ == 14) { video_menu_close(); video_link_open(has_track_ ? current_path_ : fs::path(), Mode::Browse); return; }
+        if (vmenu_sel_ == 15) { video_menu_close(); video_search_open(); return; }
+        if (vmenu_sel_ == 16) { video_menu_close(); video_fetch_open(); return; }
+        if (vmenu_sel_ == 17 || vmenu_sel_ == 18) {   // Delete Current Video / Refetch this Video: a question first
             if (!has_track_ || current_path_.empty() || !current_is_local_) { status_line_ = "video: play a track from your library first"; return; }
             if (LocalSource::is_video_file(current_path_)) { status_line_ = "this track is a video file itself -- delete it in FETCH VIDEOS -> VIDEO FILES"; return; }
             const std::string v = video_source_for(current_path_);
             if (v.empty()) { status_line_ = "this track has no video"; return; }
             vdel_video_ = v;
-            vdel_stage_ = vmenu_sel_ == 16 ? 1 : 3;
+            vdel_stage_ = vmenu_sel_ == 17 ? 1 : 3;
             vdel_sel_ = 0;
             return;
         }
@@ -361,14 +368,15 @@ std::vector<std::string> App::build_video_menu_panel() const {
         lines.push_back(row(entry(vmenu_sel_ == 10, "Resolution", std::string("< ") + video_res_label(settings_.video_res, gfx_proto_ == GfxProto::Sixel) + " >"), vmenu_sel_ == 10));
         lines.push_back(row(entry(vmenu_sel_ == 11, "Buffer", "< " + std::to_string(settings_.video_buffer) + " MB >"), vmenu_sel_ == 11));
     }
-    lines.push_back(button(12, "Full Screen Video"));
+    lines.push_back(row(entry(vmenu_sel_ == 12, "Show Clap Loading", toggle(settings_.video_clap)), vmenu_sel_ == 12));
+    lines.push_back(button(13, "Full Screen Video"));
     lines.push_back(section("Videos for songs"));
-    lines.push_back(button(13, "Manually Couple Local Files"));
-    lines.push_back(button(14, "Quick Search/Down. YT"));
-    lines.push_back(button(15, "General Fetch Videos Menu"));
+    lines.push_back(button(14, "Manually Couple Local Files"));
+    lines.push_back(button(15, "Quick Search/Down. YT"));
+    lines.push_back(button(16, "General Fetch Videos Menu"));
     lines.push_back(section("This track's video"));
-    lines.push_back(button(16, "Delete Current Video"));
-    lines.push_back(button(17, "Refetch this Video"));
+    lines.push_back(button(17, "Delete Current Video"));
+    lines.push_back(button(18, "Refetch this Video"));
     lines.push_back(centred_bottom(settings_, W, "[UP/DOWN] [ENTER] [←→] change  [ESC] close", border_bottom));
     return lines;
 }
@@ -387,7 +395,26 @@ int App::video_link_list_rows() const { int l, p; vl_split_rows(term_rows_, l, p
 
 // Which songs have a video now (a connection by hand, a download, or a file of the same name beside them).
 void App::video_link_refresh_flags() {
-    for (VLEntry& e : vl_tracks_) e.has_video = !video_source_for(e.path).empty();
+    // One pass instead of video_source_for() per song (that lists the song's folder on disk and walks the whole library each time: N x N
+    // on a big library, which made the dialog slow to open). The library's videos are indexed by folder + name and by name once.
+    auto low = [](const fs::path& p) { std::string x = path_utf8(p.stem()); for (auto& c : x) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); return x; };
+    std::unordered_set<std::string> by_folder, by_name;
+    for (const VLEntry& v : vl_videos_) {
+        const std::string n = low(v.path);
+        by_name.insert(n);
+        by_folder.insert(path_utf8(v.path.parent_path()) + "\x01" + n);
+    }
+    for (VLEntry& e : vl_tracks_) {
+        const std::string tp = path_utf8(e.path);
+        if (VideoLinks::get().is_none(tp)) { e.has_video = false; continue; }   // removed on purpose: no pairing by name either
+        const std::string linked = VideoLinks::get().video_for(tp);
+        if (!linked.empty()) {
+            std::error_code lec;
+            if (fs::exists(path_from_utf8(linked), lec)) { e.has_video = true; continue; }
+        }
+        const std::string n = low(e.path);
+        e.has_video = by_folder.count(path_utf8(e.path.parent_path()) + "\x01" + n) > 0 || by_name.count(n) > 0;
+    }
 }
 
 static std::string vl_hay(const std::string& label, const std::string& folder) { return ascii_lower_str(label + " " + folder); }
