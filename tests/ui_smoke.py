@@ -1557,7 +1557,7 @@ def video_files_tab(binary, root, scripts):
             print("  (skipped: ffmpeg could not make the test clip)")
             return
     with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
-        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nVideoMode=true\n" % lib)
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nVideoMode=true\nHKeyVideoFetch=ALT+V\n" % lib)   # (ALT+V is the default on Linux / Windows only: on macOS it is SHIFT+d)
     sess = Session(binary, home, scripts, quiet_stderr=True)
     try:
         for _ in range(30):
@@ -1806,7 +1806,7 @@ echo "FILE:$f"
 """.replace("@CLIP@", clip))
     os.chmod(yt, os.stat(yt).st_mode | stat.S_IEXEC)
     with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
-        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % lib)
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nHKeyVideoFetch=ALT+V\n" % lib)   # (ALT+V is the default on Linux / Windows only: on macOS it is SHIFT+d)
     sess = Session(binary, home, scripts, {"PATH": fake + os.pathsep + os.environ.get("PATH", "")}, quiet_stderr=True)
     try:
         for _ in range(30):
@@ -1863,7 +1863,7 @@ def video_fetch_restore(binary, root, scripts):
     make_wav(os.path.join(lib, "Beta Song.wav"), 5)
     make_wav(os.path.join(lib, "Gamma Song.wav"), 5)
     with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
-        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % lib)
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nHKeyVideoFetch=ALT+V\n" % lib)   # (ALT+V is the default on Linux / Windows only: on macOS it is SHIFT+d)
     state = {"songs": [{"path": os.path.join(lib, "Beta Song.wav"), "choice": 1, "seconds": 5,
                         "cands": [{"id": "CCCCCCCCCCC", "title": "Beta one", "uploader": "U1", "dur": 10},
                                   {"id": "DDDDDDDDDDD", "title": "Beta two", "uploader": "U2", "dur": 11}]}]}
