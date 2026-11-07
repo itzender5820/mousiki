@@ -199,7 +199,7 @@ TEST(organigram_classic_view_is_a_panel_of_its_own_size) {
     CHECK(big.inner_w < 130);   // as wide as its columns need, not the window
     CHECK(small.inner_w <= 70);
     const std::string p = plain(big.rows);
-    for (const char* e : {"SYSTEM", "Equalizer", "Playlists", "Fetch Cover", "Style Options", "Spectrum Bars", "Video", "Karaoke Mode", "[ALT+L]"}) CHECK(p.find(e) != std::string::npos);
+    for (const char* e : {"SYSTEM", "Equalizer", "Playlists", "Fetch Cover", "Style Options", "Spectrum Bars", "Video", "Karaoke Mode", "[" MUSIKI_ORG_LYRICS_TIMING_KEY "]"}) CHECK(p.find(e) != std::string::npos);
     // the headers cannot be chosen: a category becomes its first entry, up / down skip them
     CHECK_EQ(org::classic_sel(t, 1), 2);
     for (int i = 1; i < t.count; ++i) {
