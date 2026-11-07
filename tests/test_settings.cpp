@@ -551,3 +551,49 @@ TEST(settings_video_resolution_buffer_and_effect_are_saved_and_read_back) {
     CHECK_EQ(video_res_from("full (1920 px)"), 2);
     CHECK_EQ(video_res_from("standard (640 px)"), 0);
 }
+
+// An upgrade from an older version: the config.txt of 4.x has keys that are gone or renamed, values that no longer exist, a BOM and CRLF line ends.
+// None of it may stop the program, reset the other settings or come back after a save.
+TEST(settings_an_old_config_with_gone_keys_and_values_loads_quietly) {
+    mt::TempHome home;
+    fs::create_directories(config_path().parent_path());
+    {
+        std::ofstream f(config_path(), std::ios::binary);
+        f << "\xEF\xBB\xBF" "# written by Mousiki 4.9.0\r\n"
+             "Volume=37\r\n"
+             "VideoWindow=true\r\n"            // a key that no version of 5.0 knows
+             "VideoWindowSize=big\r\n"
+             "SomeOldKey=1\r\n"
+             "no equals sign in this line\r\n"
+             "=\r\n"
+             "VideoFx=bloom\r\n"               // an effect that is not offered any more
+             "VideoSize=banana\r\n"            // a value that never existed
+             "VideoContrast=abc\r\n"
+             "VideoMode=true\r\n"
+             "UpdateCheck=false\r\n";
+    }
+    Settings s = load_settings();
+    CHECK(s.video_fx == 0);                    // bloom reads as Off
+    CHECK(s.video_mode);                       // the lines around the odd ones were still read
+    CHECK(!s.update_check);
+    const Settings d = Settings();
+    CHECK_EQ(s.video_size, d.video_size);      // a value that makes no sense: the default
+    CHECK_EQ(s.video_contrast, d.video_contrast);
+    save_settings(s);
+    std::ifstream in(config_path(), std::ios::binary);
+    std::stringstream ss;
+    ss << in.rdbuf();
+    const std::string saved = ss.str();
+    CHECK(saved.find("VideoFx=off") != std::string::npos || saved.find("VideoFx=Off") != std::string::npos || saved.find("VideoFx=0") != std::string::npos);
+    const Settings again = load_settings();
+    CHECK_EQ(again.video_fx, s.video_fx);
+    CHECK_EQ(again.video_mode, s.video_mode);
+}
+
+TEST(settings_old_dither_effect_reads_as_dither_bw) {
+    mt::TempHome home;
+    fs::create_directories(config_path().parent_path());
+    { std::ofstream f(config_path()); f << "VideoFx=dither\n"; }
+    const Settings s = load_settings();
+    CHECK_EQ(s.video_fx, 21);                  // Dither B/W
+}
