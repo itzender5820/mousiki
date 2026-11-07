@@ -254,6 +254,7 @@ std::string App::render_frame(TerminalIO& term) {
     frame_main_len_ = std::string::npos;   // set by the main screen: where its line part ends (the overlays follow)
     spectro_used_ = false;
     spectro_area_[0] = -1;
+    layout_spectro_on_ = false;
     pv_spectro_area_[0] = -1;
     pv_cover_pic_ = false;
     caption_rect_[2] = 0;
@@ -331,8 +332,9 @@ std::string App::render_frame(TerminalIO& term) {
         if (m == Mode::MetaEdit && meta_sty_open_ && meta_sty_from_main_) return 0;   // the Style Option panel over the main screen
         if (m == Mode::AudioDevice) return adev_from_settings_ ? 1 : 0;     // over the settings screen or over the main screen
         switch (m) {
-            case Mode::Browse: case Mode::Search: case Mode::BulkAdd: case Mode::RetryLyrics: case Mode::ClearQueue: case Mode::UpdateNotice: case Mode::QueueToPlaylist: case Mode::OsciMenu: case Mode::SpectroMenu: case Mode::NormMenu: case Mode::BarsMenu: case Mode::Equalizer: case Mode::SleepTimer: case Mode::MenuIndex: case Mode::Creator: case Mode::LyricsEdit: case Mode::BookOverlay: case Mode::AudioDevice: case Mode::VideoMenu: case Mode::VideoLink: case Mode::VideoSearch: return 0;
+            case Mode::Browse: case Mode::Search: case Mode::BulkAdd: case Mode::RetryLyrics: case Mode::ClearQueue: case Mode::UpdateNotice: case Mode::QueueToPlaylist: case Mode::OsciMenu: case Mode::SpectroMenu: case Mode::NormMenu: case Mode::BarsMenu: case Mode::Equalizer: case Mode::SleepTimer: case Mode::Creator: case Mode::LyricsEdit: case Mode::BookOverlay: case Mode::AudioDevice: case Mode::VideoMenu: case Mode::VideoLink: case Mode::VideoSearch: return 0;
             case Mode::Settings: case Mode::ColorEdit: return 1;
+            case Mode::MenuIndex: return settings_.menu_index_classic ? 0 : 12;   // the organigram over the whole screen; the classic view is an overlay
             case Mode::Console: return 2;
             case Mode::Cheatsheet: return 3;
             case Mode::Playlist: return 4;
@@ -385,25 +387,18 @@ std::string App::render_frame(TerminalIO& term) {
         return out;
     }
 
-    // SHIFT+0: the oscilloscope over the whole screen, YT left and XY right (the options overlay SHIFT+o can sit on top of it)
-    if (scope_big_ && (mode_ == Mode::Browse || mode_ == Mode::OsciMenu)) {
-        std::string out = build_scope_big(W, clear_prefix);
+    // "<": the menu organigram over the whole screen
+    if (mode_ == Mode::MenuIndex && !settings_.menu_index_classic) {
+        gfx_.active = false;
+        gfx_ok_ = false;
+        std::string out = clear_prefix + build_menu_index_full(W);
         frame_main_len_ = out.size();
-        if (mode_ == Mode::OsciMenu) {
-            std::ostringstream floating;
-            draw_floating_panel(floating, build_osci_menu_panel(), kOsciMenuPanelWidth, W, 0, false, 2);   // starts on row 2 and only grows downwards (braille / image style have different row counts)
-            out += floating.str();
-        } else if (scope_big_color_edit_) {
-            std::ostringstream floating;
-            draw_floating_panel(floating, build_scope_color_panel(), kScopeColorPanelWidth, W);
-            out += floating.str();
-        } else if (scope_metrics_open_) {
-            std::ostringstream floating;
-            draw_floating_panel(floating, build_scope_metrics_panel(), kScopeMetricsPanelWidth, W);
-            out += floating.str();
-        }
-        // image style: a floating panel cuts a hole into the pictures it covers (their pixels there are cleared; Sixel also
-        // keeps those cells), and a changed hole means new pictures
+        return out;
+    }
+
+    // image style: a floating panel cuts a hole into the pictures it covers (their pixels there are cleared; Sixel also keeps those cells),
+    // and a changed hole means new pictures
+    auto cut_gfx_holes = [&]() {
         gfx_ok_ = gfx_.active;
         for (int k = 0; k < 2 && gfx_.active; ++k) {
             GfxFrame& F = k == 0 ? gfx_ : gfx2_;
@@ -426,6 +421,48 @@ std::string App::render_frame(TerminalIO& term) {
             } else F.cut_w = 0;
             if (!std::equal(cut, cut + 4, scope_cut_last_ + k * 4)) F.fresh = true;
             std::copy(cut, cut + 4, scope_cut_last_ + k * 4);
+        }
+    };
+
+    // SHIFT+0: the oscilloscope over the whole screen, YT left and XY right (the options overlay SHIFT+o can sit on top of it)
+    if (scope_big_ && (mode_ == Mode::Browse || mode_ == Mode::OsciMenu)) {
+        std::string out = build_scope_big(W, clear_prefix);
+        frame_main_len_ = out.size();
+        if (mode_ == Mode::OsciMenu) {
+            std::ostringstream floating;
+            draw_floating_panel(floating, build_osci_menu_panel(), kOsciMenuPanelWidth, W, 0, false, 2);   // starts on row 2 and only grows downwards (braille / image style have different row counts)
+            out += floating.str();
+        } else if (scope_big_color_edit_) {
+            std::ostringstream floating;
+            draw_floating_panel(floating, build_scope_color_panel(), kScopeColorPanelWidth, W);
+            out += floating.str();
+        } else if (scope_metrics_open_) {
+            std::ostringstream floating;
+            draw_floating_panel(floating, build_scope_metrics_panel(), kScopeMetricsPanelWidth, W);
+            out += floating.str();
+        }
+        cut_gfx_holes();
+        return out;
+    }
+
+    // HKeyVideoFull: the video over the whole screen
+    if (video_full_ && (mode_ == Mode::Browse || mode_ == Mode::OsciMenu || mode_ == Mode::SpectroMenu)) {
+        std::string out = build_video_full(W, clear_prefix);
+        frame_main_len_ = out.size();
+        gfx_ok_ = gfx_.active;
+        if (mode_ == Mode::OsciMenu || mode_ == Mode::SpectroMenu) {   // the layout's oscilloscope / spectrogram options over the picture
+            std::ostringstream floating;
+            if (mode_ == Mode::OsciMenu) draw_floating_panel(floating, build_osci_menu_panel(), kOsciMenuPanelWidth, W);
+            else draw_floating_panel(floating, build_spectro_menu_panel(), kSpectroMenuPanelWidth, W);
+            out += floating.str();
+            cut_gfx_holes();
+            return out;
+        }
+        if (video_opts_open_) {   // SHIFT+s: the options panel over the picture
+            std::ostringstream floating;
+            draw_floating_panel(floating, build_video_opts_panel(), kVideoOptsPanelWidth, W);
+            out += floating.str();
+            cut_gfx_holes();
         }
         return out;
     }
@@ -865,10 +902,16 @@ std::string App::render_frame(TerminalIO& term) {
         draw_floating_panel(floating, build_queue_to_playlist_panel(), kQtpPanelWidth, W);
     } else if (mode_ == Mode::UpdateNotice) {
         draw_floating_panel(floating, build_update_panel(), kUpdatePanelWidth, W);
+    } else if (mode_ == Mode::MenuIndex) {   // "<", classic view: as big as its columns need
+        int pw = 0;
+        const auto lines = build_menu_index_classic_panel(W, pw);
+        draw_floating_panel(floating, lines, pw, W, 0, true);
     } else if (mode_ == Mode::VideoMenu) {
-        draw_floating_panel(floating, build_video_menu_panel(), kVideoMenuPanelWidth, W);
+        if (vdel_stage_ > 0) draw_floating_panel(floating, build_video_delete_panel(), 64, W, 0, true);   // (the question of Delete Current Video / Refetch this Video)
+        else draw_floating_panel(floating, build_video_menu_panel(), kVideoMenuPanelWidth, W, 0, true);   // (exactly centred, rows and columns)
     } else if (mode_ == Mode::VideoLink) {
-        draw_floating_panel(floating, build_video_link_panel(W), std::clamp(W - 2, 70, 112), W);
+        if (vdel_stage_ > 0) { vl_pic_ = 0; draw_floating_panel(floating, build_video_delete_panel(), 64, W, 0, true); }   // (the two questions of Delete COMPLETE VIDEO FILE connected to track)
+        else draw_floating_panel(floating, build_video_link_panel(W), std::clamp(W - 2, 70, 150), W);
     } else if (mode_ == Mode::VideoSearch) {
         vs_pic_ = 0;
         draw_floating_panel(floating, build_video_search_panel(W), std::clamp(W - 2, 70, 112), W);
@@ -886,8 +929,6 @@ std::string App::render_frame(TerminalIO& term) {
         draw_floating_panel(floating, build_norm_menu_panel(), kNormMenuPanelWidth, W);
     } else if (mode_ == Mode::LyricsEdit) {
         draw_floating_panel(floating, build_lyrics_edit_panel(), kLyricsEditPanelWidth, W);
-    } else if (mode_ == Mode::MenuIndex) {
-        draw_floating_panel(floating, build_menu_index_panel(W), std::min(kMenuIndexPanelWidth, std::max(40, W)), W, 0, true);
     } else if (mode_ == Mode::SleepTimer) {
         draw_floating_panel(floating, build_sleep_timer_panel(), kSleepTimerPanelWidth, W);
     } else if (mode_ == Mode::BookOverlay) {
@@ -902,44 +943,53 @@ std::string App::render_frame(TerminalIO& term) {
         draw_floating_panel(floating, build_meta_sty_panel(W), meta_sty_panel_width(W), W);
     }
     out += floating.str();
+    // A picture (not a beam) under a floating panel: only the pixels the panel covers are left out. `full` is the picture as made; the hole
+    // is cut into the copy that is sent (and the Sixel cut rectangle set), a changed hole means a new picture.
+    auto plain_hole = [&](GfxFrame& F, std::vector<uint8_t>& full, int* last_cut, bool floating_mode) {
+        const int fx = float_rect_[0], fy = float_rect_[1], fw = float_rect_[2], fh = float_rect_[3];
+        F.crop = 0;
+        int cut[4] = {0, 0, 0, 0};
+        if (floating_mode && fw > 0 && fy < F.row + F.rows && fy + fh > F.row && fx < F.col + F.cols && fx + fw > F.col && F.cols > 0 && F.rows > 0) {
+            cut[0] = std::clamp((fx - F.col) * F.w / F.cols, 0, F.w);
+            cut[2] = std::clamp((fx + fw - F.col) * F.w / F.cols + 1, 0, F.w);
+            cut[1] = std::clamp((fy - F.row) * F.h / F.rows, 0, F.h);
+            cut[3] = std::clamp((fy + fh - F.row) * F.h / F.rows + 1, 0, F.h);
+        }
+        // (the picture's own hole, e.g. the lyric box of the video, stays while no panel covers it: Sixel must not paint over those cells)
+        const int own_c = F.cut_c, own_r = F.cut_r, own_w = F.cut_w, own_h = F.cut_h;   // (the picture's own hole, e.g. the lyric box of the video: Sixel must not paint over those cells)
+        F.cut2_w = 0;
+        if (cut[2] > cut[0] && cut[3] > cut[1]) {
+            F.cut2_c = own_c; F.cut2_r = own_r; F.cut2_w = own_w; F.cut2_h = own_h;   // (kept as the second rectangle while a panel covers the picture too)
+            F.cut_w = 0;
+        }
+        if (cut[2] > cut[0] && cut[3] > cut[1]) {
+            const int c0 = std::max(fx, F.col), c1 = std::min(fx + fw, F.col + F.cols);
+            const int r0 = std::max(fy, F.row), r1 = std::min(fy + fh, F.row + F.rows);
+            F.cut_c = c0 - F.col; F.cut_r = r0 - F.row; F.cut_w = c1 - c0; F.cut_h = r1 - r0;
+        }
+        const bool changed = std::memcmp(cut, last_cut, sizeof(cut)) != 0;
+        const bool new_picture = F.fresh || full.size() != F.level.size();
+        if (new_picture) full = F.level;
+        else if (changed) F.level = full;
+        if (new_picture || changed) {
+            for (int y = cut[1]; y < cut[3]; ++y)
+                std::fill(F.level.begin() + static_cast<long>(y) * F.w + cut[0], F.level.begin() + static_cast<long>(y) * F.w + cut[2], 0);
+            if (changed) F.fresh = true;
+        }
+        std::memcpy(last_cut, cut, sizeof(cut));
+    };
     if (gfx_.active) {
         const bool floating_mode = mode_ != Mode::Browse && mode_ != Mode::Search;
         const bool covered_all = list_overlay_active() || queue_overlay_active() || folder_overlay_active() || convert_overlay_active();
         if (covered_all || (mode_family(mode_) != 0)) gfx_.active = false;
-        else if ((meta_sty_pic_ == 1 && mode_ == Mode::MetaEdit) || (vs_pic_ == 1 && mode_ == Mode::VideoSearch)) {   // the preview of the Style Option panel (over the main screen) owns the picture slot: it lies inside the panel
+        else if ((meta_sty_pic_ == 1 && mode_ == Mode::MetaEdit) || (vs_pic_ == 1 && mode_ == Mode::VideoSearch) || (vl_pic_ == 1 && mode_ == Mode::VideoLink)) {   // the preview of the Style Option panel (over the main screen) owns the picture slot: it lies inside the panel
             gfx_.crop = 0;
             gfx_.cut_w = 0;
         } else {
             gfx_.crop = 0;
             const int fx = float_rect_[0], fy = float_rect_[1], fw = float_rect_[2], fh = float_rect_[3];
             if (gfx_.plain) {
-                // The audio book picture stays under a floating panel (a question, the "<" menu): only the pixels the panel covers
-                // are left out. `gfx_full_level_` is the picture as made; the hole is cut into the copy that is sent.
-                int cut[4] = {0, 0, 0, 0};
-                if (floating_mode && fw > 0 && fy < gfx_.row + gfx_.rows && fy + fh > gfx_.row && fx < gfx_.col + gfx_.cols && fx + fw > gfx_.col &&
-                    gfx_.cols > 0 && gfx_.rows > 0) {
-                    cut[0] = std::clamp((fx - gfx_.col) * gfx_.w / gfx_.cols, 0, gfx_.w);
-                    cut[2] = std::clamp((fx + fw - gfx_.col) * gfx_.w / gfx_.cols + 1, 0, gfx_.w);
-                    cut[1] = std::clamp((fy - gfx_.row) * gfx_.h / gfx_.rows, 0, gfx_.h);
-                    cut[3] = std::clamp((fy + fh - gfx_.row) * gfx_.h / gfx_.rows + 1, 0, gfx_.h);
-                }
-                // the same hole in cells, for Sixel pictures that paint or blank their cells (opaque / erase): not under the panel
-                gfx_.cut_w = 0;
-                if (cut[2] > cut[0] && cut[3] > cut[1]) {
-                    const int c0 = std::max(fx, gfx_.col), c1 = std::min(fx + fw, gfx_.col + gfx_.cols);
-                    const int r0 = std::max(fy, gfx_.row), r1 = std::min(fy + fh, gfx_.row + gfx_.rows);
-                    gfx_.cut_c = c0 - gfx_.col; gfx_.cut_r = r0 - gfx_.row; gfx_.cut_w = c1 - c0; gfx_.cut_h = r1 - r0;
-                }
-                const bool changed = std::memcmp(cut, gfx_last_cut_, sizeof(cut)) != 0;
-                const bool new_picture = gfx_.fresh || gfx_full_level_.size() != gfx_.level.size();
-                if (new_picture) gfx_full_level_ = gfx_.level;
-                else if (changed) gfx_.level = gfx_full_level_;
-                if (new_picture || changed) {
-                    for (int y = cut[1]; y < cut[3]; ++y)
-                        std::fill(gfx_.level.begin() + static_cast<long>(y) * gfx_.w + cut[0], gfx_.level.begin() + static_cast<long>(y) * gfx_.w + cut[2], 0);
-                    if (changed) gfx_.fresh = true;
-                }
-                std::memcpy(gfx_last_cut_, cut, sizeof(cut));
+                plain_hole(gfx_, gfx_full_level_, gfx_last_cut_, floating_mode);
             } else
             if (floating_mode && fw > 0 && fy < gfx_.row + gfx_.rows && fy + fh > gfx_.row && fx < gfx_.col + gfx_.cols && fx + fw > gfx_.col) {
                 // an overlay covers part of the picture: free the columns up to its right edge (all of it when it sits further right)
@@ -951,10 +1001,11 @@ std::string App::render_frame(TerminalIO& term) {
         // the oscilloscope picture next to an album cover (second slot): a floating panel frees its columns as it does for gfx_
         if (gfx_.active && gfx2_.active) {
             gfx2_.crop = 0;
-            const bool own_second = (meta_sty_pic_ == 2 && mode_ == Mode::MetaEdit) || (vs_pic_ == 2 && mode_ == Mode::VideoSearch);   // the Style Option preview lies inside its own panel
+            const bool own_second = (meta_sty_pic_ == 2 && mode_ == Mode::MetaEdit) || (vs_pic_ == 2 && mode_ == Mode::VideoSearch) || (vl_pic_ == 2 && mode_ == Mode::VideoLink);   // the Style Option preview lies inside its own panel
             const bool floating_mode = !own_second && mode_ != Mode::Browse && mode_ != Mode::Search;
             const int fx = float_rect_[0], fy = float_rect_[1], fw = float_rect_[2], fh = float_rect_[3];
-            if (floating_mode && fw > 0 && fy < gfx2_.row + gfx2_.rows && fy + fh > gfx2_.row && fx < gfx2_.col + gfx2_.cols && fx + fw > gfx2_.col)
+            if (gfx2_.plain) plain_hole(gfx2_, gfx2_full_level_, gfx2_last_cut_, floating_mode);   // (the video next to the disk: a hole, not a cut-off of whole columns)
+            else if (floating_mode && fw > 0 && fy < gfx2_.row + gfx2_.rows && fy + fh > gfx2_.row && fx < gfx2_.col + gfx2_.cols && fx + fw > gfx2_.col)
                 gfx2_.crop = fx <= gfx2_.col ? std::clamp(fx + fw - gfx2_.col, 0, gfx2_.cols) : gfx2_.cols;
             if (gfx2_.crop != gfx2_last_crop_) gfx2_.fresh = true;
             gfx2_last_crop_ = gfx2_.crop;

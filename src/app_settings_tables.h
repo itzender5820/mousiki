@@ -44,12 +44,15 @@ inline const RefHotkeyRow kRefRows[] = {
     // --- Lyrics & karaoke ---
     {"VIZ, LYRICS & KARAOKE", "HKeyToggleLyrics", "Viz./Lyrics Cycle Forward"},
     {nullptr, "HKeyToggleLyricsBack", "Viz./Lyrics Cycle Backward"},
-    {nullptr, "HKeyRetryLyrics", "Retry Lyrics"},
+    {nullptr, "HKeyRetryLyrics", "Refetch Lyrics"},
     {nullptr, "HKeyKaraoke", "Karaoke Overlay"},
     {nullptr, "HKeyVideoFetch", "Open Fetch Videos"},
+    {nullptr, "HKeyVideoFx", "Video Effect (Next, This Track)"},
+    {nullptr, "HKeyVideoFxBack", "Video Effect (Previous, This Track)"},
+    {nullptr, "HKeyVideoFull", "Full Screen Video"},
     {nullptr, "HKeyVideo", "Video Overlay"},          // video files in the library + the "video" view (picture with the lyric line)
     {nullptr, "HKeyLyricsTiming", "Lyrics Timing Overlay"},   // shift synced lyrics earlier / later
-    {nullptr, "HKeyReadLyrics", "Read Lyrics Overlay"},       // saved lyrics as text, files + translations
+    {nullptr, "HKeyReadLyrics", "Read and Translate Overlay"},       // saved lyrics as text, files + translations
     {nullptr, "HKeyKaraokeBigger", "Karaoke Lyrics Bigger"},  // inside the karaoke overlay (size 1-5)
     {nullptr, "HKeyKaraokeSmaller", "Karaoke Lyrics Smaller"},
     // --- Visualizations ---
@@ -129,7 +132,7 @@ inline constexpr int kRefEnd = kRefStart + kRefRowCount;
 enum SetId {
     kSidVizField, kSidDisk, kSidDummy, kSidQueue, kSidWave, kSidLyricsEngine, kSidLyricViz, kSidVisualizer, kSidNoLyricsViz,
     kSidStereo, kSidNormalize, kSidMetaOnly, kSidEmoji, kSidMarquee, kSidUseLyrics, kSidUseOsci, kSidUseSpectro, kSidUseSphere,
-    kSidOrder1, kSidOrder2, kSidOrder3, kSidOrder4, kSidOrder5, kSidUseVideo, kSidNoVideoViz,
+    kSidOrder1, kSidOrder2, kSidOrder3, kSidOrder4, kSidOrder5, kSidUseVideo, kSidNoVideoViz, kSidVideoSize, kSidVideoFx, kSidVideoContrast, kSidVideoColors, kSidVideoChroma, kSidVideoRound, kSidVideoRes, kSidVideoBuffer, kSidVideoMp3, kSidCoverChroma,
     kSidPlayback, kSidStartMode, kSidBlackBg, kSidShareProfiles, kSidRemoteApp, kSidUpdateCheck, kSidMediaKeys, kSidUseTermSettings, kSidTermSize, kSidFullScreen, kSidLatinLookup, kSidLatinMacrons, kSidLatinWo, kSidLatinHanzi, kSidLyricsVariants, kSidRateCap, kSidTrackBuffer,
     kSidVisFluidity, kSidWaveStyle, kSidDiskSpeed, kSidVisDegr, kSidVisVisc, kSidLyrAlign, kSidLyrAnim,
     kSidVolIndicator,
@@ -183,13 +186,16 @@ inline const std::vector<SetLine>& settings_layout(int tab) {
         {true, -1, "LYRICS"},
         {false, kSidLyrAlign, "Lyrics Alignment"}, {false, kSidLyrAnim, "Lyrics Animation"},
         {true, -1, ""},
+        {true, -1, "VIDEO"},
+        {false, kSidVideoSize, "Video Size"}, {false, kSidVideoFx, "Video Effect"}, {false, kSidVideoContrast, "Video Contrast"}, {false, kSidVideoColors, "Video Colors"}, {false, kSidVideoChroma, "Video Chromatic Aberration"}, {false, kSidVideoRound, "Video Rounded Corners"}, {false, kSidVideoRes, "Video Resolution"}, {false, kSidVideoBuffer, "Video Buffer"}, {false, kSidVideoMp3, "yt-dlp mp3 from mp4"},
+        {true, -1, ""},
         {true, -1, "DISK"},
         {false, kSidDisk, "Eliment Disk / Cover"}, {false, kSidDiskSpeed, "Disk Speed"},
         {true, -1, ""},
         {true, -1, "DISK / COVER OPTIONS"},
         {false, kSidAlbumCover, "Album Cover"}, {false, kSidCoverMode, "Cover Mode"},
         {false, kSidCoverContrast, "Cover Contrast"}, {false, kSidCoverBrightness, "Cover Brightness"},
-        {false, kSidCoverColors, "Cover Colors"}, {false, kSidCoverSearch, "Cover Search"},
+        {false, kSidCoverColors, "Cover Colors"}, {false, kSidCoverChroma, "Cover Chromatic Aberration"}, {false, kSidCoverSearch, "Cover Search"},
         {true, -1, ""},
         {true, -1, "SEEK AND VOLUME"},
         {false, kSidDummy, "Dummy Buttons"}, {false, kSidVolIndicator, "Volume Indicator"},

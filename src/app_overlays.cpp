@@ -330,7 +330,9 @@ void App::folder_overlay_build_tree() {
 
     std::map<std::string, std::set<std::string>> sub;
     std::set<std::string> root_keys, seen;
-    for (const auto& t : all_local_tracks_) {
+    std::vector<LocalTrack> tree_tracks = all_local_tracks_;
+    if (!audiobook_) apply_media_view(tree_tracks, fo_media_ >= 0 ? fo_media_ : (settings_.video_mode ? 1 : 0));   // (SHIFT+v)
+    for (const auto& t : tree_tracks) {
         const fs::path dir = t.path.parent_path();
         const std::string key = path_utf8(dir);
         fo_files_[key].push_back(path_utf8(t.path));
@@ -611,6 +613,15 @@ bool App::folder_overlay_key(int key) {
         return true;
     }
 
+    if (key == 'V' && !arrow && !audiobook_) {   // SHIFT+v: the tree lists audio / video + audio / video
+        fo_media_ = (fo_media_ < 0 ? (settings_.video_mode ? 1 : 0) : fo_media_) + 1;
+        if (fo_media_ > 2) fo_media_ = 0;
+        folder_overlay_build_tree();
+        folder_overlay_rebuild_view();
+        status_line_ = std::string("folder overlay: ") + media_view_name(fo_media_);
+        return true;
+    }
+
     // Everything else goes through the hotkeys: `f` (and the overlay key itself) are ours, the playback keys fall
     // through to the normal dispatch, anything that would act on the hidden list is swallowed.
     int lookup = (key == '\r') ? '\n' : key;
@@ -660,6 +671,7 @@ std::vector<std::string> App::folder_overlay_legend(int panel_w) const {
         "[" + hotkey_text("HKeyFilterForFolder", "f") + "] folder to list",
         "[CTRL+p] play",
         "[/] search",
+        "[SHIFT+v] audio/video",
         "[SHIFT+↑↓] page",
         "[ESC] close",
     };

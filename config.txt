@@ -94,6 +94,8 @@ CoverBrightness=50
 ## CoverColors = 0 .. 100 (percent, steps of 5): the cover behind the disk -- its own colours mixed into the disk's gradient (0 = gradient only, 100 = the cover's own colours)
 CoverColors=0
 ## CoverSearch = where the cover is looked for (every search except "file only" ends with any picture of the folder, the first by name, when nothing else gave one):
+CoverChroma=off
+## chromatic aberration of a cover that shows its own colours (Just Cover, Cover Colors above 0, the ASCII looks): off | subtle | medium | strong
 ##   default      the picture inside the file, else the picture in the folder whose name is closest to the title or the album tag (a fuzzy
 ##                match, so one folder can hold the covers of several albums), else cover / folder / front / albumart / album (jpg jpeg png webp bmp gif tif tiff avif heic jxl jp2 ico tga ppm pcx; no camera RAW)
 ##   folder first the folder first (as above), the picture inside the file last
@@ -123,6 +125,37 @@ VideoAuto=true
 ## true = a track that has a video switches the field to the video view, a track without one to the Lyrics/Viz Default view
 VideoCover=cover
 ## cover = the disk shows the track's cover; thumbnail = a frame of the track's video (the cover, then the disk, when it has no video); disk = a track with a video shows the plain disk (no cover, no thumbnail)
+VideoSize=regular
+## the video's picture in the small field: regular = the whole picture | cropped = two columns cut off each side | full = fills the field (the oscilloscope's space), cropped to fit, the lyric line as a small black box over it | framed = like full, but one row and two columns smaller on every side (an empty frame)
+VideoFx=off
+## a retro effect on the video's picture (small field and full screen): off | scanlines | crt | vhs | glitch | quiet glitch | pixel | gradient | ...
+VideoContrast=0
+## 0 .. 100 (percent, steps of 5) -- more contrast for the video's picture (0 = as it is)
+VideoColors=100
+## 0 .. 100 (percent, steps of 5) -- the video's colours (0 = greyscale, 100 = as they are)
+VideoChroma=off
+## chromatic aberration of the video's picture (red and blue pushed apart, more towards the corners; works with every effect): off | subtle | medium | strong
+VideoRound=false
+## Rounded Corners: the corners of the video's picture are cut round like the corners of the UI (a track can have its own: Style Option): true | false
+VideoResolution=standard
+## the sharpness of the video's picture: standard (up to 640 px wide, Sixel 480; the soft look) | high (1280 px, Sixel 720; Kitty in true colour) | full (1920 px, Sixel 960; Kitty in true colour). Wider pictures need more of the terminal and the processor
+VideoBuffer=32
+## megabytes of decoded video frames kept ahead of the picture: 8 | 16 | 32 | 64 | 128 | 256 (a wider picture holds fewer seconds in it)
+VideoMp3=true
+## yt-dlp mp3 from mp4: SEARCH YT also saves the sound of a downloaded video as an mp3 song in the download folder when no song is the target (CTRL+o in SEARCH YT changes it per download): true | false
+VideoFullLyrics=true
+## true = the full screen video (HKeyVideoFull, "v") shows the current lyric line in a small black box over the picture
+VideoFullTranslation=false
+## Full screen video: show the saved translation of the lyrics under the lyric line (TAB cycles lyrics off / on / with translation).
+VideoLayout=0
+## the layout of the full screen video (SHIFT+UP / SHIFT+DOWN there): 0 video | 1 video + oscilloscope | 2 video + spectrogram | 3 video + oscilloscope + spectrogram
+VideoLayoutOsciStyle=default
+VideoLayoutOsciMode=default
+VideoLayoutSpectroStyle=default
+VideoLayoutSpectroView=default
+## the oscilloscope's and the spectrogram's own picture style (braille | image) and version (XY | YT, spectrogram | waterfall) in those layouts; default = as in their options (SHIFT+o / SHIFT+i)
+VideoLayoutScales=true
+## the grid of the oscilloscope and the scales of the spectrogram in those layouts (SHIFT+g there)
 VideoDownHeight=720
 ## the highest picture height of a video that Search YT downloads (into <download folder>/video_down)
 VideoMode=false
@@ -232,6 +265,17 @@ SpectroColors=roseus
 SpectroChannels=both
 SpectroTimeSpan=30
 SpectroLabels=true
+## View spectrogram|waterfall and the waterfall values (SHIFT+i, View); SpectroLastStyle0 remembers the style used last in the waterfall view
+SpectroView=spectrogram
+SpectroWaterfallGraphs=40
+SpectroWaterfallSpacing=120
+SpectroWaterfallSlant=25
+SpectroWaterfallHeight=30
+## WaterfallResolution normal|high: high draws the graphs at twice the resolution and scales them down (finer, shaded outlines; more work)
+SpectroWaterfallResolution=normal
+## The style (0 braille / 1 image) the spectrogram (view 0) and the waterfall (view 1) were last shown in:
+SpectroLastStyle0=1
+## Tune all of these live with SHIFT+o in the main UI
 ## Tune the Osci values live with SHIFT+o and the Spectro values with SHIFT+i in the main UI
 ## Visualizer = the Spectrum Bars below the meta data (Settings -> ON/OFF -> Spectrum Bars)
 Visualizer=true
@@ -241,16 +285,73 @@ MetaDataOnly=false
 ## false = lists show filename AND metadata, as before
 ## Toggleable live with HKeyToggleMetaOnly (SHIFT+n).
  
+
+# Latin letters (SHIFT+' on a US keyboard, HKeyTranslit) and the lyrics search
+LatinLetters=false
+## true , false -- Japanese, Korean and Chinese titles, tags and lyrics are shown in Latin letters (switch with SHIFT+' on a US keyboard, see HKeyTranslit)
+LatinMacrons=false
+## true , false -- Latin letters (SHIFT+'): Japanese long vowels with a macron (koohii -> koohii off, kōhī on; ou -> ō); off = spelled out (ou, uu)
+LatinWo=false
+## true , false -- Latin letters (SHIFT+'): the particle を as "wo" (on) or "o" (off)
+LatinNameLookup=false
+## true , false -- the artists whose name is written in Chinese characters are looked up on MusicBrainz in the background to get their Latin name (sends the NAME of the artist, one at a time, to musicbrainz.org; the answers are kept in kanji_readings_learned.txt; needs Python 3)
+LatinHanziDefault=leave
+## leave , chinese , japanese -- Latin letters (SHIFT+'): Chinese characters of which nothing says whether the text is Japanese or Chinese (the same in both writings, e.g. 東京): leave them, read them as Chinese (pinyin), or as Japanese (they stay as they are unless the optional kanji reader, see the manual, knows their reading)
+LyricsNameVariants=true
+## true , false -- a lyrics search (also the refetch) that finds nothing tries other spellings: the Latin-letters spelling, the title / artist without their Latin or without their Japanese part, the title alone
+
 ##-------------------------------------------
 ##             PANEL 3: ANIMA/VIZ
 ##-------------------------------------------
- 
-VisualizerFluidity=10
-## 1 to 10
+
 WaveformStyle=raw
 ## raw , smooth
 DiskRotationSpeed=0.1
 ## 0.01x to 1.00x
+VisualizerFluidity=10
+## 1 to 10
+VisualizerDegradationSpeed=8
+## 1 to 10
+VisualizerViscosity=3
+## 1 to 10
+
+# Spectrum Bars style: Hi-Fi (a braille column per frequency step) or classic; the Hifi* values are set in the Spectrum Bars overlay (SHIFT+b)
+VisualizerStyle=hifi
+## classic , hifi -- the spectrum bars under the meta data: classic, or Hi-Fi (a braille column per frequency step, stereo, at the program's frame rate)
+HifiResolution=fine
+## fine , rough -- Hi-Fi: a band per dot column, or per two dot columns
+HifiChannels=stereo
+## stereo , mono -- Hi-Fi: the left channel on the left and the right one on the right (bass in the middle), or one mix across the width
+HifiColor=gradient
+## gradient , corresponding -- Hi-Fi: the bar colours from left to right, or the colours of the spectrogram by height
+HifiScale=low
+## full , medium , low , very low -- Hi-Fi: the height of the bars (the lower, the lower the middle levels; the peaks stay visible)
+HifiFrequencyScale=mel
+## linear , logarithmic , mel , bark , erb -- Hi-Fi: the frequency scale of the bars
+HifiGain=-2
+## -20 to 20 dB -- Hi-Fi: moves the levels up or down
+HifiRange=68
+## 40 to 100 dB -- Hi-Fi: the range from the bottom to the top of the bars (smaller = steeper)
+HifiAdapt=on
+## on , off -- Hi-Fi: adapts the height to the song (dense, compressed music with a full frequency range is lowered more)
+HifiSplit=add
+## add , remove -- Hi-Fi: an empty dot column between the left and the right channel
+HifiFluidity=10
+## 1 to 10 -- the Hi-Fi style keeps its own bar values (VisualizerFluidity ... are the Classic ones)
+HifiViscosity=3
+## 0 to 10
+HifiDegradationSpeed=8
+## 1 to 10
+
+LyricsAlignment=center
+## center , left , right
+LyricsAnimation=word by word
+## full , word by word , line by line , letter by letter , active line only , active word only
+
+##-------------------------------------------
+##             GENERAL
+##-------------------------------------------
+
 StartMode=player
 ## player , radio , audiobook -- the mode Mousiki starts in (SHIFT and + / SHIFT and - switch while it runs; set in Settings -> ON/OFF -> MODES)
 UseModePlayer=true
@@ -261,6 +362,19 @@ ModeOrder=player,radio,audiobook
 ## the order SHIFT and + walks through the modes (player, radio, audiobook in any order); SHIFT and - goes back; Settings -> ON/OFF -> MODES -> Mode Order 1..3
 BlackBackground=true
 ## true , false -- the terminal's background is black while Mousiki runs (given back on exit; player and radio)
+PlaybackMode=list
+## list , loop , shuffle , stop , queue then stop (plays the queue once, then stops -- never falls through to the library)
+## shuffle never reorders the queue: n and the end of a track play its next title, only # picks a random one of it
+UpdateCheck=true
+## true , false -- at start-up Mousiki looks (at most once a day, in the background) whether a newer release exists and tells you once per version; nothing is installed and nothing about you is sent (needs Python 3)
+MediaKeys=true
+## true , false -- the system's media controls: Windows shows Mousiki in the media pop-up and its media keys work, Linux shows it in the desktop's media widgets (MPRIS; playerctl works), macOS shows Now Playing and handles the media keys (read at the next start; player and radio)
+TrackBufferMB=256
+## 64 - 16384 (default 256) -- a track whose decoded audio is bigger than this many MB (about 10 MB per minute of CD-quality stereo, double at 96 kHz) is not held whole in RAM but in a moving 2-minute window; seeking inside the window is instant, a jump outside it takes a moment. A bigger value = fast seeking in longer tracks, more RAM in use
+RateCap96=true
+## true , false (default true) -- a track above 96 kHz (e.g. 176.4 / 192 kHz) is brought down to 96 kHz; false plays it at its own rate: more RAM (the decoded audio grows with the rate, see TrackBufferMB) and the audio device must accept the rate. The next track that is loaded uses it
+AudioDevice=
+## the sound output of all modes, as the system names it (Settings -> GENERAL -> AUDIO -> Choose Audio Device); empty = the system's default device
 RemoteApp=false
 ## true , false -- the remote app (Android app or phone browser) can control Mousiki over the home network (off by default; player and radio)
 RemoteAppPort=4747
@@ -269,31 +383,31 @@ RemoteAppPin=
 ## 4 - 8 digits -- the PIN the app needs; made when the remote app is switched on (mousiki --remote-info shows it)
 ShareProfiles=false
 ## true , false -- the radio uses the player's oscilloscope and spectrogram settings (its own are kept as a backup and come back when off)
+
+##-------------------------------------------
+##             AUDIO BOOK MODE
+##-------------------------------------------
+
+BookSpeed=1.00
+## 0.50 - 3.00 -- audio book mode: playback speed (steps of 0.05; the pitch stays the same). SHIFT+LEFT / SHIFT+RIGHT change it while you listen
 BookmarkAsk=true
 ## true , false -- audio book mode: changing the chapter, the mode or quitting asks first whether to set a bookmark at the exact time (the audio is paused meanwhile); SHIFT+b always sets one
-BookCoverWave=true
-## true , false -- with BookCover on: true = the colour wave runs over the cover (a grey cover), false = the cover is shown in its own colours (the standard picture always has the wave)
 BookCover=false
 ## true , false -- audio book mode: false = the standard picture (a woman reading), true = the cover image found in the book's folder (cover / folder / front / albumart .jpg .png ..., or the first picture there; none: the standard picture); the colour wave runs over either one
-UpdateCheck=true
-## true , false -- at start-up Mousiki looks (at most once a day, in the background) whether a newer release exists and tells you once per version; nothing is installed and nothing about you is sent (needs Python 3)
-TrackBufferMB=256
-## 64 - 16384 (default 256) -- a track whose decoded audio is bigger than this many MB (about 10 MB per minute of CD-quality stereo, double at 96 kHz) is not held whole in RAM but in a moving 2-minute window; seeking inside the window is instant, a jump outside it takes a moment. A bigger value = fast seeking in longer tracks, more RAM in use
-MediaKeys=true
-## true , false -- the system's media controls: Windows shows Mousiki in the media pop-up and its media keys work, Linux shows it in the desktop's media widgets (MPRIS; playerctl works), macOS shows Now Playing and handles the media keys (read at the next start; player and radio)
-PlaybackMode=list
-## list , loop , shuffle , stop , queue then stop (plays the queue once, then stops -- never falls through to the library)
-## shuffle never reorders the queue: n and the end of a track play its next title, only # picks a random one of it
-VisualizerDegradationSpeed=8
-## 1 to 10
-VisualizerViscosity=3
-## 1 to 10
-LyricsAlignment=center
-## center , left , right
-LyricsAnimation=word by word
-## full , word by word , line by line , letter by letter
-## active line only , active word only
- 
+BookCoverWave=true
+## true , false -- with BookCover on: true = the colour wave runs over the cover (a grey cover), false = the cover is shown in its own colours (the standard picture always has the wave)
+
+##-------------------------------------------
+##             TERMINAL WINDOW
+##-------------------------------------------
+
+TerminalCols=120
+TerminalRows=32
+## columns and rows (default 120 x 32; at least 100 x 28, at most what fits on the screen; 0 in either = leave the terminal as it is) -- Mousiki asks the terminal for this size when it starts and when you change it in Settings -> GENERAL -> TERMINAL -> Terminal Size. Terminals decide for themselves: xterm, GNOME Terminal, iTerm2, Terminal.app and recent versions of Windows Terminal usually obey, others (Konsole, kitty, Alacritty, tmux, tiling window managers) ignore it
+UseTerminalSettings=false
+## true , false -- true: Mousiki leaves the terminal as it is (its own window size and full screen), whatever TerminalCols / TerminalRows / FullScreen say
+FullScreen=false
+## true , false -- ask the terminal for full screen when Mousiki starts (overrides TerminalCols / TerminalRows while on)
 TerminalDefaultFont=false
 ## true = Mousiki leaves the terminal's own font alone; false = Mousiki's window uses the font of TerminalFont= (Settings -> TEXT AND TRANSLITERATION -> Terminal Default Font)
 TerminalFont=Cascadia Mono
@@ -367,6 +481,8 @@ ConsoleVerbosity=basic
  
 SleepFade=true
 ## sleep timer (SHIFT+z): fade the volume out over the last 10 % of the time (30 s .. 10 min), then pause
+MenuIndexClassic=false
+## the "<" menus overlay: false = the tree (organigram), true = the classic view with every category as a box (SHIFT+t switches, the last view is kept)
 WizardSeen=false
 ## (the help wizard is switched off for now, so this has no effect at the moment) the help wizard (SHIFT+w) opened itself once already; false makes it greet you again on the next start
 SidPlayLength=180
@@ -445,7 +561,7 @@ HKeySetting="s"
 # committing a change rescans the library right away. Editing the file by
 # hand still works -- do that while mousiki is closed, or rescan afterwards.
 LocalMusicPath=C:\Users\you\Music
-LocalMusicPath=%USERPROFILE%\Music
+# LocalMusicPath=%USERPROFILE%\Music        (a second path would be a second line like this one, without the #)
  
 # Playlists folder (optional, ONE folder). By default, saved playlists live in
 # <first LocalMusicPath above>\playlists -- and if no LocalMusicPath is
@@ -519,7 +635,7 @@ HKeyFilterForFolder="f"
 HKeyClearFilter="c"
 HKeyQuit="q"
 HKeyDownloadStream="y"
-HKeyToggleNormalize="v"
+HKeyToggleNormalize=""
 HKeyToggleMetaOnly="N"
 HKeyMetaEditor="M"
 HKeyHistory="H"
@@ -532,6 +648,19 @@ HKeyToggleLyricsBack=","
 HKeyWizard="W"
 HKeyCheatsheet="?"
 HKeyMenus="<"
+# Keys that depend on the keyboard layout (shown: the default of a US keyboard; German: HKeyAudioDevice SHIFT+^, mode keys * and _)
+HKeyAudioDevice="&"
+HKeyModeNext="*"
+HKeyModePrev="_"
+HKeyKaraokeBigger="*"
+HKeyKaraokeSmaller="_"
+# Other keys (HKeyBarsMenu and HKeyBookmark share SHIFT+b: the bars overlay in the player and radio, the bookmark in the audio book mode)
+HKeyBarsMenu="B"
+HKeyBookmark="B"
+HKeyCoverNext="CTRL+Z"
+HKeyCoverPrev="CTRL+T"
+HKeyTranslit="""
+HKeyVideo="Y"
 HKeyQueueMoveUp="4"
 HKeyPlaylist="P"
 HKeyQueueMoveDown="5"
@@ -568,6 +697,9 @@ HKeyQueueUndoClear="CTRL+SHIFT+Z"
 HKeyQueueToPlaylist="CTRL+SHIFT+U"
 HKeyCoverFetch="ALT+C"
 HKeyVideoFetch="ALT+V"
+HKeyVideoFx="g"
+HKeyVideoFxBack="h"
+HKeyVideoFull="v"
 HKeyStyleOptions="S"
 HKeyBulkAdd="G"
 HKeyAddToPlaylist="A"

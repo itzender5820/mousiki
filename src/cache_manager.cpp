@@ -224,6 +224,23 @@ void CacheManager::record_video_download(const std::string& id, const std::strin
     for (const std::string& l : lines) out << l << "\n";
 }
 
+bool CacheManager::is_video_download_file(const fs::path& file) const {
+    if (file.empty()) return false;
+    std::error_code ec;
+    const fs::path dir = (download_dir_ / "video_down").lexically_normal();
+    const fs::path rel = file.lexically_normal().lexically_relative(dir);
+    if (!rel.empty() && *rel.begin() != "..") return true;   // inside the download folder for videos
+    const std::string want = "\t" + path_utf8(file);
+    std::ifstream in(video_archive_path().parent_path() / "downloaded_videos_files.txt", std::ios::binary);
+    std::string line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        const size_t tab = line.find('\t');
+        if (tab != std::string::npos && line.compare(tab, std::string::npos, want) == 0) return true;
+    }
+    return false;
+}
+
 fs::path CacheManager::find_video_download(const std::string& id) const {
     if (!plain_video_id(id)) return {};
     std::error_code ec;

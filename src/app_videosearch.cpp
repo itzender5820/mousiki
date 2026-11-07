@@ -93,6 +93,7 @@ void App::video_search_open() {
     }
     edit_owner_.clear();   // (the caret of the text field goes to the end of the text)
     vs_target_ = has_track_ ? current_path_ : fs::path();
+    vs_mp3_ = settings_.video_mp3 && vs_target_.empty();   // (with a song as the target the video is for that song: no extra mp3 unless CTRL+o asks for it)
     vs_pane_ = 0;
     mode_ = Mode::VideoSearch;
     force_redraw_ = true;
@@ -105,6 +106,7 @@ void App::video_search_open(const std::string& query) {
     vs_query_for_ = path_utf8(current_path_);
     edit_owner_.clear();
     vs_target_ = has_track_ ? current_path_ : fs::path();
+    vs_mp3_ = settings_.video_mp3 && vs_target_.empty();
     vs_pane_ = 0;
     vs_results_.clear();
     vs_busy_ = false;
@@ -119,11 +121,53 @@ void App::video_search_close() {
     force_redraw_ = true;
 }
 
+// The file yt-dlp wrote: the path it printed, else (a garbled console code page) the newest file with the given name in `dir`.
+static std::string vs_resolve_file(const std::string& printed, const fs::path& dir, const std::string& base) {
+    std::error_code ec;
+    if (!printed.empty() && fs::exists(path_from_utf8(printed), ec)) return printed;
+    std::string file;
+    std::filesystem::file_time_type newest{};
+    for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+        const fs::path p = it->path();
+        const std::string ext = path_utf8(p.extension());
+        if (path_utf8(p.stem()) != base || ext == ".part" || ext == ".ytdl" || ext == ".temp") continue;
+        std::error_code e2;
+        const auto tm = fs::last_write_time(p, e2);
+        if (file.empty() || tm > newest) { file = path_utf8(p); newest = tm; }
+    }
+    return file;
+}
+
+// The sound of a downloaded video as an mp3 (ffmpeg) in `dir`: a song of its own, the video is connected to it afterwards. An mp3 that was
+// made from this video before is used again. Returns "" and sets `err` when it fails.
+std::string video_make_mp3_file(const std::string& video, const fs::path& dir, const std::string& base, const std::string& title, std::string& err) {
+    std::error_code ec;
+    for (const std::string& t : VideoLinks::get().tracks_for(video))   // (this video has a song in the download folder already)
+        if (path_utf8(path_from_utf8(t).extension()) == ".mp3" && fs::exists(path_from_utf8(t), ec)) return t;
+    fs::create_directories(dir, ec);
+    fs::path out = dir / path_from_utf8(base + ".mp3");
+    for (int n = 2; fs::exists(out, ec) && n < 1000; ++n) out = dir / path_from_utf8(base + " (" + std::to_string(n) + ").mp3");
+    const fs::path tmp = dir / path_from_utf8(base + ".making.mp3");
+    fs::remove(tmp, ec);
+    std::vector<std::string> args = {"ffmpeg", "-nostdin", "-v", "error", "-y", "-i", video, "-vn", "-map", "0:a:0", "-c:a", "libmp3lame", "-q:a", "2", "-id3v2_version", "3"};
+    if (!title.empty()) { args.push_back("-metadata"); args.push_back("title=" + title); }
+    args.push_back(path_utf8(tmp));
+    const ProcResult r = run_capture(args, true);
+    if (!r.ok() || !fs::exists(tmp, ec) || fs::file_size(tmp, ec) == 0) {
+        fs::remove(tmp, ec);
+        err = "the mp3 could not be made (is ffmpeg installed?)" + (r.out.empty() ? std::string() : ": " + r.out.substr(0, 120));
+        return std::string();
+    }
+    fs::rename(tmp, out, ec);
+    if (ec) { fs::remove(tmp, ec); err = "the mp3 could not be saved: " + ec.message(); return std::string(); }
+    return path_utf8(out);
+}
+
 void App::video_download_start(const OnlineResult& r) {
     if (vd_.active) { vs_msg_ = "a download is running already"; vs_warn_ = true; return; }
     {   // this video was downloaded before (by Mousiki or by down_vid) and the file is still there: no second copy, just connect it
         const fs::path have = cache_.find_video_download(r.video_id);
-        if (!have.empty()) {
+        if (!have.empty() && !vs_mp3_) {
             if (!vs_target_.empty()) {
                 VideoLinks::get().set(path_utf8(vs_target_), path_utf8(have));
                 ++video_rev_;
@@ -156,9 +200,22 @@ void App::video_download_start(const OnlineResult& r) {
     vd_.title = r.title;
     vd_.video_id = r.video_id;
     vd_.track = vs_target_;
+    vd_.want_mp3 = vs_mp3_;
+    vd_.mp3_dir = cache_.download_dir();
+    vd_.mp3_file.clear();
+    vd_.mp3_error.clear();
+    const fs::path have_file = vs_mp3_ ? cache_.find_video_download(r.video_id) : fs::path();   // (downloaded before: only the mp3 is still missing)
     const std::vector<std::string> args = video_download_args(r.video_id, dir, base, settings_.video_down_height);
     ConsoleLog::instance().log_basic("video download: " + command_text(args));
-    vd_.thread = std::thread([this, args]() {
+    vd_.thread = std::thread([this, args, have_file]() {
+        if (!have_file.empty()) {   // no second download of the picture
+            { std::lock_guard<std::mutex> lk(vd_.m); vd_.file = path_utf8(have_file); vd_.progress = "making the mp3 ..."; }
+            std::string err;
+            const std::string mp3 = video_make_mp3_file(path_utf8(have_file), vd_.mp3_dir, safe_file_name(vd_.title).empty() ? vd_.base : safe_file_name(vd_.title), vd_.title, err);
+            std::lock_guard<std::mutex> lk(vd_.m);
+            vd_.mp3_file = mp3; vd_.mp3_error = err; vd_.done = true;
+            return;
+        }
         std::unique_ptr<ChildProcess> child = spawn_capture(args, true);
         if (!child) {
             std::lock_guard<std::mutex> lk(vd_.m);
@@ -200,14 +257,46 @@ void App::video_download_start(const OnlineResult& r) {
             std::lock_guard<std::mutex> lk(vd_.child_m);
             vd_.child = nullptr;
         }
+        std::string got;
+        {
+            std::lock_guard<std::mutex> lk(vd_.m);
+            if (code != 0 || vd_.file.empty()) vd_.error = !last_error.empty() ? last_error.substr(0, 200) : "yt-dlp ended with exit code " + std::to_string(code);
+            got = vd_.file;
+            if (vd_.error.empty() && vd_.want_mp3) vd_.progress = "making the mp3 ...";
+        }
+        if (vd_.want_mp3 && !got.empty()) {   // the sound of the video as a song of its own (ffmpeg)
+            const std::string vfile = vs_resolve_file(got, vd_.dir, vd_.base);
+            std::string err;
+            std::string mp3;
+            if (!vfile.empty()) mp3 = video_make_mp3_file(vfile, vd_.mp3_dir, safe_file_name(vd_.title).empty() ? vd_.base : safe_file_name(vd_.title), vd_.title, err);
+            std::lock_guard<std::mutex> lk(vd_.m);
+            vd_.mp3_file = mp3; vd_.mp3_error = err;
+        }
         std::lock_guard<std::mutex> lk(vd_.m);
-        if (code != 0 || vd_.file.empty()) vd_.error = !last_error.empty() ? last_error.substr(0, 200) : "yt-dlp ended with exit code " + std::to_string(code);
         vd_.done = true;
     });
 }
 
 // Once per frame: a finished search fills the list, a finished download is connected to its song.
 void App::video_search_poll() {
+    if (vm_mp3_fut_.valid() && vm_mp3_fut_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {   // an mp3 made in the VIDEO FILES tab
+        const auto res = vm_mp3_fut_.get();
+        std::string msg;
+        bool warn = false;
+        if (res.first.empty()) { msg = res.second.empty() ? std::string("the mp3 could not be made") : res.second; warn = true; }
+        else {
+            VideoLinks::get().set(res.first, vm_mp3_video_);   // (the new song shows this video)
+            ++video_rev_;
+            video_for_track_.clear();
+            rescan_now();
+            msg = "mp3 saved: " + res.first + " -- connected to " + path_utf8(path_from_utf8(vm_mp3_video_).filename());
+            if (mode_ == Mode::VideoFetch && vf_tab_ == 1) { video_manage_rebuild(); video_fetch_rebuild_list(); }
+        }
+        status_line_ = msg;
+        log_event(msg);
+        if (mode_ == Mode::VideoFetch) { vf_msg_ = msg; vf_warn_ = warn; }
+        force_redraw_ = true;
+    }
     if (vs_busy_ && vs_future_.valid() && vs_future_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         vs_results_ = vs_future_.get();
         vs_busy_ = false;
@@ -225,25 +314,16 @@ void App::video_search_poll() {
         if (!done) { if (mode_ == Mode::VideoSearch) { std::lock_guard<std::mutex> lk(vd_.m); vs_msg_ = vd_.title + ": " + vd_.progress; vs_warn_ = false; } return; }
         if (vd_.thread.joinable()) vd_.thread.join();
         vd_.active = false;
-        std::string file, err;
+        std::string file, err, mp3, mp3_err;
         {
             std::lock_guard<std::mutex> lk(vd_.m);
-            file = vd_.file; err = vd_.error;
+            file = vd_.file; err = vd_.error; mp3 = vd_.mp3_file; mp3_err = vd_.mp3_error;
         }
         std::string msg;
         bool warn = false;
         std::error_code ec;
         if (!fs::exists(path_from_utf8(file), ec)) {   // the printed path can be garbled by the console's code page: look for the file by the name it was given
-            file.clear();
-            std::filesystem::file_time_type newest{};
-            for (fs::directory_iterator it(vd_.dir, ec), end; !ec && it != end; it.increment(ec)) {
-                const fs::path p = it->path();
-                const std::string ext = path_utf8(p.extension());
-                if (path_utf8(p.stem()) != vd_.base || ext == ".part" || ext == ".ytdl" || ext == ".temp") continue;
-                std::error_code e2;
-                const auto tm = fs::last_write_time(p, e2);
-                if (file.empty() || tm > newest) { file = path_utf8(p); newest = tm; }
-            }
+            file = vs_resolve_file(std::string(), vd_.dir, vd_.base);
             if (!file.empty()) err.clear();
         }
         if (!err.empty() || file.empty() || !fs::exists(path_from_utf8(file), ec)) {
@@ -251,13 +331,18 @@ void App::video_search_poll() {
             warn = true;
         } else {
             cache_.record_video_download(vd_.video_id, file);   // (down_vid and the next download of this video know it now)
-            if (!vd_.track.empty()) {
+            if (!mp3.empty()) {   // the new song gets the video as its own (a connection by hand: the two are in different folders)
+                VideoLinks::get().set(mp3, file);
+                ++video_rev_;
+                video_for_track_.clear();
+            } else if (!vd_.track.empty()) {
                 VideoLinks::get().set(path_utf8(vd_.track), file);
                 ++video_rev_;
                 video_for_track_.clear();
             }
-            if (settings_.video_mode) rescan_now();   // the new file is listed
-            msg = "downloaded to " + file + (vd_.track.empty() ? "" : " -- connected to the song");
+            rescan_now();   // the new files are listed (also the mp3: it is a song of the library)
+            msg = "downloaded to " + file + (!mp3.empty() ? "; the sound is saved as " + mp3 + " and connected to the video" : vd_.track.empty() ? "" : " -- connected to the song");
+            if (vd_.want_mp3 && mp3.empty()) { msg += " (" + (mp3_err.empty() ? std::string("no mp3 was made") : mp3_err) + ")"; warn = true; }
         }
         if (mode_ == Mode::VideoSearch) { vs_msg_ = msg; vs_warn_ = warn; }
         status_line_ = msg;
@@ -275,6 +360,12 @@ void App::video_search_key(int key) {
         if (vd_.child) vd_.child->kill();
         vs_msg_ = "download cancelled";
         vs_warn_ = true;
+        return;
+    }
+    if (key == kKeyCtrlO) {   // CTRL+o: also make an mp3 of the sound (a song of its own in the download folder)
+        vs_mp3_ = !vs_mp3_;
+        vs_msg_ = vs_mp3_ ? "the sound is saved as an mp3 song too (in the download folder); the video is connected to it" : "only the video is downloaded";
+        vs_warn_ = false;
         return;
     }
     if (vs_pane_ == 0) {
@@ -430,8 +521,8 @@ std::vector<std::string> App::build_video_search_panel(int W) const {
         const std::string info = cur ? truncate_str(cur->title + "  (" + cur->uploader + (cur->duration_sec >= 0 ? ", " + vs_clock_text(cur->duration_sec) : std::string()) + ")", inner) : std::string();
         out.push_back(line(hdr + info + R, display_width(info)));
         const fs::path dir = video_down_dir();
-        const std::string head = "Downloads go to ";
-        const std::string tail = vs_target_.empty() ? "" : "  as  " + safe_file_name(path_utf8(vs_target_.stem())) + ".mp4";
+        const std::string head = "Video to ";
+        const std::string tail = std::string(vs_target_.empty() ? "" : "  as  " + safe_file_name(path_utf8(vs_target_.stem())) + ".mp4") + (vs_mp3_ ? "  | mp3 too [CTRL+o]: on" : "  | mp3 too [CTRL+o]: off");
         std::string where = path_utf8(dir);
         // a path too long for the panel loses its beginning, not its end (the folder's name is what matters)
         const int room = std::max(8, inner - display_width(head) - display_width(tail));
@@ -451,7 +542,7 @@ std::vector<std::string> App::build_video_search_panel(int W) const {
         const std::string m = truncate_str(vs_msg_, inner);
         out.push_back(line((vs_warn_ ? std::string("\x1b[31m") : leg) + m + R, display_width(m)));
     }
-    out.push_back(centred_bottom(settings_, PW, "[ENTER] search / download  [TAB] field/list  [o] open page  [CTRL+t] file name / artist+title  [CTRL+c] copy / cancel download  [ESC] close", border_bottom));
+    out.push_back(centred_bottom(settings_, PW, "[ENTER] search / download  [TAB] field/list  [o] open page  [CTRL+t] file name / artist+title  [CTRL+o] mp3 too  [CTRL+c] copy / cancel download  [ESC] close", border_bottom));
     return out;
 }
 

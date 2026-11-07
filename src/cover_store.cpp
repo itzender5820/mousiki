@@ -1,6 +1,7 @@
 // Fetched album covers: saves covers downloaded for an album in a folder next to the music and finds
 // them again by the album name.
 #include "cover_store.h"
+#include "video_fx.h"
 
 #include <algorithm>
 #include <atomic>
@@ -104,6 +105,7 @@ struct Choices {
     std::map<std::string, std::string> failed;          // album key -> why the last fetch found nothing
     std::map<std::string, std::string> look;            // album key (or "dir:<folder>") -> the cover look of that album ("0".."7")
     std::map<std::string, std::string> style;           // track path -> "look,contrast,brightness,colors" (-1 = as in Settings)
+    std::map<std::string, std::string> vopts;           // track path -> "on,size,fx,contrast,colors,chroma,res" (-1 = as in the VIDEO overlay)
     std::map<std::string, std::string> vmode;           // track path -> "1" cover / "2" video thumbnail / "3" plain disk (absent: as in the VIDEO overlay)
     std::atomic<unsigned> revision{1};
 };
@@ -146,6 +148,7 @@ void load_locked(Choices& c) {
         else if (line[0] == 'R') c.fetched[key] = val;
         else if (line[0] == 'L') c.look[key] = val;
         else if (line[0] == 'S') c.style[key] = val;
+        else if (line[0] == 'W') c.vopts[key] = val;
     }
 }
 
@@ -161,6 +164,7 @@ void save_locked(Choices& c) {
     for (const auto& kv : c.failed) out << "F\t" << kv.first << "\t" << kv.second << "\n";
     for (const auto& kv : c.look) out << "L\t" << kv.first << "\t" << kv.second << "\n";
     for (const auto& kv : c.vmode) out << "V\t" << kv.first << "\t" << kv.second << "\n";
+    for (const auto& kv : c.vopts) out << "W\t" << kv.first << "\t" << kv.second << "\n";
     for (const auto& kv : c.style) out << "S\t" << kv.first << "\t" << kv.second << "\n";
     write_text_atomic(p, out.str());   // (never a cut-off file: every choice is in it)
 }
@@ -234,14 +238,15 @@ CoverStyle cover_track_style(const std::string& track_path) {
     load_locked(c);
     const auto it = c.style.find(track_path);
     if (it == c.style.end()) return st;
-    int v[4] = {-1, -1, -1, -1};
+    int v[5] = {-1, -1, -1, -1, -1};
     std::istringstream in(it->second);
     std::string part;
-    for (int i = 0; i < 4 && std::getline(in, part, ','); ++i) v[i] = std::atoi(part.c_str());
+    for (int i = 0; i < 5 && std::getline(in, part, ','); ++i) v[i] = std::atoi(part.c_str());
     st.look = v[0] >= 0 && v[0] < kCoverLookCount ? v[0] : -1;
     st.contrast = v[1] >= 0 && v[1] <= 100 ? v[1] : -1;
     st.brightness = v[2] >= 0 && v[2] <= 100 ? v[2] : -1;
     st.colors = v[3] >= 0 && v[3] <= 100 ? v[3] : -1;
+    st.chroma = v[4] >= 0 && v[4] < kChromaLevels ? v[4] : -1;
     return st;
 }
 
@@ -251,8 +256,8 @@ void set_cover_track_style(const std::string& track_path, const CoverStyle& st) 
     {
         std::lock_guard<std::mutex> lk(c.mu);
         load_locked(c);
-        if (st.look < 0 && st.contrast < 0 && st.brightness < 0 && st.colors < 0) c.style.erase(track_path);
-        else c.style[track_path] = std::to_string(st.look) + "," + std::to_string(st.contrast) + "," + std::to_string(st.brightness) + "," + std::to_string(st.colors);
+        if (st.look < 0 && st.contrast < 0 && st.brightness < 0 && st.colors < 0 && st.chroma < 0) c.style.erase(track_path);
+        else c.style[track_path] = std::to_string(st.look) + "," + std::to_string(st.contrast) + "," + std::to_string(st.brightness) + "," + std::to_string(st.colors) + "," + std::to_string(st.chroma);
         save_locked(c);
     }
     cover_store_touch();
@@ -277,6 +282,44 @@ void set_cover_fetch_failure(const std::string& album, const std::string& reason
     if (reason.empty()) { if (c.failed.erase(key) == 0) return; }
     else c.failed[key] = r.empty() ? std::string("not found") : r;
     save_locked(c);
+}
+
+VideoTrackOpts cover_track_video_opts(const std::string& track_path) {
+    VideoTrackOpts o;
+    if (track_path.empty()) return o;
+    Choices& c = choices();
+    std::lock_guard<std::mutex> lk(c.mu);
+    load_locked(c);
+    const auto it = c.vopts.find(track_path);
+    if (it == c.vopts.end()) return o;
+    int v[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};
+    std::istringstream in(it->second);
+    std::string part;
+    for (int i = 0; i < 9 && std::getline(in, part, ','); ++i) v[i] = std::atoi(part.c_str());
+    o.on = v[0] == 0 ? 0 : -1;
+    o.size = v[1] >= 0 && v[1] <= 3 ? v[1] : -1;
+    o.fx = v[2] >= 0 && v[2] < kVideoFxCount ? video_fx_canon(v[2]) : -1;
+    o.contrast = v[3] >= 0 && v[3] <= 100 ? v[3] : -1;
+    o.colors = v[4] >= 0 && v[4] <= 100 ? v[4] : -1;
+    o.chroma = v[5] >= 0 && v[5] < kChromaLevels ? v[5] : -1;
+    o.res = v[6] >= 0 && v[6] <= 2 ? v[6] : -1;
+    o.round = v[7] == 0 || v[7] == 1 ? v[7] : -1;
+    o.lyrics = v[8] == 0 || v[8] == 1 ? v[8] : -1;
+    return o;
+}
+
+void set_cover_track_video_opts(const std::string& track_path, const VideoTrackOpts& o) {
+    if (track_path.empty()) return;
+    const int old_on = cover_track_video_opts(track_path).on;
+    Choices& c = choices();
+    {
+        std::lock_guard<std::mutex> lk(c.mu);
+        load_locked(c);
+        if (o.on != 0 && o.size < 0 && o.fx < 0 && o.contrast < 0 && o.colors < 0 && o.chroma < 0 && o.res < 0 && o.round < 0 && o.lyrics < 0) c.vopts.erase(track_path);
+        else c.vopts[track_path] = std::to_string(o.on == 0 ? 0 : -1) + "," + std::to_string(o.size) + "," + std::to_string(o.fx) + "," + std::to_string(o.contrast) + "," + std::to_string(o.colors) + "," + std::to_string(o.chroma) + "," + std::to_string(o.res) + "," + std::to_string(o.round) + "," + std::to_string(o.lyrics);
+        save_locked(c);
+    }
+    if (old_on != o.on) cover_store_touch();   // (only "video of this track" can change what the disk shows; a look change must not make the cover load again: it blinked away)
 }
 
 int cover_track_video_mode(const std::string& track_path) {

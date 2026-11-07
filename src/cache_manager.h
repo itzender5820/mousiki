@@ -49,6 +49,8 @@ public:
     // The file a video was downloaded to before (by Mousiki: the file list; by down_vid: "<title> [<id>].mp4" in video_down);
     // empty when there is none or it was deleted since (then it can be fetched again).
     fs::path find_video_download(const std::string& id) const;
+    // Is this file one that Mousiki (or down_vid) downloaded: listed in downloaded_videos_files.txt, or inside <download folder>/video_down?
+    bool is_video_download_file(const fs::path& file) const;
 
 private:
     fs::path cache_dir_;

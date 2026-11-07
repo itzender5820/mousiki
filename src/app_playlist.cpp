@@ -74,23 +74,18 @@ bool App::is_folder_query(const std::string& q) {
     return q.size() >= i + 2 && (q[i] == 'f' || q[i] == 'F') && q[i + 1] == ':';
 }
 
-std::vector<LocalTrack> App::filter_local_or_folders(const std::string& raw) const {
+std::vector<LocalTrack> App::filter_local_or_folders(const std::string& raw, int pane_media) const {
     std::string q = raw;
     size_t i = 0;
     while (i < q.size() && q[i] == ' ') ++i;
     if (q.size() >= i + 3 && q[i] == '/') ++i;
     const bool folders = q.size() >= i + 2 && (q[i] == 'f' || q[i] == 'F') && q[i + 1] == ':';
     if (!folders) {
-        // like the main UI's search: a query lists audio files only; "v:" in front of it (or "/v:") lists only the video files
+        // like the main UI's search: "v:" / "x:" in front of the query (or "/v:") lists the videos / videos + audio, else the pane's SHIFT+v choice
         std::string rest = raw;
-        size_t j = 0;
-        while (j < rest.size() && rest[j] == ' ') ++j;
-        if (j < rest.size() && rest[j] == '/') ++j;
-        const bool videos_only = rest.size() >= j + 2 && (rest[j] == 'v' || rest[j] == 'V') && rest[j + 1] == ':';
-        if (videos_only) { rest = rest.substr(j + 2); while (!rest.empty() && rest.front() == ' ') rest.erase(rest.begin()); }
+        const int mv = media_view_for(rest, pane_media);
         std::vector<LocalTrack> v = filter_and_rank_local(rest);
-        if (videos_only) v.erase(std::remove_if(v.begin(), v.end(), [](const LocalTrack& t) { return !LocalSource::is_video_file(t.path); }), v.end());
-        else if (!rest.empty()) v.erase(std::remove_if(v.begin(), v.end(), [](const LocalTrack& t) { return LocalSource::is_video_file(t.path); }), v.end());
+        apply_media_view(v, mv);
         return v;
     }
     std::vector<std::string> words;
@@ -126,7 +121,7 @@ const char* App::playlist_sort_name(int mode) {
 // then the sort of Shift+T. Unlike the main list the sort also applies to a search result, so a found set can be put in
 // order; sort 0 keeps the relevance ranking / folder order.
 void App::playlist_refresh_lib_view() {
-    playlist_edit_lib_view_ = filter_local_or_folders(playlist_edit_lib_query_);
+    playlist_edit_lib_view_ = filter_local_or_folders(playlist_edit_lib_query_, pl_media_);
     if (playlist_edit_sort_ == 5) {   // recently added: newest first (a stable sort: equal times keep their order)
         std::vector<std::pair<long long, size_t>> keyed;
         keyed.reserve(playlist_edit_lib_view_.size());
@@ -1102,6 +1097,13 @@ void App::handle_playlist_key(int key) {
         if (!arrow && !text_engaged("playlist-lib-search")) {
             if (key == 'A') { playlist_add_folder_to_edit(); return; }
             if (key == 'U') { playlist_undo_add(); return; }
+            if (key == 'V') {   // SHIFT+v: the library lists audio / video + audio / video
+                pl_media_ = (pl_media_ < 0 ? (settings_.video_mode ? 1 : 0) : pl_media_) + 1;
+                if (pl_media_ > 2) pl_media_ = 0;
+                playlist_refresh_lib_view();
+                playlist_status_ = std::string("library: ") + media_view_name(pl_media_) + " (" + std::to_string(playlist_edit_lib_view_.size()) + " files)";
+                return;
+            }
             if (resolve_hotkey_action(key) == "HKeyRescan") {
                 rescan_now();
                 playlist_refresh_lib_view();
@@ -1191,7 +1193,7 @@ std::vector<std::string> App::build_playlist_library_panel(int total_width, int 
     // The query has its own SEARCH LIBRARY pane above (build_playlist_search_panel());
     // typing still goes to it while this pane has focus, so the focus triangle
     // sits here, where Up/Down and ENTER act.
-    out.push_back(box_top(std::string("LIBRARY") + (playlist_edit_sort_ ? std::string(" (") + playlist_sort_name(playlist_edit_sort_) + ")" : std::string())
+    out.push_back(box_top(std::string("LIBRARY") + (pl_media_ >= 0 ? std::string(" [") + media_view_name(pl_media_) + "]" : std::string()) + (playlist_edit_sort_ ? std::string(" (") + playlist_sort_name(playlist_edit_sort_) + ")" : std::string())
                           + (playlist_edit_focus_ == 1 ? focus_indicator(settings_, border_ansi) : std::string()),
                           total_width, border_ansi));
 
@@ -1620,7 +1622,7 @@ void App::build_playlist_screen(std::ostringstream& frame, int W, int target_hei
         } else {
             groups.push_back({"Move", {lr, "[TAB] Focus", "[\u2191\u2193] Navi.", "[SHIFT+\u2191\u2193] Page", "[ENTER] Add/Load", esc}});
             groups.push_back({"Tracks", {"[DEL] Remove", "[4/5] Move \u2191\u2193", "[CTRL+s] Save", "[SHIFT+a] Add folder", "[SHIFT+u] Undo add"}});
-            groups.push_back({"Sort", {"[SHIFT+t] Sorting searched titles", "[/f:] Search folders", "[SHIFT+r] Rescan"}});
+            groups.push_back({"Sort", {"[SHIFT+t] Sorting searched titles", "[/f:] Search folders", "[SHIFT+v] Audio / Video", "[SHIFT+r] Rescan"}});
         }
         {
             const auto lrows = layout_legend_tree(groups, W - 1);

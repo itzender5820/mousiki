@@ -121,9 +121,9 @@ void make_sample_cover(CoverImage& c) {
 PvKind kind_of(int id, const Settings& s) {
     switch (id) {
         case kSidLyrAlign: case kSidLyrAnim: case kSidUseLyrics: return kPvLyrics;
-        case kSidUseVideo: return kPvVideo;   // (a sample video; the lyrics preview when it is not there)
+        case kSidUseVideo: case kSidVideoSize: case kSidVideoFx: case kSidVideoRes: case kSidVideoBuffer: case kSidVideoMp3: case kSidVideoContrast: case kSidVideoColors: case kSidVideoChroma: case kSidVideoRound: return kPvVideo;   // (a sample video; the lyrics preview when it is not there)
         case kSidDisk: case kSidDiskSpeed: return kPvDisk;
-        case kSidAlbumCover: case kSidCoverMode: case kSidCoverContrast: case kSidCoverBrightness: case kSidCoverColors:
+        case kSidAlbumCover: case kSidCoverMode: case kSidCoverContrast: case kSidCoverBrightness: case kSidCoverColors: case kSidCoverChroma:
         case kSidCoverSearch: return kPvCover;
         case kSidVolIndicator: case kSidDummy: return kPvVolume;
         case kSidVisualizer: case kSidVisFluidity: case kSidVisDegr: case kSidVisVisc: case kSidBarStyle: case kSidHifiRes: case kSidHifiChan: case kSidHifiColor: case kSidHifiScale: case kSidHifiAdapt: case kSidHifiSplit: case kSidHifiFScale: case kSidHifiGain: case kSidHifiRange: case kSidBarBehavior: return kPvBars;
@@ -191,7 +191,7 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
     if (kind != kPvVideo && P.vid) P.vid->stop();   // (the decoder only runs while its row is shown)
     PvKind shown = kind;
     if (kind == kPvVideo) {
-        if (!P.vid_tried) {   // the sample video: scripts/preview_video.mp4 (a short loop made from the Mousiki GIF)
+        if (!P.vid_tried) {   // the sample video: scripts/preview_video.mp4 (8 seconds of a Pixabay cat video, see THIRD_PARTY_LICENSES.txt)
             P.vid_tried = true;
             const fs::path f = find_preview_video();
             std::error_code ec;
@@ -262,6 +262,7 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
     }
 
     PvOut out;
+    VideoFrame vfx;       // (the sample video's frame with the retro effect on it)
     VideoFrame vscaled;   // (the sample video's frame scaled to the picture's size while the decoder catches up)
     const int cw = iw - 2;   // content width (one blank column each side)
     switch (shown) {
@@ -332,7 +333,7 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
                 out.caption = settings_.album_cover ? "sample cover (image)" : "sample cover (image; Album Cover is off)";
             } else {
                 rows = album_cover_lines_for(P.cover, settings_.cover_mode, settings_.cover_contrast, settings_.cover_brightness,
-                                             settings_.cover_colors, P.angle, dc, dr);
+                                             settings_.cover_colors, P.angle, dc, dr, settings_.cover_chroma);
                 out.caption = std::string(gfx_proto_ != GfxProto::None && cf_full_res_ ? "sample cover (braille)" : "sample cover")
                               + (settings_.album_cover ? "" : " (Album Cover is off)");
             }
@@ -664,6 +665,12 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
         bool fresh = false;
         const VideoFrame* fr = V.frame_for(vt, dw, dh, true, &fresh);
         if (fr && (fr->w != dw || fr->h != dh)) { vscaled = VideoPlayer::resample(*fr, dw, dh); fr = &vscaled; }
+        {
+            VideoLook look;
+            look.fx = settings_.video_fx; look.contrast = settings_.video_contrast; look.colors = settings_.video_colors; look.chroma = settings_.video_chroma;
+            if (video_fx_uses_gradient(look.fx)) look.grad = video_fx_gradient(settings_);
+            if (fr && look.active()) { vfx = *fr; VideoPlayer::apply_look(vfx, look, vt, !picture, V.previous_frame()); fr = &vfx; }
+        }
         if (!fr) {   // the decoder is starting (or failed): say it in the middle
             std::string msg = V.status();
             if (msg.empty()) msg = "video: ...";
@@ -683,7 +690,7 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
                 std::string line, last_ansi;
                 for (int c = 0; c < vcols; ++c) {
                     const auto& cell = cells[static_cast<size_t>(r)][static_cast<size_t>(c)];
-                    if (cell.mask == 0) { line += ' '; continue; }
+                    if (cell.mask == 0 || (settings_.video_round && vrows >= 3 && vcols >= 4 && (r == 0 || r == vrows - 1) && (c == 0 || c == vcols - 1))) { line += ' '; continue; }   // (rounded: the four corner cells stay empty)
                     const float tt = vcols > 1 ? static_cast<float>(c) / static_cast<float>(vcols - 1) : 0.0f;
                     const float lvl = std::round(cell.level / 255.0f * 7.0f) / 7.0f;
                     const std::string ansi = osci_dim_ansi(gradient_ansi(settings_.visualizer_color, settings_.visualizer_color_end, tt), 0.30f + 0.70f * lvl);
@@ -759,16 +766,16 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
     const int xo = out.w > 0 ? std::max(1, (iw - out.w) / 2 + 1) : 2;
     if (out.cover_mode >= 0 && nrows > 0) {   // the sample cover as a picture (it uses the picture slot gfx_)
         pv_cover_pic_ = true;
-        meta_sty_gfx(pv_->cover, out.cover_mode, settings_.cover_contrast, settings_.cover_brightness, settings_.cover_colors,
+        meta_sty_gfx(pv_->cover, out.cover_mode, settings_.cover_contrast, settings_.cover_brightness, settings_.cover_colors, settings_.cover_chroma,
                      pv_->angle, inner_x + xo - 2, top + vtop, out.w, nrows);
     }
     if (out.video && nrows > 0 && out.vframe) {   // the sample video as a picture (it uses the picture slot gfx_, like the sample cover)
         pv_cover_pic_ = true;
         GfxFrame& g = gfx_;
         const std::string key = std::to_string(out.vw) + "x" + std::to_string(out.vh) + "|" + std::to_string(out.vcols) + "x" + std::to_string(out.vrows) + "|" +
-                                std::to_string(inner_x + xo - 2) + "," + std::to_string(top + vtop);
+                                std::to_string(inner_x + xo - 2) + "," + std::to_string(top + vtop) + (settings_.video_round ? "|r" : "|-");
         const bool resized = key != P.vid_key || !g.plain || g.w != out.vw || g.h != out.vh || g.level.size() != static_cast<size_t>(out.vw) * out.vh || g.id != 0;
-        g.plain = true; g.direct = true; g.scale = 1;
+        g.plain = true; g.truecolor = false; g.direct = true; g.scale = 1;
         g.out_cw = out.cw0; g.out_ch = out.ch0;
         g.cols = out.vcols; g.rows = out.vrows; g.w = out.vw; g.h = out.vh;
         g.col = inner_x + xo - 2; g.row = top + vtop;
@@ -779,6 +786,17 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
         g.fresh = out.vfresh || resized;
         if (g.fresh) {
             VideoPlayer::quantize(*out.vframe, g.hue, g.level);
+            if (settings_.video_round) {   // Video Rounded Corners: the corners cut round, like in the main screen (a quarter circle of about half a cell)
+                const int rp = std::clamp(g.w / std::max(1, out.vcols) * 11 / 20, 2, std::min(g.w, g.h) / 2);
+                const float rf = static_cast<float>(rp);
+                for (int y = 0; y < rp; ++y)
+                    for (int x = 0; x < rp; ++x) {
+                        const float dx = rf - static_cast<float>(x) - 0.5f, dy = rf - static_cast<float>(y) - 0.5f;
+                        if (dx * dx + dy * dy <= rf * rf) continue;
+                        const int xs[2] = {x, g.w - 1 - x}, ys[2] = {y, g.h - 1 - y};
+                        for (int a = 0; a < 2; ++a) for (int b = 0; b < 2; ++b) g.level[static_cast<size_t>(ys[b]) * g.w + xs[a]] = 0;
+                    }
+            }
             const auto& pal = VideoPlayer::palette();
             for (size_t i = 0; i < pal.size() && i < g.pal.size(); ++i) g.pal[i] = pal[i];
             P.vid_key = key;

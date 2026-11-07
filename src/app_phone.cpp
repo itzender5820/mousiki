@@ -362,8 +362,8 @@ std::vector<std::string> App::build_phone_screen(int W, int H, std::vector<remot
         const int top_blank = has_track_ ? 0 : (meta_rows - 1) / 2;
         for (int i = 0; i < meta_rows; ++i) {
             if (!has_track_) {
-                const std::string msg = "Currently No Track Loaded";
-                row(i == top_blank ? blanks((inner - display_width(msg)) / 2) + ansi_for(settings_.list_color) + msg + kR : std::string());
+                const std::string msg = i == top_blank ? "No Track Loaded" : i == top_blank + 1 ? "Hit [" + hotkey_text("HKeyPlayNextSong", "n") + "] to proceed" : std::string();
+                row(!msg.empty() ? blanks((inner - display_width(msg)) / 2) + ansi_for(settings_.list_color) + msg + kR : std::string());
             } else row(i < static_cast<int>(lines.size()) ? lines[static_cast<size_t>(i)] : std::string());
         }
     }

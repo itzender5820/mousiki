@@ -203,8 +203,10 @@ void App::history_queue_smart(int col, int row) {
     if (row == 0) {   // the newest arrivals in the music folders
         std::vector<std::pair<long long, size_t>> by_time;
         by_time.reserve(all_local_tracks_.size());
-        for (size_t i = 0; i < all_local_tracks_.size(); ++i)
+        for (size_t i = 0; i < all_local_tracks_.size(); ++i) {
+            if (LocalSource::is_video_file(all_local_tracks_[i].path) && video_is_paired(all_local_tracks_[i].path)) continue;   // (its song is listed)
             by_time.push_back({file_added_time(all_local_tracks_[i].path), i});
+        }
         std::stable_sort(by_time.begin(), by_time.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
         for (size_t k = 0; k < by_time.size() && static_cast<int>(rows.size()) < kSmartListSize; ++k) {
             const LocalTrack& t = all_local_tracks_[by_time[k].second];
@@ -218,6 +220,7 @@ void App::history_queue_smart(int col, int row) {
         std::vector<std::pair<int, size_t>> by_plays;
         by_plays.reserve(all_local_tracks_.size());
         for (size_t i = 0; i < all_local_tracks_.size(); ++i) {
+            if (LocalSource::is_video_file(all_local_tracks_[i].path) && video_is_paired(all_local_tracks_[i].path)) continue;
             auto it = plays.find(path_utf8(all_local_tracks_[i].path));
             by_plays.push_back({it == plays.end() ? 0 : it->second, i});
         }

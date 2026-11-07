@@ -78,6 +78,25 @@ TEST(video_links_mend_finds_a_moved_video_by_its_name) {
     CHECK_EQ(v.mend({"/p/dup.mp4", "/q/dup.mp4"}), 0);
 }
 
+TEST(video_links_mend_tracks_finds_a_moved_song_by_its_name) {
+    LinkFile lf;
+    VideoLinks& v = VideoLinks::get();
+    const fs::path moved = lf.dir / "newplace" / "Song One.MP3";
+    std::error_code ec;
+    fs::create_directories(moved.parent_path(), ec);
+    { std::ofstream(moved) << "x"; }
+    v.set("/old/song one.mp3", "/v/one.mp4");            // the song moved (outside the app): its link follows
+    v.set("/old/lost.mp3", "/v/lost.mp4");               // no candidate: stays (the drive may be unplugged)
+    v.mark_none("/old/Song Two.mp3");                    // the "no video" mark follows too
+    const fs::path moved2 = lf.dir / "newplace" / "song two.mp3";
+    { std::ofstream(moved2) << "x"; }
+    CHECK_EQ(v.mend_tracks({moved.string(), moved2.string()}), 2);
+    CHECK_EQ(v.video_for(moved.string()), std::string("/v/one.mp4"));
+    CHECK(v.is_none(moved2.string()));
+    CHECK_EQ(v.video_for("/old/lost.mp3"), std::string("/v/lost.mp4"));
+    CHECK_EQ(v.mend_tracks({"/a/dup.mp3", "/b/dup.mp3"}), 0);   // two candidates: no guess
+}
+
 TEST(video_download_command_and_settings) {
     const auto a = video_download_args("abc123", fs::path("/dl/video_down"), "Song Name", 720);
     CHECK_EQ(a[0], std::string("yt-dlp"));
@@ -171,4 +190,33 @@ TEST(cover_track_video_mode_is_kept_apart_from_the_picture_choice) {
     set_cover_track_video_mode("/m/zz_modetest.mp3", 0);
     CHECK_EQ(cover_track_video_mode("/m/zz_modetest.mp3"), 0);
     set_cover_track_choice("/m/zz_modetest.mp3", "");
+}
+
+TEST(video_links_several_tracks_can_share_one_video) {
+    LinkFile lf;
+    VideoLinks& L = VideoLinks::get();
+    L.set("/m/a.mp3", "/v/clip.mp4");
+    L.set("/m/b.mp3", "/v/clip.mp4");
+    L.set("/m/c.mp3", "/v/clip.mp4");
+    CHECK_EQ(L.video_for("/m/a.mp3"), std::string("/v/clip.mp4"));
+    CHECK_EQ(L.video_for("/m/b.mp3"), std::string("/v/clip.mp4"));
+    CHECK_EQ(L.tracks_for("/v/clip.mp4").size(), size_t(3));
+    // taking one track's connection away leaves the others (and "no video" for one track is its own mark)
+    L.remove("/m/a.mp3");
+    L.mark_none("/m/b.mp3");
+    CHECK(L.video_for("/m/a.mp3").empty());
+    CHECK(L.video_for("/m/b.mp3").empty());
+    CHECK_EQ(L.video_for("/m/c.mp3"), std::string("/v/clip.mp4"));
+    // renaming the video moves every pair, and the pairs survive a reload from disk
+    L.set("/m/a.mp3", "/v/clip.mp4");
+    L.rename_paths({{"/v/clip.mp4", "/v/renamed.mp4"}});
+    CHECK_EQ(L.video_for("/m/a.mp3"), std::string("/v/renamed.mp4"));
+    CHECK_EQ(L.video_for("/m/c.mp3"), std::string("/v/renamed.mp4"));
+    L.reload();
+    CHECK_EQ(L.tracks_for("/v/renamed.mp4").size(), size_t(2));
+    CHECK(L.is_none("/m/b.mp3"));
+    // renaming one track only touches its own pair
+    L.rename_paths({{"/m/a.mp3", "/m/a2.mp3"}});
+    CHECK_EQ(L.video_for("/m/a2.mp3"), std::string("/v/renamed.mp4"));
+    CHECK_EQ(L.video_for("/m/c.mp3"), std::string("/v/renamed.mp4"));
 }

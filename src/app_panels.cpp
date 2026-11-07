@@ -75,25 +75,94 @@ namespace muisc {
 // ASCII: no editor, copy or checkout can re-encode them, while /utf-8
 // still compiles them into exactly the same UTF-8 bytes.
 static constexpr const char* kTapeArt[] = {
-    "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u2864\u28c4\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
-    "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u28c0\u28e4\u28c0\u28c0\u2800\u2800\u2880\u2840\u2814\u2801\u2800\u28b8\u2803\u2800\u2800\u2800\u2800\u2800\u2800",
-    "\u2800\u2800\u2820\u2802\u2809\u2809\u2809\u2811\u28b2\u28fe\u2849\u2800\u2800\u2800\u2800\u2808\u2801\u2800\u2800\u28c0\u2814\u2802\u2801\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
+    "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u28e4\u28e4\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
+    "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u28c0\u28e4\u28c4\u28c0\u2800\u2800\u2880\u2840\u2814\u2809\u2800\u28b8\u2803\u2800\u2800\u2800\u2800\u2800\u2800",
+    "\u2800\u2800\u2820\u2802\u2809\u2809\u2809\u2813\u28b2\u28fe\u284b\u2801\u2800\u2800\u2800\u2809\u2809\u2800\u2800\u28c0\u2814\u2802\u2801\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
     "\u2800\u2800\u2847\u2800\u2800\u2800\u2800\u2800\u28b8\u2800\u2809\u28a6\u2800\u2800\u2800\u2800\u2800\u2800\u28b0\u2801\u2800\u2800\u2800\u2880\u28c0\u2800\u2800\u2800\u2800\u2800",
-    "\u2800\u2800\u2810\u28c4\u2800\u2800\u2800\u2800\u2808\u2823\u2804\u280a\u2800\u28c0\u28c0\u28e4\u28e4\u28f4\u28fe\u28f6\u28ff\u28ff\u28ff\u28ff\u28ff\u2847\u2800\u2800\u2800\u2800",
-    "\u2800\u2800\u2800\u2808\u28f3\u28c4\u28e0\u28e4\u28f4\u28f6\u28f6\u28ff\u28ff\u28bf\u28df\u28ef\u28bf\u28dd\u28af\u2877\u28fb\u28be\u28df\u28ff\u28fb\u28ff\u2800\u2800\u2800\u2800",
-    "\u28e4\u28f6\u28f6\u28fe\u28ff\u28bf\u28fb\u289f\u28ef\u28bf\u2875\u28fb\u28ae\u283f\u28ee\u28b7\u28ef\u28fb\u28fd\u286b\u28bf\u289d\u286b\u285b\u28cd\u28bf\u2846\u2800\u2800\u2800",
-    "\u28bb\u28fe\u28ff\u28ff\u28ef\u28b7\u28ef\u287b\u28f7\u28eb\u285f\u287d\u28cf\u287b\u2873\u286d\u286a\u28d6\u289c\u28ce\u28b3\u289d\u2854\u286e\u28d5\u283d\u28f7\u2800\u2800\u2800",
-    "\u2818\u28ff\u283f\u28de\u289b\u2873\u286d\u28f9\u28a2\u28a7\u2879\u28ea\u28ce\u28de\u283c\u282e\u28be\u287e\u28de\u285b\u281a\u2897\u28dd\u28ae\u286a\u2873\u28fb\u2844\u2800\u2800",
-    "\u2800\u28bf\u2857\u2875\u28d9\u288e\u285e\u289c\u2837\u28bb\u28ef\u287b\u28de\u28b7\u28a9\u28a3\u28b9\u287e\u28ef\u2866\u2820\u28ed\u2897\u28b5\u2839\u285c\u287d\u28e7\u2800\u2800",
-    "\u2800\u2838\u28df\u28f2\u2809\u28de\u28ba\u28eb\u2840\u28c0\u28bf\u28dd\u28de\u287f\u2874\u2875\u2873\u283b\u280d\u281b\u2899\u2801\u2829\u2800\u2804\u2800\u28b9\u28bf\u2840\u2800",
-    "\u2800\u2800\u28ff\u28d5\u289d\u2855\u28c7\u283b\u2832\u281a\u280b\u288a\u2808\u28ec\u28c0\u28e4\u2802\u2880\u2801\u2800\u2804\u2800\u28c2\u28c0\u28ec\u28e4\u28fc\u285d\u2847\u2800",
-    "\u2800\u2800\u28b8\u28ef\u280e\u2880\u2800\u28b2\u2866\u2815\u2800\u2804\u2800\u28c3\u28c8\u28ed\u28e4\u28f4\u28f6\u28fe\u28ff\u283f\u283f\u281f\u281b\u280b\u2809\u2809\u2800\u2800",
-    "\u2800\u2800\u2800\u28ff\u28f3\u28c0\u28ec\u28e4\u28f4\u28f6\u28fe\u28ff\u283f\u283f\u281f\u281b\u280b\u2809\u2809\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
-    "\u2800\u2800\u2800\u2839\u283d\u281f\u281b\u280b\u2809\u2809\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
+    "\u2800\u2800\u2810\u28c4\u2800\u2800\u2800\u2800\u2808\u2823\u2804\u280a\u2800\u28c0\u28c0\u28e0\u28e4\u28f4\u28fe\u28f6\u28ff\u28ff\u28ff\u28ff\u28fd\u2847\u2800\u2800\u2800\u2800",
+    "\u2800\u2800\u2800\u2808\u28f3\u28c4\u28e0\u28e4\u28f4\u28f6\u28f6\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u2800\u2800\u2800\u2800",
+    "\u2864\u28f6\u28f6\u28fe\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u283f\u28ff\u28ff\u28ff\u28ff\u28ff\u287f\u283f\u281f\u281b\u281b\u2809\u28b9\u2846\u2800\u2800\u2800",
+    "\u28b3\u28fe\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u287f\u283f\u281f\u281b\u281b\u2809\u2809\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2818\u28f7\u2800\u2800\u2800",
+    "\u2818\u28ff\u283f\u281f\u281b\u281b\u2809\u2809\u2800\u2800\u2800\u2880\u28c0\u28c0\u2824\u2824\u28b6\u28f6\u28de\u285b\u281a\u2897\u2840\u2800\u2800\u2800\u28bb\u2844\u2800\u2800",
+    "\u2800\u28bf\u2844\u2800\u2800\u2800\u2800\u2894\u2836\u28be\u28ff\u28ff\u28ff\u28f7\u2800\u2800\u28b8\u28ff\u28ef\u2866\u2820\u286d\u2803\u2800\u2800\u2800\u2838\u28e7\u2800\u2800",
+    "\u2800\u2838\u28c7\u2800\u2800\u2800\u2818\u28eb\u2840\u28c0\u28bf\u28ff\u28ff\u287f\u2824\u2814\u2812\u281b\u2809\u2809\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28bf\u2840\u2800",
+    "\u2800\u2800\u28ff\u2840\u2800\u2800\u2800\u2808\u2800\u2808\u2809\u2800\u2800\u28c4\u28c0\u28e0\u2802\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28c0\u28c0\u28e0\u285c\u2843\u2800",
+    "\u2800\u2800\u28b8\u2847\u2800\u2800\u2800\u28b0\u2866\u2804\u2800\u2800\u2800\u2803\u2808\u28c1\u28c0\u28e4\u28e4\u28f4\u28f6\u283e\u283f\u281f\u281b\u280b\u2809\u2809\u2800\u2800",
+    "\u2800\u2800\u2800\u28ff\u2800\u2800\u28c0\u28c0\u28e4\u28e4\u28f4\u28f6\u2836\u283f\u281f\u281b\u280b\u2809\u2809\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
+    "\u2800\u2800\u2800\u2829\u283f\u281f\u281b\u280b\u2809\u2809\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
 };
 
 static constexpr int kTapeArtRows = 15;   // == rows in tape_ascii.txt
 static constexpr int kTapeArtWidth = 30;  // == cells per row == disk width
+
+// The cassette's loose tape moves now and then: every few seconds a very soft breath makes the hanging loops of tape sway (the further
+// from the cassette, the more), and then they hang still again; from time to time the whole cassette wiggles a little. The picture is turned into dots, the dots above the cassette body are
+// shifted a little and the result is cut into braille cells again. Returns the 15 rows of 30 cells.
+static std::vector<std::string> tape_frame(double t) {
+    constexpr int W = kTapeArtWidth * 2, H = kTapeArtRows * 4;
+    static unsigned char src[H][W];
+    static bool ready = false;
+    static const int dxs[8] = {0, 0, 0, 1, 1, 1, 0, 1}, dys[8] = {0, 1, 2, 0, 1, 2, 3, 3};
+    if (!ready) {
+        ready = true;
+        for (int r = 0; r < kTapeArtRows; ++r) {
+            const std::string line = kTapeArt[r];
+            size_t i = 0;
+            int c = 0;
+            while (i + 2 < line.size() && c < kTapeArtWidth) {
+                const int v = ((line[i + 1] & 0x3F) << 6 | (line[i + 2] & 0x3F)) & 0xFF;
+                i += 3;
+                for (int k = 0; k < 8; ++k)
+                    if (v & (1 << k)) src[r * 4 + dys[k]][c * 2 + dxs[k]] = 1;
+                ++c;
+            }
+        }
+    }
+    // a breath of the loose tape: 0 in between, a smooth, soft bump (about 2.4 s) every 3.6 s
+    const double u = std::fmod(t / 3.6, 1.0);
+    const double g = u < 2.0 / 3.0 ? std::pow(std::sin(3.14159265358979 * u * 1.5), 2.0) : 0.0;
+    // now and then the cassette itself sways a little: a slow, soft movement of about 4 s every 10 s, a dot to the side, half a dot up and down, a hair of a turn
+    const double v = std::fmod(t / 10.0 + 0.45, 1.0);
+    const double sh = v < 0.4 ? std::pow(std::sin(3.14159265358979 * v / 0.4), 2.0) : 0.0;
+    const double shx = 0.9 * sh * std::sin(t * 1.5), shy = 0.45 * sh * std::sin(t * 1.1 + 1.0), rot = 0.012 * sh * std::sin(t * 1.3);
+    const double crot = std::cos(rot), srot = std::sin(rot), cx = W / 2.0, cy = H / 2.0;
+    std::vector<unsigned char> img(static_cast<size_t>(W) * H, 0);
+    auto at = [&](int x, int y) { return (x < 0 || y < 0 || x >= W || y >= H) ? 0.0 : static_cast<double>(src[y][x]); };
+    for (int y = 0; y < H; ++y)
+        for (int x = 0; x < W; ++x) {
+            const double w = y >= 18 ? 0.0 : std::pow((18.0 - y) / 16.0, 1.6);   // 0 at the cassette, 1 at the end of the loop
+            double sx = x, sy = y;
+            if (sh > 0.0) {   // the cassette: turned a hair around its middle and shaken; the loose tape hangs from it and follows only a little (the further out, the less)
+                const double k = 1.0 - 0.85 * w;
+                const double dx = x - cx, dy = y - cy;
+                sx = cx + (dx * crot + dy * srot - dx) * k + dx - shx * k;
+                sy = cy + (-dx * srot + dy * crot - dy) * k + dy - shy * k;
+            }
+            if (w > 0.0 && g > 0.0) {   // the tape's own breath: small and slow
+                sx -= 0.9 * w * g * std::sin(t * 1.3 + y * 0.22);
+                sy -= 0.35 * w * g * std::sin(t * 1.0 + x * 0.17);
+            }
+            const int x0 = static_cast<int>(std::floor(sx)), y0 = static_cast<int>(std::floor(sy));
+            const double fx = sx - x0, fy = sy - y0;
+            const double v = at(x0, y0) * (1 - fx) * (1 - fy) + at(x0 + 1, y0) * fx * (1 - fy) + at(x0, y0 + 1) * (1 - fx) * fy + at(x0 + 1, y0 + 1) * fx * fy;
+            if (v >= 0.45) img[static_cast<size_t>(y) * W + x] = 1;
+        }
+    std::vector<std::string> out;
+    for (int r = 0; r < kTapeArtRows; ++r) {
+        std::string line;
+        for (int c = 0; c < kTapeArtWidth; ++c) {
+            int v = 0;
+            for (int k = 0; k < 8; ++k)
+                if (img[static_cast<size_t>(r * 4 + dys[k]) * W + c * 2 + dxs[k]]) v |= 1 << k;
+            const unsigned cp = 0x2800u + static_cast<unsigned>(v);
+            line += static_cast<char>(0xE0 | (cp >> 12));
+            line += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+            line += static_cast<char>(0x80 | (cp & 0x3F));
+        }
+        out.push_back(line);
+    }
+    return out;
+}
 
 // ---------------------------------------------------------------------
 // Panel builders
@@ -147,6 +216,25 @@ void spectro_gradient_from(const Settings& st) {
     osci_palette_rgb(st, 0, 1.0f, r1, g1, b1);
     auto c8 = [](int v) { return static_cast<uint8_t>(std::clamp(v, 0, 255)); };
     spectro_set_gradient({c8(r0), c8(g0), c8(b0)}, {c8(r1), c8(g1), c8(b1)});
+}
+VideoFxGradient video_fx_gradient(const Settings& st) {
+    VideoFxGradient g;
+    const std::string* col[3] = {&st.viz_left_color, &st.viz_center_color, &st.viz_right_color};
+    std::string own[3];
+    if (st.viz_center_color.empty()) {   // a two colour gradient: the middle is halfway
+        own[0] = st.visualizer_color; own[2] = st.visualizer_color_end;
+        int r0, g0, b0, r1, g1, b1;
+        if (try_parse_rgb(own[0], r0, g0, b0) && try_parse_rgb(own[2], r1, g1, b1)) {
+            const int v[3][3] = {{r0, g0, b0}, {(r0 + r1) / 2, (g0 + g1) / 2, (b0 + b1) / 2}, {r1, g1, b1}};
+            for (int i = 0; i < 3; ++i) for (int k = 0; k < 3; ++k) g.c[i][k] = static_cast<unsigned char>(std::clamp(v[i][k], 0, 255));
+        }
+        return g;
+    }
+    for (int i = 0; i < 3; ++i) {
+        int r, gg, b;
+        if (try_parse_rgb(*col[i], r, gg, b)) { g.c[i][0] = static_cast<unsigned char>(std::clamp(r, 0, 255)); g.c[i][1] = static_cast<unsigned char>(std::clamp(gg, 0, 255)); g.c[i][2] = static_cast<unsigned char>(std::clamp(b, 0, 255)); }
+    }
+    return g;
 }
 std::string osci_rgb_seq(int r, int g, int b, float k) {
     auto sc = [k](int v) { return std::clamp(static_cast<int>(static_cast<float>(v) * k), 0, 255); };
@@ -487,7 +575,9 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
         // or the file that was playing got deleted. The message sits centred
         // (both ways) in the metadata/visualizer column instead of being
         // glued to its first row, where it would hide behind the disk.
-        meta_rows[std::max(0, panel_h / 2)] = center_pad(audiobook_ ? "Currently No Narrative Loaded" : "Currently No Track Loaded", meta_w);
+        meta_rows[std::max(0, panel_h / 2 - 1)] = center_pad(audiobook_ ? "No Narrative Loaded" : "No Track Loaded", meta_w);
+        if (panel_h / 2 < static_cast<int>(meta_rows.size()))
+            meta_rows[static_cast<size_t>(panel_h / 2)] = center_pad("Hit [" + hotkey_text("HKeyPlayNextSong", "n") + "] to proceed", meta_w);
     }
     for (int i = 0; i < static_cast<int>(meta_rows.size()); ++i) {
         if (meta_rows[i].empty()) {
@@ -503,6 +593,7 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
     // the active line — windowed so the active line's wrapped block is
     // always vertically centered, blank-padded at the edges.
     std::vector<std::string> lyric_rows(panel_h, std::string(lyrics_w, ' '));
+    bool lyrics_wide = false;   // the full size picture also takes the column of padding at the right: the gap to the border is as small as at the top and bottom
     bool lyrics_avail = false;
     std::vector<LyricLine> lines_copy;
     std::string lyrics_status;
@@ -517,8 +608,8 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
             lyrics_delay = lyrics_result_.delay;
             lyrics_status = lyrics_result_.message;
             lyrics_avail = !lines_copy.empty();
-        } else if (settings_.lyrics_on() && has_track_) {
-            lyrics_status = "fetching lyrics ...";
+        } else if (settings_.lyrics_on() && has_track_ && !(settings_.video_mode && settings_.video_view && settings_.novideo_viz != 4 && video_shown_for(current_path_).empty())) {
+            lyrics_status = "fetching lyrics ...";   // (not on the video view of a track without a video that shows a visual: nothing is fetched there)
         }
         // else: Lyrics Engine is off -- no fetch ever ran, so there's
         // nothing to report. Leaving lyrics_status empty means the sphere
@@ -554,29 +645,39 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
         // own dimensions), centred in the column and tinted with the SAME
         // top-to-bottom disk gradient the rotating disk gets, so the idle
         // panel keeps the colour it has while playing.
+        static const auto tape_t0 = std::chrono::steady_clock::now();
+        const std::vector<std::string> tape = tape_frame(std::chrono::duration<double>(std::chrono::steady_clock::now() - tape_t0).count());
         int start = std::max(0, (panel_h - kTapeArtRows) / 2);
         for (int i = 0; i < kTapeArtRows && start + i < panel_h && lyrics_w > 0; ++i) {
             float t = panel_h > 1 ? static_cast<float>(start + i) / (panel_h - 1) : 0.0f;
             int left = (lyrics_w - kTapeArtWidth) / 2;
             std::string body = (left >= 0)
-                ? std::string(left, ' ') + kTapeArt[i]
+                ? std::string(left, ' ') + tape[static_cast<size_t>(i)]
                   + std::string(lyrics_w - left - kTapeArtWidth, ' ')
-                : utf8_skip_take(kTapeArt[i], -left, lyrics_w); // column narrower than the art: keep its middle, never wrap braille cells
+                : utf8_skip_take(tape[static_cast<size_t>(i)], -left, lyrics_w); // column narrower than the art: keep its middle, never wrap braille cells
             lyric_rows[start + i] =
                 gradient_ansi(settings_.disk_color, settings_.disk_color_end, t) + body + "\x1b[0m";
         }
     } else if (settings_.video_mode && settings_.video_view && !audiobook_ && lyrics_w >= 12 && panel_h >= 6 &&
                [&]() {   // (false: no video for this track -> "When No Video Shows" decides, see video_missing)   // the Video view: the picture of the track's video with the current lyric line under it
+                   const int vsize = video_size_for(current_path_);
+                   const bool wide = vsize == 2 && gfx_proto_ != GfxProto::None;   // (a picture: the spare column minus half a cell, so the gap at the right is as wide as the one at the top and bottom)
+                   const int lpad = 1;   // one empty column at the left of the picture: the gap to the meta data column (its bars) is as wide as the one to the right border
+                   const int fw = lyrics_w + (wide ? 1 : 0) - lpad;   // the width video_field_rows gets; the lyric line is wrapped to the width it will be shown in (video_field_rows)
                    std::vector<std::string> line_rows;
-                   if (lyrics_avail && settings_.video_lyrics) {
+                   video_ov_ref_.clear();
+                   if (lyrics_avail && video_lyrics_for(current_path_)) {
                        const double lt = elapsed - lyrics_delay;
                        int act = 0;
                        for (size_t i = 0; i < lines_copy.size(); ++i) { if (lines_copy[i].start_time <= lt) act = static_cast<int>(i); else break; }
-                       line_rows = render_lyric_line_wrapped(lines_copy[static_cast<size_t>(act)], lt, lyrics_w, true, settings_);
+                       const int ww = vsize == 3 ? std::max(12, (fw - 4) * 2 / 3) : vsize == 2 ? std::max(12, fw * 2 / 3) : fw;   // (the full / framed field: the line is a small box over the picture; the same widths as in video_field_rows)
+                       line_rows = render_lyric_line_wrapped(lines_copy[static_cast<size_t>(act)], lt, ww, true, settings_);
+                       video_ov_ref_ = render_lyric_line_wrapped(lines_copy[static_cast<size_t>(act)], 1e9, ww, false, settings_);   // (all words shown: the size of the box)
                    }
                    std::vector<std::string> vrows;
-                   if (!video_field_rows(vrows, lyrics_w, panel_h, 2 + disk_w + (show_disk ? sep_w : 2) + meta_w, cover_pic_img, elapsed, line_rows)) { video_missing = true; return false; }
-                   for (int i = 0; i < panel_h && i < static_cast<int>(vrows.size()); ++i) lyric_rows[static_cast<size_t>(i)] = vrows[static_cast<size_t>(i)];
+                   if (!video_field_rows(vrows, fw, panel_h, 2 + disk_w + (show_disk ? sep_w : 2) + meta_w + lpad, cover_pic_img, elapsed, line_rows, wide)) { video_missing = true; return false; }
+                   for (int i = 0; i < panel_h && i < static_cast<int>(vrows.size()); ++i) lyric_rows[static_cast<size_t>(i)] = std::string(static_cast<size_t>(lpad), ' ') + vrows[static_cast<size_t>(i)];
+                   lyrics_wide = wide;
                    return true;
                }()) {
         // (drawn: lyric_rows hold the picture's cells and the lyric line)
@@ -822,7 +923,7 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
         // actual synced lyrics, a status caption, or just the sphere --
         // so this no longer needs to be conditional on element_lyrics.
         content += lyric_rows[row];
-        out.push_back(bar + " " + content + " " + bar);
+        out.push_back(bar + " " + content + (lyrics_wide ? "" : " ") + bar);
     }
 
     out.push_back(box_bottom(total_width, "", border_ansi_bottom));

@@ -70,19 +70,94 @@ TEST(wizard_search_finds_chapters_and_opens_them) {
     wizard::render(st, 120, 26, disk);
 }
 
-// A chapter without a page of its own that opens a part (3.1 "The Radio Main UI", 4.1 "The Audio Book Player") leads to the part's intro
-// page that stands right in front of its first page, not to 3.1.1 / 4.1.1 right away.
-TEST(wizard_chapter_of_a_part_opens_the_part_page) {
+namespace {
+std::string wiz_text(const wizard::View& v) {
+    std::string all;
+    for (const auto& row : v.rows) { for (const auto& sp : row) all += sp.text; all += "\n"; }
+    return all + v.title;
+}
+}
+
+// Headings of the table of content ("2 MUSIC PLAYER MODE", "2.1 Main UI") cannot be selected: DOWN steps over them.
+TEST(wizard_toc_headings_are_not_selectable) {
     wizard::State st;
     wizard::open(st, false);
     const std::vector<std::string> disk;
     wizard::handle_key(st, wizard::Key::Contents);
-    wizard::render(st, 120, 26, disk);
-    for (int i = 0; i < 42; ++i) wizard::handle_key(st, wizard::Key::Down);   // entry 42 = "3.1 The Radio Main UI"
+    wizard::render(st, 120, 40, disk);
+    for (int i = 0; i < 4; ++i) wizard::handle_key(st, wizard::Key::Down);   // 1.0 -> 1.1 -> 1.2 -> 1.3 -> (headings 2, 2.1 skipped) 2.1.1
     wizard::handle_key(st, wizard::Key::Enter);
     const wizard::View v = wizard::render(st, 120, 26, disk);
-    CHECK(v.title.find("3.1.1") == std::string::npos);
-    CHECK(v.title.find("RADIO PLAYER MODE") != std::string::npos);
+    CHECK(v.title.find("2.1") != std::string::npos);
+}
+
+// The intro pages of the radio and audio book are chapters of their own (3.0, 4.0).
+TEST(wizard_part_intro_is_a_chapter_of_its_own) {
+    wizard::State st;
+    wizard::open(st, false);
+    const std::vector<std::string> disk;
+    wizard::handle_key(st, wizard::Key::Contents);
+    bool found = false;
+    for (int i = 0; i < 120 && !found; ++i) {
+        const wizard::View v = wizard::render(st, 120, 80, disk);
+        for (const auto& row : v.rows) {
+            std::string line;
+            bool cursor = false;
+            for (const auto& sp : row) { line += sp.text; if (sp.role == wizard::Role::Cursor) cursor = true; }
+            if (cursor && line.find("Radio Player Introduction") != std::string::npos) found = true;
+        }
+        if (!found) wizard::handle_key(st, wizard::Key::Down);
+    }
+    CHECK(found);
+    wizard::handle_key(st, wizard::Key::Enter);
+    const wizard::View v = wizard::render(st, 120, 26, disk);
+    CHECK(v.title.find("3.0") != std::string::npos);
+}
+
+// The headings of the menu grid are in the header colour as a whole ("[MUSIC PLAYER: Main][[Header]]"), not only the capitalised word.
+TEST(wizard_menu_grid_heading_is_header_coloured) {
+    wizard::State st;
+    wizard::open(st, false);
+    wizard::handle_key(st, wizard::Key::Search);
+    for (char c : std::string("grid of all three players")) wizard::search_key(st, c, false, false);
+    const std::vector<std::string> disk;
+    wizard::render(st, 120, 100, disk);
+    wizard::search_key(st, '\r', false, false);
+    const wizard::View v = wizard::render(st, 120, 100, disk);
+    bool found = false, all_header = true;
+    for (const auto& row : v.rows) {
+        std::string line;
+        for (const auto& sp : row) line += sp.text;
+        if (line.find("MUSIC PLAYER: Main") == std::string::npos) continue;
+        found = true;
+        for (const auto& sp : row)
+            if (sp.text.find_first_not_of(' ') != std::string::npos && sp.role != wizard::Role::Header) all_header = false;
+    }
+    CHECK(found);
+    CHECK(all_header);
+}
+
+// GETTING STARTED follows the greeting of the very first start only; later it is a chapter (1.1) of the table of content.
+TEST(wizard_getting_started_only_on_the_first_start) {
+    const std::vector<std::string> disk(15, std::string(30, 'x'));
+    {
+        wizard::State st;
+        wizard::open(st, true);
+        wizard::render(st, 120, 40, disk);
+        wizard::handle_key(st, wizard::Key::Right);
+        CHECK(wiz_text(wizard::render(st, 120, 40, disk)).find("GETTING STARTED") != std::string::npos);
+        wizard::handle_key(st, wizard::Key::Right);
+        CHECK(wiz_text(wizard::render(st, 120, 40, disk)).find("TABLE OF CONTENT") != std::string::npos);
+    }
+    {
+        wizard::State st;
+        wizard::open(st, false);
+        wizard::render(st, 120, 40, disk);
+        wizard::handle_key(st, wizard::Key::Right);
+        const std::string t = wiz_text(wizard::render(st, 120, 40, disk));
+        CHECK(t.find("GETTING STARTED") == std::string::npos);
+        CHECK(t.find("TABLE OF CONTENT") != std::string::npos);
+    }
 }
 
 // [Text][[Legend]] in the help wizard: the text takes the legend colour, the square brackets are not shown.
@@ -90,7 +165,7 @@ TEST(wizard_frame_label_is_legend_coloured_without_brackets) {
     wizard::State st;
     wizard::open(st, false);
     wizard::handle_key(st, wizard::Key::Search);
-    for (char c : std::string("Start Mode")) wizard::search_key(st, c, false, false);
+    for (char c : std::string("audiobook set the mode")) wizard::search_key(st, c, false, false);
     const std::vector<std::string> disk;
     wizard::render(st, 120, 400, disk);
     wizard::search_key(st, '\r', false, false);

@@ -27,6 +27,7 @@
 #include "update_check.h"
 #include "open_url.h"
 #include "app_settings_tables.h"
+#include "organigram_trees.h"
 #include <cstring>
 #include <algorithm>
 #include <cctype>
@@ -246,13 +247,21 @@ void App::rl_submit() {
 // Oscilloscope tuning overlay (SHIFT+o). The rows come from osci_visible_rows() (osci_settings.cpp): which ones are
 // shown depends on the style (braille / image). The ranges match what settings.cpp clamps on load.
 void App::osci_menu_adjust(int dir) {
-    const std::vector<int> rows = osci_visible_rows(settings_);
+    const std::vector<int> rows = osci_menu_rows();
     if (rows.empty()) return;
     osci_menu_row_ = std::clamp(osci_menu_row_, 0, static_cast<int>(rows.size()) - 1);
     const int id = rows[osci_menu_row_];
+    if (video_layout_menu() && (id == kOrStyle || id == kOrMode)) {   // the layout's own choice (-1 = as in the options): default, then the values
+        int& v = id == kOrStyle ? settings_.vl_osci_style : settings_.vl_osci_mode;
+        const int top = id == kOrStyle ? 1 : 1;
+        v += dir > 0 ? 1 : -1;
+        if (v > top) v = -1;
+        if (v < -1) v = top;
+        return;
+    }
     osci_adjust(settings_, id, dir);
     // the style row changes which rows exist: keep the cursor on the same one
-    const std::vector<int> now = osci_visible_rows(settings_);
+    const std::vector<int> now = osci_menu_rows();
     for (size_t i = 0; i < now.size(); ++i) if (now[i] == id) { osci_menu_row_ = static_cast<int>(i); return; }
     osci_menu_row_ = std::clamp(osci_menu_row_, 0, static_cast<int>(now.size()) - 1);
 }
@@ -268,13 +277,20 @@ std::vector<std::string> App::build_osci_menu_panel() const {
         const std::string body = pad_right(truncate_str(plain, inner), inner);
         return bar + " " + (hi ? HI + body + R : body) + " " + bar;
     };
-    const std::vector<int> rows = osci_visible_rows(settings_);
+    const std::vector<int> rows = osci_menu_rows();
+    const bool lay = video_layout_menu();
+    const VizPrefs lv = layout_osci_view();
     std::vector<std::string> lines;
-    lines.push_back(box_top("Oscilloscope", W, border));
+    lines.push_back(box_top(lay ? "Oscilloscope (video layout)" : "Oscilloscope", W, border));
     for (size_t i = 0; i < rows.size(); ++i) {
         const bool sel = static_cast<int>(i) == osci_menu_row_;
+        std::string val = lay ? osci_row_value(lv, rows[i]) : osci_row_value(settings_, rows[i]);
+        if (lay && rows[i] == kOrStyle && settings_.vl_osci_style < 0) val += " (default)";
+        if (lay && rows[i] == kOrMode) {
+            val = settings_.vl_osci_mode == 0 ? "XY" : settings_.vl_osci_mode == 1 ? "YT" : (lv.osci_mode == 1 ? "YT" : "XY") + std::string(" (default)");
+        }
         const std::string plain = std::string(sel ? "> " : "  ") + pad_right(osci_row_label(rows[i]), 22) +
-                                  pad_left(osci_row_value(settings_, rows[i]), inner - 24);
+                                  pad_left(val, inner - 24);
         lines.push_back(row(plain, sel));
     }
     lines.push_back(row("", false));
@@ -632,196 +648,91 @@ std::vector<std::string> App::build_sleep_timer_panel() const {
 }
 
 // ---------------------------------------------------------------------
-// MENUS index (HKeyMenus, "<"): every menu and overlay of the player by category, with its key. A floating panel in two
-// columns; ENTER closes it and presses the key of the highlighted entry (as bound now), so a rebinding is followed.
+// MENUS index (HKeyMenus, "<"): every menu and overlay of the player (or the audio book) as a 3D organigram over a cyberspace grid
+// (organigram.h, the trees in organigram_trees.h). The arrows steer, ENTER opens the menu of a box (it closes the index and presses
+// the key the menu is bound to, so a rebinding is followed) or goes down into a group.
 // ---------------------------------------------------------------------
 namespace {
-#if defined(__APPLE__)
-constexpr const char* kLyricsTimingKey = "J";       // the default on a Mac (settings.cpp)
-constexpr const char* kCoverFetchKey = "Q";
-constexpr const char* kVideoFetchKey = "D";
-#else
-constexpr const char* kLyricsTimingKey = "ALT+L";
-constexpr const char* kCoverFetchKey = "ALT+C";
-constexpr const char* kVideoFetchKey = "ALT+V";
-#endif
-struct MenuIdxEntry { const char* cat; const char* title; const char* action; const char* fallback; };
-// (SYSTEM first: it is the top left corner of the index)
-const MenuIdxEntry kMenuIdxPlayer[] = {
-    {"SYSTEM",           "Settings",                  "HKeySetting",        "s"},
-    {"SYSTEM",           "Console / logs / status",   "HKeyConsole",        "t"},
-    {"SYSTEM",           "Help wizard",               "HKeyWizard",         "W"},
-    {"SYSTEM",           "Cheat sheet",               "HKeyCheatsheet",     "?"},
-    {"LYRICS",           "Karaoke",                   "HKeyKaraoke",        "k"},
-    {"LYRICS",           "Video overlay",            "HKeyVideo",          "&"},
-    {"LYRICS",           "Fetch videos",             "HKeyVideoFetch",     kVideoFetchKey},
-    {"LYRICS",           "Read lyrics",               "HKeyReadLyrics",     "CTRL+L"},
-    {"LYRICS",           "Lyrics timing",             "HKeyLyricsTiming",   kLyricsTimingKey},
-    {"LYRICS",           "Retry given lyrics",              "HKeyRetryLyrics",    "l"},
-    {"LISTS & LIBRARY",  "Big list overlay",          "HKeyListOverlay",    "L"},
-    {"LISTS & LIBRARY",  "Big queue overlay",         "HKeyQueueOverlay",   "K"},
-    {"LISTS & LIBRARY",  "Big folder overlay",        "HKeyFolderOverlay",  "F"},
-    {"LISTS & LIBRARY",  "File conversion",           "HKeyConvertOverlay", "C"},
-    {"LISTS & LIBRARY",  "Playlist editor",           "HKeyPlaylist",       "P"},
-    {"LISTS & LIBRARY",  "Meta data editor",          "HKeyMetaEditor",     "M"},
-    {"LISTS & LIBRARY",  "Cover fetch",               "HKeyCoverFetch",     kCoverFetchKey},
-    {"LISTS & LIBRARY",  "Style options (cover look)", "HKeyStyleOptions",   "S"},
-    {"LISTS & LIBRARY",  "Listening history",         "HKeyHistory",        "H"},
-    {"SOUND",            "Equalizer",                 "HKeyEqualizer",      "E"},
-    {"SOUND",            "Normalization",             "HKeyNormMenu",       "V"},
-    {"SOUND",            "Sleep timer",               "HKeySleepTimer",     "Z"},
-    {"SOUND",            "Audio device",              "HKeyAudioDevice",    "°"},
-    {"VISUALS",          "Oscilloscope options",      "HKeyOscMenu",        "O"},
-    {"VISUALS",          "Oscilloscope full screen",  "HKeyScopeBig",       "="},
-    {"VISUALS",          "Spectrogram options",       "HKeySpectroMenu",    "I"},
-    {"VISUALS",          "Spectrum bars options",     "HKeyBarsMenu",       "B"},
-    {"VISUALS",          "Spectrogram full screen",   "HKeySpectroFull",    "U"},
-    {"VISUALS",          "Scope window",              "HKeyScopeWindow",    ")"},
-    {"VISUALS",          "Spectrogram window",        "HKeySpectroWindow",  "("},
-    {"CREATE",           "Creator",                   "HKeyCreator",        "^"},
-};
-// The audio book mode: only what it can do (the lyrics, playlist and creator entries are not there). An action starting with '#'
-// is a fixed key (the fallback), not a bound one.
-const MenuIdxEntry kMenuIdxBook[] = {
-    {"BOOKS & NOTES",    "Library overlay",           "#",                  "S"},
-    {"BOOKS & NOTES",    "Notes overlay",             "HKeyListOverlay",    "L"},
-    {"BOOKS & NOTES",    "Bookmark list",             "HKeyQueueOverlay",   "K"},
-    {"BOOKS & NOTES",    "New note",                  "HKeyToggleMetaOnly", "N"},
-    {"BOOKS & NOTES",    "Set bookmark",              "HKeyBookmark",       "B"},
-    {"BOOKS & NOTES",    "Chapter marks",             "HKeyLyricsTiming",   kLyricsTimingKey},
-    {"BOOKS & NOTES",    "Tag editor",                "HKeyMetaEditor",     "M"},
-    {"BOOKS & NOTES",    "Reading history",           "HKeyHistory",        "H"},
-    {"BOOKS & NOTES",    "File conversion",           "HKeyConvertOverlay", "C"},
-    {"SOUND",            "Equalizer",                 "HKeyEqualizer",      "E"},
-    {"SOUND",            "Normalization",             "HKeyNormMenu",       "V"},
-    {"SOUND",            "Sleep timer",               "HKeySleepTimer",     "Z"},
-    {"SOUND",            "Audio device",              "HKeyAudioDevice",    "°"},
-    {"VISUALS",          "Oscilloscope options",      "HKeyOscMenu",        "O"},
-    {"VISUALS",          "Oscilloscope full screen",  "HKeyScopeBig",       "="},
-    {"VISUALS",          "Spectrogram options",       "HKeySpectroMenu",    "I"},
-    {"VISUALS",          "Spectrum bars options",     "HKeyBarsMenu",       "B"},
-    {"VISUALS",          "Spectrogram full screen",   "HKeySpectroFull",    "U"},
-    {"SYSTEM",           "Settings",                  "HKeySetting",        "s"},
-    {"SYSTEM",           "Console / logs / status",   "HKeyConsole",        "t"},
-    {"SYSTEM",           "Help wizard",               "HKeyWizard",         "W"},
-    {"SYSTEM",           "Cheat sheet",               "HKeyCheatsheet",     "?"},
-};
-struct MenuIdxTable { const MenuIdxEntry* e; int n; };
-MenuIdxTable menu_idx_table(bool book) {
-    return book ? MenuIdxTable{kMenuIdxBook, static_cast<int>(sizeof(kMenuIdxBook) / sizeof(kMenuIdxBook[0]))}
-                : MenuIdxTable{kMenuIdxPlayer, static_cast<int>(sizeof(kMenuIdxPlayer) / sizeof(kMenuIdxPlayer[0]))};
+org::Tree menu_org_tree(bool book) { return book ? org::book_tree() : org::player_tree(); }
+}  // namespace
+
+org::Theme App::menu_index_theme() const {
+    org::Theme th;
+    th.line = ansi_for(settings_.border_color, false);
+    th.path = header_sgr(settings_);
+    th.key = legend_sgr(settings_);
+    th.key_text = [this](const org::Node& n) -> std::string {
+        if (!n.action) return "";
+        return n.action[0] == '#' ? std::string(n.fallback) : hotkey_text(n.action, n.fallback);
+    };
+    return th;
 }
 
-// Two columns of cells (entry index, or -1 for a header / blank line), split at the category boundary that balances them.
-struct MenuIdxCell { int entry = -1; const char* header = nullptr; };
-std::vector<std::vector<MenuIdxCell>> menu_idx_layout(bool book) {
-    const MenuIdxTable tab = menu_idx_table(book);
-    const MenuIdxEntry* kMenuIdx = tab.e;
-    const int kMenuIdxCount = tab.n;
-    std::vector<std::vector<MenuIdxCell>> cats;   // one cell list per category
-    for (int i = 0; i < kMenuIdxCount; ++i) {
-        if (i == 0 || std::string(kMenuIdx[i].cat) != kMenuIdx[i - 1].cat) cats.push_back({MenuIdxCell{-1, kMenuIdx[i].cat}});
-        cats.back().push_back(MenuIdxCell{i, nullptr});
-    }
-    int total = 0;
-    for (const auto& c : cats) total += static_cast<int>(c.size()) + 1;
-    int best = 1, best_diff = 1 << 20, acc = 0;
-    for (size_t k = 0; k + 1 < cats.size(); ++k) {
-        acc += static_cast<int>(cats[k].size()) + 1;
-        const int diff = std::abs(acc - (total - acc));
-        if (diff < best_diff) { best_diff = diff; best = static_cast<int>(k) + 1; }
-    }
-    std::vector<std::vector<MenuIdxCell>> cols(2);
-    for (size_t k = 0; k < cats.size(); ++k) {
-        auto& col = cols[static_cast<int>(k) < best ? 0 : 1];
-        if (!col.empty()) col.push_back(MenuIdxCell{});   // blank line between categories
-        col.insert(col.end(), cats[k].begin(), cats[k].end());
-    }
-    return cols;
-}
-} // namespace
-
-std::vector<std::string> App::build_menu_index_panel(int window_w) const {
-    const int W = std::min(kMenuIndexPanelWidth, std::max(40, window_w));   // (a window narrower than 100 columns gets a narrower index)
-    const int inner = W - 4;
-    const int cw = (inner - 3) / 2, cw2 = inner - 3 - cw;   // the right column takes the odd column
+std::string App::build_menu_index_full(int W) const {
+    const org::Tree tree = menu_org_tree(audiobook_);
+    const int sel = org::clamp_sel(tree, menu_index_sel_);
+    const org::Theme th = menu_index_theme();
+    const auto key_of = th.key_text;
+    const org::Node& n = tree.n[sel];
+    std::string info = n.title;
+    const std::string key = key_of(n);
+    if (n.action && !key.empty()) info += "   [" + key + "]";
+    info += n.action ? (org::children_of(tree, sel).empty() ? "   -   ENTER opens it" : "   -   ENTER opens it, DOWN goes to its menus")
+                     : "   -   ENTER or DOWN goes in";
     const std::string border = ansi_for(settings_.border_color, false);
     const std::string border_bottom = ansi_for(settings_.border_color_bottom, false);
-    const std::string R = "\x1b[0m", HI = "\x1b[7m";
-    const std::string bar = border + settings_.box_vertical + R;
-    const MenuIdxTable tab = menu_idx_table(audiobook_);
-    const MenuIdxEntry* kMenuIdx = tab.e;
-    const int kMenuIdxCount = tab.n;
-    const auto cols = menu_idx_layout(audiobook_);
-    const size_t rows = std::max(cols[0].size(), cols[1].size());
-    const int sel = std::clamp(menu_index_sel_, 0, kMenuIdxCount - 1);
+    const std::string bar = border + settings_.box_vertical + "\x1b[0m";
+    const int H = std::max(8, term_rows_ - 1);
+    const auto rows = org::render(tree, sel, W - 4, H - 2, 0.0, th, info);
+    std::ostringstream f;
+    f << "\x1b[?25l";
+    f << box_top(audiobook_ ? "AUDIO BOOK MENUS & OVERLAYS" : "MENUS & OVERLAYS", W, border) << "\n";
+    for (const auto& r : rows) f << bar << " " << r << " " << bar << "\n";
+    f << box_bottom(W, "[\xe2\x86\x90\xe2\x86\x92] Neighbours  [\xe2\x86\x91] Back  [\xe2\x86\x93] In  [ENTER] Open  [SHIFT+T] Classic  [ESC / " + hotkey_text("HKeyMenus", "<") + "] Close", border_bottom);
+    return f.str();
+}
 
-    // every cell keeps two empty columns on its left and right (the highlight covers them too)
-    auto cell = [&](const std::vector<MenuIdxCell>& col, size_t r, int cw_full) {
-        const int cw = cw_full - 4;
-        if (r >= col.size()) return std::string(static_cast<size_t>(cw_full), ' ');
-        const MenuIdxCell& c = col[r];
-        if (c.header) return "  " + header_sgr(settings_) + pad_right(c.header, cw) + R + "  ";
-        if (c.entry < 0) return std::string(static_cast<size_t>(cw_full), ' ');
-        const MenuIdxEntry& e = kMenuIdx[c.entry];
-        const std::string key = "[" + (e.action[0] == '#' ? std::string(e.fallback) : hotkey_text(e.action, e.fallback)) + "]";
-        const std::string left = std::string(c.entry == sel ? "> " : "  ") + e.title;
-        const int gap = std::max(1, cw - display_width(left) - display_width(key));
-        const std::string plain = truncate_str(left + std::string(static_cast<size_t>(gap), ' ') + key, cw);
-        if (c.entry == sel) return HI + "  " + pad_right(plain, cw) + "  " + R;
-        const std::string lead = pad_right(left, cw - display_width(key));
-        return "  " + lead + legend_sgr(settings_) + key + R + "  ";
-    };
-
+// The classic view ("<", then SHIFT+t): a regular overlay over the main screen, as big as its two columns need.
+std::vector<std::string> App::build_menu_index_classic_panel(int W, int& panel_w) const {
+    const org::Tree tree = menu_org_tree(audiobook_);
+    const org::Theme th = menu_index_theme();
+    const std::string border = ansi_for(settings_.border_color, false);
+    const std::string border_bottom = ansi_for(settings_.border_color_bottom, false);
+    const std::string bar = border + settings_.box_vertical + "\x1b[0m";
+    const std::string legend = "[\xe2\x86\x91\xe2\x86\x93] Entry  [\xe2\x86\x90\xe2\x86\x92] Column  [ENTER] Open  [SHIFT+T] Tree  [ESC / " + hotkey_text("HKeyMenus", "<") + "] Close";
+    const org::ClassicPanel pnl = org::render_classic(tree, menu_index_sel_, th, std::max(8, term_rows_ - 2 - 2), std::max(24, W - 6));
+    const int inner = std::max(pnl.inner_w, std::min(W - 4, display_width(legend) + 2));
+    panel_w = inner + 4;
     std::vector<std::string> lines;
-    lines.push_back(box_top("MENUS & OVERLAYS", W, border));
-    lines.push_back(bar + " " + pad_right("", inner) + " " + bar);
-    // A window with fewer rows than the index shows the part around the selected entry.
-    const size_t room = static_cast<size_t>(std::max(5, term_rows_ - 2 - 4));
-    size_t first = 0, last = rows;
-    if (rows > room) {
-        size_t sel_row = 0;
-        for (int c = 0; c < 2; ++c)
-            for (size_t r = 0; r < cols[c].size(); ++r) if (cols[c][r].entry == sel) sel_row = r;
-        first = sel_row > room / 2 ? sel_row - room / 2 : 0;
-        if (first + room > rows) first = rows - room;
-        last = first + room;
-    }
-    for (size_t r = first; r < last; ++r)
-        lines.push_back(bar + " " + cell(cols[0], r, cw) + " " + border + settings_.box_vertical + R + " " + cell(cols[1], r, cw2) + " " + bar);
-    lines.push_back(bar + " " + pad_right("", inner) + " " + bar);
-    lines.push_back(box_bottom(W, "[↑↓←→] Select  [ENTER] Open  [ESC / " + hotkey_text("HKeyMenus", "<") + "] Close", border_bottom));
+    lines.push_back(box_top(audiobook_ ? "AUDIO BOOK MENUS & OVERLAYS" : "MENUS & OVERLAYS", panel_w, border));
+    for (const auto& r : pnl.rows) lines.push_back(bar + " " + r + std::string(static_cast<size_t>(inner - pnl.inner_w), ' ') + " " + bar);
+    lines.push_back(box_bottom(panel_w, legend, border_bottom));
     return lines;
 }
 
 void App::menu_index_key(int key) {
     const bool arrow = last_key_was_arrow();
-    if (!arrow && (key == 27 || key_is("HKeyMenus", key))) { mode_ = Mode::Browse; return; }
-    const MenuIdxTable tab = menu_idx_table(audiobook_);
-    const MenuIdxEntry* kMenuIdx = tab.e;
-    const int kMenuIdxCount = tab.n;
-    const auto cols = menu_idx_layout(audiobook_);
-    menu_index_sel_ = std::clamp(menu_index_sel_, 0, kMenuIdxCount - 1);
-    int col = 0; size_t row = 0;
-    for (int c = 0; c < 2; ++c)
-        for (size_t r = 0; r < cols[c].size(); ++r) if (cols[c][r].entry == menu_index_sel_) { col = c; row = r; }
-    auto entry_at = [&](int c, size_t r) { return r < cols[c].size() ? cols[c][r].entry : -1; };
-    if (arrow && (key == 'A' || key == 'B')) {   // up / down: the previous / next entry, wrapping
-        menu_index_sel_ = (menu_index_sel_ + (key == 'A' ? kMenuIdxCount - 1 : 1)) % kMenuIdxCount;
+    if (!arrow && (key == 27 || key_is("HKeyMenus", key))) { mode_ = Mode::Browse; force_redraw_ = true; return; }
+    const org::Tree tree = menu_org_tree(audiobook_);
+    menu_index_sel_ = settings_.menu_index_classic ? org::classic_sel(tree, menu_index_sel_) : org::clamp_sel(tree, menu_index_sel_);
+    if (arrow && (key == 'A' || key == 'B' || key == 'C' || key == 'D')) {   // up: back, down: in, right / left: the neighbours
+        const int dir = key == 'A' ? 0 : key == 'B' ? 1 : key == 'D' ? 2 : 3;
+        menu_index_sel_ = settings_.menu_index_classic ? org::move_classic(tree, menu_index_sel_, dir) : org::move(tree, menu_index_sel_, dir);
         return;
     }
-    if (arrow && (key == 'C' || key == 'D')) {   // right / left: the other column, the entry nearest to this row
-        const int oc = col == 0 ? 1 : 0;
-        for (size_t d = 0; d < std::max(cols[0].size(), cols[1].size()); ++d) {
-            if (row >= d && entry_at(oc, row - d) >= 0) { menu_index_sel_ = entry_at(oc, row - d); return; }
-            if (entry_at(oc, row + d) >= 0) { menu_index_sel_ = entry_at(oc, row + d); return; }
-        }
+    if (!arrow && key == 'T') {   // SHIFT+t: the tree or the classic category boxes (the last view is kept)
+        settings_.menu_index_classic = !settings_.menu_index_classic;
+        set_config_value("MenuIndexClassic", settings_.menu_index_classic ? "true" : "false");
+        if (settings_.menu_index_classic) menu_index_sel_ = org::classic_sel(tree, menu_index_sel_);
+        force_redraw_ = true;   // (the tree takes the whole screen, the classic view is an overlay over the main screen)
         return;
     }
-    if (!arrow && (key == '\r' || key == '\n')) {   // open it: close the index, then press the key the entry is bound to
-        const MenuIdxEntry& e = kMenuIdx[std::clamp(menu_index_sel_, 0, kMenuIdxCount - 1)];
-        const auto it = settings_.hotkeys.find(e.action);
+    if (!arrow && (key == '\r' || key == '\n')) {
+        const org::Node& e = tree.n[menu_index_sel_];
+        if (!e.action) { menu_index_sel_ = org::move(tree, menu_index_sel_, 1); return; }   // a group: go in
+        const auto it = e.action[0] == '#' ? settings_.hotkeys.end() : settings_.hotkeys.find(e.action);
         mode_ = Mode::Browse;
+        force_redraw_ = true;
         if (e.action[0] == '#') {   // a fixed key
             handle_key(static_cast<unsigned char>(e.fallback[0]));
         } else if (it != settings_.hotkeys.end()) {

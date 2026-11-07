@@ -746,6 +746,16 @@ std::string App::settings_get_value(int row, int col) const {
             case kSidLyricViz: return settings_.viz_default == 4 ? "last used" : settings_.viz_default == 5 ? "video" : viz_row_name(settings_.viz_default);
             case kSidVisualizer: v = settings_.element_visualizer; break;
             case kSidNoVideoViz: return settings_.novideo_viz == 0 ? "sphere" : settings_.novideo_viz == 1 ? "osci" : settings_.novideo_viz == 2 ? "spectro" : settings_.novideo_viz == 3 ? "none" : "lyrics";
+            case kSidVideoSize: return settings_.video_size == 1 ? "cropped" : settings_.video_size == 2 ? "full" : settings_.video_size == 3 ? "framed" : "regular";
+            case kSidVideoFx: return video_fx_name(settings_.video_fx);
+            case kSidVideoContrast: return std::to_string(std::clamp(settings_.video_contrast, 0, 100)) + "%";
+            case kSidVideoColors: return std::to_string(std::clamp(settings_.video_colors, 0, 100)) + "%";
+            case kSidVideoChroma: return chroma_name(settings_.video_chroma);
+            case kSidVideoRound: return settings_.video_round ? "on" : "off";
+            case kSidCoverChroma: return chroma_name(settings_.cover_chroma);
+            case kSidVideoRes: return video_res_label(settings_.video_res, gfx_proto_ == GfxProto::Sixel);
+            case kSidVideoBuffer: return std::to_string(settings_.video_buffer) + " MB";
+            case kSidVideoMp3: return settings_.video_mp3 ? "true" : "false";
             case kSidUseVideo: v = settings_.video_mode; break;
             case kSidNoLyricsViz: return settings_.nolyrics_viz == 1 ? "osci" : settings_.nolyrics_viz == 2 ? "spectro" : settings_.nolyrics_viz == 3 ? "none" : "sphere";
             case kSidStereo: v = settings_.stereo; break;
@@ -876,6 +886,14 @@ std::vector<std::string> App::settings_options_for(int tab, int row) const {
             case kSidLyricViz: return {"sphere", "osci", "spectro", viz_row_name(3), "video", "last used"};   // the view the field starts with, not a bool
             case kSidNoLyricsViz: return {"sphere", "osci", "spectro", "none"};
             case kSidNoVideoViz: return {"lyrics", "sphere", "osci", "spectro", "none"};
+            case kSidVideoSize: return {"regular", "cropped", "full", "framed"};
+            case kSidVideoFx: { std::vector<std::string> o; for (int i = 0; i < kVideoFxShown; ++i) o.push_back(video_fx_name(kVideoFxOrder[i])); return o; }
+            case kSidVideoContrast: case kSidVideoColors: { std::vector<std::string> o; for (int i = 0; i <= 100; i += 5) o.push_back(std::to_string(i) + "%"); return o; }
+            case kSidVideoChroma: case kSidCoverChroma: return {"off", "subtle", "medium", "strong"};
+            case kSidVideoRound: return {"off", "on"};
+            case kSidVideoRes: return {video_res_label(0, gfx_proto_ == GfxProto::Sixel), video_res_label(1, gfx_proto_ == GfxProto::Sixel), video_res_label(2, gfx_proto_ == GfxProto::Sixel)};
+            case kSidVideoMp3: return {"false", "true"};
+            case kSidVideoBuffer: { std::vector<std::string> o; for (int c : kVideoBufferChoices) o.push_back(std::to_string(c) + " MB"); return o; }
             case kSidOrder1: case kSidOrder2: case kSidOrder3: case kSidOrder4: case kSidOrder5: return {"sphere", "osci", "spectro", viz_row_name(3), "video"};
             case kSidModeOrder1: case kSidModeOrder2: case kSidModeOrder3: return {mode_row_name(0), mode_row_name(1), mode_row_name(2)};
             case kSidPlayback: return {"list", "loop", "shuffle", "stop", "queue then stop"};
@@ -959,6 +977,21 @@ void App::settings_commit_edit_impl() {
         // "Lyrics/Viz Default" and "When No Lyrics Show" are picks among views (sphere / osci / spectro, plus lyrics or none), not
         // bools: they have to be handled BEFORE the true/false gate below, or their values would bounce off it and the row
         // would never change.
+        if (id == kSidVideoSize) { settings_.video_size = v == "cropped" ? 1 : v == "full" ? 2 : v == "framed" ? 3 : 0; video_pic_key_.clear(); return; }
+        if (id == kSidVideoFx) { settings_.video_fx = video_fx_from(v); video_pic_key_.clear(); return; }
+        if (id == kSidVideoContrast || id == kSidVideoColors) {
+            std::string d = v;
+            if (!d.empty() && d.back() == '%') d.pop_back();
+            (id == kSidVideoContrast ? settings_.video_contrast : settings_.video_colors) = std::clamp((std::atoi(d.c_str()) + 2) / 5 * 5, 0, 100);
+            video_pic_key_.clear();
+            return;
+        }
+        if (id == kSidVideoRound) { settings_.video_round = v == "on"; video_pic_key_.clear(); return; }
+        if (id == kSidVideoChroma) { settings_.video_chroma = chroma_from(v); video_pic_key_.clear(); return; }
+        if (id == kSidCoverChroma) { settings_.cover_chroma = chroma_from(v); cover_pic_key_.clear(); return; }
+        if (id == kSidVideoRes) { settings_.video_res = video_res_from(v); video_pic_key_.clear(); return; }
+        if (id == kSidVideoMp3) { settings_.video_mp3 = v == "true"; return; }
+        if (id == kSidVideoBuffer) { const int mb = std::atoi(v.c_str()); int best = kVideoBufferChoices[0]; for (int c : kVideoBufferChoices) if (mb >= c) best = c; settings_.video_buffer = best; return; }
         if (id == kSidNoVideoViz) {
             if (v == "lyrics") settings_.novideo_viz = 4;
             else if (v == "sphere") settings_.novideo_viz = 0;
@@ -996,8 +1029,13 @@ void App::settings_commit_edit_impl() {
             if (v == "spectrogram") want = 2;
             if (want < 0) return;
             const int place = id - kSidOrder1;
+            order_swap_from_ = -1;
             for (int i = 0; i < 5; ++i)
-                if (settings_.viz_order[i] == want) { std::swap(settings_.viz_order[i], settings_.viz_order[place]); break; }
+                if (settings_.viz_order[i] == want) {
+                    if (i != place) order_swap_from_ = i;
+                    std::swap(settings_.viz_order[i], settings_.viz_order[place]);
+                    break;
+                }
             return;
         }
         // "Mode Order 1..3": naming a mode puts it at this place; the mode that was there takes the place it left.
@@ -1350,6 +1388,16 @@ void App::settings_cycle(int dir) {
         static const char* const names[4] = {"sphere", "oscilloscope", "spectrogram", "nothing"};
         status_line_ = std::string("no lyrics: ") + names[std::clamp(settings_.nolyrics_viz, 0, 3)] + " is shown" + note;
     }
+    if (id == kSidVideoSize) status_line_ = std::string("video size: ") + (settings_.video_size == 1 ? "cropped -- two columns are cut off each side of the picture" : settings_.video_size == 2 ? "full -- the picture fills the field, cropped to fit, the lyric line as a small box over it" : settings_.video_size == 3 ? "framed -- like full, one row and two columns smaller on every side" : "regular -- the whole picture") + note;
+    if (id == kSidVideoContrast) status_line_ = "video contrast: " + std::to_string(settings_.video_contrast) + "% -- more contrast for the video's picture (0 = as it is)" + note;
+    if (id == kSidVideoColors) status_line_ = "video colors: " + std::to_string(settings_.video_colors) + "% -- 0 = greyscale, 100 = the video's own colours" + note;
+    if (id == kSidVideoRound) status_line_ = settings_.video_round ? "video rounded corners: on -- the corners of the picture are cut round like the corners of the UI" : "video rounded corners: off";
+    if (id == kSidVideoChroma) status_line_ = std::string("video chromatic aberration: ") + chroma_name(settings_.video_chroma) + " -- red and blue are pushed apart, more towards the corners; works with every effect" + note;
+    if (id == kSidCoverChroma) status_line_ = std::string("cover chromatic aberration: ") + chroma_name(settings_.cover_chroma) + " -- for a cover that shows its own colours (Just Cover, Cover Colors above 0, the ASCII looks)" + note;
+    if (id == kSidVideoRes) status_line_ = std::string("video resolution: ") + video_res_label(settings_.video_res, gfx_proto_ == GfxProto::Sixel) + (settings_.video_res == 0 ? " -- the soft look, light on the terminal" : gfx_proto_ == GfxProto::Kitty ? " -- a sharper picture in true colour; needs more of the terminal and the processor" : " -- a wider picture (Sixel has at most 256 colours)") + note;
+    if (id == kSidVideoBuffer) status_line_ = "video buffer: " + std::to_string(settings_.video_buffer) + " MB of decoded frames kept ahead (about " + std::to_string(video_buffer_seconds(settings_.video_buffer, settings_.video_res, gfx_proto_ == GfxProto::Sixel)) + " s of a 16:9 picture at this resolution)" + note;
+    if (id == kSidVideoMp3) status_line_ = settings_.video_mp3 ? "yt-dlp mp3 from mp4: true -- SEARCH YT also saves the sound of a video as an mp3 song when no song is the target (CTRL+o in SEARCH YT changes it for one download)" : "yt-dlp mp3 from mp4: false -- SEARCH YT downloads only the video (CTRL+o in SEARCH YT asks for the mp3 for one download; CTRL+3 in FETCH VIDEOS -> VIDEO FILES makes one from a file)";
+    if (id == kSidVideoFx) status_line_ = std::string("video effect: ") + video_fx_name(settings_.video_fx) + note;
     if (id == kSidNoVideoViz) {
         static const char* const names[5] = {"the sphere", "the oscilloscope", "the spectrogram", "nothing", "the lyrics"};
         status_line_ = std::string("no video: the video view shows ") + names[std::clamp(settings_.novideo_viz, 0, 4)] + note;
@@ -1404,6 +1452,8 @@ void App::settings_cycle(int dir) {
     if (id >= kSidOrder1 && id <= kSidOrder5) {
         std::string o = "\".\" cycle: ";
         for (int i = 0; i < 5; ++i) o += std::string(i ? " > " : "") + viz_row_name(settings_.viz_order[i]);
+        // every view is in the cycle once: the one that held the place now holds the place the chosen view left
+        if (order_swap_from_ >= 0) o += "   (Viz Order " + std::to_string(order_swap_from_ + 1) + " took " + viz_row_name(settings_.viz_order[order_swap_from_]) + " in return)";
         status_line_ = o;
     }
     if (id == kSidPlayback) status_line_ = std::string("playback: ") + play_mode_name(settings_.play_mode);
@@ -1598,7 +1648,7 @@ void App::handle_settings_key(int key) {
                 }
                 std::string conflict = hotkey_conflict(color_edit_buffer_, key_name);
                 if (!conflict.empty()) {
-                    std::string who = conflict;   // shown by its label on this tab ("Read Lyrics Overlay"), the action name otherwise
+                    std::string who = conflict;   // shown by its label on this tab ("Read and Translate Overlay"), the action name otherwise
                     for (int i = 0; i < kRefRowCount; ++i) if (conflict == kRefRows[i].action) who = kRefRows[i].label;
                     status_line_ = "KEY \"" + pretty_key(color_edit_buffer_) + "\" ALREADY USED BY \"" + who + "\" -- try another key";
                     color_edit_buffer_.clear();

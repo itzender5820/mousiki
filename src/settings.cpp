@@ -353,6 +353,9 @@ void apply_default_hotkeys(Settings& s) {
             // "k" opens the karaoke overlay; Refresh UI is on "r" (migrated below).
             {"HKeyRefreshUi",                   "r"},
             {"HKeyKaraoke",                     "k"},
+            {"HKeyVideoFxBack",                 "h"},   // the previous video effect for this track (the other direction of "g")
+            {"HKeyVideoFx",                     "g"},   // the next video effect for this track (the picture in the small field)
+            {"HKeyVideoFull",                   "v"},   // the full screen video (the loudness normalization key moved to the SHIFT+v overlay)
             {"HKeyVideo",                       default_video_key()},   // "&" (SHIFT+6) on German / Austrian / Swiss keyboards, else "Y" (SHIFT+y)
             // The mode switch (SHIFT and + / SHIFT and - on a German keyboard: the characters '*' and '_') and the karaoke
             // overlay's lyrics size keys. The two pairs share their characters on purpose: they work in different places
@@ -380,7 +383,7 @@ void apply_default_hotkeys(Settings& s) {
             {"HKeyToggleWaveform",              "w"},
             {"HKeyCycleSortMode",               "T"},
             {"HKeyPlaylist",                    "P"},
-            {"HKeyToggleNormalize",             "v"},
+            {"HKeyToggleNormalize",             ""},    // unbound by default (SHIFT+v opens the normalization overlay, which switches it); "v" is the full screen video
             // Shift+N: deliberately the UPPERCASE letter, because plain
             // "n" is already HKeyPlayNextSong and resolve_hotkey_action()
             // only falls back to the other case when a key resolves to
@@ -548,6 +551,16 @@ void apply_default_hotkeys(Settings& s) {
             if (ft != s.hotkeys.end() && s.hotkeys.find("HKeyBookmark") == s.hotkeys.end()) s.hotkeys["HKeyBookmark"] = ft->second;
             auto bm = s.hotkeys.find("HKeyBarsMenu");
             if (bm != s.hotkeys.end() && bm->second == "Y") bm->second = "B";
+        }
+        // Migration: "v" opens the full screen video; the loudness normalization is switched in the SHIFT+v overlay (or Settings). A config that
+        // still has the old default keeps no second command on that key: normalization is left unbound, the video gets the key.
+        {
+            auto vf = s.hotkeys.find("HKeyVideoFull");
+            auto nm = s.hotkeys.find("HKeyToggleNormalize");
+            if (nm != s.hotkeys.end() && nm->second == "v" && (vf == s.hotkeys.end() || vf->second == ">" || vf->second == "v")) {
+                nm->second = "";
+                s.hotkeys["HKeyVideoFull"] = "v";
+            }
         }
         std::vector<std::string> added_now;   // commands that came with a newer version
         for (const auto& [action, key] : defaults) {
@@ -900,7 +913,7 @@ static Settings load_from_config(const fs::path& path) {
             {"ElimentDisk", "Eliment_disk"}, {"ElimentDummyButtons", "Element_dummy_buttons"},
             {"ElimentQueue", "Eliment_queue"}, {"ElimentWaveForm", "Eliment_waveform_progress_bar"},
             {"ElimentLyrics", "Eliment_lyrics"}, {"VizLyricsField", "Eliment_vizfield"}, {"LyricsPlaceholderBall", "Eliment_lyrics_placeholder_ball"},
-            {"LyricViz", "lyric_viz"}, {"NoLyricsViz", "nolyrics_viz"}, {"VizDefault", "viz_default"}, {"NoVideoViz", "novideo_viz"}, {"VideoMode", "video_mode"}, {"VideoLyrics", "video_lyrics"}, {"VideoAuto", "video_auto"}, {"VideoCover", "video_cover"}, {"VideoDownHeight", "video_down_height"}, {"VideoView", "video_view"},
+            {"LyricViz", "lyric_viz"}, {"NoLyricsViz", "nolyrics_viz"}, {"VizDefault", "viz_default"}, {"NoVideoViz", "novideo_viz"}, {"VideoMode", "video_mode"}, {"VideoLyrics", "video_lyrics"}, {"VideoAuto", "video_auto"}, {"VideoCover", "video_cover"}, {"VideoSize", "video_size"}, {"VideoFx", "video_fx"}, {"VideoResolution", "video_resolution"}, {"VideoContrast", "video_contrast"}, {"VideoColors", "video_colors"}, {"VideoChroma", "video_chroma"}, {"VideoRound", "video_round"}, {"CoverChroma", "cover_chroma"}, {"VideoBuffer", "video_buffer"}, {"VideoMp3", "video_mp3"}, {"VideoFullLyrics", "video_full_lyrics"}, {"VideoDownHeight", "video_down_height"}, {"VideoView", "video_view"},
             {"Visualizer", "Eliment_visualizer"},
             {"VisualizerFluidity", "visualizer_fluidity"}, {"DiskRotationSpeed", "disk_rotation_speed"},
             {"VisualizerDegradationSpeed", "visualizer_degradation_speed"}, {"VisualizerViscosity", "visualizer_viscosity"},
@@ -1126,6 +1139,26 @@ static Settings load_from_config(const fs::path& path) {
         if (key == "video_lyrics") { s.video_lyrics = parse_bool(value); continue; }
         if (key == "video_auto") { s.video_auto = parse_bool(value); continue; }
         if (key == "video_cover") { std::string v = ascii_lower_str(trim_ws(unquote(value))); s.video_cover = (v == "snapshot" || v == "thumbnail" || v == "1" || v == "true") ? 1 : (v == "disk" || v == "2") ? 2 : 0; continue; }
+        if (key == "video_size") { std::string v = ascii_lower_str(trim_ws(unquote(value))); s.video_size = (v == "cropped" || v == "crop" || v == "1") ? 1 : (v == "full" || v == "2") ? 2 : (v == "framed" || v == "3") ? 3 : 0; continue; }
+        if (key == "video_contrast") { s.video_contrast = std::clamp((std::atoi(trim_ws(unquote(value)).c_str()) + 2) / 5 * 5, 0, 100); continue; }
+        if (key == "video_colors") { s.video_colors = std::clamp((std::atoi(trim_ws(unquote(value)).c_str()) + 2) / 5 * 5, 0, 100); continue; }
+        if (key == "video_mp3") { s.video_mp3 = parse_bool(value) || ascii_lower_str(trim_ws(unquote(value))) == "on"; continue; }
+        if (key == "video_round") { s.video_round = parse_bool(value) || ascii_lower_str(trim_ws(unquote(value))) == "on"; continue; }
+        if (key == "video_chroma") { s.video_chroma = chroma_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
+        if (key == "cover_chroma") { s.cover_chroma = chroma_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
+        if (key == "video_resolution") { s.video_res = video_res_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
+        if (key == "video_buffer") { int mb = std::atoi(trim_ws(unquote(value)).c_str()); int best = 32; for (int c : kVideoBufferChoices) if (mb >= c) best = c; if (mb < kVideoBufferChoices[0]) best = kVideoBufferChoices[0]; s.video_buffer = best; continue; }
+        if (key == "video_fx") { std::string v = ascii_lower_str(trim_ws(unquote(value))); s.video_fx = video_fx_from(v); continue; }
+        if (key == "video_full_lyrics") { s.video_full_lyrics = parse_bool(value); continue; }
+        if (key == "VideoFullTranslation") { s.video_full_translation = parse_bool(value); continue; }
+        if (key == "VideoLayout") { try { s.video_layout = std::clamp(std::stoi(value), 0, 3); } catch (...) {} continue; }
+        if (key == "VideoLayoutOsciStyle" || key == "VideoLayoutSpectroStyle" || key == "VideoLayoutOsciMode" || key == "VideoLayoutSpectroView") {
+            const std::string v = ascii_lower_str(trim_ws(unquote(value)));
+            const int n = (v == "braille" || v == "xy" || v == "spectrogram" || v == "0") ? 0 : (v == "image" || v == "yt" || v == "waterfall" || v == "1") ? 1 : -1;
+            (key == "VideoLayoutOsciStyle" ? s.vl_osci_style : key == "VideoLayoutSpectroStyle" ? s.vl_spec_style : key == "VideoLayoutOsciMode" ? s.vl_osci_mode : s.vl_spec_view) = n;
+            continue;
+        }
+        if (key == "VideoLayoutScales") { s.vl_scales = parse_bool(value); continue; }
         if (key == "video_down_height") { try { s.video_down_height = std::clamp(std::stoi(value), 144, 2160); } catch (...) {} continue; }
         if (key == "UseLyrics") { s.use_lyrics = parse_bool(value); continue; }
         if (key == "UseOscilloscope") { s.use_osci = parse_bool(value); continue; }
@@ -1398,6 +1431,7 @@ static Settings load_from_config(const fs::path& path) {
         }
 
         // --- Autosave / session snapshot --------------------------------
+        if (key == "MenuIndexClassic") { s.menu_index_classic = parse_bool(value); continue; }
         if (key == "SleepFade") { s.sleep_fade = parse_bool(value); continue; }
         if (key == "WizardSeen") { s.wizard_seen = parse_bool(value); continue; }
         if (key == "SidPlayLength") {
@@ -1936,6 +1970,7 @@ static void write_settings(std::ostream& out, const Settings& s) {
     out << "CoverContrast=" << s.cover_contrast << "\n## 0 .. 100 (percent, steps of 5) -- more contrast for the album cover (0 = the cover as it is)\n";
     out << "CoverBrightness=" << s.cover_brightness << "\n## 0 .. 100 (percent, steps of 5) -- the cover behind the disk: how bright its dots are lifted (0 = the picture's own range; more = brighter, like the plain disk)\n";
     out << "CoverColors=" << s.cover_colors << "\n## 0 .. 100 (percent, steps of 5) -- the cover behind the disk: its own colours mixed into the disk's gradient (0 = gradient only, 100 = the cover's own colours)\n";
+    out << "CoverChroma=" << chroma_name(s.cover_chroma) << "\n## chromatic aberration of a cover that shows its own colours (Just Cover, Cover Colors above 0, the ASCII looks): off | subtle | medium | strong\n";
     out << "CoverSearch=" << (s.cover_search == 1 ? "folder first" : s.cover_search == 2 ? "file first" : s.cover_search == 3 ? "folder only" : s.cover_search == 4 ? "file only" : "default")
         << "\n## default (the picture inside the file, else the closest-named picture in the folder) , folder first , file first (inside the file, else only a closely named folder picture) , folder only , file only -- every search except file only ends with any picture of the folder (the first by name) when nothing else gave one\n";
     out << "ElimentDummyButtons=" << tf(s.element_dummy_buttons) << "\n";
@@ -1959,6 +1994,32 @@ static void write_settings(std::ostream& out, const Settings& s) {
     out << "## true = a track that has a video switches the field to the video view, a track without one to the Lyrics/Viz Default view\n";
     out << "VideoCover=" << (s.video_cover == 1 ? "thumbnail" : s.video_cover == 2 ? "disk" : "cover") << "\n";
     out << "## cover = the disk shows the track's cover; thumbnail = a frame of the track's video (the cover, then the disk, when it has no video); disk = a track with a video shows the plain disk (no cover, no thumbnail)\n";
+    out << "VideoSize=" << (s.video_size == 1 ? "cropped" : s.video_size == 2 ? "full" : s.video_size == 3 ? "framed" : "regular") << "\n";
+    out << "## the video's picture in the small field: regular = the whole picture | cropped = two columns cut off each side | full = fills the field (the oscilloscope's space), cropped to fit, the lyric line as a small black box over it\n";
+    out << "VideoFx=" << video_fx_key(s.video_fx) << "\n";
+    out << "## a retro effect on the video's picture (small field and full screen): off | scanlines | crt | vhs | glitch | pixel | gradient | quiet glitch\n";
+    out << "VideoContrast=" << s.video_contrast << "\n## 0 .. 100 (percent, steps of 5) -- more contrast for the video's picture (0 = as it is)\n";
+    out << "VideoColors=" << s.video_colors << "\n## 0 .. 100 (percent, steps of 5) -- the video's colours (0 = greyscale, 100 = as they are)\n";
+    out << "VideoRound=" << tf(s.video_round) << "\n## Rounded Corners: the corners of the video's picture are cut round like the corners of the UI (a track can have its own: Style Option): true | false\n";
+    out << "VideoChroma=" << chroma_name(s.video_chroma) << "\n## chromatic aberration of the video's picture (red and blue pushed apart, more towards the corners; works with every effect): off | subtle | medium | strong\n";
+    out << "VideoResolution=" << video_res_name(s.video_res) << "\n";
+    out << "## the sharpness of the video's picture: standard (up to 640 px wide, Sixel 480; the soft look) | high (1280 px, Sixel 720; Kitty in true colour) | full (1920 px, Sixel 960; Kitty in true colour). Wider pictures need more of the terminal and the processor\n";
+    out << "VideoBuffer=" << s.video_buffer << "\n";
+    out << "## megabytes of decoded video frames kept ahead of the picture: 8 | 16 | 32 | 64 | 128 | 256 (a wider picture holds fewer seconds in it)\n";
+    out << "VideoMp3=" << tf(s.video_mp3) << "\n## yt-dlp mp3 from mp4: SEARCH YT also saves the sound of a downloaded video as an mp3 song in the download folder when no song is the target (CTRL+o in SEARCH YT changes it per download): true | false\n";
+    out << "VideoFullLyrics=" << tf(s.video_full_lyrics) << "\n";
+    out << "## true = the full screen video (HKeyVideoFull, \"v\") shows the current lyric line in a small black box over the picture\n";
+    out << "VideoFullTranslation=" << (s.video_full_translation ? "true" : "false") << "\n";
+out << "## Full screen video: show the saved translation of the lyrics under the lyric line (TAB cycles lyrics off / on / with translation).\n";
+out << "VideoLayout=" << s.video_layout << "\n";
+    out << "## the layout of the full screen video (SHIFT+UP / SHIFT+DOWN there): 0 video | 1 video + oscilloscope | 2 video + spectrogram | 3 video + oscilloscope + spectrogram\n";
+    out << "VideoLayoutOsciStyle=" << (s.vl_osci_style < 0 ? "default" : s.vl_osci_style == 1 ? "image" : "braille") << "\n";
+    out << "VideoLayoutOsciMode=" << (s.vl_osci_mode < 0 ? "default" : s.vl_osci_mode == 1 ? "yt" : "xy") << "\n";
+    out << "VideoLayoutSpectroStyle=" << (s.vl_spec_style < 0 ? "default" : s.vl_spec_style == 1 ? "image" : "braille") << "\n";
+    out << "VideoLayoutSpectroView=" << (s.vl_spec_view < 0 ? "default" : s.vl_spec_view == 1 ? "waterfall" : "spectrogram") << "\n";
+    out << "## the oscilloscope's and the spectrogram's own picture style (braille | image) and version (XY | YT, spectrogram | waterfall) in those layouts; default = as in their options (SHIFT+o / SHIFT+i)\n";
+    out << "VideoLayoutScales=" << tf(s.vl_scales) << "\n";
+    out << "## the grid of the oscilloscope and the scales of the spectrogram in those layouts (SHIFT+g there)\n";
     out << "VideoDownHeight=" << s.video_down_height << "\n";
     out << "## the highest picture height of a video that Search YT downloads (into <download folder>/video_down)\n";
     out << "VideoMode=" << tf(s.video_mode) << "\n";
@@ -2130,6 +2191,7 @@ static void write_settings(std::ostream& out, const Settings& s) {
     out << "##             AUTOSAVE / SESSION SNAPSHOT\n";
     out << "##-------------------------------------------\n\n";
     out << "SleepFade=" << tf(s.sleep_fade) << "\n## sleep timer: fade the volume out over the last 10 % of the time (30 s .. 10 min), then pause\n";
+    out << "MenuIndexClassic=" << tf(s.menu_index_classic) << "\n## the \"<\" menus overlay: false = the tree (organigram), true = the classic view with every category as a box (SHIFT+t switches, the last view is kept)\n";
     out << "WizardSeen=" << tf(s.wizard_seen) << "\n## the help wizard (SHIFT+w) opened itself once already; false makes it greet you again on the next start\n";
     out << "SidPlayLength=" << s.sid_play_length << "\n## SID tunes (C64) are rendered by sidplayfp for this many seconds (10 .. 1800)\n";
     out << "KaraokeLyricsSize=" << s.karaoke_lyrics_size << "\n## karaoke overlay (k): lyrics size 1 (normal text) .. 5, SHIFT and + / SHIFT and - change it there\n";

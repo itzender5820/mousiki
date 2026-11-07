@@ -188,11 +188,7 @@ void App::meta_refresh_lib_view() {
     std::string keep;
     if ((meta_resort_edited_ || meta_sort_added_) && !meta_lib_view_.empty()) keep = meta_hovering_path();
 
-    meta_lib_view_ = filter_local_or_folders(meta_query_);
-    if (meta_videos_only_)   // SHIFT+v: only the video files (the search, folder view and the missing-tag filters below still apply)
-        meta_lib_view_.erase(std::remove_if(meta_lib_view_.begin(), meta_lib_view_.end(),
-                                            [](const LocalTrack& t) { return !LocalSource::is_video_file(t.path); }),
-                             meta_lib_view_.end());
+    meta_lib_view_ = filter_local_or_folders(meta_query_, meta_media_);   // (SHIFT+v: audio / video + audio / video; the search, folder view and the missing-tag filters below still apply)
 
     // Missing-tag filter ('x' / Shift+T/A/Y). meta_row_meta() is a native,
     // in-process tag read cached in row_meta_cache_, so the first pass costs

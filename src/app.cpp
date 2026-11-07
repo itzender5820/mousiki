@@ -669,7 +669,7 @@ App::App(Settings* shared, bool audiobook) : audiobook_(audiobook), settings_(sh
     }
 
     }
-    local_source_.set_include_video(settings_.video_mode);   // (Video mode: video files are part of the library)
+    local_source_.set_include_video(true);   // (video files are part of the library whatever the Video mode says: their sound plays and they are listed as tracks)
     all_local_tracks_ = local_source_.scan(library_roots(), &local_scan_diagnostics_);
     exclude_book_files(all_local_tracks_);   // the audio books are not part of the music library
     scanned_book_path_ = settings_.audiobook_path;
@@ -1208,10 +1208,10 @@ int App::run() {
         {
             static std::string frozen_body;
             static int frozen_cols = -1, frozen_rows = -1;
-            const bool freeze = ((mode_ == Mode::MetaEdit && meta_sty_from_main_) || (mode_ == Mode::VideoSearch && vs_pic_ != 0)) && frame_main_len_ != std::string::npos && frame_main_len_ <= frame_str.size();   // (SEARCH YT with a thumbnail picture freezes the main screen too: the line writes of the live screen next to a Sixel picture wipe it)
+            const bool freeze = ((mode_ == Mode::MetaEdit && meta_sty_from_main_) || (mode_ == Mode::VideoSearch && vs_pic_ != 0) || (mode_ == Mode::VideoLink && vl_pic_ != 0)) && frame_main_len_ != std::string::npos && frame_main_len_ <= frame_str.size();   // (SEARCH YT with a thumbnail picture freezes the main screen too: the line writes of the live screen next to a Sixel picture wipe it)
             // (the look chosen in the panel is shown behind it at once: the frozen screen is taken again when the look changes)
             const std::string look_sig = std::to_string(eff_cover_mode()) + "|" + std::to_string(eff_cover_contrast()) + "|" + std::to_string(eff_cover_brightness()) + "|" +
-                                         std::to_string(eff_cover_colors()) + "|" + (settings_.album_cover ? "a" : "d");
+                                         std::to_string(eff_cover_colors()) + "|" + std::to_string(eff_cover_chroma()) + "|" + (settings_.album_cover ? "a" : "d");
             static std::string frozen_sig;
             if (freeze && (frozen_body.empty() || frozen_cols != term.cols() || frozen_rows != term.rows() || frozen_sig != look_sig)) {
                 frozen_body = frame_str.substr(0, frame_main_len_);
@@ -1243,7 +1243,7 @@ int App::run() {
         // The spectrogram's analysis keeps running while a track is loaded, shown or not (a menu or another view over it, a pause): it
         // is cheap, and the history is there when the picture is opened again -- before, the feed was switched off whenever a frame did not
         // draw it, so what was played meanwhile was missing (gaps after an overlay, an empty picture when opened during a pause).
-        if (has_track_) spectro().update(settings_.spectro);
+        if (has_track_) spectro().update(layout_spectro_on_ ? layout_spectro_ : settings_.spectro);
         else if (!spectro_used_ || !main_frame) spectro().set_visible(false);
         // the Settings preview box: its spectrogram is a picture too (settings_preview.cpp)
         const bool pv_img = (mode_ == Mode::Settings || mode_ == Mode::ColorEdit) && pv_spectro_area_[0] >= 0 && sp_proto != 0 && settings_preview_spectro();
@@ -1357,7 +1357,7 @@ int App::run() {
             const bool floating = float_rect_[2] > 0 && float_rect_[3] > 0;
             const bool caption = !floating && caption_rect_[2] > 0;   // the "fetching lyrics" box: a hole in the picture
             SpectroGfx& sgfx = sp_creator ? creator_spectro_gfx_ : spectro_gfx_;
-            wire += sgfx.emit(sp_proto, sp_creator ? creator_spectro_set_ : settings_.spectro, sp_creator ? creator_spectro_ : spectro(), spectro_area_[0], spectro_area_[1], spectro_area_[2], spectro_area_[3],
+            wire += sgfx.emit(sp_proto, sp_creator ? creator_spectro_set_ : layout_spectro_on_ ? layout_spectro_ : settings_.spectro, sp_creator ? creator_spectro_ : spectro(), spectro_area_[0], spectro_area_[1], spectro_area_[2], spectro_area_[3],
                                       cw, chh, true, floating ? float_rect_[1] : caption ? caption_rect_[0] : 0,
                                       floating ? float_rect_[0] : caption ? caption_rect_[1] : 0,
                                       floating ? float_rect_[3] : caption ? 1 : 0, floating ? float_rect_[2] : caption ? caption_rect_[2] : 0);
@@ -1440,6 +1440,7 @@ void App::shutdown() {
         save_snapshot(build_snapshot());
         ConsoleLog::instance().log_basic("saved session snapshot on exit");
     }
+    video_trash_purge();
     if (convert_overlay_open_) convert_overlay_close();
     converter_.cancel();
     if (vd_.active) { std::lock_guard<std::mutex> lk(vd_.child_m); if (vd_.child) vd_.child->kill(); }

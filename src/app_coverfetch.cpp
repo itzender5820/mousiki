@@ -811,7 +811,7 @@ bool App::cover_full_picture_img(const CoverImage* img, int pcols, int preview_r
             }
         g.fresh = true;
     } else g.fresh = false;
-    g.plain = true; g.direct = true; g.scale = 1; g.out_cw = cw0; g.out_ch = ch0;
+    g.plain = true; g.truecolor = false; g.direct = true; g.scale = 1; g.out_cw = cw0; g.out_ch = ch0;
     g.cols = pcols; g.rows = preview_rows; g.w = w; g.h = h;
     g.col = scr_col; g.row = scr_row;
     g.id = second ? 1 : 0; g.grid.clear(); g.cut_w = 0; g.crop = 0;

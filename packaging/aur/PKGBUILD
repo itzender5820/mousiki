@@ -1,7 +1,7 @@
 # Maintainer: <your name and address for the AUR here>
 # Builds Mousiki Plus from the GitHub release tag. Test it with run-in-container.sh (see README.md in this folder).
 pkgname=mousiki-plus
-pkgver=4.9.0
+pkgver=5.0.0
 pkgrel=1
 pkgdesc='Terminal music player, internet radio and audio book player with oscilloscope and spectrogram'
 arch=('x86_64')

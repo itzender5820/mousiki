@@ -228,7 +228,7 @@ void App::handle_key(int key) {
         const bool arrow = last_key_was_arrow();
         // rows kSrView .. the last (no "Display" row: what the lyrics area shows is the "." key's job)
         if (arrow && (key == 'A' || key == 'B')) {   // only the rows of the view in use (the waterfall has others than the spectrogram)
-            const std::vector<int> vis = spectro_visible_rows(settings_.spectro);
+            const std::vector<int> vis = spectro_visible_rows(video_layout_menu() ? layout_spectro_view() : settings_.spectro);
             int at = 0;
             for (size_t i = 0; i < vis.size(); ++i) if (vis[i] <= spectro_menu_row_) at = static_cast<int>(i);
             const int n = static_cast<int>(vis.size());
@@ -238,10 +238,15 @@ void App::handle_key(int key) {
         }
         if (arrow && key == 'D') { spectro_menu_adjust(-1); return; }
         if (arrow && key == 'C') { spectro_menu_adjust(+1); return; }
-        if (!arrow && (key == 'r' || key == 'R')) { spectro_reset(settings_.spectro); settings_.spectro_sync(); return; }
+        if (!arrow && (key == 'r' || key == 'R')) {
+            if (video_layout_menu()) { settings_.vl_spec_view = settings_.vl_spec_style = -1; return; }   // the layout's choices back to "as in the options"
+            spectro_reset(settings_.spectro); settings_.spectro_sync(); return;
+        }
         std::string act = resolve_hotkey_action(key);
         if (act.empty() && key >= 'a' && key <= 'z') act = resolve_hotkey_action(key - 32);
         if (act.empty() && key >= 'A' && key <= 'Z') act = resolve_hotkey_action(key + 32);
+        if (video_full_ && (act == "HKeySpectroFull" || act == "HKeyScopeBig")) return;   // (not out of the video layout)
+        if (video_full_ && act == "HKeyOscMenu") { if (!vl_has_osci(settings_.video_layout)) return; save_settings(settings_); osci_menu_row_ = 0; mode_ = Mode::OsciMenu; force_redraw_ = true; return; }
         if (!arrow && act == "HKeySpectroFull") {
             spectro_full_ = !spectro_full_; if (spectro_full_) scope_big_ = false; force_redraw_ = true; return;
         }
@@ -263,6 +268,20 @@ void App::handle_key(int key) {
 
     if (creator_show_ && mode_ == Mode::Browse) { creator_preview_key(key); return; }   // the creator's preview: ESC stops it
 
+    if (video_full_ && mode_ == Mode::Browse && video_full_key(key)) return;   // the full screen video: UP / DOWN effect, TAB lyrics, ESC closes
+
+    if (spectro_full_ && mode_ == Mode::Browse && last_key_was_arrow() && (key == 'A' || key == 'B' || key == 'C' || key == 'D')) {
+        // LEFT / RIGHT: image <-> braille, UP / DOWN: spectrogram <-> waterfall (the same values as the SHIFT+i overlay)
+        spectro_adjust(settings_.spectro, (key == 'C' || key == 'D') ? kSrStyle : kSrView, (key == 'C' || key == 'B') ? 1 : -1);
+        settings_.spectro_sync();
+        if (key == 'C' || key == 'D')
+            status_line_ = settings_.spectro.style == 1 ? (gfx_proto_ == GfxProto::None ? "spectrogram style: image (this terminal has neither Kitty graphics nor Sixel: braille is drawn)" : "spectrogram style: image")
+                                                        : "spectrogram style: braille";
+        else status_line_ = settings_.spectro.view == 1 ? "spectrogram view: waterfall" : "spectrogram view: spectrogram";
+        save_settings(settings_);
+        force_redraw_ = true;
+        return;
+    }
     if (spectro_full_ && mode_ == Mode::Browse && key == 27 && !last_key_was_arrow()) {   // ESC leaves the full screen
         spectro_full_ = false;
         force_redraw_ = true;
@@ -276,18 +295,21 @@ void App::handle_key(int key) {
         // only this overlay takes keys. Unknown keys are ignored (the footer
         // lists every key), ESC or the overlay hotkey again closes and saves.
         const bool arrow = last_key_was_arrow();
-        const int osci_n = static_cast<int>(osci_visible_rows(settings_).size());
+        const int osci_n = std::max(1, static_cast<int>(osci_menu_rows().size()));
         if (arrow && key == 'A') { osci_menu_row_ = (osci_menu_row_ + osci_n - 1) % osci_n; return; } // up
         if (arrow && key == 'B') { osci_menu_row_ = (osci_menu_row_ + 1) % osci_n; return; }          // down
         if (arrow && key == 'D') { osci_menu_adjust(-1); return; }                      // left
         if (arrow && key == 'C') { osci_menu_adjust(+1); return; }                      // right
         if (!arrow && (key == 'r' || key == 'R')) {
+            if (video_layout_menu()) { settings_.vl_osci_style = settings_.vl_osci_mode = -1; return; }   // the layout's choices back to "as in the options"
             osci_reset(settings_);
             return;
         }
         std::string osc_action = resolve_hotkey_action(key);
         if (osc_action.empty() && key >= 'a' && key <= 'z') osc_action = resolve_hotkey_action(key - 32);
         if (osc_action.empty() && key >= 'A' && key <= 'Z') osc_action = resolve_hotkey_action(key + 32);
+        if (video_full_ && (osc_action == "HKeyScopeBig" || osc_action == "HKeySpectroFull")) return;   // (not out of the video layout)
+        if (video_full_ && osc_action == "HKeySpectroMenu") { if (vl_has_spectro(settings_.video_layout)) { save_settings(settings_); spectro_menu_row_ = kSrView; mode_ = Mode::SpectroMenu; force_redraw_ = true; } return; }
         if (!arrow && osc_action == "HKeyScopeWindow") { scope_window_toggle(); return; }     // the windows: always
         if (!arrow && osc_action == "HKeySpectroWindow") { spectro_window_toggle(); return; }
         if (!arrow && osc_action == "HKeyScopeBig") { scope_big_ = !scope_big_; spectro_full_ = false; scope_big_color_edit_ = false; scope_metrics_open_ = false; force_redraw_ = true; return; }
@@ -323,7 +345,7 @@ void App::handle_key(int key) {
         std::string bars_action = resolve_hotkey_action(key);
         if (bars_action.empty() && key >= 'a' && key <= 'z') bars_action = resolve_hotkey_action(key - 32);
         if (bars_action.empty() && key >= 'A' && key <= 'Z') bars_action = resolve_hotkey_action(key + 32);
-        if (!arrow && (key == 27 || bars_action == "HKeyBarsMenu" || key_is("HKeyBarsMenu", key))) {
+        if (!arrow && (key == 27 || bars_action == "HKeyBarsMenu" || key_is("HKeyBarsMenu", key) || (audiobook_ && key == 'Y'))) {
             mode_ = Mode::Browse;
             save_settings(settings_);
         }
@@ -858,6 +880,7 @@ void App::handle_key(int key) {
         else if (key_is("HKeyBarsMenu", key)) action = "HKeyBarsMenu";
         else if (!audiobook_) action.clear();
     }
+    if (audiobook_ && key == 'Y' && !last_key_was_arrow()) action = "HKeyBarsMenu";   // SHIFT+y: the spectrum bars' options of the audio book (SHIFT+b is the bookmark there)
     if (audiobook_ && book_intercept(action, key)) return;   // the audio book player's own keys (and what it does not offer)
 
     if (action == "HKeyRescan") {   // SHIFT+r: new files copied / uploaded while the app runs
@@ -1048,6 +1071,8 @@ void App::handle_key(int key) {
         const int cur = settings_.element_lyrics ? ((vid && settings_.video_view) ? 4 : 3) : settings_.lyric_viz == 1 ? 1 : settings_.lyric_viz == 2 ? 2 : 0;
         std::vector<int> ord;
         for (int i = 0; i < 5; ++i) if (settings_.viz_order[i] != 4 || vid) ord.push_back(settings_.viz_order[i]);   // (Viz Order 1..5)
+        // the video view is skipped for a track without a video when "When No Video Shows" is *nothing* (it would show an empty field)
+        const bool video_view_usable = vid && (settings_.novideo_viz != 3 || (has_track_ && !video_shown_for(current_path_).empty()));
         const int dir = action == "HKeyToggleLyricsBack" ? -1 : 1;
         int next = cur;
         {
@@ -1056,7 +1081,7 @@ void App::handle_key(int key) {
             const int n = static_cast<int>(ord.size());
             for (int k = 1; k <= n; ++k) {
                 const int c = ord[static_cast<size_t>(((pos + dir * k) % n + n) % n)];
-                if (c == 4 ? vid : settings_.viz_usable(c)) { next = c; break; }
+                if (c == 4 ? video_view_usable : settings_.viz_usable(c)) { next = c; break; }
             }
         }
         static const char* const view_names[5] = {"sphere", "oscilloscope", "spectrogram", "lyrics", "video"};
@@ -1065,9 +1090,13 @@ void App::handle_key(int key) {
         } else if (next == cur) {
             status_line_ = std::string("lyrics area: ") + view_names[cur] + " (the other views are switched off on Settings -> ANIMA/VIZ)";
         } else if (next >= 3) {                    // -> lyrics, or the video (lyrics with the picture)
+            // lyrics -> video (or back) keeps the lyrics that are there: fetching again would blank them for a moment (the no-lyrics visual with a "cached" caption)
+            const bool have_lyrics = settings_.element_lyrics && lyrics_ready_ && lyrics_path_ == current_path_;
+            if (next == 4 && cur != 4) auto_prev_view_ = cur; auto_prev_known_ = true;   // (the view the video took the field from: "last used" brings it back on a track without a video)
             settings_.element_lyrics = true;
             settings_.video_view = next == 4;
-            if (has_track_) {
+            const bool placeholder = next == 4 && settings_.novideo_viz != 4 && has_track_ && video_shown_for(current_path_).empty();   // the video view of a track without a video shows a visual: no lyrics needed
+            if (has_track_ && !have_lyrics && !placeholder) {
                 std::string artist = (metadata_.artist == "-") ? "" : metadata_.artist;
                 last_lyrics_status_.clear(); // fresh 1.75s caption window, not a leftover from before it was off
                 launch_lyrics_fetch(metadata_.name, artist, current_path_);
@@ -1145,8 +1174,9 @@ void App::handle_key(int key) {
         mode_ = Mode::Cheatsheet;
         cheat_searching_ = false;
     } else if (action == "HKeyMenus") {   // "<": the list of all menus and overlays
-        menu_index_sel_ = 0;
+        menu_index_sel_ = 1;
         mode_ = Mode::MenuIndex;
+        force_redraw_ = true;
     } else if (action == "HKeyFilterForFolder") {
         if (list_source_ == ListSource::Local && !local_view_.empty() &&
             selected_ >= 0 && selected_ < static_cast<int>(local_view_.size())) {
@@ -1215,6 +1245,13 @@ void App::handle_key(int key) {
                 status_line_ = "not a cached stream";
             }
         }
+    } else if (action == "HKeyVideoFx" || action == "HKeyVideoFxBack") {   // the next / previous effect for this track's video (small field)
+        const int fxdir = action == "HKeyVideoFxBack" ? -1 : 1;
+        if (audiobook_) status_line_ = "video effect: not available in the audio book player";
+        else if (!settings_.video_mode || !settings_.video_view || video_shown_for(current_path_).empty()) status_line_ = "video effect: needs the video view in the field with a track that has a video";
+        else video_track_fx_step(fxdir);
+    } else if (action == "HKeyVideoFull") {   // ">": the video over the whole screen (on / off)
+        video_full_toggle();
     } else if (action == "HKeyVideo") {
         video_menu_open();   // the VIDEO overlay (its first row is the Video mode switch)
     } else if (action == "HKeyCycleSortMode") { // cycle local-list sort mode (folder order -> title A-Z -> artist A-Z -> recently added [-> only videos, while the Video mode is on])

@@ -197,4 +197,31 @@ int VideoLinks::mend(const std::vector<std::string>& existing_videos) {
     return changed;
 }
 
+int VideoLinks::mend_tracks(const std::vector<std::string>& existing_tracks) {
+    std::lock_guard<std::mutex> lk(d_->m);
+    if (!d_->loaded) load_locked();
+    std::multimap<std::string, std::string> by_name;
+    for (const std::string& t : existing_tracks) by_name.emplace(lower_name(t), t);
+    int changed = 0;
+    std::vector<std::pair<std::string, std::string>> moves;   // old key, new key
+    for (const auto& kv : d_->links) {
+        std::error_code ec;
+        if (fs::exists(path_from_utf8(kv.first), ec)) continue;
+        auto range = by_name.equal_range(lower_name(kv.first));
+        if (range.first == range.second || std::next(range.first) != range.second) continue;   // none, or not unambiguous
+        if (d_->links.count(range.first->second)) continue;                                      // (that song has its own link already)
+        moves.emplace_back(kv.first, range.first->second);
+    }
+    for (const auto& m : moves) {
+        const auto it = d_->links.find(m.first);
+        if (it == d_->links.end()) continue;
+        const std::string v = it->second;
+        d_->links.erase(it);
+        d_->links[m.second] = v;
+        ++changed;
+    }
+    if (changed) save_locked();
+    return changed;
+}
+
 }  // namespace muisc

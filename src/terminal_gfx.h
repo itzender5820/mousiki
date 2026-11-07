@@ -27,6 +27,9 @@ struct GfxFrame {
                                     // Kitty scales it itself (c= / r=), Sixel repeats the pixels (vertically via the pixel
                                     // aspect ratio where the terminal honours it, i.e. Windows Terminal)
     int out_cw = 0, out_ch = 0;     // Sixel: screen pixels of one cell (0 = w / cols, h / rows)
+    bool truecolor = false;         // with `plain` + `direct` (Kitty only): `rgb` holds the picture's own colours (w * h * 3), `level` only the
+                                    // opacity (0 = transparent: the cut rectangle); `hue` / `pal` are not used
+    std::vector<uint8_t> rgb;
     std::vector<uint8_t> level;     // brightness 0..255, w * h
     std::vector<uint8_t> hue;       // colour index 0..255, w * h (see `pal`)
     std::array<std::array<uint8_t, 3>, 256> pal{};   // hue -> colour at full brightness
@@ -39,6 +42,7 @@ struct GfxFrame {
     // A rectangle of cells, relative to col / row, that something else covers (a floating panel): the caller has cleared its
     // pixels; Sixel must not erase its cells either. cut_w = 0: none.
     int cut_c = 0, cut_r = 0, cut_w = 0, cut_h = 0;
+    int cut2_c = 0, cut2_r = 0, cut2_w = 0, cut2_h = 0;   // a second one (the video: the lyric box beside a floating panel); cut2_w = 0: none
     // With `plain` (a picture, no beam), Sixel only: what happens to the pixels that are not part of the picture.
     //   opaque: they are painted black (the terminal is black: Settings -> Black Background), so the picture replaces what was there
     //           -- the last picture of an animation, the text under it. Cells in the cut rectangle stay as they are.

@@ -166,6 +166,7 @@ struct RadioSettings : VizPrefs {
     // GENERAL tab: how much of the tuned station is kept for pause / rewind / recording from the past, as an index into
     // kTimeshiftMinutes (5 / 15 / 30 / 45 / 60 min). Kept on disk: 11.5 MB per minute.
     int timeshift_idx = 2;
+    bool menu_classic = false;                  // the "<" menus overlay shows the classic category boxes instead of the tree (SHIFT+t there)
     bool sleep_fade = true;                     // the sleep timer fades the volume out before it stops the stream
     std::map<std::string, std::string> keys;    // rebound keys by action id (kKeyActions); absent = the default
     int visualizer_fluidity = 10;               // 1-10, higher = smoother / slower rise

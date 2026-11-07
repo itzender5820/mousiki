@@ -92,6 +92,7 @@ int App::album_look_override() const {
 }
 int App::eff_cover_contrast() const { if (cover_ovr_.on) return cover_ovr_.contrast; const int v = track_style().contrast; return v >= 0 ? v : settings_.cover_contrast; }
 int App::eff_cover_brightness() const { if (cover_ovr_.on) return cover_ovr_.brightness; const int v = track_style().brightness; return v >= 0 ? v : settings_.cover_brightness; }
+int App::eff_cover_chroma() const { if (cover_ovr_.on) return cover_ovr_.chroma; const int v = track_style().chroma; return v >= 0 ? v : settings_.cover_chroma; }
 int App::eff_cover_colors() const { if (cover_ovr_.on) return cover_ovr_.colors; const int v = track_style().colors; return v >= 0 ? v : settings_.cover_colors; }
 bool App::eff_album_cover() const {
     const int o = album_look_override();
@@ -183,7 +184,7 @@ bool App::album_cover_gfx(int col, int cols, int rows) const {
     // the cover is only built again when something it shows changes (the behind-the-disk picture turns, so that one is due again
     // every few frames)
     const std::string key = cover->key + "|" + std::to_string(mode) + "|" + std::to_string(eff_cover_contrast()) + "|" + std::to_string(eff_cover_brightness()) + "|" +
-                            std::to_string(eff_cover_colors()) + "|" + std::to_string(w) + "x" + std::to_string(h) + "|" +
+                            std::to_string(eff_cover_colors()) + "|" + std::to_string(eff_cover_chroma()) + "|" + std::to_string(w) + "x" + std::to_string(h) + "|" +
                             std::to_string(col) + "|" + settings_.disk_color + "|" + (settings_.disk_color_gradient ? settings_.disk_color_end : std::string());
     using clock = std::chrono::steady_clock;
     const auto now = clock::now();
@@ -194,7 +195,7 @@ bool App::album_cover_gfx(int col, int cols, int rows) const {
     // stands still: the preview in the panel is the one that moves, and two pictures re-sent all the time flicker in a Sixel / Kitty terminal.
     const bool turning = mode >= 1 && !(mode_ == Mode::MetaEdit && meta_sty_from_main_);
     const bool due = resized || (turning && now - cover_pic_at_ >= gap);
-    g.plain = true;
+    g.plain = true; g.truecolor = false;
     g.direct = mode == 0 || cover_sixel_colours(mode);
     g.scale = scale;
     g.out_cw = cw0; g.out_ch = ch0;
@@ -318,7 +319,7 @@ void App::cover_fill(GfxFrame& g, const CoverImage& cover_ref, int mode, double 
     g.hue.assign(static_cast<size_t>(w) * h, 0);
 
     if (mode == 0) {   // just the cover, in its own colours: fitted into the field with a little room around it
-        const CoverScaled& cs = cover_scaled(*cover, std::max(8, w - 2 * cws), std::max(8, h - chs), true, 0);   // (Cover Contrast only goes with the gradient looks)
+        const CoverScaled& cs = cover_scaled(*cover, std::max(8, w - 2 * cws), std::max(8, h - chs), true, 0, eff_cover_chroma());   // (Cover Contrast only goes with the gradient looks)
         g.pal = cs.pal;
         const int ox = (w - cs.w) / 2, oy = (h - cs.h) / 2;
         for (int y = 0; y < cs.h; ++y)
@@ -407,7 +408,7 @@ void App::cover_fill(GfxFrame& g, const CoverImage& cover_ref, int mode, double 
     const Stretch bright = make_stretch(lum8, eff_cover_brightness());
     // Cover Colors: the cover's own colours (the same size and crop as the grey version)
     const float tcol = std::clamp(eff_cover_colors(), 0, 100) / 100.f;
-    const CoverRgb* crgb = tcol > 0.f ? &cover_scaled_rgb(*cover, std::max(8, mw), std::max(8, mh), eff_cover_contrast()) : nullptr;
+    const CoverRgb* crgb = tcol > 0.f ? &cover_scaled_rgb(*cover, std::max(8, mw), std::max(8, mh), eff_cover_contrast(), eff_cover_chroma()) : nullptr;
     if (crgb && (crgb->w != cs.w || crgb->h != cs.h)) crgb = nullptr;
     // Sixel draws a picture that is not `direct` with 16 colours (blocks of 16 palette entries) x 15 brightness steps: right for
     // the gradient, but the cover's own colours turned into wrong ones. So with Sixel the colour of every pixel, brightness
@@ -470,7 +471,7 @@ const std::string* App::player_phone_png(std::string& key) const {
     // the step of the picture: the turn of the disk (modes 2 to 4) or the phase of the gradient wave (mode 1)
     const double unit = mode == 1 ? 0.04 : 0.03;
     const int step = turning ? static_cast<int>(std::lround((mode == 1 ? wave_phase_now() : phone_angle_) / unit)) : 0;
-    key = "cover|" + cover->key + "|" + std::to_string(eff_cover_contrast()) + "|" + std::to_string(eff_cover_brightness()) + "|" + std::to_string(eff_cover_colors()) + "|" + std::to_string(mode) + "|" + std::to_string(step) + "|" + settings_.disk_color + "|" +
+    key = "cover|" + cover->key + "|" + std::to_string(eff_cover_contrast()) + "|" + std::to_string(eff_cover_brightness()) + "|" + std::to_string(eff_cover_colors()) + "|" + std::to_string(eff_cover_chroma()) + "|" + std::to_string(mode) + "|" + std::to_string(step) + "|" + settings_.disk_color + "|" +
           (settings_.disk_color_gradient ? settings_.disk_color_end : std::string());
     if (key == cache_key && !cache_png.empty()) return &cache_png;
     // the disk's field is 30 x 15 cells: a cell is 1 : 2, so the picture is square
@@ -499,11 +500,11 @@ const std::string* App::player_phone_png(std::string& key) const {
 std::vector<std::string> App::album_cover_lines(int cols, int rows) const {
     const CoverImage* cover = player_cover();
     if (!cover || cols < 8 || rows < 4) return {};
-    return album_cover_lines_for(*cover, cover_mode_look(), eff_cover_contrast(), eff_cover_brightness(), eff_cover_colors(), angle_, cols, rows);
+    return album_cover_lines_for(*cover, cover_mode_look(), eff_cover_contrast(), eff_cover_brightness(), eff_cover_colors(), angle_, cols, rows, eff_cover_chroma());
 }
 
 // The same, for any cover and any style (the Style Option overlay's preview): `mode` 0..4 as Cover Mode (the ASCII modes folded onto 0 / 1).
-std::vector<std::string> App::album_cover_lines_for(const CoverImage& cover_ref, int mode, int contrast, int brightness, int colors, double angle, int cols, int rows) const {
+std::vector<std::string> App::album_cover_lines_for(const CoverImage& cover_ref, int mode, int contrast, int brightness, int colors, double angle, int cols, int rows, int chroma) const {
     const CoverImage* cover = &cover_ref;
     if (cols < 8 || rows < 4) return {};
     const DiskColours dc(settings_);
@@ -552,7 +553,7 @@ std::vector<std::string> App::album_cover_lines_for(const CoverImage& cover_ref,
         const Stretch bright = make_stretch(cl8, brightness);
         // Cover Colors: the average colour of the cover under every cell
         const float tcol = std::clamp(colors, 0, 100) / 100.f;
-        const CoverRgb* crgb = tcol > 0.f ? &cover_scaled_rgb(*cover, std::max(8, mw), std::max(8, mh), contrast) : nullptr;
+        const CoverRgb* crgb = tcol > 0.f ? &cover_scaled_rgb(*cover, std::max(8, mw), std::max(8, mh), contrast, chroma) : nullptr;
         if (crgb && (crgb->w != cs.w || crgb->h != cs.h)) crgb = nullptr;
         for (int r = 0; r < rows; ++r) {
             std::string line, last;
@@ -590,7 +591,7 @@ std::vector<std::string> App::album_cover_lines_for(const CoverImage& cover_ref,
     // threshold); a cell takes the average colour of the pixels in it, or the disk's gradient dimmed by their brightness
     const bool own = mode == 0;
     const double wphase = wave_phase_now();
-    const CoverScaled& cs = cover_scaled(*cover, fw, fh, own, own ? 0 : contrast);
+    const CoverScaled& cs = cover_scaled(*cover, fw, fh, own, own ? 0 : contrast, own ? chroma : 0);
     const int ox = std::max(0, (fw - cs.w) / 2), oy = std::max(0, (fh - cs.h) / 2);
     static const int kBayer[4][2] = {{0, 4}, {6, 2}, {1, 5}, {7, 3}};   // thresholds 0..7 over the 2 x 4 dots of a cell
     static const int kBit[4][2] = {{0x01, 0x08}, {0x02, 0x10}, {0x04, 0x20}, {0x40, 0x80}};

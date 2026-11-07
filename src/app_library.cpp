@@ -399,21 +399,62 @@ void App::apply_local_sort(std::vector<LocalTrack>& tracks) const {
 // local_view_ must go through this (or refresh_local_view()): the background
 // tag resolver re-filters the list every time new tags land, and a rebuild
 // that skipped the folder filter silently undid 'f' a frame or two later.
+// The pairing of a video with a track: an audio file of the same name in the same folder, or a link made by hand ([ Video Option ], a download).
+bool App::video_is_paired(const fs::path& video) const {
+    if (!paired_ok_ || paired_n_ != all_local_tracks_.size() || paired_rev_ != video_rev_) {
+        auto lower = [](std::string t) { for (auto& c : t) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); return t; };
+        std::unordered_set<std::string> audio_keys;
+        std::unordered_set<std::string> tracks;
+        for (const LocalTrack& t : all_local_tracks_) {
+            if (LocalSource::is_video_file(t.path)) continue;
+            audio_keys.insert(lower(path_utf8(t.path.parent_path())) + "/" + lower(path_utf8(t.path.stem())));
+            tracks.insert(path_utf8(t.path));
+        }
+        paired_videos_.clear();
+        for (const LocalTrack& t : all_local_tracks_) {
+            if (!LocalSource::is_video_file(t.path)) continue;
+            if (audio_keys.count(lower(path_utf8(t.path.parent_path())) + "/" + lower(path_utf8(t.path.stem()))))
+                paired_videos_.insert(path_utf8(t.path));
+        }
+        for (const auto& kv : VideoLinks::get().all())   // track -> video, made by hand
+            if (kv.second != "-" && tracks.count(kv.first)) paired_videos_.insert(kv.second);
+        paired_n_ = all_local_tracks_.size(); paired_rev_ = video_rev_; paired_ok_ = true;
+    }
+    return paired_videos_.count(path_utf8(video)) > 0;
+}
+
+void App::apply_media_view(std::vector<LocalTrack>& v, int view) const {
+    if (view == 1) return;
+    v.erase(std::remove_if(v.begin(), v.end(), [&](const LocalTrack& t) {
+        if (!LocalSource::is_video_file(t.path)) return view == 2;
+        return view == 2 ? false : video_is_paired(t.path);
+    }), v.end());
+}
+
+// Takes a "v:" / "x:" (with or without a leading "/") off the front of `query`. Returns the view of the list: v: video, x: video + audio; else the
+// pane's own choice (SHIFT+v); else the Video mode decides for the list without a search (on: video + audio), a search lists "audio".
+int App::media_view_for(std::string& query, int pane, bool search_default_audio) const {
+    size_t i = 0;
+    while (i < query.size() && query[i] == ' ') ++i;
+    if (i < query.size() && query[i] == '/') ++i;
+    if (query.size() >= i + 2 && query[i + 1] == ':') {
+        const char c = static_cast<char>(std::tolower(static_cast<unsigned char>(query[i])));
+        if (c == 'v' || c == 'x') {
+            query = query.substr(i + 2);
+            while (!query.empty() && query.front() == ' ') query.erase(query.begin());
+            return c == 'v' ? 2 : 1;
+        }
+    }
+    if (pane >= 0) return pane;
+    if (!query.empty() && search_default_audio) return 0;
+    return settings_.video_mode ? 1 : 0;
+}
+
 std::vector<LocalTrack> App::filter_and_rank_local_view(const std::string& query_in) const {
-    // "v:" in front of the query (/v:): only the video files, whatever the SHIFT+t step is (they are listed while the Video mode is on)
     std::string query = query_in;
-    bool videos_only = false;
-    if (query.size() >= 2 && ascii_lower_str(query.substr(0, 2)) == "v:") {
-        videos_only = true;
-        query = query.substr(2);
-        while (!query.empty() && query.front() == ' ') query.erase(query.begin());
-    }
+    const int mv = media_view_for(query, local_sort_mode_ == 4 ? 2 : -1);   // SHIFT+t's last step: only the video files
     std::vector<LocalTrack> view = filter_and_rank_local(query);
-    if (local_sort_mode_ == 4 || videos_only) {   // SHIFT+t's last step (Video mode on): only the video files
-        view.erase(std::remove_if(view.begin(), view.end(), [](const LocalTrack& t) { return !LocalSource::is_video_file(t.path); }), view.end());
-    } else if (!query.empty()) {   // a search lists audio files only; the videos show up in the video filter (SHIFT+t's last step, /v:)
-        view.erase(std::remove_if(view.begin(), view.end(), [](const LocalTrack& t) { return LocalSource::is_video_file(t.path); }), view.end());
-    }
+    apply_media_view(view, mv);
     if (folder_filter_.empty()) return view;
     std::vector<LocalTrack> filtered;
     filtered.reserve(view.size());
@@ -552,10 +593,24 @@ void App::rescan_library() {
     std::vector<std::string> diagnostics;
     all_local_tracks_ = local_source_.scan(library_roots(), &diagnostics);
     exclude_book_files(all_local_tracks_);
-    if (settings_.video_mode && VideoLinks::get().size() > 0) {   // a linked video that moved is found again by its file name
-        std::vector<std::string> vids;
-        for (const auto& t : all_local_tracks_) if (LocalSource::is_video_file(t.path)) vids.push_back(path_utf8(t.path));
-        if (VideoLinks::get().mend(vids) > 0) { video_for_track_.clear(); ++video_rev_; }
+    if (VideoLinks::get().size() > 0) {   // a song or a video that was moved (outside Mousiki) is found again by its file name
+        std::vector<std::string> songs, vids;
+        bool broken = false;
+        std::error_code ec;
+        for (const auto& kv : VideoLinks::get().all()) if (!fs::exists(path_from_utf8(kv.second), ec)) broken = true;
+        std::vector<LocalTrack> scanned;
+        const std::vector<LocalTrack>* src = &all_local_tracks_;
+        if (broken && !settings_.video_mode) {   // (the library list holds no videos while the Video mode is off: look at the folders once)
+            LocalSource ls;
+            ls.set_include_video(true);
+            std::vector<std::string> diag;
+            scanned = ls.scan(library_roots(), &diag);
+            src = &scanned;
+        }
+        for (const auto& t : *src) (LocalSource::is_video_file(t.path) ? vids : songs).push_back(path_utf8(t.path));
+        const int a = VideoLinks::get().mend(vids);
+        const int b = VideoLinks::get().mend_tracks(songs);
+        if (a + b > 0) { video_for_track_.clear(); ++video_rev_; ConsoleLog::instance().log_basic("video connections: " + std::to_string(a) + " moved video(s) and " + std::to_string(b) + " moved song(s) found again by file name"); }
     }
     scanned_book_path_ = settings_.audiobook_path;
     search_idx_.clear();
@@ -651,8 +706,6 @@ void App::submit_search() {
         video_search_open(query);
         return;
     }
-    if (buf.size() >= 2 && ascii_lower_str(buf.substr(0, 2)) == "v:" && !settings_.video_mode)
-        status_line_ = "/v: lists the videos while the Video mode is on (" + hotkey_text("HKeyVideo", "&") + " -> Video Mode)";
     if (const int src = online_prefix(buf, plen); src >= 0) {   // s: YouTube, sc: SoundCloud, b: Bandcamp
         std::string query = buf.substr(plen);
         while (!query.empty() && query.front() == ' ') query.erase(query.begin());

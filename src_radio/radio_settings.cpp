@@ -899,6 +899,7 @@ RadioSettings load_radio_settings(std::string* source_out) {
     if (auto v = get("DownloadPath")) s.download_path = *v;
     if (auto v = get("DownloadSameAsMusicPlayer")) s.download_same_as_player = as_bool(*v, s.download_same_as_player);
     if (auto v = get("HistoryPath")) s.history_path = *v;
+    if (auto v = get("MenuIndexClassic")) s.menu_classic = as_bool(*v, s.menu_classic);
     if (auto v = get("SleepFade")) s.sleep_fade = as_bool(*v, s.sleep_fade);
     for (int i = 0; i < kKeyActionCount; ++i) {
         if (auto v = get((std::string("HKey") + kKeyActions[i].id).c_str())) {
@@ -1141,6 +1142,8 @@ static void write_radio_file(std::ostream& o, const RadioSettings& s) {
          "##-------------------------------------------\n\n"
          "# the sleep timer (SHIFT+z) fades the volume out before it stops the stream\n"
          "SleepFade=" << (s.sleep_fade ? "true" : "false") << "\n\n"
+         "# the \"<\" menus overlay: false = the tree, true = the classic view with every category as a box (SHIFT+t switches)\n"
+         "MenuIndexClassic=" << (s.menu_classic ? "true" : "false") << "\n\n"
          "##-------------------------------------------\n"
          "##              KEYS (REFERENCE tab): one character, or SPACE / TAB / BACKSPACE\n"
          "##-------------------------------------------\n\n";

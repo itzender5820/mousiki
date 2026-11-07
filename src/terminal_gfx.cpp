@@ -64,7 +64,13 @@ std::string kitty_emit(const GfxFrame& f) {
     const int vis_cols = f.cols - std::clamp(f.crop, 0, f.cols);
     if (vis_cols <= 0) return gfx_clear(GfxProto::Kitty, f.id);
     std::vector<uint8_t> rgba(static_cast<size_t>(f.w) * f.h * 4);
+    const bool true_colour = f.plain && f.direct && f.truecolor && f.rgb.size() >= static_cast<size_t>(f.w) * f.h * 3 && f.level.size() >= static_cast<size_t>(f.w) * f.h;
     for (size_t i = 0; i < static_cast<size_t>(f.w) * f.h; ++i) {
+        if (true_colour) {   // the video's own colours, all 8 bits
+            if (f.level[i] < 3) { rgba[i * 4] = rgba[i * 4 + 1] = rgba[i * 4 + 2] = rgba[i * 4 + 3] = 0; continue; }
+            rgba[i * 4] = f.rgb[i * 3]; rgba[i * 4 + 1] = f.rgb[i * 3 + 1]; rgba[i * 4 + 2] = f.rgb[i * 3 + 2]; rgba[i * 4 + 3] = 255;
+            continue;
+        }
         if (grid_shows(f, i)) {   // the grid shows where the beam is fainter than it
             rgba[i * 4] = f.grid_rgb[0] & 0xF8; rgba[i * 4 + 1] = f.grid_rgb[1] & 0xF8; rgba[i * 4 + 2] = f.grid_rgb[2] & 0xF8; rgba[i * 4 + 3] = 0xF8;
             continue;
@@ -157,7 +163,7 @@ std::string sixel_emit(const GfxFrame& f) {
     for (size_t i = 0; i < idx.size(); ++i) {
         const int st = step_of[f.level[i]];
         if (grid_shows(f, i)) idx[i] = 242;   // the grid colour, under the beam
-        else if (f.direct) { if (f.level[i] >= 3) idx[i] = static_cast<uint8_t>(1 + std::min<int>(f.hue[i], 239)); }
+        else if (f.direct) { if (f.level[i] >= 3) idx[i] = f.hue[i] >= 240 ? static_cast<uint8_t>(244 + std::min<int>(f.hue[i] - 240, 7)) : static_cast<uint8_t>(1 + f.hue[i]); }   // 240 .. 243: extra colours, registers 244 ..
         else if (st >= 1) idx[i] = static_cast<uint8_t>(1 + (f.hue[i] >> 4) * 15 + (st - 1));
     }
     // The picture is opaque: every pixel that is not beam or grid is drawn black (colour 243), so a new picture replaces the old
@@ -165,16 +171,20 @@ std::string sixel_emit(const GfxFrame& f) {
     // erase and the picture, which happens with the big pictures of loud music, the whole picture blinked away for a frame.)
     // The cells a floating panel covers stay transparent.
     {
-        int xa = -1, xb = -1, ya = -1, yb = -1;
+        int xa = -1, xb = -1, ya = -1, yb = -1, xa2 = -1, xb2 = -1, ya2 = -1, yb2 = -1;
         if (f.cut_w > 0) {
             xa = f.cut_c * f.w / cols - 1; xb = (f.cut_c + f.cut_w) * f.w / cols + 1;
             ya = f.cut_r * f.h / std::max(1, f.rows) - 1; yb = (f.cut_r + f.cut_h) * f.h / std::max(1, f.rows) + 1;
         }
+        if (f.cut2_w > 0) {
+            xa2 = f.cut2_c * f.w / cols - 1; xb2 = (f.cut2_c + f.cut2_w) * f.w / cols + 1;
+            ya2 = f.cut2_r * f.h / std::max(1, f.rows) - 1; yb2 = (f.cut2_r + f.cut2_h) * f.h / std::max(1, f.rows) + 1;
+        }
         for (int y = 0; y < f.h; ++y) {
-            const bool yin = y >= ya && y < yb;
+            const bool yin = y >= ya && y < yb, yin2 = y >= ya2 && y < yb2;
             for (int x = 0; x < f.w; ++x) {
                 uint8_t& c = idx[static_cast<size_t>(y) * f.w + x];
-                if (c == 0 && (!f.plain || f.opaque) && !(yin && x >= xa && x < xb)) c = 243;
+                if (c == 0 && (!f.plain || f.opaque) && !(yin && x >= xa && x < xb) && !(yin2 && x >= xa2 && x < xb2)) c = 243;
             }
         }
     }
@@ -185,6 +195,11 @@ std::string sixel_emit(const GfxFrame& f) {
         if (f.direct) {   // the picture's own colours: colour 1 + i is pal[i]
             for (int i = 0; i < 240; ++i) {
                 pal_text += '#'; put_int(pal_text, 1 + i);
+                pal_text += ";2;"; put_int(pal_text, f.pal[static_cast<size_t>(i)][0] * 100 / 255); pal_text += ';';
+                put_int(pal_text, f.pal[static_cast<size_t>(i)][1] * 100 / 255); pal_text += ';'; put_int(pal_text, f.pal[static_cast<size_t>(i)][2] * 100 / 255);
+            }
+            for (int i = 240; i < 248; ++i) {   // the extra colours (the Game Boy greens and greys): registers 244 ..
+                pal_text += '#'; put_int(pal_text, 4 + i);
                 pal_text += ";2;"; put_int(pal_text, f.pal[static_cast<size_t>(i)][0] * 100 / 255); pal_text += ';';
                 put_int(pal_text, f.pal[static_cast<size_t>(i)][1] * 100 / 255); pal_text += ';'; put_int(pal_text, f.pal[static_cast<size_t>(i)][2] * 100 / 255);
             }
@@ -214,10 +229,13 @@ std::string sixel_emit(const GfxFrame& f) {
     if (f.erase && f.plain) {   // blank the picture's cells (not the ones something else covers), then draw on them
         auto blank = [&](int r, int from, int to) { if (to > from) { o += at_cell(f.row + r, f.col + from); o.append(static_cast<size_t>(to - from), ' '); } };
         for (int r = 0; r < f.rows; ++r) {
-            if (f.cut_w > 0 && r >= f.cut_r && r < f.cut_r + f.cut_h) {
-                blank(r, crop, std::min(f.cols, std::max(crop, f.cut_c)));
-                blank(r, std::max(crop, f.cut_c + f.cut_w), f.cols);
-            } else blank(r, crop, f.cols);
+            // the cells of the cut rectangles (a floating panel, the lyric box) are left out
+            int from = crop;
+            for (int c = crop; c <= f.cols; ++c) {
+                const bool in_cut = c < f.cols && ((f.cut_w > 0 && r >= f.cut_r && r < f.cut_r + f.cut_h && c >= f.cut_c && c < f.cut_c + f.cut_w) ||
+                                                   (f.cut2_w > 0 && r >= f.cut2_r && r < f.cut2_r + f.cut2_h && c >= f.cut2_c && c < f.cut2_c + f.cut2_w));
+                if (in_cut || c == f.cols) { blank(r, from, c); from = c + 1; }
+            }
         }
     }
     o += at_cell(f.row, f.col + crop);

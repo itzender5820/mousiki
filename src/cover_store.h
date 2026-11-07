@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "meta_editor.h"   // MetaFetchCancel
+#include "video_fx.h"
 
 namespace muisc {
 
@@ -42,6 +43,11 @@ inline constexpr const char* kCoverNone = "-";
 // overlay holds the default for all tracks): 0 as in the VIDEO overlay, 1 the cover, 2 a frame of the video (else the cover), 3 the plain disk.
 int cover_track_video_mode(const std::string& track_path);
 void set_cover_track_video_mode(const std::string& track_path, int mode);   // 0 removes it
+// The video of one track (meta editor -> Style Option): whether it is shown at all (0 = hidden; -1 = shown, as always), its picture size
+// (0 regular, 1 cropped, 2 full; -1 = as in the VIDEO overlay) and its effect (0 off .. 17 interlace; -1 = as in the VIDEO overlay).
+struct VideoTrackOpts { int on = -1, size = -1, fx = -1, contrast = -1, colors = -1, chroma = -1, res = -1, round = -1, lyrics = -1; };   // (round: 0 / 1)   // contrast / colors 0..100 %, chroma 0..3, res 0..2 (standard / high / full); -1 = as in Settings
+VideoTrackOpts cover_track_video_opts(const std::string& track_path);
+void set_cover_track_video_opts(const std::string& track_path, const VideoTrackOpts& o);   // all -1 removes it
 std::string cover_track_choice(const std::string& track_path);               // "" = none made
 void set_cover_track_choice(const std::string& track_path, const std::string& choice);   // "" removes it
 std::string cover_album_choice(const std::string& album);                    // the default picture of an album name ("" = none made)
@@ -54,7 +60,7 @@ int cover_album_look(const std::string& album, const std::string& folder);
 void set_cover_album_look(const std::string& album, const std::string& folder, int look);   // -1 removes it
 // The style of one track (meta editor -> Style Option): its own look and its own Cover Contrast / Brightness / Colors. -1 = as in Settings
 // (look: then the album's look, then Settings). It wins over everything else for that track.
-struct CoverStyle { int look = -1, contrast = -1, brightness = -1, colors = -1; };
+struct CoverStyle { int look = -1, contrast = -1, brightness = -1, colors = -1, chroma = -1; };   // chroma: chromatic aberration 0..3
 CoverStyle cover_track_style(const std::string& track_path);
 void set_cover_track_style(const std::string& track_path, const CoverStyle& st);   // all -1 removes it
 // The albums a cover fetch found nothing for (remembered, so they are not asked for again and again): the reason, "" = not on the list.

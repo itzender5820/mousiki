@@ -1,4 +1,5 @@
 #pragma once
+#include "organigram_trees.h"
 #include "audio_backend.h"
 // Radio mode -- the 120x30 screen. Pure rendering: takes a model and a status
 // snapshot, returns exactly `rows` lines of exactly `cols` visible columns each.
@@ -358,13 +359,13 @@ std::vector<std::string> render_radio_frame(const UiModel& m, const RadioStatus&
 std::vector<std::string> build_phone_screen(const UiModel& m, const RadioStatus& st, const RadioSettings& cfg, int W, int H,
                                             std::vector<muisc::remote::net::Zone>& zones);
 
-// The MENUS index overlay (key "<", UiModel::overlay == 7): every menu and overlay by category with its key.
-// `id` is the key action of the radio's REFERENCE table (kKeyActions), so a rebinding is followed.
-struct MenusEntry { const char* cat; const char* title; const char* id; };
-extern const MenusEntry kMenusEntries[];
-extern const int kMenusCount;
-// The entry to select after UP / DOWN / LEFT / RIGHT (dir 0 / 1 / 2 / 3) from entry `sel`.
-int menus_move(int sel, int dir);
+// The MENUS index overlay (key "<", UiModel::overlay == 7): the organigram of src/organigram_trees.h over the whole screen
+// (UiModel::overlay_row = the selected node; the node's action is the id of a key action of the radio's REFERENCE table, kKeyActions,
+// so a rebinding is followed).
+// The node to select after UP / DOWN / LEFT / RIGHT (dir 0 / 1 / 2 / 3) from node `sel`.
+int menus_move(int sel, int dir, bool classic = false);
+int menus_classic_sel(int sel);   // the classic view has no choosable category headers
+const ::muisc::org::Node& menus_node(int sel);
 
 // Name of the active preset ("Default" when none is loaded).
 std::string active_preset_name(const UiModel& m);

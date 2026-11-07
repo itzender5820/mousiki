@@ -499,3 +499,55 @@ TEST(settings_video_overlay_options_round_trip) {
     CHECK_EQ(b.video_cover, 2);
     CHECK_EQ(b.video_down_height, 1080);
 }
+
+TEST(settings_v_is_the_full_screen_video_and_an_old_config_is_migrated) {
+    {   // a fresh start: v opens the full screen video, normalization has no key of its own
+        mt::TempHome home;
+        const Settings s = load_settings();
+        CHECK_EQ(s.hotkeys.at("HKeyVideoFull"), std::string("v"));
+        CHECK(s.hotkeys.at("HKeyToggleNormalize").empty());
+    }
+    {   // an old config.txt (normalization on v, no video key, or the earlier ">" video key): the video gets v, normalization is unbound
+        mt::TempHome home;
+        Settings s = load_settings();
+        s.hotkeys["HKeyToggleNormalize"] = "v";
+        s.hotkeys.erase("HKeyVideoFull");
+        save_settings(s);
+        // (save writes every known hotkey: take the video key out of the file by hand)
+        const std::filesystem::path cfg = config_path();
+        std::ifstream in(cfg);
+        std::stringstream ss; ss << in.rdbuf(); in.close();
+        std::string txt = ss.str(), out;
+        std::istringstream lines(txt);
+        for (std::string l; std::getline(lines, l);) if (l.rfind("HKeyVideoFull", 0) != 0) out += l + "\n";
+        std::ofstream(cfg) << out;
+        const Settings back = load_settings();
+        CHECK_EQ(back.hotkeys.at("HKeyVideoFull"), std::string("v"));
+        CHECK(back.hotkeys.at("HKeyToggleNormalize").empty());
+    }
+}
+
+TEST(settings_video_resolution_buffer_and_effect_are_saved_and_read_back) {
+    mt::TempHome home;
+    Settings s = load_settings();
+    CHECK_EQ(s.video_res, 0);
+    CHECK_EQ(s.video_buffer, 32);
+    CHECK(s.video_mp3);                       // (yt-dlp mp3 from mp4: on by default)
+    s.video_res = 2; s.video_buffer = 128; s.video_fx = 7; s.video_mp3 = false;
+    save_settings(s);
+    const Settings back = load_settings();
+    CHECK_EQ(back.video_res, 2);
+    CHECK_EQ(back.video_buffer, 128);
+    CHECK(!back.video_mp3);
+    CHECK_EQ(back.video_fx, 7);
+    s.video_contrast = 40; s.video_colors = 25; s.video_chroma = 2; s.cover_chroma = 3;
+    save_settings(s);
+    const Settings b2 = load_settings();
+    CHECK_EQ(b2.video_contrast, 40);
+    CHECK_EQ(b2.video_colors, 25);
+    CHECK_EQ(b2.video_chroma, 2);
+    CHECK_EQ(b2.cover_chroma, 3);
+    CHECK_EQ(video_res_from("high (1280 px)"), 1);
+    CHECK_EQ(video_res_from("full (1920 px)"), 2);
+    CHECK_EQ(video_res_from("standard (640 px)"), 0);
+}

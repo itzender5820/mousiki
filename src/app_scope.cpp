@@ -221,6 +221,13 @@ void App::spectro_menu_adjust(int dir) {
         if (settings_.element_lyrics && settings_.lyric_viz == 2) status_line_ = "the spectrogram shows when there are no lyrics (. switches)";
         return;
     }
+    if (video_layout_menu() && (row == kSrView || row == kSrStyle)) {   // the layout's own choice (-1 = as in the options)
+        int& v = row == kSrView ? settings_.vl_spec_view : settings_.vl_spec_style;
+        v += dir > 0 ? 1 : -1;
+        if (v > 1) v = -1;
+        if (v < -1) v = 1;
+        return;
+    }
     spectro_adjust(settings_.spectro, row, dir);
     settings_.spectro_sync();   // another view / style: its own values come in
 }
@@ -237,11 +244,15 @@ std::vector<std::string> App::build_spectro_menu_panel() const {
         return bar + " " + (hi ? HI + body + R : body) + " " + bar;
     };
     std::vector<std::string> lines;
-    lines.push_back(box_top("Spectrogram", W, border));
-    for (const int r : spectro_visible_rows(settings_.spectro)) {
+    lines.push_back(box_top(video_layout_menu() ? "Spectrogram (video layout)" : "Spectrogram", W, border));
+    const bool lay = video_layout_menu();
+    const SpectroSettings shown = lay ? layout_spectro_view() : settings_.spectro;
+    for (const int r : spectro_visible_rows(shown)) {
         const bool sel = r == spectro_menu_row_;
-        std::string val = spectro_row_value(settings_.spectro, r);
-        if (r == kSrStyle && settings_.spectro.style == 1 && gfx_proto_ == GfxProto::None) val = "image (no Sixel/Kitty here)";
+        std::string val = spectro_row_value(shown, r);
+        if (lay && r == kSrView && settings_.vl_spec_view < 0) val += " (default)";
+        if (lay && r == kSrStyle && settings_.vl_spec_style < 0) val += " (default)";
+        if (r == kSrStyle && shown.style == 1 && gfx_proto_ == GfxProto::None) val = "image (no Sixel/Kitty here)";
         lines.push_back(row(std::string(sel ? "> " : "  ") + pad_right(spectro_row_label(r), 22) + pad_left(val, inner - 24), sel));
     }
     lines.push_back(row("", false));
@@ -280,8 +291,11 @@ std::string App::build_spectro_full(int W, const char* clear_prefix) const {
     const auto labels = wf ? std::vector<std::pair<int, std::string>>() : spectro_axis(sp, a.rate(), rows * unit, unit);
     std::vector<std::string> lab(static_cast<size_t>(rows));
     for (const auto& l : labels) if (l.first >= 0 && l.first < rows) lab[static_cast<size_t>(l.first)] = l.second;
+    // the scale (logarithmic / linear / ... and the range) sits at the upper left, in front of the title, so the bottom line is free for the keys
+    const std::string scale_txt = spectro_row_value(sp, kSrScale) + " " + std::to_string(sp.min_freq) + "-" + std::to_string(std::min(sp.max_freq, a.rate() / 2)) + " Hz";
     std::string title = wf ? "WATERFALL" : "SPECTROGRAM";
     if (has_track_) { const TrackMetadata dm = display_metadata(); title += " - " + (dm.artist.empty() || dm.artist == "-" ? dm.name : dm.artist + " - " + dm.name); }
+    title = scale_txt + "  |  " + title;
     std::ostringstream f;
     f << clear_prefix << "\x1b[?25l";
     f << box_top(truncate_str(title, W - 6), W, border) << "\n";
@@ -316,8 +330,12 @@ std::string App::build_spectro_full(int W, const char* clear_prefix) const {
         else f << (r < static_cast<int>(body.size()) ? body[static_cast<size_t>(r)] : std::string(static_cast<size_t>(cols), ' '));
         f << bar << "\n";
     }
-    f << box_bottom(W, "[" + hotkey_text("HKeySpectroMenu", "I") + "] options  [" + hotkey_text("HKeySpectroFull", "U") + " / ESC] close  " + spectro_row_value(sp, kSrScale) + " " +
-                       std::to_string(sp.min_freq) + "-" + std::to_string(std::min(sp.max_freq, a.rate() / 2)) + " Hz", border_bottom) << "\n";
+    {
+        const std::string keys = "[" + hotkey_text("HKeySpectroMenu", "I") + "] Options  [" + hotkey_text("HKeySpectroFull", "U") + " / ESC] Close";
+        const std::string foot = scope_pick_head({"[LEFT/RIGHT] Image / Braille  [UP/DOWN] Spectrogram / Waterfall  " + keys,
+                                                  "[\u2190\u2192] Image / Braille  [\u2191\u2193] Spectro / Waterfall  " + keys, keys}, W - 6);
+        f << centred_bottom(settings_, W, foot, border_bottom) << "\n";
+    }
     return clamp_output_rows(f.str(), term_rows_);
 }
 
@@ -346,7 +364,22 @@ bool App::scope_big_key(int key) {
         else if (key == 'r' || key == 'R') { settings_.scope_metrics = ScopeMetrics(); save_settings(settings_); }
         return true;
     }
-    if (arrow) return false;
+    if (arrow) {
+        if (key == 'C' || key == 'D') {   // LEFT / RIGHT: image <-> braille
+            osci_adjust(settings_, kOrStyle, key == 'C' ? 1 : -1);
+            status_line_ = settings_.osci_style == 1 ? (gfx_proto_ == GfxProto::None ? "oscilloscope style: image (this terminal has neither Kitty graphics nor Sixel: braille is drawn)" : "oscilloscope style: image")
+                                                     : "oscilloscope style: braille";
+            save_settings(settings_);
+            return true;
+        }
+        if (key == 'A' || key == 'B') {   // UP / DOWN: oscilloscope music mode on / off
+            osci_adjust(settings_, kOrMusic, key == 'B' ? 1 : -1);
+            status_line_ = std::string("oscilloscope music mode: ") + (settings_.osci_set[settings_.osci_style == 1 ? 1 : 0].music ? "on" : "off");
+            save_settings(settings_);
+            return true;
+        }
+        return false;
+    }
     if (key == 27) { scope_big_ = false; force_redraw_ = true; return true; }
     if (key == 'P') { scope_metrics_open_ = true; return true; }                                               // SHIFT+p: grid metrics
     if (key == 'A') { settings_.scope_grid = !settings_.scope_grid; save_settings(settings_); return true; }   // SHIFT+a: axes / grid
@@ -362,7 +395,8 @@ bool App::scope_big_key(int key) {
 std::string App::build_scope_big(int W, const char* clear_prefix) const {
     const int H = std::max(6, term_rows_ - 1);
     const int inner = W - 2;
-    const int avail = std::max(3, H - 2);   // between the top and the bottom border
+    const int avail_all = std::max(4, H - 2);   // between the top and the bottom border
+    const int avail = avail_all - 1;            // (the last row holds the first line of the key legend)
     const bool grid = settings_.scope_grid, values = settings_.scope_values;
     const ScopeBigGeom g = scope_big_geometry(inner, avail, values);
     const std::string border = ansi_for(settings_.border_color, false);
@@ -451,17 +485,26 @@ std::string App::build_scope_big(int W, const char* clear_prefix) const {
         info.corr = me.corr;
         info.bal_db = me.bal_db;
     }
-    const std::vector<std::string> body = scope_big_compose(g, inner, avail, left, right, legend, grid_ansi, info);
+    std::vector<std::string> body = scope_big_compose(g, inner, avail, left, right, legend, grid_ansi, info);
     std::string title = "OSCILLOSCOPE";
     if (has_track_) { const TrackMetadata dm = display_metadata(); title += " - " + (dm.artist.empty() || dm.artist == "-" ? dm.name : dm.artist + " - " + dm.name); }
+    // the key legend: two centred lines -- the keys that change the picture in the last row of the body, the rest in the bottom border
+    {
+        const std::string l1 = scope_pick_head({"[LEFT/RIGHT] Image / Braille   [UP/DOWN] Osci music mode on / off   [SHIFT+a] Grid   [SHIFT+v] Values",
+                                                "[LEFT/RIGHT] Image / Braille   [UP/DOWN] Osci music on / off   [SHIFT+a] Grid   [SHIFT+v] Values",
+                                                "[\u2190\u2192] Image / Braille  [\u2191\u2193] Osci music  [SHIFT+a/v] Grid / Values"}, inner);
+        const int w1 = display_width(l1), left1 = std::max(0, (inner - w1) / 2);
+        body.push_back(legend + std::string(static_cast<size_t>(left1), ' ') + l1 + R + std::string(static_cast<size_t>(std::max(0, inner - left1 - w1)), ' '));
+    }
     std::ostringstream f;
     f << clear_prefix << "\x1b[?25l";
     f << box_top(truncate_str(title, W - 6), W, border) << "\n";
     for (const std::string& line : body) f << bar << line << bar << "\n";
-    const std::string foot_head = "[" + hotkey_text("HKeyOscMenu", "O") + "] options  [" + hotkey_text("HKeyScopeBig", "=") + "/ESC] close  ";
-    const std::string foot = scope_pick_head({foot_head + "[SHIFT+a] grid  [SHIFT+v] values  [SHIFT+c] color  [SHIFT+p] metrics",
-                                              foot_head + "[SHIFT+a/v/c/p] grid / values / color / metrics"}, W - 6);
-    f << box_bottom(W, truncate_str(foot, W - 6), border_bottom) << "\n";
+    const std::string foot_head = "[" + hotkey_text("HKeyOscMenu", "O") + "] Options  [" + hotkey_text("HKeyScopeBig", "=") + " / ESC] Close  ";
+    const std::string foot = scope_pick_head({foot_head + "[SHIFT+c] Grid color  [SHIFT+p] Grid metrics",
+                                              foot_head + "[SHIFT+c/p] Color / Metrics",
+                                              "[" + hotkey_text("HKeyScopeBig", "=") + " / ESC] Close"}, W - 6);
+    f << centred_bottom(settings_, W, foot, border_bottom) << "\n";
     return clamp_output_rows(f.str(), term_rows_);
 }
 

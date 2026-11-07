@@ -1,4 +1,4 @@
-"""Asks GitHub which release of Mousiki Plus is the newest one and prints {"ok": true, "tag": "v4.9.0", "url": "..."}.
+"""Asks GitHub which release of Mousiki Plus is the newest one and prints {"ok": true, "tag": "v5.0.0", "url": "..."}.
 
 Called by Mousiki at start-up (at most once a day; switch it off with UpdateCheck=false in config.txt). Only the public
 releases page of the project is read; nothing about you or your music is sent. Uses only Python's standard library."""

@@ -336,15 +336,12 @@ void App::handle_meta_key(int key) {
         }
         if (key == 'a') { meta_add_hovering_to_fetch(); return; } // queue it for AcoustID, like the main queue's 'a'
         if (key == 'F' && !arrow) { meta_add_view_to_fetch(); return; } // SHIFT+f: the whole (filtered) pane
-        if (key == 'V' && !arrow) {   // SHIFT+v: the pane lists only the videos
-            meta_videos_only_ = !meta_videos_only_;
+        if (key == 'V' && !arrow) {   // SHIFT+v: the pane lists audio / video + audio / video
+            meta_media_ = (meta_media_ < 0 ? (settings_.video_mode ? 1 : 0) : meta_media_) + 1;
+            if (meta_media_ > 2) meta_media_ = 0;
             meta_lib_selected_ = 0;
             meta_refresh_lib_view();
-            meta_status_ = meta_videos_only_
-                ? (settings_.video_mode ? "video only: on -- " + std::to_string(meta_lib_view_.size()) + " videos"
-                                        : std::string("video only: on -- the Video mode is off, so no videos are listed (")
-                                          + hotkey_text("HKeyVideo", "&") + " -> Video Mode)")
-                : "video only: off";
+            meta_status_ = std::string("library pane: ") + media_view_name(meta_media_) + " -- " + std::to_string(meta_lib_view_.size()) + " files";
             return;
         }
         if (key == 'r') { meta_toggle_resort(); return; } // toggle: edited files on top vs. alphabetical order

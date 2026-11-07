@@ -33,6 +33,9 @@ public:
     // A link whose video is no longer at its place is mended when one of `existing_videos` (the library's video files) has the same
     // file name. Nothing is ever dropped (a drive that is not plugged in must not lose its links). Returns the number of links changed.
     int mend(const std::vector<std::string>& existing_videos);
+    // A link whose track (the song) is no longer at its place is moved to the song of the same file name when `existing_tracks` has exactly
+    // one. The "no video" marks follow too. Nothing is dropped, and a link of the target is never overwritten. Returns the number changed.
+    int mend_tracks(const std::vector<std::string>& existing_tracks);
     // test hooks: another file, and reload from disk
     void use_file(const std::filesystem::path& p);
     void reload();

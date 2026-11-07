@@ -1803,7 +1803,7 @@ const CheatRow kCheatRows[] = {
     {"SYSTEM (MAIN UI)", "@SWITCHKEY", "Switch to the next mode (music player, radio, audio books: the order and the modes that are on are set in Settings -> GENERAL -> MODES; the radio is closed completely first)"},
     {nullptr, "@SWITCHBACK", "Switch to the previous mode"},
     {nullptr, "?", "This cheatsheet (toggle)"},
-    {nullptr, "<", "The MENUS index: every menu and overlay by category with its key (UP/DOWN/LEFT/RIGHT select, ENTER opens, ESC closes). SHIFT+, on an English keyboard"},
+    {nullptr, "<", "The MENUS index: all menus and overlays as an organigram (Main, categories, menus) with their keys (LEFT/RIGHT move between boxes, DOWN goes in, UP goes back, ENTER opens, SHIFT+T switches to the classic view and back, ESC closes). SHIFT+, on an English keyboard"},
     {nullptr, "q / CTRL+C", "Quit (CTRL+C copies instead while you type in a text field)"},
     {nullptr, "ESC", "Close cheatsheet / overlay / menu; clear and leave the search box"},
     {nullptr, "ENTER", "Confirm / select (tunes the hovered station; on a station list or preset it opens it and tunes in)"},
@@ -3105,7 +3105,6 @@ std::vector<std::string> build_settings(const RadioSettings& c, const SettingsMo
 constexpr int kOsciOverlayW = 50;
 constexpr int kNormOverlayW = 54;
 constexpr int kSleepOverlayW = 52;
-constexpr int kMenusOverlayW = 100;
 constexpr int kUpdateOverlayW = 56;
 constexpr int kRecordOverlayW = 56;
 constexpr int kEqOverlayW = 58;
@@ -3120,56 +3119,7 @@ std::string fmt_loudness(double v) {
 
 } // namespace (reopened below)
 
-const MenusEntry kMenusEntries[] = {
-    {"STATIONS & PRESETS", "Presets menu",             "Presets"},
-    {"STATIONS & PRESETS", "Station lists",            "Lists"},
-    {"STATIONS & PRESETS", "Radio browser",            "Browser"},
-    {"STATIONS & PRESETS", "Big stations overlay",     "Stations"},
-    {"STATIONS & PRESETS", "Listening history",        "History"},
-    {"SOUND",              "Equalizer",                "EqMenu"},
-    {"SOUND",              "Normalization",            "NormMenu"},
-    {"SOUND",              "Sleep timer",              "SleepTimer"},
-    {"SOUND",              "Record",                   "Record"},
-    {"VISUALS",            "Oscilloscope options",     "OsciMenu"},
-    {"VISUALS",            "Oscilloscope full screen", "ScopeBig"},
-    {"VISUALS",            "Spectrogram options",      "SpectroMenu"},
-    {"VISUALS",            "Spectrum bars options",    "BarsMenu"},
-    {"VISUALS",            "Spectrogram full screen",  "SpectroFull"},
-    {"VISUALS",            "Scope window",             "ScopeWindow"},
-    {"VISUALS",            "Spectrogram window",       "SpectroWindow"},
-    {"SYSTEM",             "Settings",                 "Settings"},
-    {"SYSTEM",             "Help wizard",              "Wizard"},
-    {"SYSTEM",             "Cheat sheet",              "Cheatsheet"},
-};
-const int kMenusCount = static_cast<int>(sizeof(kMenusEntries) / sizeof(kMenusEntries[0]));
-
 namespace {
-struct MenusCell { int entry = -1; const char* header = nullptr; };
-
-// Two columns of cells (an entry, a header or a blank line), split at the category boundary that balances them.
-std::vector<std::vector<MenusCell>> menus_layout() {
-    std::vector<std::vector<MenusCell>> cats;
-    for (int i = 0; i < kMenusCount; ++i) {
-        if (i == 0 || std::string(kMenusEntries[i].cat) != kMenusEntries[i - 1].cat) cats.push_back({MenusCell{-1, kMenusEntries[i].cat}});
-        cats.back().push_back(MenusCell{i, nullptr});
-    }
-    int total = 0;
-    for (const auto& c : cats) total += static_cast<int>(c.size()) + 1;
-    int best = 1, best_diff = 1 << 20, acc = 0;
-    for (size_t k = 0; k + 1 < cats.size(); ++k) {
-        acc += static_cast<int>(cats[k].size()) + 1;
-        const int diff = std::abs(acc - (total - acc));
-        if (diff < best_diff) { best_diff = diff; best = static_cast<int>(k) + 1; }
-    }
-    std::vector<std::vector<MenusCell>> cols(2);
-    for (size_t k = 0; k < cats.size(); ++k) {
-        auto& col = cols[static_cast<int>(k) < best ? 0 : 1];
-        if (!col.empty()) col.push_back(MenusCell{});
-        col.insert(col.end(), cats[k].begin(), cats[k].end());
-    }
-    return cols;
-}
-
 // The bound key of an action as it reads on the keyboard: SHIFT+x for a capital, the symbol keys by layout.
 std::string menus_key_label(const RadioSettings& c, const char* id) {
     const int code = key_of(c, id);
@@ -3180,21 +3130,11 @@ std::string menus_key_label(const RadioSettings& c, const char* id) {
 }
 } // namespace
 
-int menus_move(int sel, int dir) {
-    const auto cols = menus_layout();
-    sel = std::clamp(sel, 0, kMenusCount - 1);
-    if (dir == 0) return (sel + kMenusCount - 1) % kMenusCount;
-    if (dir == 1) return (sel + 1) % kMenusCount;
-    int col = 0; size_t row = 0;
-    for (int c = 0; c < 2; ++c)
-        for (size_t r = 0; r < cols[c].size(); ++r) if (cols[c][r].entry == sel) { col = c; row = r; }
-    const int oc = col == 0 ? 1 : 0;
-    auto at = [&](size_t r) { return r < cols[oc].size() ? cols[oc][r].entry : -1; };
-    for (size_t d = 0; d < std::max(cols[0].size(), cols[1].size()); ++d) {
-        if (row >= d && at(row - d) >= 0) return at(row - d);
-        if (at(row + d) >= 0) return at(row + d);
-    }
-    return sel;
+int menus_move(int sel, int dir, bool classic) { return classic ? muisc::org::move_classic(muisc::org::radio_tree(), sel, dir) : muisc::org::move(muisc::org::radio_tree(), sel, dir); }
+int menus_classic_sel(int sel) { return muisc::org::classic_sel(muisc::org::radio_tree(), sel); }
+const muisc::org::Node& menus_node(int sel) {
+    const muisc::org::Tree t = muisc::org::radio_tree();
+    return t.n[muisc::org::clamp_sel(t, sel)];
 }
 
 namespace {
@@ -3258,41 +3198,13 @@ std::vector<std::string> build_overlay(const Style& s, const UiModel& m, const R
     const bool eqo = m.overlay == 4;
     const bool rec = m.overlay == 5;
     const bool spo = m.overlay == 6;
-    const bool menus = m.overlay == 7;
-    const int W = menus ? kMenusOverlayW : spo ? kSpectroOverlayW : rec ? kRecordOverlayW : eqo ? kEqOverlayW : sleep ? kSleepOverlayW : osci ? kOsciOverlayW : kNormOverlayW;
+    const int W = spo ? kSpectroOverlayW : rec ? kRecordOverlayW : eqo ? kEqOverlayW : sleep ? kSleepOverlayW : osci ? kOsciOverlayW : kNormOverlayW;
     const int inner = W - 4;
     auto row = [&](const std::string& plain, bool hi, const std::string& ansi = "") {
         const std::string body = pad_right(truncate_str(plain, inner), inner);
         return box_line(s, (hi ? "\x1b[7m" : ansi) + body + kReset, s.border);
     };
     std::vector<std::string> lines;
-    if (menus) {
-        // The MENUS index (<): two columns of categories, each entry with its key; ENTER opens it
-        const int cw = (inner - 3) / 2, cw2 = inner - 3 - cw;
-        const auto cols = menus_layout();
-        const size_t nrows = std::max(cols[0].size(), cols[1].size());
-        const int sel = std::clamp(m.overlay_row, 0, kMenusCount - 1);
-        // every cell keeps two empty columns on its left and right (the highlight covers them too)
-        auto cell = [&](const std::vector<MenusCell>& col, size_t r, int cw_full) {
-            const int cw = cw_full - 4;
-            if (r >= col.size() || (col[r].entry < 0 && !col[r].header)) return spaces(cw_full);
-            const MenusCell& cl = col[r];
-            if (cl.header) return "  \x1b[1m" + s.header + pad_right(cl.header, cw) + kReset + "  ";
-            const MenusEntry& e = kMenusEntries[cl.entry];
-            const std::string key = "[" + menus_key_label(c, e.id) + "]";
-            const std::string left = std::string(cl.entry == sel ? "> " : "  ") + e.title;
-            const int gap = std::max(1, cw - display_width(left) - display_width(key));
-            if (cl.entry == sel) return "\x1b[7m  " + pad_right(truncate_str(left + spaces(gap) + key, cw), cw) + "  " + kReset;
-            return "  " + pad_right(left, cw - display_width(key)) + s.legend + key + kReset + "  ";
-        };
-        lines.push_back(box_top(s, W, "MENUS & OVERLAYS", s.border));
-        lines.push_back(box_line(s, spaces(inner), s.border));
-        for (size_t r = 0; r < nrows; ++r)
-            lines.push_back(box_line(s, cell(cols[0], r, cw) + " " + s.border + "\u2502" + kReset + " " + cell(cols[1], r, cw2), s.border));
-        lines.push_back(box_line(s, spaces(inner), s.border));
-        lines.push_back(box_bottom(s, W, "[\u2191\u2193\u2190\u2192] Select  [ENTER] Open  [ESC / " + menus_key_label(c, "Menus") + "] Close", s.border_bottom));
-        return lines;
-    }
     if (spo) {
         // Spectrogram options (SHIFT+i): the same rows as the player's overlay
         lines.push_back(box_top(s, W, "Spectrogram", s.border));
@@ -3490,6 +3402,8 @@ std::vector<std::string> build_spectro_full(const Style& s, const UiModel& m, co
     const std::string name = st.tuned_name.empty() ? st.info.station : st.tuned_name;
     if (!name.empty()) title += " - " + shown_text(name);
     if (!st.info.title.empty()) title += ": " + shown_text(st.info.artist.empty() ? st.info.title : st.info.artist + " - " + st.info.title);
+    // the scale and range sit at the upper left, in front of the title, so the bottom line is free for the keys
+    title = spectro_row_value(sp, kSrScale) + " " + std::to_string(sp.min_freq) + "-" + std::to_string(std::min(sp.max_freq, a.rate() / 2)) + " Hz  |  " + title;
     const std::string bar = s.border + c.box_vertical + kReset;
     std::vector<std::string> out;
     out.push_back(box_top(s, W, truncate_str(title, W - 6), s.border));
@@ -3521,8 +3435,12 @@ std::vector<std::string> build_spectro_full(const Style& s, const UiModel& m, co
         line += image ? gfx_hole(cols) : (r < static_cast<int>(body.size()) ? body[static_cast<size_t>(r)] : spaces(cols));
         out.push_back(line + bar);
     }
-    out.push_back(box_bottom(s, W, "[SHIFT+i] options  [SHIFT+u / ESC] close  " + spectro_row_value(sp, kSrScale) + " " +
-                                   std::to_string(sp.min_freq) + "-" + std::to_string(std::min(sp.max_freq, a.rate() / 2)) + " Hz", s.border_bottom));
+    {
+        const std::string keys = "[SHIFT+i] Options  [SHIFT+u / ESC] Close";
+        const std::string foot = scope_pick_head({"[LEFT/RIGHT] Image / Braille  [UP/DOWN] Spectrogram / Waterfall  " + keys,
+                                                  "[\u2190\u2192] Image / Braille  [\u2191\u2193] Spectro / Waterfall  " + keys, keys}, W - 6);
+        out.push_back(box_bottom_centred(s, W, foot, s.border_bottom));
+    }
     if (m.overlay == 6) {
         const auto panel = build_overlay(s, m, st);
         const int ph = static_cast<int>(panel.size());
@@ -3591,7 +3509,7 @@ std::vector<std::string> build_scope_color_panel(const Style& s, const UiModel& 
 std::vector<std::string> build_scope_big(const Style& s, const UiModel& m, const RadioStatus& st, RadioEngine& engine, int W, int rows_total) {
     const RadioSettings& c = s.c;
     const int inner = W - 2;
-    const int avail = std::max(3, rows_total - 2);   // between the top and the bottom border
+    const int avail = std::max(3, rows_total - 3);   // between the top border and the legend line (the last row) -- the bottom border follows
     const bool grid = c.scope_grid, values = c.scope_values;
     const ScopeBigGeom g = scope_big_geometry(inner, avail, values);
     RadioScope& yt = big_scope(0);
@@ -3670,7 +3588,7 @@ std::vector<std::string> build_scope_big(const Style& s, const UiModel& m, const
         info.corr = me.corr;
         info.bal_db = me.bal_db;
     }
-    const std::vector<std::string> body = scope_big_compose(g, inner, avail, left, right, s.legend, grid_ansi, info);
+    std::vector<std::string> body = scope_big_compose(g, inner, avail, left, right, s.legend, grid_ansi, info);
     std::string title = "OSCILLOSCOPE";
     const std::string name = st.tuned_name.empty() ? st.info.station : st.tuned_name;
     if (!name.empty()) title += " - " + shown_text(name);
@@ -3679,10 +3597,18 @@ std::vector<std::string> build_scope_big(const Style& s, const UiModel& m, const
     std::vector<std::string> out;
     out.push_back(box_top(s, W, truncate_str(title, W - 6), s.border));
     for (const std::string& line : body) out.push_back(bar + line + bar);
-    const std::string foot_head = "[SHIFT+o] options  [" + muisc::symbol_key_label("=") + "/ESC] close  ";
-    const std::string foot = scope_pick_head({foot_head + "[SHIFT+a] grid  [SHIFT+v] values  [SHIFT+c] color  [SHIFT+p] metrics",
-                                              foot_head + "[SHIFT+a/v/c/p] grid / values / color / metrics"}, W - 6);
-    out.push_back(box_bottom(s, W, truncate_str(foot, W - 6), s.border_bottom));
+    {   // the key legend: two centred lines -- what changes the picture in the last row, the rest in the bottom border
+        const std::string l1 = scope_pick_head({"[LEFT/RIGHT] Image / Braille   [UP/DOWN] Osci music mode on / off   [SHIFT+a] Grid   [SHIFT+v] Values",
+                                                "[LEFT/RIGHT] Image / Braille   [UP/DOWN] Osci music on / off   [SHIFT+a] Grid   [SHIFT+v] Values",
+                                                "[\u2190\u2192] Image / Braille  [\u2191\u2193] Osci music  [SHIFT+a/v] Grid / Values"}, inner);
+        const int w1 = display_width(l1), left1 = std::max(0, (inner - w1) / 2);
+        out.push_back(bar + s.legend + std::string(static_cast<size_t>(left1), ' ') + l1 + kReset + std::string(static_cast<size_t>(std::max(0, inner - left1 - w1)), ' ') + bar);
+    }
+    const std::string foot_head = "[SHIFT+o] Options  [" + muisc::symbol_key_label("=") + " / ESC] Close  ";
+    const std::string foot = scope_pick_head({foot_head + "[SHIFT+c] Grid color  [SHIFT+p] Grid metrics",
+                                              foot_head + "[SHIFT+c/p] Color / Metrics",
+                                              "[" + muisc::symbol_key_label("=") + " / ESC] Close"}, W - 6);
+    out.push_back(box_bottom_centred(s, W, foot, s.border_bottom));
     std::vector<std::string> panel;
     int panel_w = kOsciOverlayW;
     int panel_rect[4] = {0, 0, 0, 0};   // x, y, w, h in cells, 0-based
@@ -3853,9 +3779,47 @@ std::vector<std::string> render_radio_frame_inner(const UiModel& m, const RadioS
         scope_x = 1 + (show_sign ? kLeftW + ex_first + kSepW : 0) + kMetaW + (show_sign ? ex_second : 0) + (show_sign ? 0 : std::max(0, (rest_w - scope_w) / 2));
         m.gfx.col = scope_x; m.gfx.row = 1; m.gfx.crop = 0;
     }
+    if (m.overlay == 7 && !s.c.menu_classic) {   // the MENUS index (<): the organigram over the whole screen
+        const muisc::org::Tree tree = muisc::org::radio_tree();
+        const int sel = muisc::org::clamp_sel(tree, m.overlay_row);
+        muisc::org::Theme th;
+        th.line = s.border; th.path = s.header; th.key = s.legend;
+        th.key_text = [&](const muisc::org::Node& n) { return n.action ? menus_key_label(s.c, n.action) : std::string(); };
+        const muisc::org::Node& nd = tree.n[sel];
+        std::string info = nd.title;
+        if (nd.action) info += "   [" + menus_key_label(s.c, nd.action) + "]";
+        info += !nd.action ? "   -   ENTER or DOWN goes in" : muisc::org::children_of(tree, sel).empty() ? "   -   ENTER opens it" : "   -   ENTER opens it, DOWN goes to its menus";
+        const int H = static_cast<int>(out.size());
+        const auto body = muisc::org::render(tree, sel, W - 4, H - 2, m.t_sec, th, info);
+        std::vector<std::string> panel;
+        panel.push_back(box_top(s, W, "MENUS & OVERLAYS", s.border));
+        for (const auto& r : body) panel.push_back(box_line(s, r, s.border));
+        panel.push_back(box_bottom(s, W, std::string("[\u2190\u2192] Neighbours  [\u2191] Back  [\u2193] In  [ENTER] Open  [SHIFT+T] Classic  [ESC / ") + menus_key_label(s.c, "Menus") + "] Close", s.border_bottom));
+        for (size_t i = 0; i < panel.size() && i < out.size(); ++i) out[i] = panel[i];
+        m.spectro_skip[0] = 0; m.spectro_skip[1] = 0; m.spectro_skip[2] = static_cast<int>(out.size()); m.spectro_skip[3] = W;
+        if (m.gfx.active) m.gfx.crop = scope_w;   // (the whole screen is the organigram: no picture under it)
+    } else
     if (m.overlay != 0) {   // SHIFT+o / SHIFT+v overlay, centred over the finished screen
-        const auto panel = build_overlay(s, m, st);
-        const int pw = m.overlay == 10 ? kBarsOverlayW : m.overlay == 9 ? kAdevOverlayW : m.overlay == 8 ? kUpdateOverlayW : m.overlay == 7 ? kMenusOverlayW : m.overlay == 6 ? kSpectroOverlayW : m.overlay == 5 ? kRecordOverlayW : m.overlay == 4 ? kEqOverlayW : m.overlay == 3 ? kSleepOverlayW : m.overlay == 1 ? kOsciOverlayW : kNormOverlayW;
+        std::vector<std::string> panel;
+        int pw = 0;
+        if (m.overlay == 7) {   // the MENUS index, classic view: a regular overlay as big as its two columns need
+            const muisc::org::Tree tree = muisc::org::radio_tree();
+            muisc::org::Theme th;
+            th.line = s.border; th.path = s.header; th.key = s.legend;
+            th.key_text = [&](const muisc::org::Node& n) { return n.action ? menus_key_label(s.c, n.action) : std::string(); };
+            const std::string legend = std::string("[\u2191\u2193] Entry  [\u2190\u2192] Column  [ENTER] Open  [SHIFT+T] Tree  [ESC / ") + menus_key_label(s.c, "Menus") + "] Close";
+            const auto pnl = muisc::org::render_classic(tree, m.overlay_row, th, std::max(8, rows - 2), std::max(24, W - 6));
+            int legend_w = 0;
+            for (size_t i = 0; i < legend.size();) { const unsigned char ch = static_cast<unsigned char>(legend[i]); i += ch < 0x80 ? 1 : ch >= 0xF0 ? 4 : ch >= 0xE0 ? 3 : 2; ++legend_w; }
+            const int inner = std::max(pnl.inner_w, std::min(W - 4, legend_w + 2));
+            pw = inner + 4;
+            panel.push_back(box_top(s, pw, "MENUS & OVERLAYS", s.border));
+            for (const auto& r : pnl.rows) panel.push_back(box_line(s, r + std::string(static_cast<size_t>(inner - pnl.inner_w), ' '), s.border));
+            panel.push_back(box_bottom(s, pw, legend, s.border_bottom));
+        } else {
+            panel = build_overlay(s, m, st);
+        pw = m.overlay == 10 ? kBarsOverlayW : m.overlay == 9 ? kAdevOverlayW : m.overlay == 8 ? kUpdateOverlayW : m.overlay == 6 ? kSpectroOverlayW : m.overlay == 5 ? kRecordOverlayW : m.overlay == 4 ? kEqOverlayW : m.overlay == 3 ? kSleepOverlayW : m.overlay == 1 ? kOsciOverlayW : kNormOverlayW;
+        }
         const int ph = static_cast<int>(panel.size());
         const int x = std::max(0, (W - pw) / 2);
         const int y = m.overlay == 10 ? std::clamp(kPanelH + 2, 0, std::max(0, rows - ph))   // the spectrum bars overlay: under the upper pane, so the bars stay in view

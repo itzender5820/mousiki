@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(mousiki VERSION 4.9.0 LANGUAGES CXX C)
+project(mousiki VERSION 5.0.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

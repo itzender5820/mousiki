@@ -361,7 +361,10 @@ void App::poll_pending_load() {
     video_auto_apply();   // (Video overlay: Auto Video) before the lyrics are fetched, they depend on the view
     // "Lyrics Engine" (settings_.element_lyrics) off means no lyrics work at all: nothing is
     // fetched, no Python is started and there is no network access.
-    if (settings_.lyrics_on() && !audiobook_) {   // (no lyrics for audio books)
+    // The video view of a track WITHOUT a video that shows a visual ("When No Video Shows" is not the lyrics) needs no lyrics: nothing is fetched
+    // (the "." key fetches them when you cycle to the lyrics view).
+    const bool video_placeholder = settings_.video_mode && settings_.video_view && settings_.novideo_viz != 4 && pl.is_local && video_shown_for(pl.path).empty();
+    if (settings_.lyrics_on() && !audiobook_ && !video_placeholder) {   // (no lyrics for audio books)
         launch_lyrics_fetch(pl.title, pl.artist, pl.path);
     } else {
         // nothing fetched for this track: the lyrics of the last one must not count as its own (the karaoke

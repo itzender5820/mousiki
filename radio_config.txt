@@ -1,5 +1,5 @@
 # Mousiki radio mode -- settings (separate from the music player's config.txt)
-# Written by Mousiki v4.9.0  (the first save by a newer version keeps the previous file as radio_config.txt.bak)
+# Written by Mousiki v5.0.0  (the first save by a newer version keeps the previous file as radio_config.txt.bak)
 # Location (Windows): %USERPROFILE%\.config\mousiki\radio_config.txt
 # Location (Linux/macOS): $HOME/.config/mousiki/radio_config.txt  (or ./radio_config.txt next to the program)
 # Written by the settings screen (press s in the radio); edit by hand if you like.
@@ -80,7 +80,7 @@ ColorTabOther=246
 ColorFocus=246
 
 ##-------------------------------------------
-##              ON/OFF
+##              AUDIO
 ##-------------------------------------------
 
 OnAirAscii=true
@@ -145,6 +145,9 @@ HistoryPath=
 # the sleep timer (SHIFT+z) fades the volume out before it stops the stream
 SleepFade=true
 
+# the "<" menus overlay: false = the tree, true = the classic view with every category as a box (SHIFT+t switches)
+MenuIndexClassic=false
+
 ##-------------------------------------------
 ##              KEYS (REFERENCE tab): one character, or SPACE / TAB / BACKSPACE
 ##-------------------------------------------
@@ -172,6 +175,7 @@ HKeyOsciMenu=O
 HKeyScopeWindow=)
 HKeySpectroWindow=(
 HKeySpectroMenu=I
+HKeyBarsMenu=B
 HKeySpectroFull=U
 HKeyScopeBig==
 HKeyNormMenu=V
@@ -186,6 +190,7 @@ HKeySettings=s
 HKeyWizard=W
 HKeyCheatsheet=?
 HKeyMenus=<
+HKeyAudioDevice=&
 HKeyQuit=q
 
 ##-------------------------------------------
@@ -196,6 +201,19 @@ HKeyQuit=q
 VisualizerFluidity=10
 VisualizerDegradationSpeed=8
 VisualizerViscosity=3
+VisualizerStyle=hifi
+HifiResolution=fine
+HifiChannels=stereo
+HifiScale=low
+HifiFluidity=10
+HifiDegradationSpeed=8
+HifiViscosity=3
+HifiAdapt=on
+HifiFrequencyScale=mel
+HifiGain=-2
+HifiRange=68
+HifiSplit=add
+HifiColor=gradient
 # Oscilloscope (SHIFT+o overlay), one block per style: braille = Osci<name>, image = OsciImage<name>. Each style keeps its own values.
 # Decay = afterglow 0.00-0.99 | DotThreshold 0.01-1.00 (braille: lower = thicker line) | TailBrightness 0.00-1.00 | Interpolation = connect the
 # samples with lines | ZAxis = beam intensity (ZDepth 0-1, ZSource speed|level) | TraceLength 128-8192 samples | Rotate = 45 degrees (mid vertical) |
@@ -293,4 +311,38 @@ SpectroColors=roseus
 SpectroChannels=both
 SpectroTimeSpan=30
 SpectroLabels=true
+# View spectrogram|waterfall: the waterfall is a stack of spectra (newest in front, each graph outlined in black). Graphs 8-100,
+# Spacing 20-500 ms between two graphs, Slant 0-40 % of the width, Height 10-60 % of the picture
+SpectroView=spectrogram
+SpectroWaterfallGraphs=40
+SpectroWaterfallSpacing=120
+SpectroWaterfallSlant=25
+SpectroWaterfallHeight=30
+# WaterfallResolution normal|high: high draws the graphs at twice the resolution and scales them down (finer, shaded outlines; more work)
+SpectroWaterfallResolution=normal
+# Spectrogram and waterfall, image and braille each keep their own values (the block above is the look in use). SpectroProfile<n>:
+# n = 2 * view + style, view 0 = spectrogram / 1 = waterfall, style 0 = braille / 1 = image
+SpectroProfile1Style=image
+SpectroProfile1Motion=sweep
+SpectroProfile1Scale=mel
+SpectroProfile1MinFreq=0
+SpectroProfile1MaxFreq=20000
+SpectroProfile1Gain=20
+SpectroProfile1Range=80
+SpectroProfile1FrequencyGain=0
+SpectroProfile1WindowSize=2048
+SpectroProfile1ZeroPadding=2
+SpectroProfile1Colors=roseus
+SpectroProfile1Channels=both
+SpectroProfile1TimeSpan=30
+SpectroProfile1Labels=true
+SpectroProfile1View=spectrogram
+SpectroProfile1WaterfallGraphs=40
+SpectroProfile1WaterfallSpacing=120
+SpectroProfile1WaterfallSlant=25
+SpectroProfile1WaterfallHeight=30
+SpectroProfile1WaterfallResolution=normal
+# The style (0 braille / 1 image) the spectrogram (view 0) and the waterfall (view 1) were last shown in:
+SpectroLastStyle0=1
+SpectroLastStyle1=1
 

@@ -57,6 +57,7 @@
 #include "converter.h"
 
 namespace muisc {
+namespace org { struct Theme; }   // (organigram.h)
 
 enum class Mode { Browse, Search, Settings, ColorEdit, Console, Cheatsheet, BulkAdd, RetryLyrics, Playlist, MetaEdit, CoverFetch, History, ClearQueue, OsciMenu, NormMenu, BarsMenu, Equalizer, SleepTimer, LyricsEdit, Karaoke, SpectroMenu, Wizard, ReadLyrics, Creator, MenuIndex, UpdateNotice, QueueToPlaylist, BookOverlay, AudioDevice, VideoMenu, VideoLink, VideoSearch, VideoFetch };
 enum class ListSource { Local, Online, Playlist, Folder };
@@ -153,6 +154,7 @@ private:
     mutable VideoPlayer video_;
     std::string format_text() const;   // the Format line: the file type; "MP3, MP4" for a track paired with a video, "MP4" for a video
     mutable std::string fmt_key_, fmt_val_;
+    mutable std::vector<std::string> video_ov_ref_;   // the lyric line fully revealed (same wrap): the size of the box over the picture comes from it, so it does not change with every word
     mutable std::string video_for_track_;   // the track video_ was pointed at
     mutable std::string video_pic_key_;
     void video_auto_apply();
@@ -161,19 +163,27 @@ private:
     unsigned video_rev_ = 1;   // bumped when the pairing of tracks and videos changed (a link made / removed / mended)
     // --- VIDEO (HKeyVideo) and VIDEO OPTION / SEARCH YT (src/app_videomenu.cpp, src/app_videosearch.cpp) ---
     int vmenu_sel_ = 0;
+    // The two questions of "Delete Current Video" (stage 1, then 2) and the one of "Refetch this Video" (stage 3), drawn over the VIDEO overlay.
+    int vdel_stage_ = 0, vdel_sel_ = 0;                    // vdel_sel_: 0 No, 1 Yes (always starts on No)
+    std::string vdel_video_;                               // the video file in question
+    std::unordered_map<std::string, std::string> vf_replace_;   // song -> the downloaded video a refetch replaces (deleted when the new one has arrived)
+    std::string vf_auto_;                                  // the song whose refetch chooses the closest hit and downloads by itself
+    std::vector<std::string> build_video_delete_panel() const;
+    void video_refetch_start();
+    bool video_is_download(const std::string& file) const;
     void video_menu_open();
     void video_menu_close();
     void video_menu_change(int row, int dir);
     void video_menu_key(int key);
     std::vector<std::string> build_video_menu_panel() const;
-    static constexpr int kVideoMenuPanelWidth = 74;
-    struct VLEntry { fs::path path; std::string label, folder, hay; bool video = false; };
+    static constexpr int kVideoMenuPanelWidth = 52;   // (narrow: most of the picture stays visible at the right while the options are changed)
+    struct VLEntry { fs::path path; std::string label, folder, hay; bool video = false, has_video = false; };   // (has_video: a song with a connected / same-name video)
     std::vector<VLEntry> vl_tracks_, vl_videos_;
     std::vector<int> vl_tview_, vl_vview_;
     std::string vl_tq_, vl_vq_, vl_msg_;
     int vl_pane_ = 0, vl_tsel_ = 0, vl_vsel_ = 0, vl_filter_ = 0;
     fs::path vl_lock_track_, vl_lock_video_;
-    bool vl_warn_ = false, vl_confirm_ = false;
+    bool vl_warn_ = false, vl_confirm_ = false, vl_del_confirm_ = false;   // (vl_del_confirm_: "Delete COMPLETE VIDEO FILE connected to track" waits for its second ENTER)
     Mode vl_return_mode_ = Mode::Browse;
     void video_link_show_current(const fs::path& track);
     void video_link_open(const fs::path& target, Mode return_mode);
@@ -191,6 +201,7 @@ private:
     bool vs_busy_ = false, vs_warn_ = false, vs_by_tags_ = false;   // vs_by_tags_: the query is "artist title" (CTRL+t), else the file name
     int vs_pane_ = 0, vs_sel_ = 0;
     fs::path vs_target_;                 // the song the download is for
+    bool vs_mp3_ = true;                 // SEARCH YT: also make an mp3 of the sound (CTRL+a); on by default when no song is the target
     struct VideoDownload {
         bool active = false;
         std::thread thread;
@@ -201,6 +212,9 @@ private:
         fs::path track, dir;
         std::string base, video_id;
         bool done = false;
+        bool want_mp3 = false;               // the sound of the video is saved as an mp3 song in the regular download folder
+        fs::path mp3_dir;
+        std::string mp3_file, mp3_error;
     } vd_;
     fs::path video_down_dir() const;     // <download folder>/video_down
     std::string video_search_default_query() const;
@@ -255,6 +269,38 @@ private:
         std::string status, last_error;
         std::vector<std::string> done_paths;               // songs that have their video now
     } vf_;
+    // The second tab of FETCH VIDEOS: the VIDEO FILES (src/app_videomanage.cpp): every video file of the library (and every video a song is connected to),
+    // which songs use it, delete one for good. Filters: all / coupled with a song / video only (no song uses it).
+    struct VMEntry {
+        fs::path path;
+        std::string label, folder, hay;
+        std::uintmax_t bytes = 0;
+        std::vector<std::string> songs;      // the songs that show this video (a connection by hand, or the same file name beside it)
+        bool coupled = false;
+        std::int64_t mtime = 0;              // last change of the file (seconds): newly added / downloaded files have the latest
+    };
+    std::vector<VMEntry> vm_all_;
+    std::vector<int> vm_view_;
+    std::string vm_query_;
+    int vf_tab_ = 0;                                       // 0 SONGS AND VIDEOS, 1 VIDEO FILES (vf_focus_: 0 filter field, 1 list)
+    int vm_sel_ = 0, vm_filter_ = 0;                       // vm_filter_: 0 all videos, 1 coupled with a song, 2 video only
+    std::string vm_confirm_;                               // the video whose deletion waits for the confirmation
+    std::future<std::pair<std::string, std::string>> vm_mp3_fut_;   // an mp3 being made from a video file: (mp3 path, error)
+    std::string vm_mp3_video_;                             // ... and the video it comes from
+    void video_manage_make_mp3();                          // CTRL+3 (or m) in the VIDEO FILES tab: the sound of a video-only file as an mp3 song
+    mutable std::string vm_pic_key_;
+    void video_manage_rebuild();
+    void video_manage_refilter();
+    void video_manage_key(int key);
+    std::vector<std::string> build_vm_list_panel(int w, int h) const;
+    std::vector<std::string> build_vm_detail_panel(int w, int h) const;
+    // Deletes a video file for good: its connections (VideoLinks) go first, the library is read again. Returns false (and says why in `msg`) when the file stays.
+    bool video_delete_file(const std::string& video, std::string& msg, bool undoable = true);
+    struct VDelUndo { std::string orig, held; std::vector<std::string> tracks; };   // a deleted video: where it was, where it waits, the songs that showed it
+    std::vector<VDelUndo> vdel_undo_;
+    fs::path video_trash_dir() const;
+    bool video_undelete(std::string& msg);                // brings the last deleted video (and its connections) back
+    void video_trash_purge();                             // the held files go for good (at exit)
     void video_fetch_open(const fs::path& focus = fs::path());   // (focus: the song the cursor starts on, default the playing one)
     void video_fetch_close();
     void video_fetch_key(int key);
@@ -273,7 +319,50 @@ private:
     mutable std::chrono::steady_clock::time_point video_away_since_{};   // since when the field is not on the video view     // size / place of the picture last built
     std::string video_source_for(const fs::path& track) const;
     void video_toggle();
-    bool video_field_rows(std::vector<std::string>& rows, int W, int H, int area_col, bool second_slot, double t, const std::vector<std::string>& line_rows) const;
+    // The video of a track as it is shown: video_source_for() unless the track's Style Option hides it; its size and effect (the track's own, else the VIDEO overlay's).
+    std::string video_shown_for(const fs::path& track) const;
+    int video_size_for(const fs::path& track) const;
+    bool video_lyrics_for(const fs::path& track) const;   // Use Lyrics on Video (the lyric line in the video view): the track's own, else the VIDEO overlay
+    bool video_round_for(const fs::path& track) const;   // Rounded Corners of the picture: the track's own, else Settings
+    int video_fx_for(const fs::path& track) const;
+    VideoLook video_look_for(const fs::path& track) const;   // the effect, contrast, colours and chromatic aberration of the track's video (its own choices, else Settings)
+    int video_pic_width() const;
+    int video_res_for() const;   // the resolution of the playing track's video: its own (Style Option / big video panel), else the Setting   // the widest picture that is decoded (Settings -> Video Resolution; never wider than the video itself unless standard)
+    void video_ensure_source() const;
+    std::vector<std::string> video_lyric_rows(int width, double elapsed) const;
+    // the saved translation of the lyrics that play (one entry per lyric line, empty when there is none); cached per track / language
+    const std::vector<std::string>& video_translation_lines() const;
+    mutable std::string vtr_key_;
+    mutable std::vector<std::string> vtr_lines_;
+    mutable std::chrono::steady_clock::time_point vtr_at_{};   // when the lookup was made (an empty result is looked up again after a few seconds: a translation may have been saved meanwhile)
+    bool video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, int abs_row, bool second_slot, double t, int mode,
+                    const std::vector<std::string>& ov, int ov_w, bool flush_bottom = false, bool trim_right = false) const;
+    std::string build_video_full(int W, const char* clear_prefix) const;
+    bool video_full_key(int key);
+    // The layout of the full screen video (SHIFT+UP / DOWN): video, video + oscilloscope, video + oscilloscope + spectrogram. The
+    // oscilloscope / spectrogram options opened from there show (and change) the layout's own style / mode / view (Settings::vl_*);
+    // layout_osci_view() / layout_spectro_view() are the shared settings with these laid over them (what the layout draws).
+    bool video_layout_menu() const { return video_full_ && settings_.video_layout > 0; }
+    static bool vl_has_osci(int layout) { return layout == 1 || layout == 3; }
+    static bool vl_has_spectro(int layout) { return layout == 2 || layout == 3; }
+    VizPrefs layout_osci_view() const;
+    SpectroSettings layout_spectro_view() const;
+    std::vector<int> osci_menu_rows() const;
+    mutable SpectroSettings layout_spectro_;   // the spectrogram this frame draws in the layout (while layout_spectro_on_)
+    mutable bool layout_spectro_on_ = false;
+    // The options panel inside the full screen video (SHIFT+s): the track's own effect, contrast, colours and chromatic aberration, the same
+    // choices (and storage) as the video rows of the Style Option overlay.
+    bool video_opts_open_ = false;
+    int video_opts_sel_ = 0;
+    static constexpr int kVideoOptsPanelWidth = 66;
+    std::vector<std::string> build_video_opts_panel() const;
+    void video_opts_change(int row, int dir, bool reset);
+    void video_full_toggle();
+    void video_set_size(int size);
+    void video_set_fx(int fx);
+    void video_track_fx_step(int dir);   // the next / previous effect of this track (Style Option's "Video Effect")
+    bool video_full_ = false;   // HKeyVideoFull: the video over the whole screen
+    bool video_field_rows(std::vector<std::string>& rows, int W, int H, int area_col, bool second_slot, double t, const std::vector<std::string>& line_rows, bool trim_right = false) const;
     long long added_time_of(const fs::path& p) const;   // file_added_time(), looked up once per file (cleared on rescan)
     mutable std::mutex added_time_mutex_;
     mutable std::unordered_map<std::string, long long> added_time_cache_;   // mode 3: when each file arrived (looked up once per rescan / choice of the mode)
@@ -444,9 +533,10 @@ private:
     int overlay_queue_rows_ = kListVisibleRows;   // queue rows the overlay fits; recomputed every frame
     static constexpr int kQueueOverlayChromeRows = 2; // queue box top/bottom border
     // The menus index (HKeyMenus, "<"): a floating panel listing every menu / overlay by category with its key; ENTER opens one.
-    static constexpr int kMenuIndexPanelWidth = 100;
-    int menu_index_sel_ = 0;                          // the highlighted entry (index into the table in app.cpp)
-    std::vector<std::string> build_menu_index_panel(int window_w) const;
+    int menu_index_sel_ = 0;                          // the highlighted node of the organigram (organigram_trees.h)
+    std::string build_menu_index_full(int window_w) const;   // the organigram over the whole screen
+    std::vector<std::string> build_menu_index_classic_panel(int window_w, int& panel_w) const;   // the classic two-column view: a panel of its own size
+    org::Theme menu_index_theme() const;
     void menu_index_key(int key);
     // The legend of a big overlay hangs below its frame. With more than one row the block is centred on the main screen's bottom
     // border line (3 rows: the second row lies on it), so it reaches this many rows further down than a one-row legend would.
@@ -612,7 +702,22 @@ private:
     std::string playlist_edit_lib_query_;
     std::vector<LocalTrack> playlist_edit_lib_view_;   // filter_and_rank_local(playlist_edit_lib_query_)
     int playlist_edit_lib_selected_ = 0;
-    std::vector<LocalTrack> filter_local_or_folders(const std::string& query) const;   // search, or "/f:" folder search
+    std::vector<LocalTrack> filter_local_or_folders(const std::string& query, int pane_media = -1) const;   // search, or "/f:" folder search
+    // What a list shows of the video files (the library always holds them, the Video mode only decides what is shown):
+    // 0 audio = the audio files and the videos that have no audio file of their name beside them (their sound is the track),
+    // 1 video + audio = everything, 2 video = the video files only. A "v:" / "x:" in front of a query sets it for that search.
+    // `pane` is the SHIFT+v choice of a pane (-1 = not chosen: the Video mode decides, a search lists "audio").
+    int media_view_for(std::string& query, int pane, bool search_default_audio = true) const;
+    void apply_media_view(std::vector<LocalTrack>& v, int view) const;
+    bool video_is_paired(const fs::path& video) const;   // an audio file of the same name beside it, or a link made by hand
+    static const char* media_view_name(int view) { return view == 2 ? "video" : view == 1 ? "video + audio" : "audio"; }
+    mutable std::unordered_set<std::string> paired_videos_;
+    mutable size_t paired_n_ = 0;
+    mutable unsigned paired_rev_ = 0;
+    mutable bool paired_ok_ = false;
+    int pl_media_ = -1;       // SHIFT+v in the playlist editor's library pane (-1 = the Video mode decides)
+    int fo_media_ = -1;       // SHIFT+v in the big folder overlay
+    int meta_media_ = -1;     // SHIFT+v in the meta editor's library pane
     int playlist_edit_sort_ = 0;   // LIBRARY sort (Shift+T): 0 folder order, 1 file names, 2 titles, 3 artists, 4 albums A-Z, 5 recently added (newest first)
     static const char* playlist_sort_name(int mode);
     int playlist_edit_track_selected_ = 0;
@@ -795,6 +900,7 @@ private:
     int eff_cover_contrast() const;
     int eff_cover_brightness() const;
     int eff_cover_colors() const;
+    int eff_cover_chroma() const;
     const CoverStyle& track_style() const;
     mutable std::string look_cache_path_;
     mutable unsigned look_cache_rev_ = 0;
@@ -804,7 +910,7 @@ private:
     bool cover_sixel_colours(int mode) const { return gfx_proto_ == GfxProto::Sixel && eff_cover_colors() > 0 && mode >= 2 && mode <= 4; }
     void cycle_cover_look(int dir);              // CTRL+t / CTRL+z: the plain disk and the cover looks (audio books: default picture, cover with wave, cover)
     std::vector<std::string> cover_preview_lines(const std::string& file, bool embedded, int cols, int rows, const std::string& msg = "") const;
-    std::vector<std::string> album_cover_lines_for(const CoverImage& cover, int mode, int contrast, int brightness, int colors, double angle, int cols, int rows) const;   // any cover, any style (previews)
+    std::vector<std::string> album_cover_lines_for(const CoverImage& cover, int mode, int contrast, int brightness, int colors, double angle, int cols, int rows, int chroma = 0) const;   // any cover, any style (previews)
 
     // --- meta/tag editor overlay (Mode::MetaEdit, HKeyMetaEditor = Shift+M) ---
     // Deliberately shaped like the playlist editor above: same tab strip,
@@ -833,7 +939,6 @@ private:
     // queues the folder's titles, ENTER opens / closes it.
     struct MetaFolderRow { bool header = false; int lib = 0; std::string folder, name; int num = 0, count = 0; bool closed = false; };
     bool meta_folder_view_ = false;
-    bool meta_videos_only_ = false;   // SHIFT+v in the meta editor: the library pane lists only the video files
     bool meta_take_linked_tags(const std::string& video);   // a video paired with a track: its pending tags become the track's (false: nothing to take)
     std::string meta_folder_hover_;
     std::unordered_set<std::string> meta_folder_closed_;
@@ -866,8 +971,10 @@ private:
     // --- the cover of a track in the meta editor: the picture under the fields and the "Cover Options" overlay ---
     // The choice made here is kept per track (cover_store.h) and goes before the album's default and before Settings -> Cover Search
     // (except "Within File Only").
+    int order_swap_from_ = -1;       // Viz Order rows: the place the chosen view came from (the row that changed with it)
     int auto_prev_view_ = 3;        // Auto Video: the view before a track with a video took the field (0..2 a visual, 3 lyrics)
     bool auto_prev_set_ = false;
+    bool auto_prev_known_ = false;  // auto_prev_view_ was seen this run (a start on the video view has no earlier view)
     struct MetaCovItem { int special = 0; CoverCandidate c; };   // special: 0 a picture, 1 "automatic" (the search decides), 2 "no cover", 3 "video thumbnail, else cover"
     bool meta_cov_open_ = false;
     bool meta_cov_search_ = false;       // the file name search field has the keyboard
@@ -894,6 +1001,9 @@ private:
     // Style Option preview as a real picture: 0 = none this frame, 1 = it is in gfx_, 2 = in gfx2_ (over the main screen, whose own cover
     // picture keeps gfx_). The picture lies inside its own panel, so the panel must not crop it.
     mutable int meta_sty_pic_ = 0;
+    mutable int vl_pic_ = 0;                                       // VIDEO OPTION: the preview of the connected video is a picture in gfx_ (1) / gfx2_ (2) inside the panel, 0: none
+    void video_link_refresh_flags();
+    void video_link_ask_delete(const std::string& video);
     mutable int vs_pic_ = 0;                                       // SEARCH YT: the thumbnail is a picture in gfx_ (1) / gfx2_ (2) inside the panel, 0: braille
     mutable std::string vs_pic_key_;
     mutable std::string sty2_key_;                                  // what the preview in gfx2_ shows
@@ -905,9 +1015,9 @@ private:
     std::vector<std::string> build_meta_sty_panel(int screen_w) const;
     int meta_sty_panel_width(int screen_w) const;
     std::vector<std::string> meta_sty_preview(int prev_w, int rows, const CoverStyle& st, int album_look, int screen_w) const;
-    bool meta_sty_gfx(const CoverImage& cover, int mode, int contrast, int brightness, int colors, double angle, int col, int row, int cols, int rows) const;   // the Style preview as a picture (gfx_)
+    bool meta_sty_gfx(const CoverImage& cover, int mode, int contrast, int brightness, int colors, int chroma, double angle, int col, int row, int cols, int rows) const;   // the Style preview as a picture (gfx_)
     // While the Style overlay builds its picture, these replace the playing track's own cover style (eff_cover_*)
-    mutable struct CoverOvr { bool on = false; int contrast = 0, brightness = 0, colors = 0; } cover_ovr_;
+    mutable struct CoverOvr { bool on = false; int contrast = 0, brightness = 0, colors = 0, chroma = 0; } cover_ovr_;
     static constexpr int kMetaStyPanelWidth = 64;
     // The choice overlay (ENTER on a field with several fetched candidates).
     bool meta_choice_open_ = false;
@@ -1126,6 +1236,8 @@ private:
     mutable int gfx_last_crop_ = -1;
     mutable int gfx2_last_crop_ = -1;
     mutable std::vector<uint8_t> gfx_full_level_;      // the audio book picture without a hole for a floating panel (see render_frame)
+    mutable std::vector<uint8_t> gfx2_full_level_;     // the same for the second picture slot (the video next to the disk)
+    mutable int gfx2_last_cut_[4] = {0, 0, 0, 0};
     mutable int gfx_last_cut_[4] = {0, 0, 0, 0};       // the hole that is cut into it now (pixels x0, y0, x1, y1)
     mutable int scope_cut_last_[8] = {-1, -1, -1, -1, -1, -1, -1, -1};   // the panel cut-outs of the overlay's pictures of the last frame
     mutable int cell_w_ = 9, cell_h_ = 18;

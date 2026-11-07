@@ -675,6 +675,7 @@ int TerminalIO::poll_key_raw() {
                 if (mod == 5 && (code == 'f' || code == 'F')) { g_last_key_was_arrow = false; return kKeyCtrlF; } // Ctrl+F
                 if (mod == 5 && (code == 'o' || code == 'O')) { g_last_key_was_arrow = false; return kKeyCtrlO; } // Ctrl+O
                 if (mod == 5 && code == '2') { g_last_key_was_arrow = false; return kKeyCtrl2; } // Ctrl+2
+                if (mod == 5 && code == '3') { g_last_key_was_arrow = false; return kKeyCtrl3; } // Ctrl+3
                 // "1;<mod> A" -- an arrow (or Home/End) pressed WITH a
                 // modifier, which is how xterm-style terminals report
                 // Shift+Left/Right: "ESC [ 1 ; 2 D". mod is

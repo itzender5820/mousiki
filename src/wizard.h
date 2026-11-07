@@ -27,6 +27,9 @@
 //                           with UP / DOWN and opened with ENTER
 //   a page whose first line starts with a number ("2.1.2 MUSIC FILE PATHS") belongs to that chapter; the
 //                           chapter ("2.1") and its part ("2") are named in the top border
+//   [[First Start]]         on a line of its own in a page: that page follows the first-start greeting once (the very first start after an
+//                           installation); later it is only reached through the table of content
+//   a contents line that ends with [[Header]] is a heading: it cannot be selected (a heading has no page of its own)
 //   [[Header]] / [[Legend]] colours the capitalised words (or number) in front of it in the header / legend
 //                           colour. At the end of a line that starts with => or NOTE: it colours the whole
 //                           line, and on a contents page it always colours the whole line.
@@ -82,6 +85,7 @@ struct State {
     int toc = 0;              // the selected entry of the table of content
     int min_page = 0;         // 1 once the first-start greeting has been left: it is not reachable again
     bool started = false;     // opened at least once by this process
+    bool first_flow = false;  // the first start after an installation: the greeting leads on to the GETTING STARTED page (marked [[First Start]]), then to the contents
     double angle = 0.0;       // the disk on the first page
     // the search key ("/", SHIFT+7 on a German keyboard): search the whole text (Key::Search). While `searching`, the frontends hand every key to search_key().
     bool searching = false;

@@ -6,8 +6,10 @@
 
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <thread>
 
 using namespace muisc;
@@ -52,13 +54,80 @@ TEST(video_palette_quantize_is_stable_and_in_range) {
     std::vector<uint8_t> hue, level;
     VideoPlayer::quantize(f, hue, level);
     CHECK_EQ(hue.size(), static_cast<size_t>(32));
-    CHECK_EQ(VideoPlayer::palette().size(), static_cast<size_t>(240));
-    for (auto h : hue) { CHECK(h < 240); const auto& c = VideoPlayer::palette()[h]; CHECK(c[0] >= 204 && c[1] <= 51 && c[2] <= 51); }
+    CHECK_EQ(VideoPlayer::palette().size(), static_cast<size_t>(248));
+    for (auto h : hue) { CHECK(h < 248); const auto& c = VideoPlayer::palette()[h]; CHECK(c[0] >= 204 && c[1] <= 51 && c[2] <= 51); }
     for (auto l : level) CHECK_EQ(l, 255);
     // grey goes to the grey ramp (index >= 216)
     for (auto& b : f.rgb) b = 128;
     VideoPlayer::quantize(f, hue, level);
     for (auto h : hue) CHECK(h >= 216);
+}
+
+TEST(video_dither_bw_is_only_black_and_white) {
+    VideoFrame f;
+    f.w = 64; f.h = 64;
+    f.rgb.resize(64 * 64 * 3);
+    for (int y = 0; y < 64; ++y) for (int x = 0; x < 64; ++x) for (int c = 0; c < 3; ++c) f.rgb[(static_cast<size_t>(y) * 64 + x) * 3 + c] = static_cast<uint8_t>((x * 4 + y) & 255);
+    VideoPlayer::apply_fx(f, 21, 0.0);
+    int dark = 0, light = 0;
+    for (uint8_t v : f.rgb) { CHECK(v == 0 || v == 255); if (v == 0) ++dark; else ++light; }
+    CHECK(dark > 0 && light > 0);
+}
+
+TEST(video_dither_gradient_dark_stays_black) {
+    VideoFrame f;
+    f.w = 64; f.h = 64;
+    f.rgb.assign(64 * 64 * 3, 0);   // a black picture
+    VideoFxGradient g;
+    VideoPlayer::apply_fx(f, 22, 0.0, false, &g);
+    for (uint8_t v : f.rgb) CHECK_EQ(v, 0);
+    for (auto& b : f.rgb) b = 255;   // a white one: every dot is the colour of the wave
+    VideoPlayer::apply_fx(f, 22, 0.0, false, &g);
+    int coloured = 0;
+    for (size_t i = 0; i + 2 < f.rgb.size(); i += 3) if (f.rgb[i] != f.rgb[i + 1] || f.rgb[i + 1] != f.rgb[i + 2]) ++coloured;
+    CHECK(coloured > 1000);
+}
+
+TEST(video_quantize_keeps_near_black_flat) {
+    // the dark parts of an effect picture (a few shades above black) must not turn into a raster of dither squares
+    VideoFrame f;
+    f.w = 8; f.h = 8;
+    f.rgb.assign(8 * 8 * 3, 0);
+    for (auto& b : f.rgb) b = 28;
+    std::vector<uint8_t> hue, level;
+    VideoPlayer::quantize(f, hue, level);
+    for (auto h : hue) CHECK_EQ(h, 216);
+    for (auto& b : f.rgb) b = 128;   // a mid grey still dithers over its two nearest shades of the grey ramp
+    VideoPlayer::quantize(f, hue, level);
+    for (auto h : hue) CHECK(h >= 216 + 11 && h <= 216 + 12);
+}
+
+TEST(video_quantize_off_white_ink_stays_on_the_grey_ramp) {
+    // the off-white of the Dither look (236, 238, 226) must not dither over the colour cube (a grid of squares over every light area)
+    VideoFrame f;
+    f.w = 8; f.h = 8;
+    f.rgb.assign(8 * 8 * 3, 0);
+    for (size_t i = 0; i < 64; ++i) { f.rgb[i * 3] = 236; f.rgb[i * 3 + 1] = 238; f.rgb[i * 3 + 2] = 226; }
+    std::vector<uint8_t> hue, level;
+    VideoPlayer::quantize(f, hue, level);
+    for (auto h : hue) CHECK(h >= 216);
+    // and the dark ink (14, 16, 28) is flat black
+    for (size_t i = 0; i < 64; ++i) { f.rgb[i * 3] = 14; f.rgb[i * 3 + 1] = 16; f.rgb[i * 3 + 2] = 28; }
+    VideoPlayer::quantize(f, hue, level);
+    for (auto h : hue) CHECK_EQ(h, 216);
+}
+
+TEST(video_quantize_dark_tint_stays_a_colour) {
+    // a dim purple (the gradient look in a shadow) must not collapse into the grey ramp
+    VideoFrame f;
+    f.w = 8; f.h = 8;
+    f.rgb.assign(8 * 8 * 3, 0);
+    for (size_t i = 0; i < 64; ++i) { f.rgb[i * 3] = 40; f.rgb[i * 3 + 1] = 12; f.rgb[i * 3 + 2] = 58; }
+    std::vector<uint8_t> hue, level;
+    VideoPlayer::quantize(f, hue, level);
+    int cube = 0;
+    for (auto h : hue) if (h < 216) ++cube;
+    CHECK(cube >= 48);
 }
 
 TEST(video_braille_cells_follow_brightness) {
@@ -206,4 +275,334 @@ TEST(video_resample_scales_a_frame) {
     CHECK_EQ(o.rgb.size(), static_cast<size_t>(8 * 4 * 3));
     CHECK_EQ(o.rgb[(0 * 8 + 7) * 3], 180);
     CHECK_EQ(o.rgb[(3 * 8 + 0) * 3], 0);
+}
+
+static VideoFrame fx_gradient(int w, int h) {
+    VideoFrame f;
+    f.w = w; f.h = h; f.rgb.resize(static_cast<size_t>(w) * h * 3);
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            uint8_t* p = &f.rgb[(static_cast<size_t>(y) * w + x) * 3];
+            p[0] = static_cast<uint8_t>(40 + 180 * x / w); p[1] = static_cast<uint8_t>(40 + 180 * y / h); p[2] = 160;
+        }
+    return f;
+}
+static long fx_sum(const VideoFrame& f) { long s = 0; for (uint8_t v : f.rgb) s += v; return s; }
+
+TEST(video_fx_off_changes_nothing_and_others_keep_the_size) {
+    const VideoFrame src = fx_gradient(200, 120);
+    VideoFrame a = src;
+    VideoPlayer::apply_fx(a, 0, 1.0);
+    CHECK(a.rgb == src.rgb);
+    for (int fx = 1; fx < kVideoFxCount; ++fx) {
+        VideoFrame b = src;
+        VideoPlayer::apply_fx(b, fx, 1.0);
+        CHECK_EQ(b.w, 200); CHECK_EQ(b.h, 120);
+        CHECK_EQ(b.rgb.size(), src.rgb.size());
+        CHECK(b.rgb != src.rgb);
+    }
+}
+
+TEST(video_fx_is_deterministic_and_moves_with_the_time) {
+    const VideoFrame src = fx_gradient(200, 120);
+    for (int fx = 1; fx < kVideoFxCount; ++fx) {
+        VideoFrame a = src, b = src;
+        VideoPlayer::apply_fx(a, fx, 3.2);
+        VideoPlayer::apply_fx(b, fx, 3.2);
+        CHECK(a.rgb == b.rgb);   // the same time, the same picture (a paused video stands still)
+    }
+    VideoFrame v1 = src, v2 = src;   // vhs noise / wobble differ from frame to frame
+    VideoPlayer::apply_fx(v1, 3, 1.00);
+    VideoPlayer::apply_fx(v2, 3, 1.40);
+    CHECK(v1.rgb != v2.rgb);
+}
+
+TEST(video_scanlines_darken_the_gaps_between_the_lines) {
+    VideoFrame f;
+    f.w = 40; f.h = 40; f.rgb.assign(40 * 40 * 3, 200);
+    VideoPlayer::apply_fx(f, 1, 0.0);
+    long even = 0, odd = 0;
+    for (int y = 0; y < 40; ++y) for (int x = 0; x < 40; ++x) (y % 2 ? odd : even) += f.rgb[(static_cast<size_t>(y) * 40 + x) * 3];
+    CHECK(odd < even);   // (a gap row is darker than a beam row)
+    CHECK(fx_sum(f) < 200L * 40 * 40 * 3 * 11 / 10);   // and the picture does not blow up
+}
+
+TEST(video_crt_has_dark_corners) {
+    VideoFrame f;
+    f.w = 240; f.h = 160; f.rgb.assign(240 * 160 * 3, 200);
+    VideoPlayer::apply_fx(f, 2, 0.0);
+    auto lum = [&](int x0, int y0) { long s = 0; for (int y = y0; y < y0 + 8; ++y) for (int x = x0; x < x0 + 8; ++x) s += f.rgb[(static_cast<size_t>(y) * 240 + x) * 3 + 1]; return s; };
+    CHECK(lum(0, 0) < lum(116, 76));   // the corner is darker than the middle
+}
+
+TEST(video_glitch_has_bursts_small_particles_and_calm_frames) {
+    const VideoFrame src = fx_gradient(240, 120);
+    int bursts = 0, calm = 0, particles = 0;
+    for (int tick = 0; tick < 200; ++tick) {   // (25 frames per second: 8 seconds)
+        VideoFrame f = src;
+        VideoPlayer::apply_fx(f, 4, tick / 25.0 + 0.001);
+        long changed = 0;
+        for (size_t i = 0; i < f.rgb.size(); i += 3) {
+            const int d = std::abs(int(f.rgb[i]) - int(src.rgb[i])) + std::abs(int(f.rgb[i + 1]) - int(src.rgb[i + 1])) + std::abs(int(f.rgb[i + 2]) - int(src.rgb[i + 2]));
+            if (d > 150) ++changed;
+        }
+        const double ratio = static_cast<double>(changed) / (240.0 * 120.0);
+        if (ratio > 0.05) ++bursts;
+        else if (ratio > 0.0005) ++particles;   // a few small blocks / specks only
+        else ++calm;
+    }
+    CHECK(bursts > 0);
+    CHECK(particles > 0);      // the small glitch particles between the bursts
+    CHECK(calm > 0);           // and frames that are only scanlines
+    CHECK(bursts < 100);       // (a burst is not the normal state)
+}
+
+TEST(video_pixel_makes_flat_blocks_and_keeps_the_picture) {
+    const VideoFrame src = fx_gradient(240, 120);
+    VideoFrame f = src;
+    VideoPlayer::apply_fx(f, 5, 0.0);
+    CHECK(f.w == 240 && f.h == 120);
+    CHECK(f.rgb != src.rgb);
+    int equal_neighbours = 0, total = 0;   // neighbours inside a block are equal: most horizontal pairs
+    for (int y = 0; y < 120; ++y)
+        for (int x = 0; x + 1 < 240; ++x, ++total)
+            if (std::memcmp(&f.rgb[(y * 240 + x) * 3], &f.rgb[(y * 240 + x + 1) * 3], 3) == 0) ++equal_neighbours;
+    CHECK(equal_neighbours > total / 2);
+    CHECK(std::labs(fx_sum(f) - fx_sum(src)) < fx_sum(src) / 10);   // the same brightness, roughly
+}
+
+TEST(video_gradient_wave_uses_the_given_colours_and_moves) {
+    VideoFrame src = fx_gradient(240, 120);
+    VideoFxGradient g;
+    for (int i = 0; i < 3; ++i) { g.c[i][0] = 255; g.c[i][1] = 0; g.c[i][2] = 0; }   // all stops red: the result is red-dominated
+    VideoFrame f = src;
+    VideoPlayer::apply_fx(f, 6, 0.0, false, &g);
+    long r = 0, gr = 0;
+    for (size_t i = 0; i < f.rgb.size(); i += 3) { r += f.rgb[i]; gr += f.rgb[i + 1]; }
+    CHECK(r > gr * 2);
+    VideoFrame a = src, b = src;
+    VideoPlayer::apply_fx(a, 6, 0.0);
+    VideoPlayer::apply_fx(b, 6, 3.0);
+    CHECK(a.rgb != b.rgb);                                    // the wave travels
+    VideoFrame c = src, d = src;
+    VideoPlayer::apply_fx(c, 6, 1.5); VideoPlayer::apply_fx(d, 6, 1.5);
+    CHECK(c.rgb == d.rgb);                                    // and is deterministic
+}
+
+TEST(video_fx_names_round_trip) {
+    for (int i = 0; i < kVideoFxCount; ++i) CHECK(video_fx_from(video_fx_name(i)) == video_fx_canon(i));   // (Dither is no longer offered: it reads as Dither B/W)
+    CHECK(video_fx_from("dither") == 21);
+    CHECK(video_fx_from("GRADIENT") == 6);
+    CHECK(video_fx_from("nonsense") == 0);
+}
+
+TEST(video_fit_cover_covers_and_crop_cuts) {
+    VideoPlayer v;   // (no source: the proportions fall back to 16:9)
+    int w = 0, h = 0;
+    v.fit_cover(100, 100, 1.0, w, h);
+    CHECK(w >= 100 && h >= 100);
+    CHECK(w > h);                              // 16:9 covering a square: the width grows
+    v.fit_cover(320, 90, 1.0, w, h);
+    CHECK(w >= 320 && h >= 90);
+    const VideoFrame f = fx_gradient(10, 6);
+    const VideoFrame c = VideoPlayer::crop(f, 2, 1, 6, 4);
+    CHECK_EQ(c.w, 6); CHECK_EQ(c.h, 4);
+    CHECK_EQ(c.rgb[0], f.rgb[(1 * 10 + 2) * 3]);
+    const VideoFrame big = VideoPlayer::crop(f, 8, 4, 50, 50);   // clamped to the frame
+    CHECK_EQ(big.w, 2); CHECK_EQ(big.h, 2);
+}
+
+// (A look at the effects: MOUSIKI_FX_DUMP=<dir> writes one PPM per effect from the raw frame <dir>/in.rgb of 640x360.)
+TEST(video_fx_dump_for_a_look) {
+    const char* d = std::getenv("MOUSIKI_FX_DUMP");
+    if (!d) return;
+    std::ifstream in(std::string(d) + "/in.rgb", std::ios::binary);
+    VideoFrame base; base.w = 640; base.h = 360; base.rgb.resize(640 * 360 * 3);
+    in.read(reinterpret_cast<char*>(base.rgb.data()), static_cast<std::streamsize>(base.rgb.size()));
+    VideoFrame prev = base;   // (for the interlace look: the same picture, 10 pixels to the side)
+    for (int y = 0; y < 360; ++y)
+        for (int x = 0; x < 640; ++x)
+            for (int k = 0; k < 3; ++k) prev.rgb[(y * 640 + x) * 3 + k] = base.rgb[(y * 640 + std::max(0, x - 10)) * 3 + k];
+    for (int fx = 0; fx < kVideoFxCount + 2; ++fx) {   // kVideoFxCount: chromatic aberration, +1: grade (contrast 60, colours 30)
+        VideoFrame f = base;
+        VideoLook look;
+        look.fx = fx < kVideoFxCount ? fx : 0;
+        if (fx == kVideoFxCount) look.chroma = 3;
+        if (fx == kVideoFxCount + 1) { look.contrast = 60; look.colors = 30; }
+        VideoPlayer::apply_look(f, look, 9.04, false, &prev);
+        std::ofstream o(std::string(d) + "/fx" + std::to_string(fx) + ".ppm", std::ios::binary);
+        o << "P6\n640 360\n255\n";
+        o.write(reinterpret_cast<const char*>(f.rgb.data()), static_cast<std::streamsize>(f.rgb.size()));
+    }
+}
+
+TEST(video_quiet_glitch_has_fewer_big_hits_and_more_small_ones) {
+    const VideoFrame src = fx_gradient(240, 120);
+    int bursts[2] = {0, 0}, particles[2] = {0, 0};
+    const int fxs[2] = {4, 7};
+    for (int k = 0; k < 2; ++k)
+        for (int tick = 0; tick < 400; ++tick) {
+            VideoFrame f = src;
+            VideoPlayer::apply_fx(f, fxs[k], tick / 25.0 + 0.001);
+            long changed = 0;
+            for (size_t i = 0; i < f.rgb.size(); i += 3) {
+                const int d = std::abs(int(f.rgb[i]) - int(src.rgb[i])) + std::abs(int(f.rgb[i + 1]) - int(src.rgb[i + 1])) + std::abs(int(f.rgb[i + 2]) - int(src.rgb[i + 2]));
+                if (d > 150) ++changed;
+            }
+            const double ratio = static_cast<double>(changed) / (240.0 * 120.0);
+            if (ratio > 0.05) ++bursts[k];
+            else if (ratio > 0.0005) ++particles[k];
+        }
+    CHECK(bursts[1] < bursts[0]);        // fewer big hits
+    CHECK(particles[1] > particles[0]);  // more small ones
+}
+
+TEST(video_buffer_seconds_follow_the_size_and_the_resolution) {
+    CHECK(video_buffer_seconds(64, 0, false) > video_buffer_seconds(32, 0, false));
+    CHECK(video_buffer_seconds(32, 2, false) < video_buffer_seconds(32, 0, false));
+    CHECK(video_buffer_seconds(256, 0, false) >= 1);
+}
+
+TEST(video_buffer_limit_does_not_stall_the_decoder) {
+    const std::string file = make_test_video("buffer_small.mp4", 3);
+    if (file.empty()) return;
+    VideoPlayer v;
+    CHECK(v.set_source(file));
+    v.set_buffer_mb(1);   // smaller than a few frames: the minimum of frames is kept
+    const VideoFrame* f = nullptr;
+    for (int i = 0; i < 80 && !f; ++i) { f = v.frame_for(0.5, 160, 90, true); std::this_thread::sleep_for(std::chrono::milliseconds(50)); }
+    CHECK(f != nullptr);
+}
+
+static long fx_distinct_colours(const VideoFrame& f) {
+    std::set<uint32_t> s;
+    for (size_t i = 0; i + 2 < f.rgb.size(); i += 3) s.insert((uint32_t(f.rgb[i]) << 16) | (uint32_t(f.rgb[i + 1]) << 8) | f.rgb[i + 2]);
+    return static_cast<long>(s.size());
+}
+
+TEST(video_new_looks_do_what_they_say) {
+    const VideoFrame src = fx_gradient(240, 120);
+    {   // phosphor: green on black, amber is red-heavy
+        VideoFrame g = src, a = src;
+        VideoPlayer::apply_fx(g, 8, 1.0); VideoPlayer::apply_fx(a, 9, 1.0);
+        long gr = 0, gg = 0, ar = 0, ab = 0;
+        for (size_t i = 0; i < g.rgb.size(); i += 3) { gr += g.rgb[i]; gg += g.rgb[i + 1]; ar += a.rgb[i]; ab += a.rgb[i + 2]; }
+        CHECK(gg > gr * 2);
+        CHECK(ar > ab * 3);
+    }
+    {   // dither: two inks; game boy: four; ega 16: at most sixteen
+        VideoFrame d = src, gb = src, ega = src;
+        VideoPlayer::apply_fx(d, 11, 1.0); VideoPlayer::apply_fx(gb, 12, 1.0); VideoPlayer::apply_fx(ega, 13, 1.0);
+        CHECK_EQ(fx_distinct_colours(d), 2L);
+        CHECK(fx_distinct_colours(gb) <= 4L + 4L);   // (the faint LCD gap darkens the edges of a block: a second set of the four)
+        CHECK(fx_distinct_colours(ega) <= 16L);
+        CHECK(fx_distinct_colours(ega) > 4L);
+    }
+    {   // interlace: with a frame before, the odd lines come from it (the even ones stay)
+        VideoFrame prev = src;
+        for (uint8_t& v : prev.rgb) v = static_cast<uint8_t>(255 - v);
+        VideoFrame f = src;
+        VideoPlayer::apply_fx(f, 17, 1.0, false, nullptr, &prev);
+        const size_t stride = 240 * 3;
+        int near_prev = 0, near_cur = 0;
+        for (int y = 10; y < 110; ++y) {
+            const int v = f.rgb[y * stride + 90], c = src.rgb[y * stride + 90], p = prev.rgb[y * stride + 90];
+            if (std::abs(v - p) < std::abs(v - c)) ++near_prev; else ++near_cur;
+        }
+        CHECK(near_prev > 30 && near_cur > 30);
+    }
+    {   // halftone: paper and ink (many pixels bright, many dark), and no neon / bloom surprise
+        VideoFrame h = src;
+        VideoPlayer::apply_fx(h, 10, 1.0);
+        int light = 0, dark = 0;
+        for (size_t i = 0; i < h.rgb.size(); i += 3) { const int l = (h.rgb[i] + h.rgb[i + 1] + h.rgb[i + 2]) / 3; if (l > 170) ++light; else if (l < 110) ++dark; }
+        CHECK(light > 0 && dark > 0);
+    }
+    {   // neon edge: mostly dark where the picture is smooth
+        VideoFrame n = src;
+        VideoPlayer::apply_fx(n, 16, 1.0);
+        CHECK(fx_sum(n) < fx_sum(src) / 3);
+    }
+    {   // neon edge gradient: grey picture under coloured outlines (not black, not the plain neon); game boy low-res: four shades in bigger blocks
+        VideoFrame n = src, ng = src, lo = src, hi = src;
+        VideoPlayer::apply_fx(n, 16, 1.0); VideoPlayer::apply_fx(ng, 19, 1.0, false, nullptr);
+        CHECK(fx_sum(ng) > fx_sum(n));
+        CHECK(ng.rgb != n.rgb);
+        VideoPlayer::apply_fx(lo, 18, 1.0); VideoPlayer::apply_fx(hi, 12, 1.0);
+        CHECK(fx_distinct_colours(lo) <= 8L);
+        CHECK(lo.rgb != hi.rgb);   // two different grids
+        VideoFrame gb = src;   // the high-res gradient: the same grid, but not the four greens
+        VideoPlayer::apply_fx(gb, 20, 1.0);
+        CHECK(gb.rgb != hi.rgb);
+        CHECK(video_fx_from("game boy high-res gradient") == 20 && video_fx_uses_gradient(20));
+    }
+    {   // bloom adds light, film keeps the average brightness roughly
+        VideoFrame b = src, fm = src;
+        VideoPlayer::apply_fx(b, 14, 1.0); VideoPlayer::apply_fx(fm, 15, 1.0);
+        CHECK(fx_sum(b) >= fx_sum(src));
+        CHECK(std::labs(fx_sum(fm) - fx_sum(src)) < fx_sum(src) / 3);
+    }
+}
+
+TEST(video_grade_contrast_colours_and_chromatic_aberration) {
+    const VideoFrame src = fx_gradient(240, 120);
+    {   // colours 0 = greyscale, 100 = untouched
+        VideoFrame g = src;
+        VideoPlayer::apply_grade(g, 0, 0, 0);
+        bool grey = true;
+        for (size_t i = 0; i < g.rgb.size(); i += 3) if (std::abs(g.rgb[i] - g.rgb[i + 1]) > 1 || std::abs(g.rgb[i + 1] - g.rgb[i + 2]) > 1) grey = false;
+        CHECK(grey);
+        VideoFrame same = src;
+        VideoPlayer::apply_grade(same, 0, 100, 0);
+        CHECK(same.rgb == src.rgb);
+    }
+    {   // contrast spreads the values
+        VideoFrame c = src;
+        VideoPlayer::apply_grade(c, 100, 100, 0);
+        int lo = 255, hi = 0, lo0 = 255, hi0 = 0;
+        for (size_t i = 0; i < c.rgb.size(); ++i) { lo = std::min<int>(lo, c.rgb[i]); hi = std::max<int>(hi, c.rgb[i]); lo0 = std::min<int>(lo0, src.rgb[i]); hi0 = std::max<int>(hi0, src.rgb[i]); }
+        CHECK(hi - lo > hi0 - lo0);
+    }
+    {   // chromatic aberration: green stays, red and blue move, the middle hardly changes, a corner does
+        VideoFrame c = src;
+        VideoPlayer::apply_grade(c, 0, 100, 3);
+        bool green_same = true;
+        for (size_t i = 1; i < c.rgb.size(); i += 3) if (c.rgb[i] != src.rgb[i]) green_same = false;
+        CHECK(green_same);
+        const size_t mid = (60 * 240 + 120) * 3, corner = (2 * 240 + 2) * 3;
+        CHECK(std::abs(int(c.rgb[mid]) - int(src.rgb[mid])) <= 2);
+        CHECK(std::abs(int(c.rgb[corner]) - int(src.rgb[corner])) + std::abs(int(c.rgb[corner + 2]) - int(src.rgb[corner + 2])) >= 1);
+        VideoFrame l1 = src, l3 = src;
+        VideoPlayer::apply_grade(l1, 0, 100, 1); VideoPlayer::apply_grade(l3, 0, 100, 3);
+        long d1 = 0, d3 = 0;
+        for (size_t i = 0; i < src.rgb.size(); ++i) { d1 += std::abs(int(l1.rgb[i]) - int(src.rgb[i])); d3 += std::abs(int(l3.rgb[i]) - int(src.rgb[i])); }
+        CHECK(d3 > d1);
+    }
+}
+
+TEST(video_look_signature_changes_with_every_part) {
+    VideoLook a, b;
+    CHECK(!a.active());
+    b = a; b.fx = 3; CHECK(a.sig() != b.sig());
+    b = a; b.contrast = 10; CHECK(a.sig() != b.sig() && b.active());
+    b = a; b.colors = 0; CHECK(a.sig() != b.sig() && b.active());
+    b = a; b.chroma = 2; CHECK(a.sig() != b.sig() && b.active());
+    CHECK_EQ(chroma_from("strong"), 3);
+    CHECK_EQ(video_fx_from("quiet glitch"), 7);
+    CHECK_EQ(video_fx_from("neon edge"), 16);
+    CHECK_EQ(video_fx_from("game boy"), 12);   // the old name
+    CHECK_EQ(video_fx_from("game boy low-res"), 18);
+    CHECK_EQ(video_fx_from("neon edge gradient"), 19);
+}
+
+TEST(cover_chromatic_aberration_moves_red_and_blue) {
+    CoverImage c;
+    c.w = 120; c.h = 120; c.key = "chroma-test";
+    c.rgb.resize(120 * 120 * 3); c.alpha.assign(120 * 120, 255); c.level.assign(120 * 120, 128);
+    for (int y = 0; y < 120; ++y) for (int x = 0; x < 120; ++x) { c.rgb[(y * 120 + x) * 3] = x < 60 ? 255 : 0; c.rgb[(y * 120 + x) * 3 + 1] = 128; c.rgb[(y * 120 + x) * 3 + 2] = x < 60 ? 0 : 255; }
+    const CoverRgb& plain = cover_scaled_rgb(c, 120, 120, 0, 0);
+    const CoverRgb copy = plain;
+    const CoverRgb& shifted = cover_scaled_rgb(c, 120, 120, 0, 3);
+    CHECK(copy.rgb != shifted.rgb);
+    CHECK(copy.w == shifted.w && copy.h == shifted.h);
 }

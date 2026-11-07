@@ -2074,13 +2074,17 @@ int radio_main(int argc, char** argv) {
             }
             if (ui.model.overlay == 7 && !ui.model.cheat_open) {                 // the MENUS index (<)
                 int& orow = ui.model.overlay_row;
+                if (cfg.menu_classic) orow = menus_classic_sel(orow);
                 if (k == 3 || k == kKeyCtrlC) { ui.model.overlay = 0; running = false; continue; }
                 if (arrow) {
-                    if (k == 'A' || k == 'B' || k == 'C' || k == 'D') orow = menus_move(orow, k == 'A' ? 0 : k == 'B' ? 1 : k == 'D' ? 2 : 3);
+                    if (k == 'A' || k == 'B' || k == 'C' || k == 'D') orow = menus_move(orow, k == 'A' ? 0 : k == 'B' ? 1 : k == 'D' ? 2 : 3, cfg.menu_classic);
                     continue;
                 }
+                if (k == 'T') { cfg.menu_classic = !cfg.menu_classic; if (cfg.menu_classic) orow = menus_classic_sel(orow); settings_save(); continue; }   // SHIFT+t: the tree or the classic boxes
                 if (k == 13 || k == 10) {   // open it: close the index, then handle the entry's key
-                    const int chosen = key_of(cfg, kMenusEntries[std::clamp(orow, 0, kMenusCount - 1)].id);
+                    const auto& node = menus_node(orow);
+                    if (!node.action) { orow = menus_move(orow, 1); continue; }   // a group: go in
+                    const int chosen = key_of(cfg, node.action);
                     ui.model.overlay = 0;
                     if (chosen > 0) menus_inject = chosen;
                     continue;
@@ -2205,11 +2209,20 @@ int radio_main(int argc, char** argv) {
                     else if (k == 'r' || k == 'R') { cfg.scope_metrics = ScopeMetrics(); settings_save(); }
                     continue;
                 }
+                if (arrow && (k == 'C' || k == 'D')) { osci_adjust(cfg, kOrStyle, k == 'C' ? +1 : -1); settings_save(); continue; }   // image <-> braille
+                if (arrow && (k == 'A' || k == 'B')) { osci_adjust(cfg, kOrMusic, k == 'B' ? +1 : -1); settings_save(); continue; }   // oscilloscope music mode
                 if (!arrow && k == 27) { um.scope_big = false; out_clear_next = true; continue; }
                 if (!arrow && k == 'P') { um.scope_metrics_open = true; continue; }                                    // SHIFT+p: grid metrics
                 if (!arrow && k == 'A') { cfg.scope_grid = !cfg.scope_grid; settings_save(); continue; }               // SHIFT+a: axes / grid
                 if (!arrow && k == 'V') { cfg.scope_values = !cfg.scope_values; settings_save(); continue; }               // SHIFT+v: axis values
                 if (!arrow && k == 'C') { um.scope_big_color_edit = true; um.scope_big_color_buf.clear(); continue; }   // SHIFT+c: grid colour
+            }
+            if (ui.model.spectro_full && ui.model.overlay == 0 && !ui.model.cheat_open && arrow && (k == 'A' || k == 'B' || k == 'C' || k == 'D')) {
+                spectro_adjust(cfg.spectro, (k == 'C' || k == 'D') ? kSrStyle : kSrView, (k == 'C' || k == 'B') ? +1 : -1);   // image <-> braille, spectrogram <-> waterfall
+                cfg.spectro_sync();
+                settings_save();
+                out_clear_next = true;
+                continue;
             }
             if (ui.model.spectro_full && ui.model.overlay == 0 && !ui.model.cheat_open && k == 27 && !arrow) {   // ESC leaves the full screen
                 ui.model.spectro_full = false;
@@ -2859,7 +2872,7 @@ int radio_main(int argc, char** argv) {
                 case 'R': engine.reconnect(); break;                          // also for a Radio Browser station that is not in the list
                 case '/': set_search_focus(true); break;
                 case '?': ui.model.cheat_open = true; ui.model.cheat_scroll = 0; break;
-                case '<': ui.model.overlay = 7; break;   // the MENUS index: every menu and overlay with its key
+                case '<': ui.model.overlay = 7; ui.model.overlay_row = 1; break;   // the MENUS index: every menu and overlay with its key
                 case 'W':                         // Shift+W: the help wizard, as in the music player
                     wizard_open_now();
                     break;

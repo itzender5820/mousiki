@@ -69,10 +69,33 @@ void quantize_colours(const std::vector<unsigned char>& rgb, const std::vector<u
 }
 
 
-const CoverScaled& cover_scaled(const CoverImage& c, int max_w, int max_h, bool colour, int contrast) {
+// Chromatic aberration: the red plane is scaled up a little, the blue one down, round the middle -- more and more towards the corners
+// (the same lens as the video's, VideoPlayer::apply_grade).
+static void chroma_planes(std::vector<unsigned char>& red, std::vector<unsigned char>& blue, int w, int h, int level) {
+    if (level <= 0 || w < 4 || h < 4 || red.size() < static_cast<size_t>(w) * h || blue.size() < static_cast<size_t>(w) * h) return;
+    const float k = level == 1 ? 0.0045f : level == 2 ? 0.009f : 0.016f;
+    const std::vector<unsigned char> r0 = red, b0 = blue;
+    const float cx = (w - 1) * 0.5f, cy = (h - 1) * 0.5f;
+    auto bil = [&](const std::vector<unsigned char>& p, float x, float y) {
+        x = std::clamp(x, 0.0f, static_cast<float>(w - 1)); y = std::clamp(y, 0.0f, static_cast<float>(h - 1));
+        const int x0 = static_cast<int>(x), y0 = static_cast<int>(y), x1 = std::min(w - 1, x0 + 1), y1 = std::min(h - 1, y0 + 1);
+        const float tx = x - static_cast<float>(x0), ty = y - static_cast<float>(y0);
+        auto v = [&](int xx, int yy) { return static_cast<float>(p[static_cast<size_t>(yy) * w + xx]); };
+        return static_cast<unsigned char>(std::clamp((v(x0, y0) * (1 - tx) + v(x1, y0) * tx) * (1 - ty) + (v(x0, y1) * (1 - tx) + v(x1, y1) * tx) * ty + 0.5f, 0.0f, 255.0f));
+    };
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            const float dx = (x - cx) / std::max(1.0f, cx), dy = (y - cy) / std::max(1.0f, cy);
+            const float g = 1.0f + k * (0.4f + 0.6f * (dx * dx + dy * dy));   // (covers are small: a little less than the video's reach)
+            red[static_cast<size_t>(y) * w + x] = bil(r0, cx + (x - cx) * g, cy + (y - cy) * g);
+            blue[static_cast<size_t>(y) * w + x] = bil(b0, cx + (x - cx) / g, cy + (y - cy) / g);
+        }
+}
+
+const CoverScaled& cover_scaled(const CoverImage& c, int max_w, int max_h, bool colour, int contrast, int chroma) {
     static SizeCache<CoverScaled, 4> cache;
     contrast = std::clamp(contrast, 0, 100);
-    const std::string key = c.key + "|" + std::to_string(max_w) + "x" + std::to_string(max_h) + (colour ? "c" : "g") + std::to_string(contrast);
+    const std::string key = c.key + "|" + std::to_string(max_w) + "x" + std::to_string(max_h) + (colour ? "c" : "g") + std::to_string(contrast) + (colour && chroma > 0 ? "x" + std::to_string(chroma) : std::string());
     // more contrast: values move away from the middle (0 % = unchanged, 100 % = 2.5 times the distance from the middle grey)
     const double factor = 1.0 + contrast / 100.0 * 1.5;
     auto punch = [&](unsigned char v) { return static_cast<unsigned char>(std::clamp(static_cast<int>(std::lround((v - 127.5) * factor + 127.5)), 0, 255)); };
@@ -96,6 +119,7 @@ const CoverScaled& cover_scaled(const CoverImage& c, int max_w, int max_h, bool 
         chn[k] = BookArt::scale_grey(plane, c.w, c.h, max_w, max_h, ow, oh);
     }
     cs.w = ow; cs.h = oh;
+    chroma_planes(chn[0], chn[2], ow, oh, chroma);
     const size_t m = static_cast<size_t>(ow) * oh;
     std::vector<unsigned char> rgb(m * 3);
     for (size_t i = 0; i < m; ++i) for (int k = 0; k < 3; ++k) rgb[i * 3 + static_cast<size_t>(k)] = contrast > 0 ? punch(chn[k][i]) : chn[k][i];
@@ -104,10 +128,10 @@ const CoverScaled& cover_scaled(const CoverImage& c, int max_w, int max_h, bool 
     return cs;
 }
 
-const CoverRgb& cover_scaled_rgb(const CoverImage& c, int max_w, int max_h, int contrast) {
+const CoverRgb& cover_scaled_rgb(const CoverImage& c, int max_w, int max_h, int contrast, int chroma) {
     static SizeCache<CoverRgb, 3> cache;
     contrast = std::clamp(contrast, 0, 100);
-    const std::string key = c.key + "|" + std::to_string(max_w) + "x" + std::to_string(max_h) + "|" + std::to_string(contrast);
+    const std::string key = c.key + "|" + std::to_string(max_w) + "x" + std::to_string(max_h) + "|" + std::to_string(contrast) + (chroma > 0 ? "x" + std::to_string(chroma) : std::string());
     if (const CoverRgb* hit = cache.find(key)) return *hit;
     const double factor = 1.0 + contrast / 100.0 * 1.5;
     CoverRgb& cs = cache.fresh();
@@ -122,6 +146,7 @@ const CoverRgb& cover_scaled_rgb(const CoverImage& c, int max_w, int max_h, int 
     }
     cs.alpha = BookArt::scale_grey(c.alpha, c.w, c.h, max_w, max_h, ow, oh);
     cs.w = ow; cs.h = oh;
+    chroma_planes(chn[0], chn[2], ow, oh, chroma);
     const size_t m = static_cast<size_t>(ow) * oh;
     cs.rgb.resize(m * 3);
     for (size_t i = 0; i < m; ++i)
@@ -525,8 +550,8 @@ std::vector<std::string>& preview_order() {
     return v;
 }
 
-Preview& preview_slot(const std::string& file, bool embedded) {
-    const std::string key = std::string(embedded ? "E|" : "F|") + file;
+Preview& preview_slot(const std::string& file, bool embedded, bool video = false) {
+    const std::string key = std::string(video ? "V|" : embedded ? "E|" : "F|") + file;
     auto& m = previews();
     auto it = m.find(key);
     if (it != m.end()) return it->second;
@@ -534,10 +559,11 @@ Preview& preview_slot(const std::string& file, bool embedded) {
     if (order.size() >= 32) { m.erase(order.front()); order.erase(order.begin()); }   // (a running read keeps its own state alive)
     order.push_back(key);
     Preview p;
-    p.fut = std::async(std::launch::async, [file, embedded, key]() {
+    p.fut = std::async(std::launch::async, [file, embedded, video, key]() {
         CoverImage d;
         d.key = key;
-        decode_cover_file(path_from_utf8(file), embedded, d);
+        if (video) decode_video_snapshot(path_from_utf8(file), d);   // a frame of the video (a tenth into it)
+        else decode_cover_file(path_from_utf8(file), embedded, d);
         return d;
     }).share();
     return m.emplace(key, std::move(p)).first->second;
@@ -550,6 +576,18 @@ const CoverImage* preview_cover(const std::string& file, bool embedded) {
     if (p.fut.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return nullptr;
     const CoverImage& d = p.fut.get();
     return d.ok ? &d : nullptr;
+}
+
+const CoverImage* preview_video_frame(const std::string& video) {
+    Preview& p = preview_slot(video, false, true);
+    if (p.fut.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return nullptr;
+    const CoverImage& d = p.fut.get();
+    return d.ok ? &d : nullptr;
+}
+
+bool preview_video_frame_loading(const std::string& video) {
+    Preview& p = preview_slot(video, false, true);
+    return p.fut.wait_for(std::chrono::seconds(0)) != std::future_status::ready;
 }
 
 bool preview_cover_loading(const std::string& file, bool embedded) {

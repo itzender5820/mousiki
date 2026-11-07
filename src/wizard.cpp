@@ -102,6 +102,7 @@ struct Page {
     std::string border_parent, border_main;       // the chapter titles of the top border
     std::string group;                            // the main chapter: "0" = welcome + contents, "2.3" for 2.3.x
     bool welcome = false;                         // one of the two welcome pages (drawn with the disk)
+    bool first_start = false;                     // [[First Start]]: follows the first-start greeting once
 };
 
 struct Entry {
@@ -111,6 +112,7 @@ struct Entry {
     std::string text;       // "Supported Formats"
     bool roman = false;
     int target = -1;        // page it leads to
+    bool header = false;    // a heading line ([[Header]] at its end): not selectable, no page
 };
 
 struct Doc {
@@ -313,6 +315,7 @@ void build_doc(Doc& d, const std::string& text) {
             continue;
         }
         if (!in_page) continue;
+        if (ascii_lower_str(t) == "[[first start]]") { cur.first_start = true; continue; }
         cur.raw.push_back(rtrim(line));
     }
     if (in_page) finish_page(d, cur);
@@ -343,14 +346,16 @@ void build_doc(Doc& d, const std::string& text) {
             e.key = num;
             e.text = rest;
             e.roman = roman;
-            p.line_entry[li] = static_cast<int>(d.entries.size());
+            e.header = ascii_lower_str(p.raw[li]).find("[[header]]") != std::string::npos;
+            p.line_entry[li] = e.header ? -1 : static_cast<int>(d.entries.size());
             d.entries.push_back(e);
         }
     }
 
 
-    // where an entry leads: the page with its number, else the page with its title, else the next entry's page
+    // where an entry leads: the page with its number, else the page with its title, else the next entry's page (a heading leads nowhere)
     for (Entry& e : d.entries) {
+        if (e.header) continue;
         if (!e.roman)
             for (size_t pi = 0; pi < d.pages.size() && e.target < 0; ++pi)
                 if (!d.pages[pi].toc && !d.pages[pi].number.empty() && d.pages[pi].number == e.key) e.target = static_cast<int>(pi);
@@ -358,16 +363,14 @@ void build_doc(Doc& d, const std::string& text) {
         for (size_t pi = 0; pi < d.pages.size() && e.target < 0; ++pi)
             if (!d.pages[pi].toc && d.pages[pi].number.empty() && !want.empty() && d.pages[pi].norm_title == want) e.target = static_cast<int>(pi);
     }
-    std::vector<char> own(d.entries.size(), 0);   // the entries that found a page of their own
-    for (size_t i = 0; i < d.entries.size(); ++i) own[i] = d.entries[i].target >= 0;
-    for (int i = static_cast<int>(d.entries.size()) - 2; i >= 0; --i)
-        if (d.entries[static_cast<size_t>(i)].target < 0) d.entries[static_cast<size_t>(i)].target = d.entries[static_cast<size_t>(i) + 1].target;
-    // A chapter without a page of its own (3.1 "The Radio Main UI") is the first chapter of a part whose intro page ("RADIO PLAYER MODE")
-    // sits right in front of the chapter's first page: choosing the chapter shows that intro page, not 9.1 right away.
-    for (size_t i = 1; i < d.entries.size(); ++i) {
-        Entry& e = d.entries[i];
-        const Entry& prev = d.entries[i - 1];
-        if (!own[i] && !e.roman && prev.roman && own[i - 1] && e.target >= 1 && prev.target == e.target - 1) e.target = prev.target;
+    {
+        int next = -1;
+        for (int i = static_cast<int>(d.entries.size()) - 1; i >= 0; --i) {
+            Entry& e = d.entries[static_cast<size_t>(i)];
+            if (e.header) continue;
+            if (e.target < 0) e.target = next;
+            else next = e.target;
+        }
     }
 
     // the chapter titles of the top border: "2 MUSIC PLAYER MODE" and "2.1 MAIN UI" for a page numbered 2.1.x
@@ -402,7 +405,7 @@ void build_doc(Doc& d, const std::string& text) {
         Page& p = d.pages[pi];
         p.welcome = pi < 2 && !p.toc;
         if (p.toc || static_cast<int>(pi) <= last_toc) p.group = "0";
-        else if (!p.number.empty()) p.group = chapter_key(p.number);
+        else if (!p.number.empty()) p.group = std::count(p.number.begin(), p.number.end(), '.') == 1 ? p.number.substr(0, p.number.find('.')) : chapter_key(p.number);   // ("1.2": a page of part 1)
         else if (!p.border_main.empty()) p.group = p.border_main.substr(0, p.border_main.find(' '));
         else p.group = (prev_group.empty() || prev_group == "0") ? "p" + std::to_string(pi) : prev_group;
         prev_group = p.group;
@@ -471,7 +474,27 @@ int entry_for_page(int page) {
 
 int first_entry_on_page(int page) {
     const Doc& d = doc();
-    for (size_t k = 0; k < d.entries.size(); ++k) if (d.entries[k].page == page) return static_cast<int>(k);
+    for (size_t k = 0; k < d.entries.size(); ++k) if (d.entries[k].page == page && !d.entries[k].header) return static_cast<int>(k);
+    return -1;
+}
+
+// The selectable entry `steps` entries further (headings are skipped); stays where it is at the ends.
+int step_entry(int from, int dir, int steps) {
+    const Doc& d = doc();
+    const int n = static_cast<int>(d.entries.size());
+    int at = from;
+    for (int s = 0; s < steps; ++s) {
+        int k = at + dir;
+        while (k >= 0 && k < n && d.entries[static_cast<size_t>(k)].header) k += dir;
+        if (k < 0 || k >= n) break;
+        at = k;
+    }
+    return at;
+}
+
+int page_with_first_start() {
+    const Doc& d = doc();
+    for (size_t i = 0; i < d.pages.size(); ++i) if (d.pages[i].first_start) return static_cast<int>(i);
     return -1;
 }
 
@@ -483,7 +506,7 @@ void go_to_page(State& st, int page) {
     const Doc& d = doc();
     if (d.pages[static_cast<size_t>(page)].toc) {
         // keep the selection when it is on this page, else take the first entry written on it
-        if (st.toc < 0 || st.toc >= static_cast<int>(d.entries.size()) || d.entries[static_cast<size_t>(st.toc)].page != page) {
+        if (st.toc < 0 || st.toc >= static_cast<int>(d.entries.size()) || d.entries[static_cast<size_t>(st.toc)].page != page || d.entries[static_cast<size_t>(st.toc)].header) {
             const int e = first_entry_on_page(page);
             if (e >= 0) st.toc = e;
         }
@@ -886,6 +909,7 @@ void open(State& st, bool first_launch) {
     const Doc& d = doc();
     st.searching = false;
     if (first_launch && !st.started) {
+        st.first_flow = page_with_first_start() >= 0;
         st.page = 0;
         st.min_page = 0;
         st.scroll = 0;
@@ -897,17 +921,27 @@ void open(State& st, bool first_launch) {
     st.started = true;
     if (st.page > last_page()) st.page = last_page();
     if (st.page < st.min_page) st.page = st.min_page;
-    if (st.toc < 0 || st.toc >= static_cast<int>(d.entries.size())) st.toc = std::max(0, std::min(0, static_cast<int>(d.entries.size()) - 1));
+    if (st.toc < 0 || st.toc >= static_cast<int>(d.entries.size()) || d.entries[static_cast<size_t>(st.toc)].header) {
+        st.toc = std::max(0, std::min(0, static_cast<int>(d.entries.size()) - 1));
+        if (!d.entries.empty() && d.entries[static_cast<size_t>(st.toc)].header) st.toc = step_entry(st.toc, 1, 1);
+    }
 }
 
 bool handle_key(State& st, Key key) {
     const Doc& d = doc();
+    if (st.first_flow && st.page != 0 && st.page != page_with_first_start()) st.first_flow = false;   // left the first-start way
     switch (key) {
         case Key::Close: return true;
         case Key::Left:
         case Key::Right: {
             // only inside the main chapter of the page: the table of content is the way to another one
             const bool right = key == Key::Right;
+            if (st.first_flow) {   // the first start: greeting -> GETTING STARTED -> contents
+                const int gs = page_with_first_start();
+                if (st.page == 0 && right && gs >= 0) { go_to_page(st, gs); break; }
+                if (st.page == gs && right) { st.first_flow = false; go_to_page(st, first_toc_page()); break; }
+                if (st.page == gs && !right) { go_to_page(st, 0); break; }
+            }
             const auto range = chapter_range(st.page);
             const int to = st.page + (right ? 1 : -1);
             if (to < std::max(range.first, st.min_page) || to > range.second) break;
@@ -918,8 +952,7 @@ bool handle_key(State& st, Key key) {
         case Key::Down: {
             const Page& p = d.pages[static_cast<size_t>(st.page)];
             if (p.toc && !d.entries.empty()) {
-                const int n = static_cast<int>(d.entries.size());
-                st.toc = std::clamp(st.toc + (key == Key::Down ? 1 : -1), 0, n - 1);
+                st.toc = step_entry(st.toc, key == Key::Down ? 1 : -1, 1);
                 const int pg = d.entries[static_cast<size_t>(st.toc)].page;
                 if (pg != st.page) { st.page = pg; st.scroll = 0; }
             } else {
@@ -932,8 +965,7 @@ bool handle_key(State& st, Key key) {
             const Page& p = d.pages[static_cast<size_t>(st.page)];
             const int dir = key == Key::PageDown ? 1 : -1;
             if (p.toc && !d.entries.empty()) {
-                const int n = static_cast<int>(d.entries.size());
-                st.toc = std::clamp(st.toc + dir * 5, 0, n - 1);
+                st.toc = step_entry(st.toc, dir, 5);
                 const int pg = d.entries[static_cast<size_t>(st.toc)].page;
                 if (pg != st.page) { st.page = pg; st.scroll = 0; }
             } else {
@@ -946,7 +978,10 @@ bool handle_key(State& st, Key key) {
             if (p.toc) {
                 if (st.toc >= 0 && st.toc < static_cast<int>(d.entries.size()) && d.entries[static_cast<size_t>(st.toc)].target >= 0)
                     go_to_page(st, d.entries[static_cast<size_t>(st.toc)].target);
-            } else if (p.welcome) {
+            } else if (p.welcome || (st.first_flow && p.first_start)) {
+                const int gs = page_with_first_start();
+                if (st.first_flow && st.page == 0 && gs >= 0) { go_to_page(st, gs); break; }
+                st.first_flow = false;
                 const int t = first_toc_page();
                 if (t >= 0) go_to_page(st, t);
             }

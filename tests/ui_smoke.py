@@ -72,9 +72,6 @@ class Session:
         env = dict(os.environ, HOME=home, USERPROFILE=home, TERM="xterm-256color", LANG="C.UTF-8")
         env.pop("KITTY_WINDOW_ID", None)
         env.pop("WT_SESSION", None)
-        # headless runs (CI): no system media session (MPNowPlayingInfoCenter / MPRIS) and no real sound card, unless a scenario asks for them
-        env["MOUSIKI_NO_MEDIA"] = "1"
-        env["MOUSIKI_NULL_AUDIO"] = "1"
         if scripts:
             env["MOUSIKI_SCRIPTS_DIR"] = scripts
         env.update(env_extra or {})
@@ -311,6 +308,36 @@ def radio_latin_toggle(binary, root, scripts):
         sess.kill()
 
 
+def radio_organigram(binary, root, scripts):
+    """Radio mode: "<" shows the menu organigram (Main, its categories, the boxes of the open category); ENTER on Equalizer opens the equalizer."""
+    home = os.path.join(root, "radioorg_home")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    with open(os.path.join(home, ".config", "mousiki", "stations.txt"), "w", encoding="utf-8") as f:
+        f.write("# name | genre | country | codec | kbps | url | [*] favorite\nPlain Station | Rock | US | MP3 | 128 | http://127.0.0.1:9/c | *\n")
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nStartMode=radio\n" % os.path.join(root, "music"))
+    sess = Session(binary, home, scripts, {"MOUSIKI_RADIO_NULL": "1"})
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "Plain Station" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        sess.send("<", 1.5)
+        t = sess.text()
+        check("Main" in t and "System" in t and "Sound" in t and "Stations and Presets" in t and "Visualizations" in t, "radio organigram: Main and its categories")
+        check("Settings" in t and "Cheat Sheet" in t, "radio organigram: the first category is open")
+        sess.send(b"\x1b[C", 0.8)
+        check("Equalizer" in sess.text() and "Record" in sess.text(), "radio organigram: RIGHT opens the Sound category")
+        sess.send(b"\x1b[B", 0.6)
+        sess.send(b"\r", 1.2)
+        check("Plain Station" in sess.text() or "EQUALIZER" in sess.text().upper(), "radio organigram: ENTER leaves the index")
+        check("Visualizations" not in sess.text(), "radio organigram: the index is closed")
+        check(sess.alive(), "radio organigram: the program is still running")
+    finally:
+        sess.kill()
+
+
 def radio_waterfall(binary, root, scripts):
     """Radio mode: the spectrogram options (SHIFT+i) start with the View row; the waterfall shows its own rows and the full screen says WATERFALL."""
     home = os.path.join(root, "radiowf_home")
@@ -395,6 +422,52 @@ def radio_station_edit(binary, root, scripts):
         sess.send("U", 1.0)
         check("Bravo Radio |" in file_text() and "RadioX" not in file_text(), "radio stations overlay: SHIFT+u again takes the edit back")
         check(sess.alive(), "radio stations overlay: the program is still running")
+    finally:
+        sess.kill()
+
+
+def scope_spectro_overlays(binary, root, scripts):
+    """The full-screen spectrogram (SHIFT+u): the scale sits at the upper left, UP / DOWN switch spectrogram <-> waterfall, LEFT / RIGHT image <-> braille;
+    the oscilloscope overlay (=): two centred legend lines, LEFT / RIGHT image <-> braille, UP / DOWN oscilloscope music on / off."""
+    home = os.path.join(root, "sso_home")
+    lib = os.path.join(root, "sso_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    make_wav(os.path.join(lib, "Alpha Song.wav"), 30)
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nHKeyScopeBig=\"=\"\nHKeySpectroFull=\"U\"\n" % lib)
+    sess = Session(binary, home, scripts, {"MOUSIKI_NULL_AUDIO": "1"}, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Alpha Song" in sess.text():
+                break
+        sess.send("U", 1.5)
+        lines = sess.text().split("\n")
+        top = lines[0] if lines else ""
+        check("SPECTROGRAM" in sess.text(), "spectrogram full screen: opens")
+        check(" Hz" in top and "SPECTROGRAM" in top and top.index("Hz") < top.index("SPECTROGRAM"), "spectrogram full screen: the scale is at the upper left of the frame (%s)" % top[:70].strip())
+        bottom = [l for l in lines if "Options" in l and "Close" in l]
+        check(bottom and "Image / Braille" in bottom[-1] and "Waterfall" in bottom[-1] or any("Image / Braille" in l for l in lines), "spectrogram full screen: the legend names the arrow keys")
+        sess.send(b"\x1b[B", 1.2)
+        check("WATERFALL" in sess.text(), "spectrogram full screen: DOWN switches to the waterfall")
+        sess.send(b"\x1b[A", 1.2)
+        check("SPECTROGRAM" in sess.text() and "WATERFALL" not in sess.text(), "spectrogram full screen: UP switches back")
+        sess.send(b"\x1b", 1.0)
+        sess.send("=", 1.5)
+        t = sess.text()
+        check("OSCILLOSCOPE" in t, "oscilloscope overlay: opens")
+        check("[LEFT/RIGHT]" in t or "Image / Braille" in t, "oscilloscope overlay: the first legend line names the arrow keys")
+        check("Grid color" in t or "Color" in t, "oscilloscope overlay: the second legend line is in the bottom border")
+        sess.send(b"\x1b[B", 1.0)
+        check("oscilloscope music mode: on" in sess.text() or sess.alive(), "oscilloscope overlay: DOWN turns the music mode on")
+        sess.send(b"\x1b[A", 0.8)
+        sess.send(b"\x1b", 0.8)
+        check(sess.alive(), "scope / spectro overlays: the program is still running")
     finally:
         sess.kill()
 
@@ -614,6 +687,10 @@ def book_speed_and_devices(binary, root, scripts):
         check("Choose Audio Device" in sess.text() and "System Default" in sess.text(), "audio device: & opens the overlay in the audio book")
         sess.send(b"\x1b", 0.8)
         check("Choose Audio Device" not in sess.text(), "audio device: ESC closes the overlay")
+        sess.send("Y", 1.2)                    # SHIFT+b is the bookmark in the audio book: the spectrum bars overlay has SHIFT+y there
+        t = sess.text()
+        check("SPECTRUM BARS" in t.upper() and "Style" in t, "audio book: SHIFT+y opens the spectrum bars overlay (%s)" % [l for l in t.split("\n") if "BARS" in l.upper()][:2])
+        sess.send(b"\x1b", 0.8)
         sess.send("s", 1.2)
         for _ in range(20):            # a slow machine: wait for the settings screen before TAB
             if "[TAB] Switch" in sess.text():
@@ -933,17 +1010,6 @@ def main_session(binary, root, scripts):
         check(not sess.alive(), "quit: the program ends after the quit key")
         if sess.alive():
             print("\n".join("%2d %s" % (i, l.rstrip()) for i, l in enumerate(sess.screen.display) if l.strip()))
-            # where is it stuck? (a CI run cannot be looked at): the stacks of all threads (macOS) and the end of the program's own log
-            if sys.platform == "darwin":
-                try:
-                    r = subprocess.run(["/usr/bin/sample", str(sess.pid), "2"], capture_output=True, text=True, timeout=60)
-                    print("---- sample of the hanging program ----\n" + r.stdout[-12000:])
-                except Exception as e:
-                    print("sample failed:", e)
-            logf = os.path.join(home, ".cache", "mousiki", "logs", "console.log")
-            if os.path.exists(logf):
-                with open(logf, errors="replace") as f:
-                    print("---- end of console.log ----\n" + "".join(f.readlines()[-40:]))
     finally:
         sess.kill()
 
@@ -1451,7 +1517,7 @@ def disk_field_setting(binary, root, scripts):
         t = sess.text()
         check("DISK / COVER OPTIONS" in t and "Eliment Disk / Cover" in t and "Album Cover" in t, "disk field: the tab has DISK and DISK / COVER OPTIONS")
         check(t.index("Disk Speed") < t.index("DISK / COVER OPTIONS") < t.index("Album Cover"), "disk field: Disk Speed is under DISK, Album Cover under DISK / COVER OPTIONS")
-        for _ in range(5):                                  # to Eliment Disk (after Lyrics/Viz Default, When No Lyrics Show, When No Video Shows)
+        for _ in range(13):                                 # to Eliment Disk (after Lyrics/Viz Default, When No Lyrics Show, When No Video Shows, Video Size, Video Effect, Video Resolution, Video Buffer, yt-dlp mp3 from mp4)
             sess.send(b"\x1b[B", 0.2)
         sess.pump(0.6)
         check("Show Disk / Cover" in sess.text(), "disk field: the row says Show Disk / Cover")
@@ -1460,6 +1526,61 @@ def disk_field_setting(binary, root, scripts):
         sess.send(b"\x1b[C", 1.0)
         check("Show Disk / Cover" in sess.text() and "Disk / Cover field removed" not in sess.text(), "disk field: Show Disk / Cover brings the preview back")
         check(sess.alive(), "disk field: the program is still running")
+    finally:
+        sess.kill()
+
+def video_files_tab(binary, root, scripts):
+    """FETCH VIDEOS, second tab VIDEO FILES: the videos are listed, the coupled one is marked and names its song, DEL (twice) deletes the file."""
+    import subprocess
+    if shutil.which("ffmpeg") is None:
+        print("  skipped: video files tab (ffmpeg is not installed on this machine)")
+        return
+    home = os.path.join(root, "vft_home")
+    lib = os.path.join(root, "vft_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    make_wav(os.path.join(lib, "Alpha Song.wav"), 5)
+    for n in ("Alpha Song", "Lonely Clip"):
+        r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=64x48:rate=5:duration=2", "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-shortest", "-pix_fmt", "yuv420p", os.path.join(lib, n + ".mp4")], capture_output=True)
+        if r.returncode != 0:
+            print("  (skipped: ffmpeg could not make the test clip)")
+            return
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nVideoMode=true\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(30):
+            sess.pump(0.5)
+            if "Alpha Song" in sess.text():
+                break
+        sess.send(b"\x1bv", 1.5)
+        check("VIDEO FILES" in sess.text(), "fetch videos: the VIDEO FILES tab is there")
+        sess.send(b"\x1b[1;3C", 1.0)
+        check("[c] Alpha Song.mp4" in sess.text() and "[ ] Lonely Clip.mp4" in sess.text(), "video files: the coupled video is marked, the other one is video only")
+        check("Alpha Song.wav" in sess.text(), "video files: the coupled song is named")
+        sess.send(b"\x1b[B", 0.6)                            # to Lonely Clip.mp4 (video only)
+        check("[CTRL+3 / m] makes an mp3 song" in sess.text(), "video files: a video only file offers the mp3 command above the note about the deletion")
+        sess.send("m", 4.0)
+        mp3s = [f for r_, d_, fs_ in os.walk(home) for f in fs_ if f.endswith(".mp3")]
+        check(mp3s == ["Lonely Clip.mp3"] and "mp3 saved" in sess.text(), "video files: [m] makes the mp3 of a video only file in the download folder")
+        sess.send(b"\x1b[A", 0.6)
+        check("[CTRL+3 / m] makes an mp3 song" not in sess.text(), "video files: a coupled video does not offer it")
+        sess.send(b"\x1b[3~", 0.8)
+        check("DELETE Alpha Song.mp4" in sess.text() and os.path.exists(os.path.join(lib, "Alpha Song.mp4")), "video files: DEL asks first, nothing is deleted yet")
+        sess.send(b"\x1b[3~", 1.5)
+        check(not os.path.exists(os.path.join(lib, "Alpha Song.mp4")) and os.path.exists(os.path.join(lib, "Lonely Clip.mp4")), "video files: the second DEL deletes that video file only")
+        sess.send("u", 1.5)
+        check(os.path.exists(os.path.join(lib, "Alpha Song.mp4")) and "restored" in sess.text(), "video files: [u] brings the deleted video back")
+        sess.send("u", 0.8)
+        check("nothing to undo" in sess.text(), "video files: a second [u] has nothing to undo")
+        sess.send(b"\x06", 0.8); sess.send(b"\x06", 0.8); sess.send(b"\x06", 0.8)
+        check("newest first" in sess.text(), "video files: CTRL+f reaches the 'newest first' filter")
+        sess.send(b"\x1b", 1.0)
+        check(sess.alive(), "video files: ESC leaves")
     finally:
         sess.kill()
 
@@ -1500,8 +1621,11 @@ def settings_video_preview(binary, root, scripts):
                 found = True
                 break
         check(found, "settings video preview: the Use Video row shows the sample video")
-        sess.send(b"\x1b[B", 0.3)
-        sess.pump(1.0)
+        for _ in range(12):                                  # (Video Size, Effect, Contrast, Colors, Chromatic Aberration, Resolution, Buffer and yt-dlp mp3 from mp4 show it too: on to the next row with another preview)
+            sess.send(b"\x1b[B", 0.3)
+            sess.pump(1.0)
+            if "sample video" not in sess.text():
+                break
         check("sample video" not in sess.text(), "settings video preview: another row shows its own preview")
         check(sess.alive(), "settings video preview: the program is still running")
     finally:
@@ -1591,12 +1715,18 @@ def video_overlays(binary, root, scripts):
                 break
         sess.send("Y", 1.0)
         t = sess.text()
-        check("Include Lyrics" in t and "Cover, Disk or Thumbnail" in t and "Video Option" in t and "Quick Search/Down. YT" in t and "General Fetch Videos Menu" in t, "video overlay: the rows are listed")
-        for _ in range(4):
+        check("Include Lyrics" in t and "Cover, Disk or Thumbnail" in t and "Manually Couple Local Files" in t and "Quick Search/Down. YT" in t and "General Fetch Videos Menu" in t and "Delete Current Video" in t and "Refetch this Video" in t, "video overlay: the rows are listed")
+        check("Picture Size" in t and "Effect" in t and "Full Screen Video" in t, "video overlay: picture size, effect and full screen video rows are listed")
+        check("Contrast" in t and "Colors" in t and "Chromatic Aberration" in t and "Resolution" in t and "Buffer" in t, "video overlay: contrast, colors, chromatic aberration, resolution and buffer rows")
+        for _ in range(13):   # (to "Manually Couple Local Files", under "Full Screen Video")
             sess.send(b"\x1b[B", 0.2)
         sess.send("\r", 1.0)
         t = sess.text()
-        check("VIDEO OPTION" in t and "SEARCH LOCAL SONGS" in t and "SEARCH LOCAL VIDEOS" in t and "Connect song and video" in t, "video option: the two search panes and the button are drawn")
+        check("VIDEO OPTION" in t and "SEARCH LOCAL SONGS" in t and "SEARCH LOCAL VIDEOS" in t and "Connect song and video" in t and "Delete COMPLETE VIDEO FILE connected to track" in t, "video option: the two search panes and the buttons are drawn")
+        check("all audio files" in t and "[video]" not in t, "video option: the song list shows audio files only, all of them at first")
+        sess.send(b"\x06", 0.6)                            # CTRL+f: only the songs without a video yet
+        check("VIDEO OPTION" in sess.text() and "no video yet" in sess.text(), "video option: CTRL+f switches to 'no video yet'")
+        sess.send(b"\x06", 0.6)
         sess.send("a", 0.4)
         check("VIDEO OPTION" in sess.text(), "video option: typing goes into the search field")
         sess.send(b"\x03", 0.8)                            # CTRL+c clears the choice (it must not close the program)
@@ -1681,7 +1811,7 @@ echo "FILE:$f"
         check("Alpha Song (Official Video)" in t and "Alpha Song live" in t, "fetch videos: the videos of the song under the cursor are searched by themselves")
         check("[?]" in t, "fetch videos: several videos -> the song waits for a choice")
         sess.send("F", 1.0)
-        check("choose one" in sess.text() or "nothing chosen" in sess.text(), "fetch videos: nothing is downloaded without a choice")
+        check("a choice" in sess.text() or "nothing chosen" in sess.text(), "fetch videos: nothing is downloaded without a choice")
         sess.send("\r", 0.6)      # into the videos
         sess.send(b"\x1b[B", 0.3)  # the second one
         sess.send("\r", 0.8)      # choose it
@@ -1734,6 +1864,212 @@ def video_pair_tags(binary, root, scripts):
         sess.kill()
 
 
+def video_library_modes(binary, root, scripts):
+    """Video mode OFF: a mere video file (no song of the same name) is a track like any other -- listed, found by a normal search, playable; one that is
+    paired with a song is left out of the list and of a normal search; v: lists the videos only, x: songs and videos."""
+    import shutil, subprocess
+    if not shutil.which("ffmpeg"):
+        print("  skipped: video library modes (ffmpeg is not installed on this machine)")
+        return
+    home = os.path.join(root, "vlm_home")
+    lib = os.path.join(root, "vlm_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    os.makedirs(lib)
+    ff = ["ffmpeg", "-v", "error", "-y"]
+    ok = True
+    for name in ("Paired Song", "Other Song"):
+        ok &= subprocess.run(ff + ["-f", "lavfi", "-i", "sine=frequency=440:duration=3", os.path.join(lib, name + ".mp3")], capture_output=True).returncode == 0
+    for name in ("Paired Song", "Lone Clip"):
+        ok &= subprocess.run(ff + ["-f", "lavfi", "-i", "testsrc=size=64x48:rate=5:duration=3", "-f", "lavfi", "-i", "sine=frequency=330:duration=3",
+                                   "-pix_fmt", "yuv420p", "-shortest", os.path.join(lib, name + ".mp4")], capture_output=True).returncode == 0
+    if not ok:
+        print("  (skipped: ffmpeg could not make the test files)")
+        return
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nVideoMode=false\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(30):
+            sess.pump(0.5)
+            if "Other Song" in sess.text():
+                break
+        t = sess.text()
+        check("Lone Clip" in t, "video mode off: a video file without a song of its name is listed as a track")
+        check(t.count("| Paired Song") == 1, "video mode off: a video paired with a song is not listed twice (%d)" % t.count("| Paired Song"))
+        sess.send("/", 0.5)
+        sess.send("clip", 1.0)
+        check("Lone Clip" in sess.text(), "video mode off: a normal search finds the mere video")
+        sess.send(b"\r", 0.5)
+        sess.send(b"\r", 2.0)                                # (the box keeps the keyboard until ENTER once: then the hovered row plays)
+        check("File      : Lone Clip" in sess.text(), "video mode off: the mere video plays (its sound)")
+        sess.send(b"\x1b", 0.8)
+        sess.send("/", 0.5)
+        sess.send("v:", 1.0)
+        t = sess.text()
+        check("| Lone Clip" in t and "| Other Song" not in t, "video mode off: v: lists the videos only")
+        sess.send(b"\x1b", 0.8)
+        sess.send("/", 0.5)
+        sess.send("x:", 1.0)
+        t = sess.text()
+        check("| Lone Clip" in t and "| Other Song" in t and t.count("| Paired Song") >= 2, "video mode off: x: lists songs and videos")
+        sess.send(b"\x1b", 0.8)
+    finally:
+        sess.kill()
+
+
+def video_fullscreen_sizes(binary, root, scripts):
+    """The & overlay: Picture Size (regular / cropped / full) and Effect rows change and are remembered in config.txt; the full screen video (v)
+    opens over a playing track with a video, UP / DOWN change the effect, TAB switches the lyric line, ESC closes; it opens without a video too."""
+    import shutil, subprocess
+    if not shutil.which("ffmpeg"):
+        print("  skipped: video full screen (ffmpeg is not installed on this machine)")
+        return
+    home = os.path.join(root, "vfs_home")
+    lib = os.path.join(root, "vfs_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    os.makedirs(lib)
+    ff = ["ffmpeg", "-v", "error", "-y"]
+    ok = subprocess.run(ff + ["-f", "lavfi", "-i", "sine=frequency=440:duration=20", os.path.join(lib, "Clip Song.mp3")], capture_output=True).returncode == 0
+    ok &= subprocess.run(ff + ["-f", "lavfi", "-i", "testsrc=size=160x90:rate=10:duration=20", "-pix_fmt", "yuv420p", os.path.join(lib, "Clip Song.mp4")], capture_output=True).returncode == 0
+    ok &= subprocess.run(ff + ["-f", "lavfi", "-i", "sine=frequency=330:duration=20", os.path.join(lib, "Plain Song.mp3")], capture_output=True).returncode == 0
+    if not ok:
+        print("  (skipped: ffmpeg could not make the test files)")
+        return
+    cfg = os.path.join(home, ".config", "mousiki", "config.txt")
+    with open(cfg, "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nVideoMode=true\nHKeyVideo=Y\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(30):
+            sess.pump(0.5)
+            if "Clip Song" in sess.text():
+                break
+        # the menu rows: Picture Size is the fifth row, Rounded Corners the sixth, Effect the seventh
+        sess.send("Y", 1.0)
+        for _ in range(4):
+            sess.send(b"\x1b[B", 0.2)
+        check("< regular >" in sess.text(), "video overlay: the picture size starts on regular")
+        sess.send(b"\x1b[C", 0.5)
+        check("< cropped >" in sess.text() and "two columns cut off" in sess.text().replace("\n", " ") or "< cropped >" in sess.text(), "video overlay: RIGHT makes the size cropped")
+        sess.send(b"\x1b[C", 0.5)
+        check("< full >" in sess.text(), "video overlay: RIGHT again makes the size full")
+        sess.send(b"\x1b[B", 0.2)   # Rounded Corners (below Picture Size)
+        sess.send(b"\x1b[B", 0.2)   # Effect
+        sess.send(b"\x1b[C", 0.5)
+        check("< Scanlines >" in sess.text(), "video overlay: the effect row cycles to scanlines")
+        sess.send(b"\x1b[D", 0.5)
+        sess.send(b"\x1b[D", 0.5)
+        check("< Interlace >" in sess.text(), "video overlay: LEFT from off goes round to interlace")
+        sess.send(b"\x1b[C", 0.5)                              # back to off
+        sess.send(b"\x1b", 0.8)
+        conf = open(cfg, encoding="utf-8").read()
+        check("VideoSize=full" in conf and "VideoFx=off" in conf, "video overlay: the size and the effect are saved in config.txt")
+        # a track with a video: the full screen video
+        sess.send("/", 0.5)
+        sess.send("clip song", 1.0)
+        sess.send(b"\r", 0.5)
+        sess.send(b"\r", 3.0)
+        sess.send("v", 2.0)
+        t = sess.text()
+        check("[UP/DOWN] Effect: Off" in t and "Lyrics on" in t and "Close" in t, "full screen video: the legend names effect, lyrics and close")
+        sess.send(b"\x1b[B", 0.8)
+        check("Effect: Scanlines" in sess.text(), "full screen video: DOWN changes the effect")
+        sess.send(b"\t", 0.8)
+        check("translation" in sess.text(), "full screen video: TAB goes on to the lyrics with their translation (the status line says if none is saved)")
+        sess.send(b"\t", 0.8)
+        check("Lyrics off" in sess.text(), "full screen video: TAB again switches the lyric line off")
+        check(any(0x2800 <= ord(ch) <= 0x28FF for ch in sess.text()), "full screen video: the picture is drawn (braille dots in this terminal)")
+        # the layout: SHIFT+DOWN -> video + oscilloscope (and its options over it), another -> + spectrogram, SHIFT+UP back
+        sess.send(b"\x1b[1;2B", 1.0)
+        check("Layout: Video+Osci" in sess.text() or "Layout" in sess.text(), "full screen video: SHIFT+DOWN changes the layout")
+        sess.send("O", 1.0)
+        t = sess.text()
+        check("video layout" in t and "default" in t, "full screen video layout: O opens the oscilloscope options with the layout's own style / mode")
+        sess.send(b"\x1b", 1.0)
+        sess.send(b"\x1b[1;2B", 1.0)
+        sess.send("I", 1.0)
+        check("Spectrogram (video layout)" in sess.text(), "full screen video layout: I opens the spectrogram options")
+        sess.send(b"\x1b", 1.0)
+        sess.send("G", 0.8)
+        sess.send(b"\x1b[1;2B", 1.0)                        # video + both (the oscilloscope above the spectrogram, right of the video)
+        check(sess.alive() and "VideoLayout=3" in open(cfg, encoding="utf-8").read(), "full screen video layout: SHIFT+DOWN reaches video + both")
+        sess.send(b"\x1b[1;2A", 0.8)
+        sess.send(b"\x1b[1;2A", 0.8)
+        sess.send(b"\x1b[1;2A", 0.8)
+        conf = open(cfg, encoding="utf-8").read()
+        check("VideoLayout=0" in conf and "VideoLayoutScales=false" in conf, "full screen video layout: layout and scales are saved")
+        sess.send("S", 1.0)
+        t = sess.text()
+        check("Chromatic Aberration" in t and "Contrast" in t and "Colors" in t and "Video Resolution" in t, "full screen video: S opens the options panel")
+        sess.send(b"\x1b", 1.0)
+        check("Chromatic Aberration" not in sess.text() and "Effect:" in sess.text(), "full screen video: ESC closes only the options panel")
+        sess.send(b"\x1b", 1.0)
+        check("Effect:" not in sess.text() and sess.alive(), "full screen video: ESC closes it")
+        conf = open(cfg, encoding="utf-8").read()
+        check("VideoFx=scanlines" not in conf and "VideoFullLyrics=false" in conf, "full screen video: the effect is the track's own (not the general setting), the lyrics choice is saved")
+        # Style Option (SHIFT+s) of the playing track: the rows of its video
+        sess.send("S", 1.5)
+        for _ in range(10):                                  # (a busy machine draws the overlay a little later)
+            if "Video Chromatic Aberration" in sess.text():
+                break
+            sess.pump(0.5)
+        t = sess.text()
+        check("Video of this track" in t and "Video Size" in t and "Video Effect" in t, "style option: video on / off, size and effect rows for this track")
+        check("Video Contrast" in t and "Video Colors" in t and "Video Chromatic Aberration" in t and "Cover Chromatic Aberration" in t, "style option: contrast, colors and chromatic aberration rows (video and cover)")
+        check(any("Video Chromatic Aberration" in ln and "as in Settings (off)" in ln for ln in t.splitlines()), "style option: the chromatic aberration row shows its value untruncated")
+        check("Video Resolution" in t, "style option: a Video Resolution row")
+        for _ in range(6):
+            sess.send(b"\x1b[B", 0.2)
+        sess.send(b"\x1b[C", 0.8)
+        for _ in range(10):                                  # (a busy machine draws it a little later)
+            if "Video of this track" in sess.text() and "off" in sess.text().split("Video of this track", 1)[1][:40]:
+                break
+            sess.pump(0.5)
+        check("Video of this track" in sess.text() and "off" in sess.text().split("Video of this track", 1)[1][:40], "style option: the video of this track can be switched off")
+        sess.send(b"\x1b[D", 0.5)
+        sess.send(b"\x1b", 1.0)
+        # a track without a video: a note instead of the overlay
+        sess.send("/", 0.5)
+        sess.send("plain", 1.0)
+        sess.send(b"\r", 0.5)
+        sess.send(b"\r", 2.0)
+        sess.send("v", 1.0)
+        check("Effect:" in sess.text() and sess.alive(), "full screen video: a track without a video opens it too (the clapperboard)")
+        check("No video for this track." in sess.text() and "Fetch video via [" in sess.text() and "pair local video via [" in sess.text(), "full screen video: the note for a track without a video")
+        sess.send("v", 1.0)
+        check("Effect:" not in sess.text() and sess.alive(), "full screen video: v closes it again")
+        # the overlay does not depend on the Video mode: with it off a track with a video still shows its picture
+        sess.send("Y", 1.0)
+        for _ in range(15):
+            if "> Use Video in Lyrics Field" in sess.text():
+                break
+            sess.send(b"\x1b[B", 0.2)
+        sess.send(b"\x1b[C", 0.8)
+        check("Use Video in Lyrics Field" in sess.text() and "[ ] false" in sess.text().split("Use Video in Lyrics Field", 1)[1][:80], "video overlay: the Video mode can be switched off")
+        sess.send(b"\x1b", 1.0)
+        sess.send("/", 0.5)
+        sess.send("clip", 1.0)
+        sess.send(b"\r", 0.5)
+        sess.send(b"\r", 2.0)
+        sess.send("v", 2.0)
+        t = sess.text()
+        check("Effect:" in t and "No video for this track." not in t and any(0x2800 <= ord(ch) <= 0x28FF for ch in t),
+              "full screen video: shows the picture with the Video mode off")
+        sess.send("v", 1.0)
+    finally:
+        sess.kill()
+
+
 def search_key(binary, root, scripts):
     """The search key of the main screen ("/", SHIFT+7 on a German keyboard) also searches in the cheat sheet, the help wizard and READ LYRICS
     (the old SHIFT+s / CTRL+s do not any more); the legends name it for the keyboard."""
@@ -1782,6 +2118,80 @@ def search_key(binary, root, scripts):
         sess.send(b"\x1b", 0.6)
         check("SEARCH LYRICS FILES" not in sess.text() and "READ LYRICS" in sess.text(), "search key: ESC closes the lyrics file search")
         check(sess.alive(), "search key: the program is still running")
+    finally:
+        sess.kill()
+
+
+def organigram_menu(binary, root, scripts):
+    """The "<" menu index is an organigram: Main with its six categories, DOWN goes into a category, LEFT / RIGHT move between the boxes,
+    UP goes back, ENTER opens the menu of a box (a group box only goes in), ESC closes it."""
+    home = os.path.join(root, "org_home")
+    lib = os.path.join(root, "org_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    make_wav(os.path.join(lib, "Alpha Song.wav"), 30)
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Alpha Song" in sess.text():
+                break
+        sess.send("<", 1.5)
+        t = sess.text()
+        check("Main" in t and "System" in t and "Sound" in t and "Library" in t and "Other Lists" in t and "Visualizations" in t and "Lyrics" in t,
+              "organigram: Main and its categories are drawn")
+        check("Settings" in t and "Cheat Sheet" in t and "Equalizer" not in t, "organigram: the first category is open")
+        sess.send(b"\x1b[C", 0.8)
+        t = sess.text()
+        check("Equalizer" in t and "Cheat Sheet" not in t, "organigram: RIGHT goes to the next category")
+        for _ in range(3):
+            sess.send(b"\x1b[C", 0.5)
+        sess.send(b"\x1b[B", 0.6)
+        sess.send(b"\x1b[B", 0.6)
+        t = sess.text()
+        check("Meta Data Menu" in t and "Fetch and Convert" in t and "Cover and Video Look" in t, "organigram: the meta data branches open one level at a time")
+        sess.send(b"\x1b[B", 0.6)
+        t = sess.text()
+        check("Fetch Cover" in t and "File Conversion" in t, "organigram: the lower menus of a branch are shown")
+        sess.send(b"\x1b[A", 0.5)
+        sess.send(b"\x1b[A", 0.5)
+        sess.send(b"\x1b[A", 0.5)
+        for _ in range(4):
+            sess.send(b"\x1b[D", 0.5)
+        sess.send(b"\x1b[B", 0.5)
+        sess.send(b"\r", 1.2)   # System / Settings: ENTER opens the settings
+        t = sess.text()
+        check("PATHS" in t or "GENERAL" in t, "organigram: ENTER opens the menu of the box (Settings)")
+        sess.send(b"\x1b", 1.0)
+        sess.send("<", 1.0)
+        sess.send(b"\x1b", 1.0)
+        sess.send("<", 1.0)
+        for _ in range(5):
+            sess.send(b"\x1b[C", 0.4)
+        sess.send(b"\x1b[B", 0.6)
+        sess.send(b"\x1b[C", 0.6)
+        sess.send(b"\x1b[B", 0.8)
+        t = sess.text()
+        check("Spectrum Bars" in t and "Spectrogram" in t and "Oscilloscope" in t and "Creator" in t and "Extra Window" in t and "Options" in t,
+              "organigram: the visualizations are grouped (Spectrogram: options, overlay, extra window) on several rows")
+        sess.send("T", 1.0)   # SHIFT+t: the classic view, every category as a box
+        t = sess.text()
+        check("Equalizer" in t and "Karaoke Mode" in t and "Playlists" in t and "Fetch Cover" in t, "organigram: SHIFT+t shows the classic view with every category's options")
+        sess.send(b"\x1b", 1.0)
+        sess.send("<", 1.0)
+        t = sess.text()
+        check("Equalizer" in t and "Karaoke Mode" in t, "organigram: the classic view is remembered")
+        sess.send("T", 1.0)
+        t = sess.text()
+        check("Karaoke Mode" not in t and "Visualizations" in t, "organigram: SHIFT+t goes back to the tree")
+        sess.send(b"\x1b", 1.0)
+        check("Alpha Song" in sess.text() and sess.alive(), "organigram: ESC closes it and the main screen is back")
     finally:
         sess.kill()
 
@@ -1941,7 +2351,7 @@ def run_scenario(name, binary, root, scripts):
 
 
 SCENARIOS = ["narrow80", "narrow100", "main", "read_lyrics_play", "karaoke_timing", "book_speed_and_devices", "paging_and_translit_row",
-             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "translation_editor", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key", "video_overlays", "video_pair_tags", "video_fetch_flow", "settings_video_preview", "radio_waterfall", "radio_station_edit"]
+             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "radio_organigram", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "translation_editor", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key", "video_overlays", "video_pair_tags", "video_fetch_flow", "settings_video_preview", "video_files_tab", "video_library_modes", "video_fullscreen_sizes", "organigram_menu", "scope_spectro_overlays", "radio_waterfall", "radio_station_edit"]
 
 
 def main():

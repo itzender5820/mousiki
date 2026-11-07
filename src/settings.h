@@ -1,6 +1,7 @@
 // Settings (see settings.cpp): the Settings struct with every option of the music player, and the
 // functions that read and write them.
 #pragma once
+#include "video_fx.h"
 #include "bars_presets.h"
 #include <filesystem>
 #include <iosfwd>
@@ -101,6 +102,27 @@ struct Settings : VizPrefs {
     // video. config.txt: VideoLyrics=, VideoCover=cover|snapshot.
     bool video_lyrics = true;
     bool video_auto = true;           // Auto Video: a track that has a video switches the field to the video view, one without it to the Lyrics/Viz Default (VideoAuto=)
+    int video_size = 0;               // Picture Size of the small field (VideoSize=): 0 regular, 1 cropped (two columns cut off each side), 2 full field (fills the oscilloscope's space, cropped to fit), 3 framed (like full, one row and one column smaller on every side)
+    int video_fx = 0;                 // Effect (VideoFx=): 0 off, 1 scanlines, 2 crt, 3 vhs, 4 glitch, 5 pixel, 6 gradient, 7 quiet glitch
+    int video_contrast = 0;           // Video Contrast (VideoContrast=): 0..100 %, steps of 5 (0 = as it is)
+    int video_colors = 100;           // Video Colors (VideoColors=): 0..100 %, steps of 5 (0 = greyscale, 100 = the video's own colours)
+    bool video_mp3 = true;            // yt-dlp mp3 from mp4 (VideoMp3=): a video downloaded in SEARCH YT without a target song also gets its sound as an mp3 song
+    bool video_round = false;         // Rounded Corners of the video picture (VideoRound=): the picture's corners are cut round, like the corners of the UI
+    int video_chroma = 0;             // Video Chromatic Aberration (VideoChroma=): 0 off, 1 subtle, 2 medium, 3 strong
+    int cover_chroma = 0;             // Cover Chromatic Aberration (CoverChroma=): the same, for covers that show their own colours
+    int video_res = 0;                // Video Resolution (VideoResolution=): 0 standard, 1 high, 2 full (see video_fx.h)
+    int video_buffer = 32;            // Video Buffer (VideoBuffer=): MB of decoded frames the decoder keeps ahead of the picture
+    bool video_full_lyrics = true;    // the full screen video (HKeyVideoFull, ">") shows the current lyric line (VideoFullLyrics=)
+    // The layout of the full screen video (SHIFT+UP / SHIFT+DOWN there): 0 video, 1 video + oscilloscope, 2 video + oscilloscope + spectrogram
+    // (spectrogram at the bottom). The picture styles and versions of the two visuals are the layout's own (-1 = as in the oscilloscope /
+    // spectrogram options); every other option is shared with them.
+    bool video_full_translation = false;   // the full screen video: the saved translation under the lyric line (TAB: lyrics off / on / with translation)
+    int video_layout = 0;                  // full screen video: 0 video | 1 + oscilloscope | 2 + spectrogram | 3 + both
+    int vl_osci_style = -1;           // VideoLayoutOsciStyle=: -1 as in the options, 0 braille, 1 image
+    int vl_osci_mode = -1;            // VideoLayoutOsciMode=: -1 as in the options, 0 XY, 1 YT
+    int vl_spec_style = -1;           // VideoLayoutSpectroStyle=
+    int vl_spec_view = -1;            // VideoLayoutSpectroView=: -1 as in the options, 0 spectrogram, 1 waterfall
+    bool vl_scales = true;            // VideoLayoutScales=: grid / scales of the oscilloscope and the spectrogram in the layouts
     int video_cover = 0;              // Cover, Disk or Thumbnail (VideoCover=): 0 cover, 1 thumbnail (a frame of the video), 2 disk (plain disk for a track with a video)
     // Where downloaded videos go (Search YT): <download folder>/video_down; and the quality cap (height in pixels) of such a download.
     int video_down_height = 720;   // config.txt: VideoDownHeight=
@@ -420,6 +442,7 @@ struct Settings : VizPrefs {
     std::vector<EqCustomPreset> eq_custom_presets;
 
     // Sleep timer: glide the volume down over the last 10 % of the time before pausing (Shift+Z overlay).
+    bool menu_index_classic = false;   // the "<" menus overlay shows the classic category boxes instead of the tree (MenuIndexClassic=, SHIFT+t there)
     bool sleep_fade = true;
     // Help wizard (SHIFT+w): false means it has never been shown, so the
     // first launch after an install opens it by itself. It is set to true and

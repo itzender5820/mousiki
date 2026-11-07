@@ -34,8 +34,10 @@ std::vector<std::string> App::meta_cover_pane(int inner, int rows) const {
     if (path.empty() || rows < 2) return std::vector<std::string>(static_cast<size_t>(std::max(rows, 0)), std::string(static_cast<size_t>(inner), ' '));
     CoverRequest rq;
     rq.path = path;
-    rq.title = path_utf8(path_from_utf8(path).stem());
+    rq.title = meta_hover_values_[static_cast<size_t>(MetaField::Title)];   // (like the disk: the tag title, else the file name)
+    if (rq.title.empty() || rq.title == "-") rq.title = path_utf8(path_from_utf8(path).stem());
     rq.album = meta_hover_values_[static_cast<size_t>(MetaField::Album)];
+    if (rq.album == "-") rq.album.clear();
     rq.search = settings_.cover_search;
     rq.store_rev = cover_store_revision();
     // what the disk shows of this track (Cover Options / Style Option / VIDEO menu): the cover, a frame of its video, or the plain disk
@@ -65,7 +67,7 @@ std::vector<std::string> App::meta_cover_pane(int inner, int rows) const {
                 return pic;
             }
             const int cols = std::min(inner, rows * 2), lpad = std::max(0, (inner - cols) / 2);
-            const auto lines = album_cover_lines_for(*img, 0, settings_.cover_contrast, settings_.cover_brightness, settings_.cover_colors, 0.0, cols, rows);
+            const auto lines = album_cover_lines_for(*img, 0, settings_.cover_contrast, settings_.cover_brightness, settings_.cover_colors, 0.0, cols, rows, settings_.cover_chroma);
             std::vector<std::string> out;
             for (int r = 0; r < rows; ++r) {
                 const std::string row = r < static_cast<int>(lines.size()) ? lines[static_cast<size_t>(r)] : std::string(static_cast<size_t>(cols), ' ');
@@ -247,7 +249,7 @@ bool App::handle_meta_sty_key(int key) {
         meta_field_ = 0;
         return true;
     }
-    if (arrow && (key == 'A' || key == 'B')) { { const int n = settings_.video_mode ? 6 : 5; meta_sty_sel_ = (meta_sty_sel_ + (key == 'A' ? n - 1 : 1)) % n; } return true; }
+    if (arrow && (key == 'A' || key == 'B')) { { const int n = settings_.video_mode ? 16 : 6; meta_sty_sel_ = (meta_sty_sel_ + (key == 'A' ? n - 1 : 1)) % n; } return true; }
     const std::string album = meta_hover_values_[static_cast<size_t>(MetaField::Album)];
     const std::string folder = path_utf8(path_from_utf8(meta_sty_track_).parent_path());
     CoverStyle st = cover_track_style(meta_sty_track_);
@@ -263,30 +265,50 @@ bool App::handle_meta_sty_key(int key) {
     else if (!arrow && (key == kKeyDelete || key == 127 || key == 'd' || key == 'r')) reset = true;
     else if (key == '\r' || key == '\n' || key == ' ') dir = 1;
     if (!dir && !reset) return true;
-    switch (meta_sty_sel_) {
+    // 4 Cover Chromatic Aberration; with the Video mode on: 5 Use Cover or Thumbnail, 6 Video, 7 Use Lyrics on Video, 8 Video Size, 9 Video Effect,
+    // 10 Video Contrast, 11 Video Colors, 12 Video Chromatic Aberration, 13 Video Resolution, 14 Video Rounded Corners; 15 the album (the last row)
+    const int sel = (!settings_.video_mode && meta_sty_sel_ >= 5) ? 15 : meta_sty_sel_;
+    switch (sel) {
         case 0: st.look = reset ? -1 : sty_step(st.look, dir, kCoverLookCount - 1, 1); break;
         case 1: st.contrast = reset ? -1 : sty_step(st.contrast, dir, 100, 5); break;
         case 2: st.brightness = reset ? -1 : sty_step(st.brightness, dir, 100, 5); break;
         case 3: st.colors = reset ? -1 : sty_step(st.colors, dir, 100, 5); break;
-        case 4:
-            if (settings_.video_mode) {   // Use Cover or Thumbnail: the mode of the track (the same one as in COVER OPTIONS)
-                int mode = cover_track_video_mode(meta_sty_track_);   // 0 as in the VIDEO menu, 1 cover, 2 thumbnail, 3 plain disk
-                mode = reset ? 0 : (mode + (dir > 0 ? 1 : 3)) % 4;
-                set_cover_track_video_mode(meta_sty_track_, mode);
-                ++video_rev_;
-                snap_track_.clear();
-                static const char* const names[4] = {"as in the VIDEO menu", "the cover", "the video thumbnail", "the plain disk"};
-                meta_sty_msg_ = std::string("saved: ") + names[mode];
-                return true;
-            }
-            [[fallthrough]];
+        case 4: st.chroma = reset ? -1 : sty_step(st.chroma, dir, kChromaLevels - 1, 1); break;
+        case 5: {   // Use Cover or Thumbnail: the mode of the track (the same one as in COVER OPTIONS)
+            int mode = cover_track_video_mode(meta_sty_track_);   // 0 as in the VIDEO menu, 1 cover, 2 thumbnail, 3 plain disk
+            mode = reset ? 0 : (mode + (dir > 0 ? 1 : 3)) % 4;
+            set_cover_track_video_mode(meta_sty_track_, mode);
+            ++video_rev_;
+            snap_track_.clear();
+            static const char* const names[4] = {"as in the VIDEO menu", "the cover", "the video thumbnail", "the plain disk"};
+            meta_sty_msg_ = std::string("saved: ") + names[mode];
+            return true;
+        }
+        case 6: case 7: case 8: case 9: case 10: case 11: case 12: case 13: case 14: {   // the video of this track (-1 = as in the VIDEO overlay / in Settings)
+            VideoTrackOpts o = cover_track_video_opts(meta_sty_track_);
+            if (sel == 6) o.on = reset ? -1 : (o.on == 0 ? -1 : 0);
+            else if (sel == 7) o.lyrics = reset ? -1 : sty_step(o.lyrics, dir, 1, 1);   // as in the VIDEO menu, off, on
+            else if (sel == 8) o.size = reset ? -1 : (o.size + 1 + (dir > 0 ? 1 : 4)) % 5 - 1;   // -1, 0, 1, 2, 3 round
+            else if (sel == 9) o.fx = reset ? -1 : video_fx_step(o.fx, dir, true);   // "as in the VIDEO menu", then the effects in the order of the list
+            else if (sel == 10) o.contrast = reset ? -1 : sty_step(o.contrast, dir, 100, 5);
+            else if (sel == 11) o.colors = reset ? -1 : sty_step(o.colors, dir, 100, 5);
+            else if (sel == 12) o.chroma = reset ? -1 : sty_step(o.chroma, dir, kChromaLevels - 1, 1);
+            else if (sel == 13) o.res = reset ? -1 : sty_step(o.res, dir, 2, 1);
+            else o.round = reset ? -1 : sty_step(o.round, dir, 1, 1);
+            set_cover_track_video_opts(meta_sty_track_, o);
+            video_pic_key_.clear();
+            if (sel == 6 || sel == 13) { video_for_track_.clear(); ++video_rev_; force_redraw_ = true; }   // (video on / off, resolution: the video is set up again; a look only makes the picture again)
+            else if (sel == 8) force_redraw_ = true;   // (the size changes the layout)
+            meta_sty_msg_ = "saved";
+            return true;
+        }
         default: {
             const int now = cover_album_look(album, folder);
             set_cover_album_look(album, folder, reset ? -1 : sty_step(now, dir, kCoverLookCount - 1, 1));
             break;
         }
     }
-    if (meta_sty_sel_ < 4) set_cover_track_style(meta_sty_track_, st);
+    if (sel < 5) set_cover_track_style(meta_sty_track_, st);
     meta_sty_msg_ = "saved";
     return true;
 }
@@ -297,7 +319,7 @@ int App::meta_sty_panel_width(int screen_w) const { return screen_w >= 100 && te
 // The cover of the track as it looks with the style set in the overlay (the plain disk where the look is the disk or the track has no
 // cover), prev_w x 15 cells, braille dots like the disk of the main screen. The last row names what is shown.
 // The Style preview as a real picture (Kitty / Sixel): like album_cover_gfx(), for any cover and style, at a place of the screen (0-based).
-bool App::meta_sty_gfx(const CoverImage& cover, int mode, int contrast, int brightness, int colors, double angle, int col, int row, int cols, int rows) const {
+bool App::meta_sty_gfx(const CoverImage& cover, int mode, int contrast, int brightness, int colors, int chroma, double angle, int col, int row, int cols, int rows) const {
     if (gfx_proto_ == GfxProto::None || cols < 8 || rows < 4) return false;
     mode = std::clamp(mode, 0, 4);
     int cw0 = 10, ch0 = 20;
@@ -312,15 +334,15 @@ bool App::meta_sty_gfx(const CoverImage& cover, int mode, int contrast, int brig
     const int want_id = second ? 1 : 0;
     std::string& pic_key = second ? sty2_key_ : cover_pic_key_;
     auto& pic_at = second ? sty2_at_ : cover_pic_at_;
-    const std::string key = "sty|" + cover.key + "|" + std::to_string(mode) + "|" + std::to_string(contrast) + "|" + std::to_string(brightness) + "|" + std::to_string(colors) + "|" +
+    const std::string key = "sty|" + cover.key + "|" + std::to_string(mode) + "|" + std::to_string(contrast) + "|" + std::to_string(brightness) + "|" + std::to_string(colors) + "|" + std::to_string(chroma) + "|" +
                             std::to_string(w) + "x" + std::to_string(h) + "|" + std::to_string(col) + "," + std::to_string(row) + "|" + settings_.disk_color + "|" +
                             (settings_.disk_color_gradient ? settings_.disk_color_end : std::string());
     const auto now = std::chrono::steady_clock::now();
     const bool resized = key != pic_key || !g.plain || g.w != w || g.h != h || g.level.size() != static_cast<size_t>(w) * h || g.id != want_id || g.col != col || g.cols != cols;
     const auto gap = std::chrono::milliseconds(gfx_proto_ == GfxProto::Sixel ? 110 : 40);
     const bool due = resized || (mode >= 1 && now - pic_at >= gap);
-    cover_ovr_ = {true, contrast, brightness, colors};   // (cover_fill and cover_sixel_colours read the style through eff_cover_*)
-    g.plain = true;
+    cover_ovr_ = {true, contrast, brightness, colors, chroma};   // (cover_fill and cover_sixel_colours read the style through eff_cover_*)
+    g.plain = true; g.truecolor = false;
     g.direct = mode == 0 || cover_sixel_colours(mode);
     g.scale = 1;
     g.out_cw = cw0; g.out_ch = ch0;
@@ -348,6 +370,7 @@ std::vector<std::string> App::meta_sty_preview(int prev_w, int rows, const Cover
     const int contrast = st.contrast >= 0 ? st.contrast : settings_.cover_contrast;
     const int brightness = st.brightness >= 0 ? st.brightness : settings_.cover_brightness;
     const int colors = st.colors >= 0 ? st.colors : settings_.cover_colors;
+    const int chroma = st.chroma >= 0 ? st.chroma : settings_.cover_chroma;
     const double angle = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count() * 0.6;
     const int dw = disk_.width(), dh = disk_.height();
     std::string note = cover_look_name(look);
@@ -362,24 +385,36 @@ std::vector<std::string> App::meta_sty_preview(int prev_w, int rows, const Cover
     if (look > 0) {
         CoverRequest rq;
         rq.path = meta_sty_track_;
-        rq.title = path_utf8(path_from_utf8(meta_sty_track_).stem());
+        rq.title = meta_hover_values_[static_cast<size_t>(MetaField::Title)];   // (like the disk: the tag title, else the file name)
+        if (rq.title.empty() || rq.title == "-") rq.title = path_utf8(path_from_utf8(meta_sty_track_).stem());
         rq.album = meta_hover_values_[static_cast<size_t>(MetaField::Album)];
+        if (rq.album == "-") rq.album.clear();
         rq.search = settings_.cover_search;
         rq.store_rev = cover_store_revision();
-        const CoverSource src = resolve_cover_source(rq);
-        if (src.none || src.file.empty()) { plain_disk(); note = "no cover: the disk is shown"; }
-        else if (const CoverImage* img = preview_cover(src.file, src.embedded)) {
+        // what the disk shows of a track with a video: the cover, a frame of the video or the plain disk (Style Option / VIDEO overlay)
+        const int own = cover_track_video_mode(rq.path);
+        const bool has_video = !video_source_for(path_from_utf8(meta_sty_track_)).empty();
+        const int vm = own == 1 ? 0 : own == 2 ? 1 : own == 3 ? 2 : settings_.video_mode ? settings_.video_cover : 0;
+        const bool plain_video = own == 3 || (own == 0 && vm == 2 && has_video);
+        if (vm == 1 && has_video) rq.snapshot_video = video_source_for(path_from_utf8(meta_sty_track_));
+        const bool thumb_mode = vm == 1 && has_video && !plain_video;
+        const CoverImage* thumb = thumb_mode ? track_cover(rq) : nullptr;   // a frame of the video, as the disk shows it
+        const CoverSource src = plain_video || thumb_mode ? CoverSource() : resolve_cover_source(rq);
+        if (plain_video) { plain_disk(); note = "plain disk (the Video setting of this track)"; }
+        else if (thumb_mode && !thumb) { plain_disk(); note = "reading a frame of the video ..."; }
+        else if (!thumb_mode && (src.none || src.file.empty())) { plain_disk(); note = "no cover: the disk is shown"; }
+        else if (const CoverImage* img = thumb_mode ? thumb : preview_cover(src.file, src.embedded)) {
             const int m = look - 1;
             const int lpad0 = std::max(0, (prev_w - dw) / 2);
             // where the panel stands on the screen (the same arithmetic as draw_floating_panel()): the picture goes into the preview column
             const int W = meta_sty_panel_width(screen_w), panel_h = rows + 2;
             const int start_col = 1 + std::max(0, (screen_w - W) / 2);
             const int start_row = std::clamp(1 + std::max(0, (term_rows_ - panel_h) / 2 - kFloatingPanelUpShift), 1, std::max(1, term_rows_ - panel_h));
-            if (cf_full_res_ && m <= 4 && meta_sty_gfx(*img, m, contrast, brightness, colors, angle, (start_col - 1) + 1 + (kMetaStyPanelWidth - 2) + 1 + lpad0, start_row, dw, dh)) {
+            if (cf_full_res_ && m <= 4 && meta_sty_gfx(*img, m, contrast, brightness, colors, chroma, angle, (start_col - 1) + 1 + (kMetaStyPanelWidth - 2) + 1 + lpad0, start_row, dw, dh)) {
                 for (int r = 0; r < dh; ++r) disk.push_back(gfx_hole(dw));
                 note += "  (image)";
             } else {
-                disk = album_cover_lines_for(*img, m >= 5 ? m - 5 : m, contrast, brightness, colors, angle, dw, dh);
+                disk = album_cover_lines_for(*img, m >= 5 ? m - 5 : m, contrast, brightness, colors, angle, dw, dh, chroma);
                 if (disk.empty()) plain_disk();
                 else if (gfx_proto_ != GfxProto::None) note += "  (braille)";
             }
@@ -422,12 +457,24 @@ std::vector<std::string> App::build_meta_sty_panel(int screen_w) const {
         {"Cover Contrast", pct(st.contrast, settings_.cover_contrast)},
         {"Cover Brightness", pct(st.brightness, settings_.cover_brightness)},
         {"Cover Colors", pct(st.colors, settings_.cover_colors)},
+        {"Cover Chromatic Aberration", st.chroma >= 0 ? std::string(chroma_name(st.chroma)) : std::string("as in Settings (") + chroma_name(settings_.cover_chroma) + ")"},
     };
     if (settings_.video_mode) {   // the same choice as COVER OPTIONS (this track) and the VIDEO overlay (the default of all tracks)
         const int own = cover_track_video_mode(meta_sty_track_);
         static const char* const dflt[3] = {"the cover", "the video thumbnail", "the plain disk"};
         static const char* const names[4] = {"", "the cover", "the video thumbnail", "the plain disk"};
         rows.push_back({"Use Cover or Thumbnail", own == 0 ? std::string("as in VIDEO menu (") + dflt[std::clamp(settings_.video_cover, 0, 2)] + ")" : std::string(names[own])});
+        const VideoTrackOpts vo = cover_track_video_opts(meta_sty_track_);
+        static const char* const size_names[4] = {"regular", "cropped", "full", "framed"};
+        rows.push_back({"Video of this track", vo.on == 0 ? std::string("off") : std::string("on")});
+        rows.push_back({"Use Lyrics on Video", vo.lyrics >= 0 ? std::string(vo.lyrics ? "on" : "off") : std::string("as in VIDEO menu (") + (settings_.video_lyrics ? "on" : "off") + ")"});
+        rows.push_back({"Video Size", vo.size >= 0 ? std::string(size_names[vo.size]) : std::string("as in VIDEO menu (") + size_names[std::clamp(settings_.video_size, 0, 3)] + ")"});
+        rows.push_back({"Video Effect", vo.fx >= 0 ? std::string(video_fx_name(vo.fx)) : std::string("VIDEO menu (") + video_fx_name(settings_.video_fx) + ")"});
+        rows.push_back({"Video Contrast", pct(vo.contrast, settings_.video_contrast)});
+        rows.push_back({"Video Colors", pct(vo.colors, settings_.video_colors)});
+        rows.push_back({"Video Chromatic Aberration", vo.chroma >= 0 ? std::string(chroma_name(vo.chroma)) : std::string("as in Settings (") + chroma_name(settings_.video_chroma) + ")"});
+        rows.push_back({"Video Resolution", vo.res >= 0 ? std::string(video_res_name(vo.res)) : std::string("as in Settings (") + video_res_name(settings_.video_res) + ")"});
+        rows.push_back({"Video Rounded Corners", vo.round >= 0 ? std::string(vo.round ? "on" : "off") : std::string("as in Settings (") + (settings_.video_round ? "on" : "off") + ")"});
     }
     rows.push_back({"Look of the whole album", look_text(album_look)});
     // the left column, one string per row (left_w columns each)
@@ -435,8 +482,18 @@ std::vector<std::string> App::build_meta_sty_panel(int screen_w) const {
     auto plain = [&](const std::string& t) { return pad_right(truncate_str(t, left_w), left_w); };
     left.push_back(plain(" Only for this track (last row: its whole album)."));
     left.push_back(plain(""));
+    const int first_video = settings_.video_mode ? 6 : -1;
+    const int album_row = static_cast<int>(rows.size()) - 1;
+    auto head = [&](const char* name) {   // a category line (not a row of the list)
+        std::string t = std::string(" \u2500\u2500 ") + name + " ";
+        while (display_width(t) < left_w - 1) t += "\u2500";
+        left.push_back(pad_right(truncate_str(t, left_w - 1), left_w - 1) + " ");
+    };
     for (int i = 0; i < static_cast<int>(rows.size()); ++i) {
-        std::string t = " " + pad_right(rows[static_cast<size_t>(i)].label, 24) + " \u25c0 " + rows[static_cast<size_t>(i)].value + " \u25b6";
+        if (i == 0) head("Cover");
+        else if (i == first_video) head("Video");
+        else if (i == album_row) head("Album");
+        std::string t = " " + pad_right(rows[static_cast<size_t>(i)].label, 27) + " \u25c0 " + rows[static_cast<size_t>(i)].value + " \u25b6";
         t = pad_right(truncate_str(t, left_w - 1), left_w - 1) + " ";
         if (i == meta_sty_sel_) t = "\x1b[7m" + t + "\x1b[0m";
         left.push_back(t);

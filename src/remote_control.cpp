@@ -208,7 +208,7 @@ void usage(std::ostream& o) {
 }
 
 void general_help(std::ostream& o) {
-    o << "Mousiki Plus v" << MOUSIKI_VERSION << " -- terminal music, radio and audio book player\n\n"
+    o << "Mousiki Plus v" << MOUSIKI_VERSION << " -- terminal music (-video), radio and audio book player\n\n"
          "  mousiki                    start (the player, or the radio when Start Mode is radio)\n"
          "  mousiki --cmd <command>    control a running Mousiki (mousiki --cmd --help lists the commands)\n"
          "  mousiki --status           what is playing in the running Mousiki\n"

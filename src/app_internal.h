@@ -25,6 +25,10 @@
 
 namespace muisc {
 
+// The sound of a video file as an mp3 (ffmpeg) in `dir` (src/app_videosearch.cpp); "" and `err` set when it fails.
+std::string video_make_mp3_file(const std::string& video, const std::filesystem::path& dir, const std::string& base, const std::string& title, std::string& err);
+
+
 // When a file arrived in the library (later of modification and creation / change time); 0 when unreadable. app_history.cpp.
 long long file_added_time(const fs::path& p);
 
@@ -228,6 +232,7 @@ inline int online_prefix(const std::string& buf, size_t& len) {
 // Oscilloscope / spectrogram colours and parameters (app_panels.cpp)
 void osci_palette_rgb(const Settings& s, int id, float t, int& r, int& g, int& b);
 void spectro_gradient_from(const Settings& st);
+VideoFxGradient video_fx_gradient(const Settings& st);   // the visualizer gradient (left / centre / right) for the video look "gradient"
 std::string osci_rgb_seq(int r, int g, int b, float k);
 std::string osci_dim_ansi(const std::string& ansi, float k);
 OscilloscopeVisualizer::Params osci_scope_params(const Settings& s, double dt, int style = -1);   // style: 0 braille, 1 image, -1 the one in use

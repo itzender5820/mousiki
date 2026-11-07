@@ -22,6 +22,23 @@ Loaded at run time, if present
   - SDL2 (Sam Lantinga and contributors) ...... zlib licence
     Bundled as SDL2.dll in the Windows installer and portable zip; on Linux and
     macOS the system's SDL2 is used. Only the scope and spectrogram windows use it.
+Artwork (braille pictures drawn after images from Pixabay)
+  - Cassette, the "No Track Loaded" screen ..... "Retro pink audio cassette with unraveled tape, vintage music
+    illustration", https://pixabay.com/illustrations/cassette-record-graphics-symbol-4103530/
+    Pixabay Content License (free for use, see https://pixabay.com/service/license-summary/).
+    The page names no uploader beside the image; a profile name "Sunriseforever" appears on it.
+Sample video (the file itself is bundled)
+  - scripts/preview_video.mp4, the sample video of the Settings video preview .... a white cat walking on piano keys,
+    https://pixabay.com/videos/cat-piano-keys-musical-instrument-170617/
+    Pixabay Content License (free for use, see https://pixabay.com/service/license-summary/).
+    The first 8 seconds, cut at the top and bottom (portrait to a nearly square picture, the cat stays in
+    view), scaled to 640 px wide, the sound left out; the colours are not changed (the effects are applied
+    by the player at run time). This file is NOT covered by the Apache-2.0 licence of the program: it stays
+    under the Pixabay Content License (no redistribution of the file on its own, no use as part of a
+    stock-content service).
+Artwork (continued)
+  - Film clapperboard (film slate / clapper board), the full screen video of a track without a video:
+    https://pixabay.com/illustrations/film-slate-film-clapper-clapboard-5646516/ (Pixabay Content License).
 
 
 ==============================================================================

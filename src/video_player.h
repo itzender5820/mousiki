@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "process_util.h"
+#include "video_fx.h"
 
 namespace muisc {
 
@@ -40,16 +41,26 @@ public:
     bool has_video() const { return !path_.empty() && vw_ > 0 && vh_ > 0; }
     double aspect() const { return vh_ > 0 ? static_cast<double>(vw_) / vh_ : 0.0; }   // width / height of the picture
     double duration() const { return duration_; }
+    int source_width() const { return vw_; }   // the video's own picture width in pixels (0 = unknown)
 
     // The largest picture with the video's proportions that fits in a box of w x h units (a unit = a pixel, or a braille dot) whose
     // units have the shape unit_w : unit_h (1:1 for pixels / braille dots). Always at least 2 x 2, both even.
     void fit(int box_w, int box_h, double unit_aspect, int& out_w, int& out_h) const;
+
+    // The smallest picture with the video's proportions that COVERS a box of w x h units (the rest is cropped away by the caller).
+    void fit_cover(int box_w, int box_h, double unit_aspect, int& out_w, int& out_h) const;
+    // A piece of a frame (x0, y0, w, h are clamped to the frame).
+    static VideoFrame crop(const VideoFrame& f, int x0, int y0, int w, int h);
 
     // The frame for the audio time `t` at the size w x h. `playing` false: the audio is paused, nothing is taken from the decoder.
     // nullptr: no frame yet (the decoder is starting) -- the caller keeps showing what it showed. `fresh` is true when it differs
     // from the frame returned by the last call.
     const VideoFrame* frame_for(double t, int w, int h, bool playing, bool* fresh = nullptr);
 
+    // The decoder's buffer: how many megabytes of decoded frames it keeps ahead (at least a few frames), and whether the picture is
+    // scaled with the sharper filter (Video Resolution high / full). A new filter restarts the decoder; the buffer changes at once.
+    void set_buffer_mb(int mb);
+    void set_sharp(bool sharp) { sharp_ = sharp; }
     void stop();                  // ends the decoder (the source stays)
     // What the picture is doing while there is no frame: "starting ..." or why it failed ("ffmpeg: ..."); "" once a frame was shown.
     std::string status();
@@ -60,6 +71,24 @@ public:
     // frame sits in the dither pattern (keeps it still between frames).
     // The frame scaled (nearest neighbour) to w x h: shown while the decoder restarts after a resize.
     static VideoFrame resample(const VideoFrame& f, int w, int h);
+    // Retro looks for a frame (in place). fx: 1 scanlines, 2 crt, 3 vhs, 4 glitch, 5 pixel, 6 gradient (0 = nothing). `t` = the audio time (the effects move with it:
+    // paused = they stand still). `braille`: the frame becomes dots (every effect is kept mild there: dots are only on or off).
+    //   scanlines  the dark gaps between the lines of a tube (2-3 pixel rows per line, a soft beam profile)
+    //   crt        scanlines + a slight horizontal softness + the RGB phosphor stripes + dark corners (a vignette) + a faint flicker
+    //   vhs        colour fringes (red left, blue right), a wobbling picture, a tracking band that rolls up, head-switching noise at the
+    //              bottom, film grain and paler colours
+    //   glitch     now and then (about every second, for a split second) slices of the picture slip sideways with split colours and a
+    //              flash of inverted colours; in between a light scanline look
+    // Deterministic for the same frame / time (tested); no allocations beyond one copy of the frame.
+    // `prev`: the frame shown before this one (the interlace look combs where the two differ; nullptr = none).
+    static void apply_fx(VideoFrame& f, int fx, double t, bool braille = false, const VideoFxGradient* grad = nullptr, const VideoFrame* prev = nullptr);
+    // The grade: contrast (0..100 %: 0 = as it is, 100 = 2.5 times the distance from the middle grey), colours (0 = greyscale .. 100 = as they
+    // are) and chromatic aberration (0 off .. 3 strong: red and blue are pushed apart, more towards the corners).
+    static void apply_grade(VideoFrame& f, int contrast, int colors, int chroma);
+    // The whole look: the grade, then the effect.
+    static void apply_look(VideoFrame& f, const VideoLook& look, double t, bool braille = false, const VideoFrame* prev = nullptr);
+    // The frame that was on screen before the current one (nullptr: none, or another size).
+    const VideoFrame* previous_frame() const;
     static void quantize(const VideoFrame& f, std::vector<uint8_t>& hue, std::vector<uint8_t>& level);
     static const std::vector<std::array<uint8_t, 3>>& palette();
     // Braille: `cols` x `rows` cells from a frame that has (cols * 2) x (rows * 4) dots. Each cell: the dot mask (0x2800 + mask) and the
@@ -72,6 +101,7 @@ private:
     void start(double from, bool keep_picture = false);
     void run(uint64_t gen, double from, int w, int h);
     void halt();
+    size_t queue_max(size_t frame_bytes) const;
 
     std::string path_;
     int vw_ = 0, vh_ = 0;
@@ -80,6 +110,8 @@ private:
     std::mutex m_;
     std::condition_variable cv_;
     std::deque<VideoFrame> q_;         // decoded, not shown yet
+    VideoFrame prev_;                  // the one before it (for the interlace look)
+    bool prev_valid_ = false;
     VideoFrame cur_;                   // the frame on screen
     bool cur_valid_ = false;
     bool cur_returned_ = false;
@@ -90,6 +122,8 @@ private:
     std::unique_ptr<ChildProcess> child_;
     std::mutex child_m_;
     int run_w_ = 0, run_h_ = 0;
+    bool sharp_ = false, run_sharp_ = false;
+    size_t buffer_bytes_ = 32u << 20;   // (guarded by m_)
     double run_from_ = 0.0;
     int pend_w_ = 0, pend_h_ = 0;      // a new size waiting to stay the same for a moment before the decoder restarts
     std::chrono::steady_clock::time_point pend_since_{};
