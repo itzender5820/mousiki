@@ -18,9 +18,48 @@ else()
   set(CMAKE_C_FLAGS_DEV "-O1" CACHE STRING "C flags for the Dev build type")
 endif()
 
+# ccache (when it is installed): an unchanged file is not compiled again -- after a change to a header, a switch of the branch or a clean
+# build the object files come out of the cache. Switch off with -DMOUSIKI_USE_CCACHE=OFF.
+option(MOUSIKI_USE_CCACHE "Use ccache for the compiler when it is installed (much faster rebuilds)" ON)
+set(MOUSIKI_CCACHE_ACTIVE OFF)
+if(MOUSIKI_USE_CCACHE)
+  find_program(MOUSIKI_CCACHE_EXE ccache)
+  if(MOUSIKI_CCACHE_EXE)
+    if(MSVC AND CMAKE_GENERATOR MATCHES "Visual Studio")
+      # The Visual Studio generators have no compiler launcher: ccache is put in as cl.exe (a copy next to the build, found through
+      # CLToolPath). /Zi is not compatible with ccache, /Z7 is (the Release build has no debug information at all). Needs CMake 3.25.
+      if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.25)
+        cmake_policy(SET CMP0141 NEW)
+        file(COPY_FILE "${MOUSIKI_CCACHE_EXE}" "${CMAKE_BINARY_DIR}/cl.exe" ONLY_IF_DIFFERENT)
+        set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>")
+        set(CMAKE_VS_GLOBALS "CLToolExe=cl.exe" "CLToolPath=${CMAKE_BINARY_DIR}" "UseMultiToolTask=true")
+        set(MOUSIKI_CCACHE_ACTIVE ON)
+      else()
+        message(STATUS "ccache found, but the Visual Studio generator needs CMake 3.25 or newer for it: not used")
+      endif()
+    elseif(NOT CMAKE_GENERATOR MATCHES "Xcode")
+      set(CMAKE_C_COMPILER_LAUNCHER "${MOUSIKI_CCACHE_EXE}")
+      set(CMAKE_CXX_COMPILER_LAUNCHER "${MOUSIKI_CCACHE_EXE}")
+      if(MSVC)   # (Ninja with cl.exe)
+        foreach(_cfg DEBUG RELWITHDEBINFO)
+          string(REPLACE "/Zi" "/Z7" CMAKE_CXX_FLAGS_${_cfg} "${CMAKE_CXX_FLAGS_${_cfg}}")
+          string(REPLACE "/Zi" "/Z7" CMAKE_C_FLAGS_${_cfg} "${CMAKE_C_FLAGS_${_cfg}}")
+        endforeach()
+      endif()
+      set(MOUSIKI_CCACHE_ACTIVE ON)
+    endif()
+    if(MOUSIKI_CCACHE_ACTIVE)
+      message(STATUS "ccache: ${MOUSIKI_CCACHE_EXE}")
+    endif()
+  else()
+    message(STATUS "ccache not found (installing it makes rebuilds much faster)")
+  endif()
+endif()
+
 # Visual Studio generators compile the files of one project one after the other unless cl.exe is told to use all cores (/MP).
-# (Ninja and Makefiles start several compilers by themselves, so they do not need it.)
-if(MSVC AND CMAKE_GENERATOR MATCHES "Visual Studio")
+# (Ninja and Makefiles start several compilers by themselves, so they do not need it. With ccache as cl.exe it is UseMultiToolTask
+# instead: ccache cannot take several files in one call.)
+if(MSVC AND CMAKE_GENERATOR MATCHES "Visual Studio" AND NOT MOUSIKI_CCACHE_ACTIVE)
   add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:/MP>)
 endif()
 
@@ -82,6 +121,9 @@ endif()
 file(GLOB_RECURSE MUISC_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/src/*.cpp")
 set(KISSFFT_SOURCES "${KISSFFT_DIR}/kiss_fft.c" "${KISSFFT_DIR}/kiss_fftr.c")
 set_source_files_properties(${KISSFFT_SOURCES} PROPERTIES LANGUAGE C)
+if(MSVC)   # kissfft is vendored unchanged (third_party/): its size_t -> int conversions (C4267) are known and harmless, so MSVC is not asked about them
+  set_source_files_properties(${KISSFFT_SOURCES} PROPERTIES COMPILE_OPTIONS "/wd4267")
+endif()
 # miniz: the deflate used to compress the oscilloscope picture for Kitty graphics (src/terminal_gfx.cpp)
 set(MINIZ_DIR "${CMAKE_SOURCE_DIR}/third_party/miniz")
 if(NOT EXISTS "${MINIZ_DIR}/miniz.c")
@@ -145,6 +187,9 @@ target_compile_definitions(fpcalc_tool PRIVATE
     WIN32_LEAN_AND_MEAN
     _CRT_SECURE_NO_WARNINGS)
 set_source_files_properties(${CHROMAPRINT_KISSFFT_SOURCES} PROPERTIES LANGUAGE C)
+if(MSVC)
+  set_source_files_properties(${CHROMAPRINT_KISSFFT_SOURCES} PROPERTIES COMPILE_OPTIONS "/wd4267")   # (the same known conversion warning)
+endif()
 if(MSVC)
   # Vendored upstream code, not ours: fingerprint_matcher.cpp trips C4244 while
   # instantiating std::pair inside MSVC's own <utility>. Silencing it on the

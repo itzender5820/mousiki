@@ -40,6 +40,10 @@
     Also install pykakasi (pip install --user pykakasi), so kanji are shown in Latin letters too (SHIFT+'). Optional:
     pykakasi is GPL-3.0 and not part of Mousiki; it is downloaded from pypi.org and run as a separate program.
 
+.PARAMETER NoCcache
+    Don't use ccache. By default it is installed with winget (when winget exists and it is missing) and CMake uses it, so a
+    rebuild after a small change, a branch switch or a clean build takes a fraction of the time.
+
 .PARAMETER NoInstall
     Don't create the launchers. By default the commands "mousiki" and "lala"
     are created in %LOCALAPPDATA%\Mousiki\bin, which is added to your user
@@ -53,7 +57,8 @@ param(
     [switch]$NoInstall,
     [switch]$NoUpgrade,
     [switch]$UpgradeFfmpeg,
-    [switch]$WithKanji
+    [switch]$WithKanji,
+    [switch]$NoCcache
 )
 
 $ErrorActionPreference = 'Stop'
@@ -100,6 +105,11 @@ if (-not $SkipDeps) {
         if (-not (Test-Command cmake)) {
             Write-Step "Installing CMake"
             winget install --id Kitware.CMake --accept-source-agreements --accept-package-agreements --silent
+        }
+        if (-not $NoCcache -and -not (Test-Command ccache)) {
+            Write-Step "Installing ccache (faster rebuilds)"
+            winget install --id ccache.ccache --accept-source-agreements --accept-package-agreements --silent
+            if ($LASTEXITCODE -ne 0) { Write-Warning "ccache could not be installed (the build works without it; -NoCcache silences this)." }
         }
         if (-not (Test-Command ffmpeg)) {
             Write-Step "Installing FFmpeg (the full build: it includes libopenmpt and libgme)"
@@ -217,12 +227,14 @@ $build = Join-Path $root 'build'
 Write-Step "Configuring ($BuildType)"
 # miniaudio and kissfft are vendored in third_party/, so configuring
 # needs no network access.
-cmake -S $root -B $build -DCMAKE_BUILD_TYPE=$BuildType
+$ccacheFlag = if ($NoCcache) { '-DMOUSIKI_USE_CCACHE=OFF' } else { '-DMOUSIKI_USE_CCACHE=ON' }
+cmake -S $root -B $build -DCMAKE_BUILD_TYPE=$BuildType $ccacheFlag
 if ($LASTEXITCODE -ne 0) { throw "cmake configure failed" }
 
 Write-Step "Building"
 cmake --build $build --config $BuildType --parallel $env:NUMBER_OF_PROCESSORS
 if ($LASTEXITCODE -ne 0) { throw "cmake build failed" }
+if (-not $NoCcache -and (Test-Command ccache)) { Write-Step "ccache"; ccache --show-stats 2>$null | Select-Object -First 8 }
 
 # Single-config generators put the exe in build\, multi-config (Visual Studio)
 # in build\<Config>\.
