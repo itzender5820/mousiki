@@ -219,7 +219,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "HKeyIncreaseVolume", "Volume up"},
         {nullptr, "HKeyDecreaseVolume", "Volume down"},
         {nullptr, "HKeyToggleMute", "Mute (without pausing)"},
-        {"SOUND (MAIN UI)", "HKeyToggleNormalize", "Toggle loudness normalization (no key by default: SHIFT+v overlay, SPACE there; 'v' is the full screen video)"},
+        {"SOUND (MAIN UI)", "HKeyToggleNormalize", "Toggle loudness normalization (no key by default: SHIFT+v overlay, SPACE there; 'v' is the big video overlay)"},
         {nullptr, "HKeyBarsMenu", "Spectrum bars overlay (music player and radio, under the upper pane; scrolls when the terminal is low; in the audio book mode SHIFT+b is the bookmark, SHIFT+y opens it there): style, Hi-Fi resolution / channels / gap / height / frequency scale / gain / range / colour, bar motion (toggle; [R] defaults)"},
         {nullptr, "HKeyNormMenu", "Normalization overlay: on/off, target level, max boost live (toggle)"},
         {nullptr, "#UP/DOWN  LEFT/RIGHT", "Normalization overlay: pick a value / change it   [SPACE] on/off   [R] reset   [ESC] close"},
@@ -282,7 +282,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "HKeyKaraoke", "Karaoke overlay: the lyrics over the whole screen, sung words highlighted (toggle; fetches the lyrics even with the lyrics engine off; playback keys keep working)"},
         {nullptr, "#@KARAOKESIZE", "Karaoke overlay: lyrics bigger / smaller, sizes 1-5 (saved when the overlay closes)"},
         // --- Video mode ---
-        {"VIDEO MODE (MAIN UI)", "HKeyVideo", "VIDEO overlay (& = SHIFT+6 on a German keyboard, else SHIFT+y): Use Video in Lyrics Field, Include Lyrics, Auto Video, cover or thumbnail on the disk, Picture Size, Rounded Corners, Effect (this track's own effect with UP/DOWN in the big overlay), Contrast, Colors, Chromatic Aberration, Resolution, Buffer, Full Screen Video, Manually Couple Local Files, Quick Search/Down. YT, Delete Current Video, Refetch this Video"},
+        {"VIDEO MODE (MAIN UI)", "HKeyVideo", "VIDEO SETTINGS overlay (& = SHIFT+6 on a German keyboard, else SHIFT+y): Use Video in Lyrics Field, Include Lyrics, Auto Video, cover or thumbnail on the disk, Picture Size, Rounded Corners, Effect (this track's own effect with UP/DOWN in the big overlay), Contrast, Colors, Chromatic Aberration, Resolution, Buffer, Full Screen Video, Manually Couple Local Files, Quick Search/Down. YT, Delete Current Video, Refetch this Video"},
         {nullptr, "HKeyVideoFxBack", "Previous video effect for this track (the other direction of the key for the next one)"},
         {nullptr, "HKeyVideoFx", "Next video effect for this track (the picture in the video view of the field; the same effect as Video Effect in Style Option)"},
         {nullptr, "HKeyVideoFull", "Video over the whole screen: UP/DOWN effect (of this track), SHIFT+UP/DOWN layout (video / + osci / + spectrogram; O, I their options, G grid and scales), TAB lyrics off / on / with translation, S effect, contrast, colors and chromatic aberration, LEFT/RIGHT seek, ESC closes"},

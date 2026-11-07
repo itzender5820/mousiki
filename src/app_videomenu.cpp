@@ -185,7 +185,7 @@ std::vector<std::string> App::build_video_opts_panel() const {
     auto pct = [&](int own, int global) { return own >= 0 ? std::to_string(own) + " %" : std::string("as in Settings (") + std::to_string(global) + " %)"; };
     struct Row { const char* label; std::string value; };
     const std::vector<Row> rows = {
-        {"Video Effect", o.fx >= 0 ? std::string(video_fx_name(o.fx)) : std::string("VIDEO menu (") + video_fx_name(settings_.video_fx) + ")"},
+        {"Video Effect", o.fx >= 0 ? std::string(video_fx_name(o.fx)) : std::string("VIDEO SETTINGS (") + video_fx_name(settings_.video_fx) + ")"},
         {"Video Contrast", pct(o.contrast, settings_.video_contrast)},
         {"Video Colors", pct(o.colors, settings_.video_colors)},
         {"Video Chromatic Aberration", o.chroma >= 0 ? std::string(chroma_name(o.chroma)) : std::string("as in Settings (") + chroma_name(settings_.video_chroma) + ")"},
@@ -343,7 +343,7 @@ std::vector<std::string> App::build_video_menu_panel() const {
         return row(l, vmenu_sel_ == idx);
     };
     std::vector<std::string> lines;
-    lines.push_back(box_top("VIDEO", W, border));
+    lines.push_back(box_top("VIDEO SETTINGS", W, border));
     lines.push_back(section("Switches"));
     lines.push_back(row(entry(vmenu_sel_ == 0, "Use Video in Lyrics Field", toggle(settings_.video_mode)), vmenu_sel_ == 0));
     lines.push_back(row(entry(vmenu_sel_ == 1, "Include Lyrics", toggle(settings_.video_lyrics)), vmenu_sel_ == 1));

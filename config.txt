@@ -144,11 +144,11 @@ VideoBuffer=32
 VideoMp3=true
 ## yt-dlp mp3 from mp4: SEARCH YT also saves the sound of a downloaded video as an mp3 song in the download folder when no song is the target (CTRL+o in SEARCH YT changes it per download): true | false
 VideoFullLyrics=true
-## true = the full screen video (HKeyVideoFull, "v") shows the current lyric line in a small black box over the picture
+## true = the big video overlay (HKeyVideoFull, "v") shows the current lyric line in a small black box over the picture
 VideoFullTranslation=false
-## Full screen video: show the saved translation of the lyrics under the lyric line (TAB cycles lyrics off / on / with translation).
+## Big video overlay: show the saved translation of the lyrics under the lyric line (TAB cycles lyrics off / on / with translation).
 VideoLayout=0
-## the layout of the full screen video (SHIFT+UP / SHIFT+DOWN there): 0 video | 1 video + oscilloscope | 2 video + spectrogram | 3 video + oscilloscope + spectrogram
+## the layout of the big video overlay (SHIFT+UP / SHIFT+DOWN there): 0 video | 1 video + oscilloscope | 2 video + spectrogram | 3 video + oscilloscope + spectrogram
 VideoLayoutOsciStyle=default
 VideoLayoutOsciMode=default
 VideoLayoutSpectroStyle=default

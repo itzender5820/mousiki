@@ -7,8 +7,9 @@ for lovers of the terminal. <3
 
 OPEN/CLOSE HELP WIZARD: [[Header]]
 To open/close use [SHIFT+w] and [ESC] for just closing it.
-[SHIFT+7] (German keyboard) or [/] (English keyboard) searches the whole wizard (typos are
-forgiven, matches are marked), also in the cheat sheet [?].
+[SHIFT+7] (German keyboard) or [/] (English keyboard) searches the 
+whole wizard (typos are forgiven, matches are marked), also in the 
+cheat sheet [?].
 
 RECOMMENDATIONS FOR FIRST TIME USERS: [[Header]]
 The first thing you might want to do is setting your custom folder paths
@@ -49,8 +50,9 @@ for lovers of the terminal. <3
 
 OPEN/CLOSE HELP WIZARD: [[Header]]
 To open/close use [SHIFT+w] and [ESC] for just closing it.
-[SHIFT+7] (German keyboard) or [/] (English keyboard) searches the whole wizard (typos are
-forgiven, matches are marked), also in the cheat sheet [?].
+[SHIFT+7] (German keyboard) or [/] (English keyboard) searches the 
+whole wizard (typos are forgiven, matches are marked), also in the 
+cheat sheet [?].
 
 HELP WIZARD TABLE OF CONTENT:[[Header]]
 Use [->] to move on to the table of content or press [t] from anywhere
@@ -204,7 +206,7 @@ colors.
 
 VIDEO: [[Header]]
 Video files join the library, and a sound file can be paired with a video. The field shows the video with
-the current lyric line, with many looks (scanlines, CRT, VHS, glitch, Game Boy ...). The full screen video
+the current lyric line, with many looks (scanlines, CRT, VHS, glitch, Game Boy ...). The big video overlay
 ([v]) can add the oscilloscope and the spectrogram below or beside the picture and show the translation.
 
 THE RADIO: [[Header]]
@@ -457,6 +459,7 @@ For more details on all the SETTINGS TABS see chapter SETTINGS AND COLOR THEMES[
 Move onto a row, press [ENTER], type in folder path, hit [ENTER] again to change/add a path. 
 An empty line plus [ENTER] removes that path. Paths accept "~" and "%USERPROFILE%" and both 
 slash directions on Windows.
+Music files and video files (see 2.1.2.1 SUPPORTED FORMATS) in these folders are found.
 Committing a change rescans the library at once. Note that the download folder is included in
 the list automatically, so you do not have to add it as a local path manually.
 
@@ -484,13 +487,13 @@ Supported are the usual formats, including some unusual ones.
 REGULAR FORMATS: [[Header]]
 MP3, FLAC, WAV, OGG, Opus, M4A and other common formats play out of the box.
 
-VIDEO FILES (music videos):[[Header]]
-  .mp4 .m4v .mkv .mov .avi .webm .wmv .flv .mpg .mpeg .ogv .3gp
-=> FFmpeg decodes sound and picture.[[Legend]]
-=> They play like any track; the picture shows in the video view.[[Legend]]
-=> Real image in Kitty / Sixel terminals, braille dots elsewhere.[[Legend]]
-=> A video named like a song beside it is paired with that song.[[Legend]]
-=> .webm can also be audio only (see VIDEO MODE).[[Legend]]
+Video files (music videos):[[Header]]
+Extensions    .mp4 .m4v .mkv .mov .avi .webm .wmv .flv .mpg .mpeg .ogv .3gp
+Decoding      FFmpeg decodes sound and picture.
+Playing       They play like any track; the picture shows in the video view (VIDEO MODE, 2.4.4).
+Picture       A real image in Kitty / Sixel terminals, braille dots elsewhere.
+Pairing       A video named like a song beside it is paired with that song.
+Audio only    .webm can also be an audio only file.
 
 => See FFmpeg for a full list of supported formats! [[Legend]]
 
@@ -699,7 +702,7 @@ COVER IN THE EDIT PANE AND COVER OPTIONS:[[Header]]
 The cover of the highlighted track is shown under the fields. Move down to the button
 [ Cover Options ] and hit [ENTER]: choose a picture for THIS track (inside the file, in its
 folder, in its fetched_covers folder, the album's covers), "Automatic" (Settings -> Cover
-Search decides); above them "The disk shows": as in the VIDEO menu / the cover / the video thumbnail (a
+Search decides); above them "The disk shows": as in the VIDEO SETTINGS / the cover / the video thumbnail (a
 frame of
 THIS track's video) / the plain disk. Delete a picture from the disk ([DEL]); [DEL] on Automatic or on the
 picture inside the file gives the track NO cover (the disk is shown; Automatic brings a cover back). The
@@ -711,7 +714,7 @@ overlay with the look of THIS track (as in Settings, Disk, Just Cover, Cover wit
 Cover behind Disk looks, the ASCII looks), its own Cover Contrast, Cover Brightness, Cover
 Colors and Cover Chromatic Aberration, and the look of its whole ALBUM (no album tag: of that folder). With
 the Video mode on a row "Use Cover or Thumbnail" sets the cover / video thumbnail / disk of THIS track (the
-same choice as in Cover Options; the VIDEO overlay holds the default). [<-][->] change a row (with the
+same choice as in Cover Options; the VIDEO SETTINGS overlay holds the default). [<-][->] change a row (with the
 Video mode on more rows: Video of this track on / off, Video Size, Video Effect, Video Contrast, Video
 Colors, Video Chromatic Aberration, for this track only),
 [DEL] or [d] puts it back to "as in Settings". [t] switches between a real picture
@@ -810,23 +813,33 @@ quitting a process.
 OPEN AND CHANGE TABS:[[Header]] Open via [SHIFT+p], change tabs via [<-/->]
 
 CREATE/EDIT TAB: [[Header]]
+
 NAME: Choose a name for a playlist.
+
 SEARCH AND ADD: Use the search function to search for titles and add via [ENTER]
-COLUMNS: Filename (narrow) | Title | Artist | Album, in the library and in the track list. On the
-hovering row every too long column scrolls (Settings -> GENERAL -> Marquee Scrolling).
-SEARCH FOLDERS: Start the search with /f: (e.g. /f:abbey): the matching folders are listed as folder rows,
-[ENTER] opens / closes one (its files hang indented below), [ENTER] on a file adds it.
-ADD A FOLDER: [SHIFT+a] adds the whole hovering folder (the folder of the hovering file in a normal
-search).
+
+COLUMNS: Filename (narrow) | Title | Artist | Album, in the library and in the track list. 
+On the  hovering row every too long column scrolls (Settings -> GENERAL -> Marquee Scrolling).
+
+SEARCH FOLDERS: Start the search with /f: (e.g. /f:abbey): the matching folders are listed as 
+folder rows,[ENTER] opens / closes one (its files hang indented below), [ENTER] on a file adds it.
+
+ADD A FOLDER: [SHIFT+a] adds the whole hovering folder (the folder of the hovering file in a 
+normal search).
+
 UNDO ADD: [SHIFT+u] takes the last add back (a file or a whole folder), again and again.
-RESCAN: [SHIFT+r] looks for new files in the library. [SHIFT+a/u/r/t] work while nothing was typed in
-the search box yet (after typing: [ESC] first).
+
+RESCAN: [SHIFT+r] looks for new files in the library. [SHIFT+a/u/r/t] work while nothing was 
+typed in the search box yet (after typing: [ESC] first).
 SORT: [SHIFT+t] cycles the library sort: folder order, Filenames A-Z, Title A-Z, Artist A-Z,
-Album A-Z, Recently added (also for search results). Use it before typing, or after leaving the box with
-[ESC].
+Album A-Z, Recently added (also for search results). Use it before typing, or after leaving 
+the box with [ESC].
+
 REMOVE: Move the focus to the track list, choose and delete a track via [DEL/d]
+
 LATIN LETTERS: [SHIFT+'] (the ["] key, as set in Hotkeys) shows Japanese, Korean and Chinese
 text in Latin letters, on / off, in both tabs, also while typing (no ["] can be typed there).
+
 SAVE/DISCARD: Save via [CTRL+s] and just choose [No] when exiting the playlist
 editor to discard your current playlist.
 
@@ -838,23 +851,26 @@ editor. YouTube/SoundCloud/Bandcamp tracks are downloaded into the
 download folder first.
 
 PLAYLISTS TAB: [[Header]]
+
 SEARCH AND ADD TO QUEUE: Search and choose a playlist and hit [ENTER] to add to queue.
+
 EXPORT/IMPORT: Use [e/i] to import or export playlists in the M3U/M3U8 format. Playlists
 created with Mousiki are stored in its own format, but they can be exported in M3U/M3U8.
 Both dialogs have a scope row: export: [Currently (filtered) list] writes every playlist the
-(filtered) list shows; import: [Whole folder] takes every file of the folder. Defaults: the "export" and
-"import" folders inside the playlist folder. Import never touches its files: a COPY goes to
-"imported_lists" in the playlist folder, which so holds only the given lists. A track whose file is not on
-this computer (a list from someone else) is looked up in your library: first by FILE NAME (extension, track
-number, case and punctuation do not count), then by TITLE
-AND ARTIST, each at least 75 % alike (typos, "(Remastered)" and the order of the words in a name do not
-count; the
-#EXTINF line, tags and file names are compared). Japanese, Korean and Chinese text is also compared by its
-Latin spelling, so "米津玄師" finds "Kenshi Yonezu". A track without any artist is taken only on a title
-that is at least
-90 % alike and only when exactly one library track fits. What is not found stays in the list as missing;
-the status line counts the matches.
+(filtered) list shows; import: [Whole folder] takes every file of the folder. Defaults: the 
+"export" and "import" folders inside the playlist folder. Import never touches its files: a 
+COPY goes to "imported_lists" in the playlist folder, which so holds only the given lists. 
+A track whose file is not on this computer (a list from someone else) is looked up in your 
+library: first by FILE NAME (extension, track number, case and punctuation do not count), 
+then by TITLE AND ARTIST, each at least 75 % alike (typos, "(Remastered)" and the order of 
+the words in a name do not count; the #EXTINF line, tags and file names are compared). 
+Japanese, Korean and Chinese text is also compared by its Latin spelling, so "米津玄師" 
+finds "Kenshi Yonezu". A track without any artist is taken only on a title that is at least
+90 % alike and only when exactly one library track fits. What is not found stays in the list 
+as missing; the status line counts the matches.
+
 FILTER: [c] shows only created playlists, [g] all given ones (playlist folder + imported_lists).
+
 DELETE PLAYLIST: Use [DEL/d] to delete a playlist.
 
 [[New Page]]
@@ -936,7 +952,7 @@ look into fetched_covers too, except "Within File Only". Needs Python 3 and inte
 
 Finds the videos of many songs at once, like the cover fetch does for covers.
 OPEN:[[Header]] [ALT+v] (macOS: [SHIFT+d]) in the main music player, or the button
-[ General Fetch Videos Menu ] in the VIDEO overlay [&] and in Video Option [SHIFT+m].
+[ General Fetch Videos Menu ] in the VIDEO SETTINGS overlay [&] and in Video Option [SHIFT+m].
 Works with the Video mode on or off. Needs yt-dlp and ffmpeg.
 
 SONGS AND VIDEOS TAB:[[Header]] Left the SONGS (without a video, plus the playing song), right the
@@ -1162,74 +1178,116 @@ KEYS THAT KEEP WORKING IN KARAOKE: [[Header]]
 Music videos and sound files with a video of the same name beside them. Video files are part of
 the library whether the mode is on or off: their sound plays, queues and playlists show them by
 title. A video that is paired with a song (same name beside it, or connected by hand) is not
-listed twice; the song stands for both.
+listed twice; the song stands for both. Formats: see 2.1.2.1 SUPPORTED FORMATS.
 
-[&]  VIDEO overlay[[Header]] (German SHIFT+6, other keyboards SHIFT+y): Use Video in Lyrics Field, Include
-     Lyrics, Auto Video, Cover Disk or Thumbnail, Picture Size, Effect, [ Full Screen Video ],
-     [ Manually Couple Local Files ], [ Quick Search/Down. YT ], [ General Fetch Videos Menu ],
-     [ Delete Current Video ] (two questions first) and [ Refetch this Video ] (searches again, takes the
-     closest hit; the old file is deleted only if Mousiki downloaded it).
-     - Use Video in Lyrics Field: the VIDEO view joins the [,/.] cycle (Viz Order 5): the picture of the
-     track's
-       video with the current lyric line under it; a real picture in Kitty / Sixel terminals,
-       braille dots elsewhere. With "When No Video Shows" set to none the cycle skips it for a
-       track without a video.
-     - Auto Video: a track with a video shows it; the next track without one follows the Lyrics/Viz
-       Default (a view / last used = the view before the video / video = stays on the video view, then
-       When No Video Shows decides), and a view chosen with [.] / [,] stays.
-     - Cover, Disk or Thumbnail: what the disk shows (the cover, a frame of the video, or the plain
-       disk); the meta editor sets it for a single track.
-     - Picture Size: regular (the whole picture) / cropped (two columns cut off each side) / full
-       (fills the field like the oscilloscope, cropped to fit; the lyric line is a small black box
-       over the picture) / framed (like full, one row and two columns smaller on every side). Also Video
-       Size in Settings (ANIMA/VIZ).
-     - Effect: Off / Scanlines / CRT / VHS / Glitch / Quiet Glitch / Pixel / Gradient / Phosphor Green /
-       Phosphor Amber / Halftone / Dither B/W / Dither Gradient / Game Boy High-Res / Game Boy High-Res B/W
-       / Game Boy Low-Res B/W / Game Boy
-       High-Res Gradient /
-       Game Boy
-       Low-Res /
-       EGA 16 / Film / Neon Edge / Neon Edge Gradient / Interlace, a retro look for the
-       picture (also Video Effect in Settings, with a preview). Video Contrast, Video Colors (0 =
-       greyscale) and Video Chromatic Aberration (works with every effect; Cover Chromatic Aberration does
-       the same for covers) are in Settings too. These are also rows of the VIDEO overlay (&), and in the
-       Style Options per track (Video Resolution too); in the full screen video SHIFT+s opens them as a
-       panel. Video Resolution (standard / high / full: sharper, on Kitty in true colour) and Video Buffer
-       (MB of frames kept ahead) are in Settings (ANIMA/VIZ) too. Paused video = still effect.
-     - [ Manually Couple Local Files ]: connect a song and a video by hand ([ALT+v] there switches to Fetch
-     Videos).
-     - [ Quick Search/Down. YT ]: search YouTube with previews, download one video into video_down;
-       [CTRL+o] also saves its sound as an mp3 song in the download folder, connected to the video
-       (on by default when no song is the target)
-       and connect it.
+[VIDEO SETTINGS OVERLAY][[Header]] [&][[Header]] (German SHIFT+6, other keyboards SHIFT+y):
+Opens the overlay with the rows below. A video is shown in the field next to the meta data; a real
+picture in Kitty / Sixel terminals, braille dots elsewhere.
 
-[g]  NEXT VIDEO EFFECT[[Header]]: with the video view in the field, steps to the next effect for this
-     track (the same one as Video Effect in Style Option).
+ROW[[Header]]                           WHAT IT DOES[[Header]]
+[Use Video in Lyrics Field][[Legend]]     The VIDEO view joins the [,/.] cycle (Viz Order 5): the picture of
+                              the track's video with the current lyric line under it. With "When
+                              No Video Shows" set to none the cycle skips it for a track without a
+                              video.
+[Include Lyrics][[Legend]]                The current lyric line under the picture. Off: the picture gets the
+                              whole field.
+[Auto Video][[Legend]]                    A track with a video shows it. The next track without one follows
+                              the Lyrics/Viz Default (a view / last used = the view before the
+                              video / video = stays on the video view, then When No Video Shows
+                              decides). A view chosen with [.] / [,] stays.
+[Cover, Disk or Thumbnail][[Legend]]      What the disk shows: the cover, a frame of the video, or the plain
+                              disk. The meta editor sets it for a single track.
+[Picture Size][[Legend]]                  How the picture fills the field (table below).
+[Effect][[Legend]]                        A retro look for the picture (list below).
 
-[v]  FULL SCREEN VIDEO[[Header]]: the video over the whole screen, lyric line as a small
-     black box over it. [UP/DOWN] effect of this track (as in its Style Option), [TAB] lyrics off / on /
-     with translation (saved in READ LYRICS),
-     [SHIFT+UP/DOWN] layout (video / + oscilloscope / + spectrogram / + both, in a column right of the
-     video; [SHIFT+o] / [SHIFT+i] open their options, [SHIFT+g] grid and scales),
-     [SHIFT+s] a panel for effect, contrast, colors and chromatic aberration, [ESC] or [>] closes; seek and
-     pause keys keep working. Opens always (not in the audio book), independent of the Video mode. [ESC] or
-     [v] closes.
-     A track without a video shows a little film clapperboard (its arm slowly closes and opens while it
-     sways) and the note to fetch a video with [ALT+v] or pair a local one with [SHIFT+m].
-     A track can have its own video on / off, size and effect: Style Option [SHIFT+s].
+[PICTURE SIZE (also Video Size in Settings, tab ANIMA/VIZ):][[Header]]
+regular       The whole picture.
+cropped       Two columns are cut off on each side.
+full          Fills the field like the oscilloscope, cropped to fit. The lyric line is a small
+              black box over the picture.
+framed        Like full, one row and two columns smaller on every side.
 
-[ALT+v] FETCH VIDEOS[[Header]] (macOS: [SHIFT+d]): finds the videos of many songs at once, shows the
-     video files and deletes unused ones. See 2.3.7 VIDEO FETCH (Curating Your Files).
-VIDEO OPTION[[Header]] [SHIFT+m]: [ Delete COMPLETE VIDEO FILE connected to track ] deletes the video file of the song you are on
-     (two questions); [ Delete Connection (Not the Video itself) ] or [DEL] only removes the
-     connection (the video file stays). Video Option lists audio files only ([CTRL+f]: all / no video yet, songs with
-     a video are highlighted) and shows a preview of the connected video.
+[EFFECTS (also Video Effect in Settings, with a preview):][[Header]]
+Off, Scanlines, CRT, VHS, Glitch, Quiet Glitch, Pixel, Gradient, Phosphor Green, Phosphor Amber,
+Halftone, Dither B/W, Dither Gradient, Game Boy High-Res, Game Boy High-Res B/W, Game Boy Low-Res
+B/W, Game Boy High-Res Gradient, Game Boy Low-Res, EGA 16, Film, Neon Edge, Neon Edge Gradient,
+Interlace. A paused video shows a still effect.
+Pick one in the overlay, with [g] on the video view, or per track in Style Option [SHIFT+s].
+
+[PICTURE TUNING (Settings, tab ANIMA/VIZ, and Style Option per track):][[Header]]
+SETTING[[Header]]                       [WHAT IT DOES][[Header]]
+[Video Contrast][[Legend]]                Contrast of the picture.
+[Video Colors][[Legend]]                  0 = greyscale.
+[Video Chromatic Aberration][[Legend]]    Colour fringes; works with every effect. Cover Chromatic Aberration
+                              does the same for covers.
+[Video Resolution][[Legend]]              standard / high / full: sharper, on Kitty in true colour. Also in
+                              Style Option.
+[Video Buffer][[Legend]]                  MB of frames kept ahead.
+These are also rows of the VIDEO SETTINGS overlay [&]; in the big video overlay [SHIFT+s] opens 
+them as a panel.
+
+BUTTONS IN THE OVERLAY:[[Header]]
+BUTTON[[Legend]]                            WHAT IT DOES[[Legend]]
+[ Full Screen Video ]             The same as [v] (below).
+[ Manually Couple Local Files ]   Connect a song and a video by hand (VIDEO OPTION below). [ALT+v]
+                                  there switches to Fetch Videos.
+[ Quick Search/Down. YT ]         Search YouTube with previews and download one video into
+                                  video_down (QUICK SEARCH below).
+[ General Fetch Videos Menu ]     Opens FETCH VIDEOS [ALT+v] (page 2.3.7).
+[ Delete Current Video ]          Two questions first.
+[ Refetch this Video ]            Searches again and takes the closest hit. The old file is
+                                  deleted only if Mousiki downloaded it.
+
+[NEXT VIDEO EFFECT [g]:][[Header]]
+With the video view in the field, steps to the next effect for this track (the same one as Video
+Effect in Style Option).
+
+[BIG VIDEO OVERLAY [v]:][[Header]]
+The video over the whole screen, the lyric line as a small black box over it. Opens always (not in
+the audio book), independent of the Video mode. Seek and pause keys keep working.
+
+KEY[[Header]]                     ACTION[[Header]]
+[UP/DOWN]               effect of this track (as in its Style Option)
+[TAB]                   lyrics off / on / with translation (saved in READ LYRICS)
+[SHIFT+UP/DOWN]         layout: video / + oscilloscope / + spectrogram / + both, in a column right
+                        of the video
+[SHIFT+o] / [SHIFT+i]   open the options of the oscilloscope / spectrogram
+[SHIFT+g]               grid and scales
+[SHIFT+s]               a panel for effect, contrast, colors and chromatic aberration
+[ESC] or [v] or [>]     close
+ A track without a video shows a little film clapperboard (its arm slowly closes and opens while
+it sways) and the note to fetch a video with [ALT+v] or pair a local one with [SHIFT+m]. A track
+can have its own video on / off, size and effect: Style Option [SHIFT+s].
+
+[VIDEO OPTION [SHIFT+m]:][[Header]]
+Connects a song and a video by hand. Lists audio files only ([CTRL+f]: all / no video yet, songs
+with a video are highlighted) and shows a preview of the connected video.
+
+[ Delete COMPLETE VIDEO FILE connected to track ]   Deletes the video file of the song you are on
+                                                    (two questions).
+[ Delete Connection (Not the Video itself) ] / [DEL]
+                                                    Only removes the connection; the video file
+                                                    stays.
+
+[QUICK SEARCH / DOWNLOAD YT:]
+Search YouTube with previews and download one video into video_down, then connect it. [CTRL+o]
+also saves its sound as an mp3 song in the download folder, connected to the video (on by default
+when no song is the target).
+
+[FETCH VIDEOS [ALT+v] (macOS: [SHIFT+d]):]
+Finds the videos of many songs at once, shows the video files and deletes unused ones. See 2.3.7
+VIDEO FETCH (Curating Your Files).
 
 SEARCH AND LISTS:[[Header]]
-[/v:] lists only video files, [/x:] songs and videos. A normal search lists songs and the videos
-without a song of their name. In the playlist editor, the meta editor and the folder overlay
-[SHIFT+v] steps through audio / video + audio / video. [SHIFT+t] gets a last step "videos" with the
-mode on. [/sv:] searches YouTube for videos.
+A normal search lists songs and the videos without a song of their name.
+
+KEY[[Legend]]         ACTION[[Legend]]
+[/v:]       lists only video files
+[/x:]       songs and videos
+[/sv:]      searches YouTube for videos
+[SHIFT+v]   in the playlist editor, the meta editor and the folder overlay: steps through audio /
+            video + audio / video
+[SHIFT+t]   gets a last step "videos" with the mode on
 
 [[New Page]]
 2.5.1 THE VISUALIZATION FIELD [[Header]]
@@ -1414,7 +1472,7 @@ NOTE:[[Header]] The radio keeps its own curve and its own presets (in radio_conf
 LOUDNESS NORMALIZATION: [[Header]]
 Plays every track at the same perceived loudness, so a quiet album does not disappear after a loud one.
 [SHIFT+v]  the overlay: on/off ([SPACE]), target level, max boost. Without a key of its own in the player
-           ([v] opens the full screen video there); bind one to Toggle Normalize in the Reference tab if
+           ([v] opens the big video overlay there); bind one to Toggle Normalize in the Reference tab if
            you want it.
 
 Normalize     off / on                      (default on)
@@ -1719,12 +1777,15 @@ marquee.
 [AUDIO BOOK NAMES:][[Header]]
 In the audio book mode some rows carry the book's own names (same meaning as in the other modes):
 [Viz/Notes Field:][[Legend]] = Viz/Lyrics Field: the field under the meta data (the book's notes, the oscilloscope,
-                                                  the spectrogram, the sphere). [Use Book Notes] = Use Lyrics Engine: the notes view
-                                                  takes part in the cycle. [Notes/Viz Default:] = Lyrics/Viz Default (what the field
-                                                  starts with) and [When No Notes Show:] = When No Lyrics Show (the book has no notes).
-                                                  [Viz Order 1 to 4] set the order of the views for [,/.], [Mode Order 1 to 3] the order of the modes.
-[Book Gradient Wave:][[Legend]] with Book Cover on: true = the colour wave runs over the grey cover, false = the cover
-                                                  keeps its own colours (the row below Book Cover; also in config.txt as BookCoverWave).
+                                                 the spectrogram, the sphere). 
+[Use Book Notes] = Use Lyrics Engine: the notes view takes part in the cycle. 
+[Notes/Viz Default:] = Lyrics/Viz Default (what the field starts with) and ...
+[When No Notes Show:] = When No Lyrics Show (the book has no notes).
+[Viz Order 1 to 4] set the order of the views for [,/.], 
+[Mode Order 1 to 3] the order of the modes.
+[Book Gradient Wave:][[Legend]] with Book Cover on: true = the colour wave runs over the grey cover, false = the  
+        		        coverkeeps its own colours (the row below Book Cover; also in config.txt as 
+                                BookCoverWave).
 [Normalize Volume:][[Legend]] loudness normalization on / off, the same switch as [SHIFT+v]'s first row.
 
 [BOOKMARKS:][[Header]]  
@@ -2350,18 +2411,15 @@ THEME row, [e], [SHIFT+d] and the unsaved-changes questions.
 
 GENERAL: [[Header]]
 Playback (shuffle / list, like [m]), Start Mode (player / radio / audiobook), Use Music Player / Use Radio
-/
-Use Audio Books and Mode Order 1..3 (the same rows and values as in the player, kept in its config.txt),
-Black Background, On air ascii,
-Pulse wave, Dummy buttons, Volume indicator (the look of the VOLUME BAR, like in the player),
-Spectrum Bars, Stereo sound, Normalize volume, Tuning noise (static while
-tuning, off by default and never recorded), Timeshift buffer (5 / 15 / 30 / 45 / 60 minutes),
-Use oscilloscope / Use spectrogram.
+/ Use Audio Books and Mode Order 1..3 (the same rows and values as in the player, kept in its config.txt),
+Black Background, On air ascii, Pulse wave, Dummy buttons, Volume indicator (the look of the VOLUME BAR, 
+like in the player),Spectrum Bars, Stereo sound, Normalize volume, Tuning noise (static while tuning, off 
+by default and never recorded), Timeshift buffer (5 / 15 / 30 / 45 / 60 minutes),  Use oscilloscope / Use spectrogram.
 
 ANIMA/VIZ: [[Header]]
 Gradient wave speed and Pulse wave speed (the ON AIR sign), Bars Style with the Hi-Fi rows, Bars Behavior,
-Bars Fluidity / Degradation / Viscosity,
-Osci/sphere (osci / sphere / spectro / off) and Osci style (braille / image).
+Bars Fluidity / Degradation / Viscosity, Osci/sphere (osci / sphere / spectro / off) and the option Osci 
+style (braille / image).
 
 [[New Page]]
 3.4.2 RADIO SETTINGS: PATHS, KEYS AND FILES [[Header]]

@@ -40,7 +40,7 @@ std::vector<std::string> App::meta_cover_pane(int inner, int rows) const {
     if (rq.album == "-") rq.album.clear();
     rq.search = settings_.cover_search;
     rq.store_rev = cover_store_revision();
-    // what the disk shows of this track (Cover Options / Style Option / VIDEO menu): the cover, a frame of its video, or the plain disk
+    // what the disk shows of this track (Cover Options / Style Option / VIDEO SETTINGS): the cover, a frame of its video, or the plain disk
     const int own = cover_track_video_mode(path);
     const bool has_video = !video_source_for(path_from_utf8(path)).empty();
     const int vm = own == 1 ? 0 : own == 2 ? 1 : own == 3 ? 2 : settings_.video_mode ? settings_.video_cover : 0;   // 0 cover, 1 thumbnail, 2 plain disk
@@ -275,21 +275,21 @@ bool App::handle_meta_sty_key(int key) {
         case 3: st.colors = reset ? -1 : sty_step(st.colors, dir, 100, 5); break;
         case 4: st.chroma = reset ? -1 : sty_step(st.chroma, dir, kChromaLevels - 1, 1); break;
         case 5: {   // Use Cover or Thumbnail: the mode of the track (the same one as in COVER OPTIONS)
-            int mode = cover_track_video_mode(meta_sty_track_);   // 0 as in the VIDEO menu, 1 cover, 2 thumbnail, 3 plain disk
+            int mode = cover_track_video_mode(meta_sty_track_);   // 0 as in the VIDEO SETTINGS, 1 cover, 2 thumbnail, 3 plain disk
             mode = reset ? 0 : (mode + (dir > 0 ? 1 : 3)) % 4;
             set_cover_track_video_mode(meta_sty_track_, mode);
             ++video_rev_;
             snap_track_.clear();
-            static const char* const names[4] = {"as in the VIDEO menu", "the cover", "the video thumbnail", "the plain disk"};
+            static const char* const names[4] = {"as in the VIDEO SETTINGS", "the cover", "the video thumbnail", "the plain disk"};
             meta_sty_msg_ = std::string("saved: ") + names[mode];
             return true;
         }
         case 6: case 7: case 8: case 9: case 10: case 11: case 12: case 13: case 14: {   // the video of this track (-1 = as in the VIDEO overlay / in Settings)
             VideoTrackOpts o = cover_track_video_opts(meta_sty_track_);
             if (sel == 6) o.on = reset ? -1 : (o.on == 0 ? -1 : 0);
-            else if (sel == 7) o.lyrics = reset ? -1 : sty_step(o.lyrics, dir, 1, 1);   // as in the VIDEO menu, off, on
+            else if (sel == 7) o.lyrics = reset ? -1 : sty_step(o.lyrics, dir, 1, 1);   // as in the VIDEO SETTINGS, off, on
             else if (sel == 8) o.size = reset ? -1 : (o.size + 1 + (dir > 0 ? 1 : 4)) % 5 - 1;   // -1, 0, 1, 2, 3 round
-            else if (sel == 9) o.fx = reset ? -1 : video_fx_step(o.fx, dir, true);   // "as in the VIDEO menu", then the effects in the order of the list
+            else if (sel == 9) o.fx = reset ? -1 : video_fx_step(o.fx, dir, true);   // "as in the VIDEO SETTINGS", then the effects in the order of the list
             else if (sel == 10) o.contrast = reset ? -1 : sty_step(o.contrast, dir, 100, 5);
             else if (sel == 11) o.colors = reset ? -1 : sty_step(o.colors, dir, 100, 5);
             else if (sel == 12) o.chroma = reset ? -1 : sty_step(o.chroma, dir, kChromaLevels - 1, 1);
@@ -463,13 +463,13 @@ std::vector<std::string> App::build_meta_sty_panel(int screen_w) const {
         const int own = cover_track_video_mode(meta_sty_track_);
         static const char* const dflt[3] = {"the cover", "the video thumbnail", "the plain disk"};
         static const char* const names[4] = {"", "the cover", "the video thumbnail", "the plain disk"};
-        rows.push_back({"Use Cover or Thumbnail", own == 0 ? std::string("as in VIDEO menu (") + dflt[std::clamp(settings_.video_cover, 0, 2)] + ")" : std::string(names[own])});
+        rows.push_back({"Use Cover or Thumbnail", own == 0 ? std::string("as in VIDEO SETTINGS (") + dflt[std::clamp(settings_.video_cover, 0, 2)] + ")" : std::string(names[own])});
         const VideoTrackOpts vo = cover_track_video_opts(meta_sty_track_);
         static const char* const size_names[4] = {"regular", "cropped", "full", "framed"};
         rows.push_back({"Video of this track", vo.on == 0 ? std::string("off") : std::string("on")});
-        rows.push_back({"Use Lyrics on Video", vo.lyrics >= 0 ? std::string(vo.lyrics ? "on" : "off") : std::string("as in VIDEO menu (") + (settings_.video_lyrics ? "on" : "off") + ")"});
-        rows.push_back({"Video Size", vo.size >= 0 ? std::string(size_names[vo.size]) : std::string("as in VIDEO menu (") + size_names[std::clamp(settings_.video_size, 0, 3)] + ")"});
-        rows.push_back({"Video Effect", vo.fx >= 0 ? std::string(video_fx_name(vo.fx)) : std::string("VIDEO menu (") + video_fx_name(settings_.video_fx) + ")"});
+        rows.push_back({"Use Lyrics on Video", vo.lyrics >= 0 ? std::string(vo.lyrics ? "on" : "off") : std::string("as in VIDEO SETTINGS (") + (settings_.video_lyrics ? "on" : "off") + ")"});
+        rows.push_back({"Video Size", vo.size >= 0 ? std::string(size_names[vo.size]) : std::string("as in VIDEO SETTINGS (") + size_names[std::clamp(settings_.video_size, 0, 3)] + ")"});
+        rows.push_back({"Video Effect", vo.fx >= 0 ? std::string(video_fx_name(vo.fx)) : std::string("VIDEO SETTINGS (") + video_fx_name(settings_.video_fx) + ")"});
         rows.push_back({"Video Contrast", pct(vo.contrast, settings_.video_contrast)});
         rows.push_back({"Video Colors", pct(vo.colors, settings_.video_colors)});
         rows.push_back({"Video Chromatic Aberration", vo.chroma >= 0 ? std::string(chroma_name(vo.chroma)) : std::string("as in Settings (") + chroma_name(settings_.video_chroma) + ")"});
@@ -602,7 +602,7 @@ bool App::handle_meta_cov_key(int key) {
             ++video_rev_;
             snap_track_.clear();
             meta_cov_open_ = false;
-            static const char* const names[4] = {"as in the VIDEO menu", "the cover", "a frame of its video, else the cover", "the plain disk"};
+            static const char* const names[4] = {"as in the VIDEO SETTINGS", "the cover", "a frame of its video, else the cover", "the plain disk"};
             meta_status_ = std::string("this track shows: ") + names[mode] + (mode == 2 && video_source_for(path_from_utf8(meta_cov_track_)).empty() ? " (no video yet: the cover is used)" : "");
             return true;
         }
@@ -709,7 +709,7 @@ std::vector<std::string> App::build_meta_cov_panel(int screen_w) const {
         const MetaCovItem& it = meta_cov_items_[static_cast<size_t>(k)];
         if (it.special >= 10) {
             if (top.empty()) top.push_back(heading("The disk shows"));
-            static const char* const labels[4] = {"As in the VIDEO menu (default)", "The cover", "The video thumbnail, else the cover", "The plain disk"};
+            static const char* const labels[4] = {"As in the VIDEO SETTINGS (default)", "The cover", "The video thumbnail, else the cover", "The plain disk"};
             top.push_back({k, std::string(it.special - 10 == vmode_now ? "(o) " : "( ) ") + labels[it.special - 10]});
         } else if (it.special == 1) {
             pics.push_back({k, std::string(cur.empty() ? "(o) " : "( ) ") + "Automatic (as in Settings)"});
