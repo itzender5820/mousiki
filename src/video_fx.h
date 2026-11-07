@@ -20,9 +20,10 @@ inline std::string video_fx_key(int fx) {   // as written in config.txt (lower c
 }
 // The order of the effects in the lists (the numbers stay as they are: they are stored): "Quiet Glitch" sits right below "Glitch".
 // "Dither" (11) is no longer offered: it hardly differed from "Dither B/W" (21), which takes its place (an old setting of 11 reads as 21).
-inline constexpr int kVideoFxShown = kVideoFxCount - 1;
-inline constexpr int kVideoFxOrder[kVideoFxShown] = {0, 1, 2, 3, 4, 7, 5, 6, 8, 9, 10, 21, 22, 12, 23, 20, 18, 24, 13, 14, 15, 16, 19, 17};
-inline int video_fx_canon(int fx) { return fx == 11 ? 21 : fx; }
+inline constexpr int kVideoFxShown = kVideoFxCount - 2;
+inline constexpr int kVideoFxOrder[kVideoFxShown] = {0, 1, 2, 3, 4, 7, 5, 6, 8, 9, 10, 21, 22, 12, 23, 20, 18, 24, 13, 15, 16, 19, 17};
+// "Bloom" (14) is no longer offered either (too plain): an old setting of it reads as Off.
+inline int video_fx_canon(int fx) { return fx == 11 ? 21 : fx == 14 ? 0 : fx; }
 // The effects that run the gradient wave need the visualizer gradient.
 inline bool video_fx_uses_gradient(int fx) { return fx == 6 || fx == 19 || fx == 20 || fx == 22; }
 inline int video_fx_pos(int fx) { fx = video_fx_canon(fx); for (int i = 0; i < kVideoFxShown; ++i) if (kVideoFxOrder[i] == fx) return i; return 0; }

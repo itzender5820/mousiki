@@ -1669,6 +1669,10 @@ def queue_shuffle(binary, root, scripts):
                     return cur
                 last = cur
             return last
+        for _ in range(16):                       # a slow machine draws the overlay late: wait until both names are on the screen
+            if all(n in sess.text() for n in names):
+                break
+            sess.pump(0.5)
         changed = False
         for _ in range(12):
             before = settled()
