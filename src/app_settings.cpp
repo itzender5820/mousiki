@@ -749,6 +749,7 @@ std::string App::settings_get_value(int row, int col) const {
             case kSidVideoSize: return settings_.video_size == 1 ? "cropped" : settings_.video_size == 2 ? "full" : settings_.video_size == 3 ? "framed" : "regular";
             case kSidVideoFx: return video_fx_name(settings_.video_fx);
             case kSidVideoContrast: return std::to_string(std::clamp(settings_.video_contrast, 0, 100)) + "%";
+            case kSidVideoBrightness: return std::to_string(std::clamp(settings_.video_brightness, 0, 100)) + "%";
             case kSidVideoColors: return std::to_string(std::clamp(settings_.video_colors, 0, 100)) + "%";
             case kSidVideoChroma: return chroma_name(settings_.video_chroma);
             case kSidVideoRound: return settings_.video_round ? "on" : "off";
@@ -889,7 +890,7 @@ std::vector<std::string> App::settings_options_for(int tab, int row) const {
             case kSidNoVideoViz: return {"lyrics", "sphere", "osci", "spectro", "none"};
             case kSidVideoSize: return {"regular", "cropped", "full", "framed"};
             case kSidVideoFx: { std::vector<std::string> o; for (int i = 0; i < kVideoFxShown; ++i) o.push_back(video_fx_name(kVideoFxOrder[i])); return o; }
-            case kSidVideoContrast: case kSidVideoColors: { std::vector<std::string> o; for (int i = 0; i <= 100; i += 5) o.push_back(std::to_string(i) + "%"); return o; }
+            case kSidVideoContrast: case kSidVideoBrightness: case kSidVideoColors: { std::vector<std::string> o; for (int i = 0; i <= 100; i += 5) o.push_back(std::to_string(i) + "%"); return o; }
             case kSidVideoChroma: case kSidCoverChroma: return {"off", "subtle", "medium", "strong"};
             case kSidVideoRound: return {"off", "on"};
             case kSidVideoClap: return {"text note", "clap", "none"};
@@ -981,10 +982,10 @@ void App::settings_commit_edit_impl() {
         // would never change.
         if (id == kSidVideoSize) { settings_.video_size = v == "cropped" ? 1 : v == "full" ? 2 : v == "framed" ? 3 : 0; video_pic_key_.clear(); return; }
         if (id == kSidVideoFx) { settings_.video_fx = video_fx_from(v); video_pic_key_.clear(); return; }
-        if (id == kSidVideoContrast || id == kSidVideoColors) {
+        if (id == kSidVideoContrast || id == kSidVideoBrightness || id == kSidVideoColors) {
             std::string d = v;
             if (!d.empty() && d.back() == '%') d.pop_back();
-            (id == kSidVideoContrast ? settings_.video_contrast : settings_.video_colors) = std::clamp((std::atoi(d.c_str()) + 2) / 5 * 5, 0, 100);
+            (id == kSidVideoContrast ? settings_.video_contrast : id == kSidVideoBrightness ? settings_.video_brightness : settings_.video_colors) = std::clamp((std::atoi(d.c_str()) + 2) / 5 * 5, 0, 100);
             video_pic_key_.clear();
             return;
         }
@@ -1393,6 +1394,7 @@ void App::settings_cycle(int dir) {
     }
     if (id == kSidVideoSize) status_line_ = std::string("video size: ") + (settings_.video_size == 1 ? "cropped -- two columns are cut off each side of the picture" : settings_.video_size == 2 ? "full -- the picture fills the field, cropped to fit, the lyric line as a small box over it" : settings_.video_size == 3 ? "framed -- like full, one row and two columns smaller on every side" : "regular -- the whole picture") + note;
     if (id == kSidVideoContrast) status_line_ = "video contrast: " + std::to_string(settings_.video_contrast) + "% -- more contrast for the video's picture (0 = as it is)" + note;
+    if (id == kSidVideoBrightness) status_line_ = "video brightness: " + std::to_string(settings_.video_brightness) + "% -- 50 = as it is, lower = darker, higher = brighter" + note;
     if (id == kSidVideoColors) status_line_ = "video colors: " + std::to_string(settings_.video_colors) + "% -- 0 = greyscale, 100 = the video's own colours" + note;
     if (id == kSidVideoClap) status_line_ = settings_.video_clap == 1 ? "show clap loading: clap -- a small clapperboard shows while a video loads" : settings_.video_clap == 0 ? "show clap loading: text note -- the text \"video: starting ...\" shows while a video loads" : "show clap loading: none -- nothing shows while a video loads";
     if (id == kSidVideoRound) status_line_ = settings_.video_round ? "video rounded corners: on -- the corners of the picture are cut round like the corners of the UI" : "video rounded corners: off";

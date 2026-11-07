@@ -556,6 +556,24 @@ TEST(video_grade_contrast_colours_and_chromatic_aberration) {
         VideoPlayer::apply_grade(same, 0, 100, 0);
         CHECK(same.rgb == src.rgb);
     }
+    {   // brightness: 50 = as it is, 100 brighter, 0 darker; black and white stay
+        VideoFrame same = src;
+        VideoPlayer::apply_grade(same, 0, 100, 0, 50);
+        CHECK(same.rgb == src.rgb);
+        VideoFrame up = src, down = src;
+        VideoPlayer::apply_grade(up, 0, 100, 0, 100);
+        VideoPlayer::apply_grade(down, 0, 100, 0, 0);
+        long s0 = 0, s1 = 0, s2 = 0;
+        for (size_t i = 0; i < src.rgb.size(); ++i) { s0 += src.rgb[i]; s1 += up.rgb[i]; s2 += down.rgb[i]; }
+        CHECK(s1 > s0);
+        CHECK(s2 < s0);
+        VideoFrame bw; bw.w = 2; bw.h = 2; bw.rgb = {0,0,0, 255,255,255, 0,0,0, 255,255,255};
+        const std::vector<uint8_t> bw0 = bw.rgb;
+        VideoPlayer::apply_grade(bw, 0, 100, 0, 100);
+        CHECK(bw.rgb == bw0);
+        VideoPlayer::apply_grade(bw, 0, 100, 0, 0);
+        CHECK(bw.rgb == bw0);
+    }
     {   // contrast spreads the values
         VideoFrame c = src;
         VideoPlayer::apply_grade(c, 100, 100, 0);

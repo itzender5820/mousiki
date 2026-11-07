@@ -292,10 +292,10 @@ VideoTrackOpts cover_track_video_opts(const std::string& track_path) {
     load_locked(c);
     const auto it = c.vopts.find(track_path);
     if (it == c.vopts.end()) return o;
-    int v[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1};
+    int v[10] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
     std::istringstream in(it->second);
     std::string part;
-    for (int i = 0; i < 9 && std::getline(in, part, ','); ++i) v[i] = std::atoi(part.c_str());
+    for (int i = 0; i < 10 && std::getline(in, part, ','); ++i) v[i] = std::atoi(part.c_str());
     o.on = v[0] == 0 ? 0 : -1;
     o.size = v[1] >= 0 && v[1] <= 3 ? v[1] : -1;
     o.fx = v[2] >= 0 && v[2] < kVideoFxCount ? video_fx_canon(v[2]) : -1;
@@ -305,6 +305,7 @@ VideoTrackOpts cover_track_video_opts(const std::string& track_path) {
     o.res = v[6] >= 0 && v[6] <= 2 ? v[6] : -1;
     o.round = v[7] == 0 || v[7] == 1 ? v[7] : -1;
     o.lyrics = v[8] == 0 || v[8] == 1 ? v[8] : -1;
+    o.brightness = v[9] >= 0 && v[9] <= 100 ? v[9] : -1;
     return o;
 }
 
@@ -315,8 +316,8 @@ void set_cover_track_video_opts(const std::string& track_path, const VideoTrackO
     {
         std::lock_guard<std::mutex> lk(c.mu);
         load_locked(c);
-        if (o.on != 0 && o.size < 0 && o.fx < 0 && o.contrast < 0 && o.colors < 0 && o.chroma < 0 && o.res < 0 && o.round < 0 && o.lyrics < 0) c.vopts.erase(track_path);
-        else c.vopts[track_path] = std::to_string(o.on == 0 ? 0 : -1) + "," + std::to_string(o.size) + "," + std::to_string(o.fx) + "," + std::to_string(o.contrast) + "," + std::to_string(o.colors) + "," + std::to_string(o.chroma) + "," + std::to_string(o.res) + "," + std::to_string(o.round) + "," + std::to_string(o.lyrics);
+        if (o.on != 0 && o.size < 0 && o.fx < 0 && o.contrast < 0 && o.colors < 0 && o.chroma < 0 && o.res < 0 && o.round < 0 && o.lyrics < 0 && o.brightness < 0) c.vopts.erase(track_path);
+        else c.vopts[track_path] = std::to_string(o.on == 0 ? 0 : -1) + "," + std::to_string(o.size) + "," + std::to_string(o.fx) + "," + std::to_string(o.contrast) + "," + std::to_string(o.colors) + "," + std::to_string(o.chroma) + "," + std::to_string(o.res) + "," + std::to_string(o.round) + "," + std::to_string(o.lyrics) + "," + std::to_string(o.brightness);
         save_locked(c);
     }
     if (old_on != o.on) cover_store_touch();   // (only "video of this track" can change what the disk shows; a look change must not make the cover load again: it blinked away)

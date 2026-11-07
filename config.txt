@@ -131,6 +131,8 @@ VideoFx=off
 ## a retro effect on the video's picture (small field and full screen): off | scanlines | crt | vhs | glitch | quiet glitch | pixel | gradient | ...
 VideoContrast=0
 ## 0 .. 100 (percent, steps of 5) -- more contrast for the video's picture (0 = as it is)
+VideoBrightness=50
+## 0 .. 100 (percent, steps of 5) -- the brightness of the video's picture (50 = as it is, lower = darker, higher = brighter; a track can have its own: Style Option)
 VideoColors=100
 ## 0 .. 100 (percent, steps of 5) -- the video's colours (0 = greyscale, 100 = as they are)
 VideoClap=clap

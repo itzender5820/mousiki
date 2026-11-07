@@ -72,11 +72,11 @@ inline int chroma_from(const std::string& s) { return s == "subtle" || s == "1" 
 // Everything that is done to the picture of a video: the grade (contrast 0..100 %, colours 0 = greyscale .. 100 = as they are), chromatic
 // aberration, then the effect.
 struct VideoLook {
-    int fx = 0, contrast = 0, colors = 100, chroma = 0;
+    int fx = 0, contrast = 0, colors = 100, chroma = 0, brightness = 50;
     VideoFxGradient grad;
-    bool active() const { return fx > 0 || contrast > 0 || colors < 100 || chroma > 0; }
+    bool active() const { return fx > 0 || contrast > 0 || colors < 100 || chroma > 0 || brightness != 50; }
     std::string sig() const {
-        return std::to_string(fx) + "," + std::to_string(contrast) + "," + std::to_string(colors) + "," + std::to_string(chroma) + "," +
+        return std::to_string(fx) + "," + std::to_string(contrast) + "," + std::to_string(colors) + "," + std::to_string(chroma) + "," + std::to_string(brightness) + "," +
                (video_fx_uses_gradient(fx) ? std::to_string(grad.c[0][0]) + "." + std::to_string(grad.c[0][1]) + "." + std::to_string(grad.c[0][2]) + "." + std::to_string(grad.c[2][0]) + "." + std::to_string(grad.c[2][1]) + "." + std::to_string(grad.c[2][2]) : std::string());
     }
 };

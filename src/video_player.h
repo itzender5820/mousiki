@@ -84,7 +84,7 @@ public:
     static void apply_fx(VideoFrame& f, int fx, double t, bool braille = false, const VideoFxGradient* grad = nullptr, const VideoFrame* prev = nullptr);
     // The grade: contrast (0..100 %: 0 = as it is, 100 = 2.5 times the distance from the middle grey), colours (0 = greyscale .. 100 = as they
     // are) and chromatic aberration (0 off .. 3 strong: red and blue are pushed apart, more towards the corners).
-    static void apply_grade(VideoFrame& f, int contrast, int colors, int chroma);
+    static void apply_grade(VideoFrame& f, int contrast, int colors, int chroma, int brightness = 50);   // brightness 0..100: 50 = as it is, lower darker, higher brighter (a gamma curve: black and white stay)
     // The whole look: the grade, then the effect.
     static void apply_look(VideoFrame& f, const VideoLook& look, double t, bool braille = false, const VideoFrame* prev = nullptr);
     // The frame that was on screen before the current one (nullptr: none, or another size).

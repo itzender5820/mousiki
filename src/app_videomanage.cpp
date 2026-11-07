@@ -181,7 +181,7 @@ void App::video_manage_rebuild() {
         for (const std::string& s : songs) e.songs.push_back(s);
         std::sort(e.songs.begin(), e.songs.end());
         e.coupled = !e.songs.empty();
-        e.hay = vm_lower(e.label + " " + e.folder);
+        e.hay = vm_lower(with_latin_spelling(e.label) + " " + e.folder);
         for (const std::string& s : e.songs) { const auto l = song_label.find(s); e.hay += " " + vm_lower(l != song_label.end() ? l->second : path_utf8(path_from_utf8(s).stem())); }
         vm_all_.push_back(std::move(e));
     }
@@ -348,7 +348,7 @@ std::vector<std::string> App::build_vm_list_panel(int w, int h) const {
             continue;
         }
         const VMEntry& e = vm_all_[static_cast<size_t>(vm_view_[static_cast<size_t>(i)])];
-        const std::string text = std::string(e.coupled ? "[c] " : "[ ] ") + e.label;   // [c] coupled with a song   [ ] video only
+        const std::string text = std::string(e.coupled ? "[c] " : "[ ] ") + apply_font_map(e.label, settings_.font_map);   // [c] coupled with a song   [ ] video only
         const std::string padded = pad_right(truncate_str(text, inner), inner);
         const bool hi = i == sel && vf_focus_ == 1;
         // the coupled ones are highlighted, the cursor row has its own colours
@@ -380,7 +380,7 @@ std::vector<std::string> App::build_vm_detail_panel(int w, int h) const {
         out.push_back(box_bottom(w, "", border_bottom));
         return out;
     }
-    out.push_back(text_line("Video:   " + e->label, hdr));
+    out.push_back(text_line("Video:   " + apply_font_map(e->label, settings_.font_map), hdr));
     out.push_back(text_line("Folder:  " + path_utf8(e->path.parent_path()), leg));
     out.push_back(text_line("Size:    " + vm_size_text(e->bytes), leg));
     // the songs that show this video (no reserved rows: as many lines as songs, at most 4; the rest is counted)
@@ -390,7 +390,7 @@ std::vector<std::string> App::build_vm_detail_panel(int w, int h) const {
         const int total = static_cast<int>(e->songs.size());
         out.push_back(text_line(std::string("Coupled: ") + std::to_string(total) + (total == 1 ? " song" : " songs"), hdr));
         const int shown = total > 4 ? 3 : total;
-        for (int r = 0; r < shown; ++r) out.push_back(text_line("  " + path_utf8(path_from_utf8(e->songs[static_cast<size_t>(r)]).filename()), leg));
+        for (int r = 0; r < shown; ++r) out.push_back(text_line("  " + apply_font_map(path_utf8(path_from_utf8(e->songs[static_cast<size_t>(r)]).filename()), settings_.font_map), leg));
         if (total > shown) out.push_back(text_line("  ... and " + std::to_string(total - shown) + " more", leg));
     }
     out.push_back(line("", 0));

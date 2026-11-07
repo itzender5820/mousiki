@@ -90,6 +90,21 @@ void App::handle_key(int key) {
         return;
     }
 
+    // The Latin letters key (SHIFT+' / SHIFT+2 here) works in the meta data menu, the cover and video fetch overlays, the video option and the
+    // big folder overlay too -- except while a text field has the keyboard.
+    if (!last_key_was_arrow() && key_is("HKeyTranslit", key)) {
+        bool ok = false;
+        switch (mode_) {
+            case Mode::MetaEdit: ok = !text_entry_active() || (meta_tab_ == 0 && meta_focus_ == 2 && !meta_field_editing_); break;
+            case Mode::CoverFetch: ok = !text_entry_active(); break;
+            case Mode::VideoFetch: ok = vf_focus_ != 0; break;                       // (the filter field is focus 0; a running download does not matter)
+            case Mode::VideoLink: ok = !(key >= '0' && key <= '9') && !(key >= 'a' && key <= 'z') && !(key >= 'A' && key <= 'Z'); break;   // (typing goes into the search fields there: only a symbol key is taken)
+            case Mode::Browse: ok = folder_overlay_active() && !fo_search_; break;
+            default: break;
+        }
+        if (ok) { toggle_latin_letters(); return; }
+    }
+
     if (mode_ == Mode::ColorEdit || mode_ == Mode::Settings) {
         handle_settings_key(key);
         return;

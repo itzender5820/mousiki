@@ -232,6 +232,7 @@ private:
     struct VFEntry {
         fs::path path;
         std::string label, folder, hay;
+        std::string tags;                // title / artist / album of the song as far as its tags give them (shown under "Song:"; read when the cursor rests on it)
         double seconds = -1.0;
         bool has_video = false;          // (only the playing song is listed with a video: it can be changed)
         bool refetch = false;            // the re-fetch of a song with a video was confirmed (then it is searched like the others)

@@ -634,16 +634,21 @@ void VideoPlayer::apply_fx(VideoFrame& f, int fx, double t, bool braille, const 
     }
 }
 
-void VideoPlayer::apply_grade(VideoFrame& f, int contrast, int colors, int chroma) {
+void VideoPlayer::apply_grade(VideoFrame& f, int contrast, int colors, int chroma, int brightness) {
     const int w = f.w, h = f.h;
     if (w < 2 || h < 2 || f.rgb.size() < static_cast<size_t>(w) * h * 3) return;
     contrast = std::clamp(contrast, 0, 100);
     colors = std::clamp(colors, 0, 100);
+    brightness = std::clamp(brightness, 0, 100);
     const size_t n = static_cast<size_t>(w) * h;
-    if (contrast > 0 || colors < 100) {
+    if (contrast > 0 || colors < 100 || brightness != 50) {
         uint8_t lut[256];
         const double factor = 1.0 + contrast / 100.0 * 1.5;   // the same as the cover's contrast
-        for (int i = 0; i < 256; ++i) lut[i] = fx_clamp(static_cast<float>((i - 127.5) * factor + 127.5));
+        const double gamma = std::pow(2.0, -(brightness - 50) / 50.0);   // brightness 100 -> 0.5 (brighter), 0 -> 2 (darker); 0 and 255 stay
+        for (int i = 0; i < 256; ++i) {
+            const double b = 255.0 * std::pow(i / 255.0, gamma);
+            lut[i] = fx_clamp(static_cast<float>((b - 127.5) * factor + 127.5));
+        }
         const float sat = static_cast<float>(colors) / 100.0f;
         for (size_t i = 0; i < n; ++i) {
             uint8_t* p = &f.rgb[i * 3];
@@ -679,7 +684,7 @@ void VideoPlayer::apply_grade(VideoFrame& f, int contrast, int colors, int chrom
 }
 
 void VideoPlayer::apply_look(VideoFrame& f, const VideoLook& look, double t, bool braille, const VideoFrame* prev) {
-    apply_grade(f, look.contrast, look.colors, look.chroma);
+    apply_grade(f, look.contrast, look.colors, look.chroma, look.brightness);
     if (look.fx > 0) {
         apply_fx(f, look.fx, t, braille, &look.grad, prev);
         // The tube looks came out a little too hard in the blacks: the shadows are lifted a touch (pixel and film less, they were only a bit too hard).

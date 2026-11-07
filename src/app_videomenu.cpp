@@ -29,7 +29,7 @@ namespace muisc {
 
 void App::video_menu_open() {
     if (audiobook_) { status_line_ = "video: not available in the audio book player"; return; }
-    vmenu_sel_ = std::clamp(vmenu_sel_, 0, 18);
+    vmenu_sel_ = std::clamp(vmenu_sel_, 0, 19);
     vdel_stage_ = 0;
     mode_ = Mode::VideoMenu;
     force_redraw_ = true;
@@ -83,28 +83,28 @@ void App::video_menu_change(int row, int dir) {
             video_pic_key_.clear();
             break;
         case 6: video_set_fx(video_fx_step(settings_.video_fx, dir)); break;
-        case 7: case 8: {   // Contrast / Colors: 0 .. 100 % in steps of 5, round and round
-            int& v = row == 7 ? settings_.video_contrast : settings_.video_colors;
+        case 7: case 8: case 9: {   // Contrast / Brightness / Colors: 0 .. 100 % in steps of 5, round and round
+            int& v = row == 7 ? settings_.video_contrast : row == 8 ? settings_.video_brightness : settings_.video_colors;
             v = (((std::clamp(v, 0, 100) / 5) + (dir < 0 ? 20 : 1)) % 21) * 5;
-            set_config_value(row == 7 ? "VideoContrast" : "VideoColors", std::to_string(v));
-            status_line_ = std::string(row == 7 ? "video contrast: " : "video colors: ") + std::to_string(v) + " %";
+            set_config_value(row == 7 ? "VideoContrast" : row == 8 ? "VideoBrightness" : "VideoColors", std::to_string(v));
+            status_line_ = std::string(row == 7 ? "video contrast: " : row == 8 ? "video brightness: " : "video colors: ") + std::to_string(v) + " %" + (row == 8 ? " (50 = as it is)" : "");
             video_pic_key_.clear();
             break;
         }
-        case 9:
+        case 10:
             settings_.video_chroma = (std::clamp(settings_.video_chroma, 0, kChromaLevels - 1) + (dir < 0 ? kChromaLevels - 1 : 1)) % kChromaLevels;
             set_config_value("VideoChroma", chroma_name(settings_.video_chroma));
             status_line_ = std::string("video chromatic aberration: ") + chroma_name(settings_.video_chroma);
             video_pic_key_.clear();
             break;
-        case 10:
+        case 11:
             settings_.video_res = (std::clamp(settings_.video_res, 0, 2) + (dir < 0 ? 2 : 1)) % 3;
             set_config_value("VideoResolution", video_res_name(settings_.video_res));
             status_line_ = "video resolution: " + video_res_label(settings_.video_res, gfx_proto_ == GfxProto::Sixel);
             video_pic_key_.clear();
             force_redraw_ = true;
             break;
-        case 11: {
+        case 12: {
             int at = 0;
             for (int i = 0; i < 6; ++i) if (settings_.video_buffer >= kVideoBufferChoices[i]) at = i;
             at = (at + (dir < 0 ? 5 : 1)) % 6;
@@ -114,7 +114,7 @@ void App::video_menu_change(int row, int dir) {
             force_redraw_ = true;
             break;
         }
-        case 12:   // Show Clap Loading: text note / clap / none
+        case 13:   // Show Clap Loading: text note / clap / none
             settings_.video_clap = (std::clamp(settings_.video_clap, 0, 2) + (dir < 0 ? 2 : 1)) % 3;
             set_config_value("VideoClap", settings_.video_clap == 2 ? "none" : settings_.video_clap == 0 ? "text note" : "clap");
             status_line_ = settings_.video_clap == 1 ? "show clap loading: clap -- a small clapperboard shows while a video loads" : settings_.video_clap == 0 ? "show clap loading: text note -- the text \"video: starting ...\" shows while a video loads" : "show clap loading: none -- nothing shows while a video loads";
@@ -175,13 +175,14 @@ void App::video_opts_change(int row, int dir, bool reset) {
     VideoTrackOpts o = cover_track_video_opts(path_utf8(current_path_));
     if (row == 0) o.fx = reset ? -1 : video_fx_step(o.fx, dir, true);
     else if (row == 1) o.contrast = reset ? -1 : vopts_step(o.contrast, dir, 100, 5);
-    else if (row == 2) o.colors = reset ? -1 : vopts_step(o.colors, dir, 100, 5);
-    else if (row == 3) o.chroma = reset ? -1 : vopts_step(o.chroma, dir, kChromaLevels - 1, 1);
-    else if (row == 4) o.res = reset ? -1 : vopts_step(o.res, dir, 2, 1);
+    else if (row == 2) o.brightness = reset ? -1 : vopts_step(o.brightness, dir, 100, 5);
+    else if (row == 3) o.colors = reset ? -1 : vopts_step(o.colors, dir, 100, 5);
+    else if (row == 4) o.chroma = reset ? -1 : vopts_step(o.chroma, dir, kChromaLevels - 1, 1);
+    else if (row == 5) o.res = reset ? -1 : vopts_step(o.res, dir, 2, 1);
     else o.round = reset ? -1 : vopts_step(o.round, dir, 1, 1);
     set_cover_track_video_opts(path_utf8(current_path_), o);
     video_pic_key_.clear();
-    if (row == 4) { video_for_track_.clear(); ++video_rev_; force_redraw_ = true; }   // (the resolution: the video is read again; the other rows only change the picture)
+    if (row == 5) { video_for_track_.clear(); ++video_rev_; force_redraw_ = true; }   // (the resolution: the video is read again; the other rows only change the picture)
 }
 
 std::vector<std::string> App::build_video_opts_panel() const {
@@ -194,6 +195,7 @@ std::vector<std::string> App::build_video_opts_panel() const {
     const std::vector<Row> rows = {
         {"Video Effect", o.fx >= 0 ? std::string(video_fx_name(o.fx)) : std::string("VIDEO SETTINGS (") + video_fx_name(settings_.video_fx) + ")"},
         {"Video Contrast", pct(o.contrast, settings_.video_contrast)},
+        {"Video Brightness", pct(o.brightness, settings_.video_brightness)},
         {"Video Colors", pct(o.colors, settings_.video_colors)},
         {"Video Chromatic Aberration", o.chroma >= 0 ? std::string(chroma_name(o.chroma)) : std::string("as in Settings (") + chroma_name(settings_.video_chroma) + ")"},
         {"Video Resolution", o.res >= 0 ? std::string(video_res_name(o.res)) : std::string("as in Settings (") + video_res_name(settings_.video_res) + ")"},
@@ -218,8 +220,8 @@ bool App::video_full_key(int key) {
     const bool arrow = last_key_was_arrow();
     if (video_opts_open_) {   // the options panel over the picture
         if (!arrow && (key == 27 || key == 's' || key == 'S')) { video_opts_open_ = false; video_pic_key_.clear(); force_redraw_ = true; return true; }   // (clearing the key sends the whole picture again: a paused video has no new frame, and the old pixels still have the panel's hole in them)
-        if (arrow && key == 'A') { video_opts_sel_ = (video_opts_sel_ + 5) % 6; return true; }
-        if (arrow && key == 'B') { video_opts_sel_ = (video_opts_sel_ + 1) % 6; return true; }
+        if (arrow && key == 'A') { video_opts_sel_ = (video_opts_sel_ + 6) % 7; return true; }
+        if (arrow && key == 'B') { video_opts_sel_ = (video_opts_sel_ + 1) % 7; return true; }
         if (arrow && (key == 'C' || key == 'D')) { video_opts_change(video_opts_sel_, key == 'C' ? 1 : -1, false); return true; }
         if (!arrow && (key == '\r' || key == '\n' || key == ' ')) { video_opts_change(video_opts_sel_, 1, false); return true; }
         if (!arrow && (key == 'd' || key == 'r' || key == kKeyDelete || key == 127)) { video_opts_change(video_opts_sel_, 0, true); return true; }
@@ -272,7 +274,7 @@ bool App::video_full_key(int key) {
 
 void App::video_menu_key(int key) {
     const bool arrow = last_key_was_arrow();
-    constexpr int kRows = 19;
+    constexpr int kRows = 20;
     if (vdel_stage_ > 0) {   // a question is open over the overlay
         const bool tab = !arrow && key == '\t';
         if ((arrow && (key == 'C' || key == 'D')) || tab) { vdel_sel_ = 1 - vdel_sel_; return; }
@@ -299,20 +301,20 @@ void App::video_menu_key(int key) {
     }
     if (arrow && key == 'A') { vmenu_sel_ = (vmenu_sel_ + kRows - 1) % kRows; return; }
     if (arrow && key == 'B') { vmenu_sel_ = (vmenu_sel_ + 1) % kRows; return; }
-    if (arrow && (key == 'C' || key == 'D')) { if (vmenu_sel_ <= 12) video_menu_change(vmenu_sel_, key == 'C' ? 1 : -1); return; }
+    if (arrow && (key == 'C' || key == 'D')) { if (vmenu_sel_ <= 13) video_menu_change(vmenu_sel_, key == 'C' ? 1 : -1); return; }
     if (!arrow && (key == '\r' || key == '\n' || key == ' ')) {
-        if (vmenu_sel_ <= 12) { video_menu_change(vmenu_sel_, 1); return; }
-        if (vmenu_sel_ == 13) { video_menu_close(); video_full_toggle(); return; }
-        if (vmenu_sel_ == 14) { video_menu_close(); video_link_open(has_track_ ? current_path_ : fs::path(), Mode::Browse); return; }
-        if (vmenu_sel_ == 15) { video_menu_close(); video_search_open(); return; }
-        if (vmenu_sel_ == 16) { video_menu_close(); video_fetch_open(); return; }
-        if (vmenu_sel_ == 17 || vmenu_sel_ == 18) {   // Delete Current Video / Refetch this Video: a question first
+        if (vmenu_sel_ <= 13) { video_menu_change(vmenu_sel_, 1); return; }
+        if (vmenu_sel_ == 14) { video_menu_close(); video_full_toggle(); return; }
+        if (vmenu_sel_ == 15) { video_menu_close(); video_link_open(has_track_ ? current_path_ : fs::path(), Mode::Browse); return; }
+        if (vmenu_sel_ == 16) { video_menu_close(); video_search_open(); return; }
+        if (vmenu_sel_ == 17) { video_menu_close(); video_fetch_open(); return; }
+        if (vmenu_sel_ == 18 || vmenu_sel_ == 19) {   // Delete Current Video / Refetch this Video: a question first
             if (!has_track_ || current_path_.empty() || !current_is_local_) { status_line_ = "video: play a track from your library first"; return; }
             if (LocalSource::is_video_file(current_path_)) { status_line_ = "this track is a video file itself -- delete it in FETCH VIDEOS -> VIDEO FILES"; return; }
             const std::string v = video_source_for(current_path_);
             if (v.empty()) { status_line_ = "this track has no video"; return; }
             vdel_video_ = v;
-            vdel_stage_ = vmenu_sel_ == 17 ? 1 : 3;
+            vdel_stage_ = vmenu_sel_ == 18 ? 1 : 3;
             vdel_sel_ = 0;
             return;
         }
@@ -363,20 +365,21 @@ std::vector<std::string> App::build_video_menu_panel() const {
     {
         auto pct = [&](int v) { return std::string("< ") + std::to_string(std::clamp(v, 0, 100)) + " % >"; };
         lines.push_back(row(entry(vmenu_sel_ == 7, "Contrast", pct(settings_.video_contrast)), vmenu_sel_ == 7));
-        lines.push_back(row(entry(vmenu_sel_ == 8, "Colors", pct(settings_.video_colors)), vmenu_sel_ == 8));
-        lines.push_back(row(entry(vmenu_sel_ == 9, "Chromatic Aberration", std::string("< ") + chroma_name(settings_.video_chroma) + " >"), vmenu_sel_ == 9));
-        lines.push_back(row(entry(vmenu_sel_ == 10, "Resolution", std::string("< ") + video_res_label(settings_.video_res, gfx_proto_ == GfxProto::Sixel) + " >"), vmenu_sel_ == 10));
-        lines.push_back(row(entry(vmenu_sel_ == 11, "Buffer", "< " + std::to_string(settings_.video_buffer) + " MB >"), vmenu_sel_ == 11));
+        lines.push_back(row(entry(vmenu_sel_ == 8, "Brightness", pct(settings_.video_brightness)), vmenu_sel_ == 8));
+        lines.push_back(row(entry(vmenu_sel_ == 9, "Colors", pct(settings_.video_colors)), vmenu_sel_ == 9));
+        lines.push_back(row(entry(vmenu_sel_ == 10, "Chromatic Aberration", std::string("< ") + chroma_name(settings_.video_chroma) + " >"), vmenu_sel_ == 10));
+        lines.push_back(row(entry(vmenu_sel_ == 11, "Resolution", std::string("< ") + video_res_label(settings_.video_res, gfx_proto_ == GfxProto::Sixel) + " >"), vmenu_sel_ == 11));
+        lines.push_back(row(entry(vmenu_sel_ == 12, "Buffer", "< " + std::to_string(settings_.video_buffer) + " MB >"), vmenu_sel_ == 12));
     }
-    lines.push_back(row(entry(vmenu_sel_ == 12, "Show Clap Loading", std::string("< ") + (settings_.video_clap == 2 ? "none" : settings_.video_clap == 0 ? "text note" : "clap") + " >"), vmenu_sel_ == 12));
-    lines.push_back(button(13, "Full Screen Video"));
+    lines.push_back(row(entry(vmenu_sel_ == 13, "Show Clap Loading", std::string("< ") + (settings_.video_clap == 2 ? "none" : settings_.video_clap == 0 ? "text note" : "clap") + " >"), vmenu_sel_ == 13));
+    lines.push_back(button(14, "Full Screen Video"));
     lines.push_back(section("Videos for songs"));
-    lines.push_back(button(14, "Manually Couple Local Files"));
-    lines.push_back(button(15, "Quick Search/Down. YT"));
-    lines.push_back(button(16, "General Fetch Videos Menu"));
+    lines.push_back(button(15, "Manually Couple Local Files"));
+    lines.push_back(button(16, "Quick Search/Down. YT"));
+    lines.push_back(button(17, "General Fetch Videos Menu"));
     lines.push_back(section("This track's video"));
-    lines.push_back(button(17, "Delete Current Video"));
-    lines.push_back(button(18, "Refetch this Video"));
+    lines.push_back(button(18, "Delete Current Video"));
+    lines.push_back(button(19, "Refetch this Video"));
     lines.push_back(centred_bottom(settings_, W, "[UP/DOWN] [ENTER] [←→] change  [ESC] close", border_bottom));
     return lines;
 }
@@ -477,7 +480,7 @@ void App::video_link_open(const fs::path& target, Mode return_mode) {
         const std::string folder = path_utf8(t.path.parent_path().filename());
         e.label = e.video ? path_utf8(t.path.filename()) : ((t.folder_artist.empty() || t.folder_artist == "-") ? t.title : t.folder_artist + " - " + t.title);
         e.folder = folder;
-        e.hay = vl_hay(e.label + " " + path_utf8(t.path.filename()), folder);
+        e.hay = vl_hay(with_latin_spelling(e.label) + " " + path_utf8(t.path.filename()), folder);
         if (e.video) vl_videos_.push_back(e);
         else vl_tracks_.push_back(e);   // (the song list holds audio files only: videos are on the right)
     }
@@ -747,12 +750,12 @@ std::vector<std::string> App::build_video_link_panel(int W) const {
     for (int r = 0; r < list_rows; ++r) {
         const std::string l = cell(0, pw_l, r, vl_tsel_, nt, [&](int i) {
             const VLEntry& e = vl_tracks_[static_cast<size_t>(vl_tview_[static_cast<size_t>(i)])];
-            return std::string(e.has_video ? "[+] " : "") + e.label;
+            return std::string(e.has_video ? "[+] " : "") + apply_font_map(e.label, settings_.font_map);
         }, [&](int i) { return vl_tracks_[static_cast<size_t>(vl_tview_[static_cast<size_t>(i)])].path == vl_lock_track_; }, vl_tracks_.empty() ? "no audio files found in the library folders" : vl_filter_ == 0 ? "every song has a video already (or nothing matches)" : "no match",
         [&](int i) { return vl_tracks_[static_cast<size_t>(vl_tview_[static_cast<size_t>(i)])].has_video; });
         const std::string rr = cell(1, pw_r, r, vl_vsel_, nv, [&](int i) {
             const VLEntry& e = vl_videos_[static_cast<size_t>(vl_vview_[static_cast<size_t>(i)])];
-            return e.label + (e.folder.empty() ? std::string() : "  (" + e.folder + ")");
+            return apply_font_map(e.label, settings_.font_map) + (e.folder.empty() ? std::string() : "  (" + apply_font_map(e.folder, settings_.font_map) + ")");
         }, [&](int i) { return vl_videos_[static_cast<size_t>(vl_vview_[static_cast<size_t>(i)])].path == vl_lock_video_; },
         vl_videos_.empty() ? "no video files found in the library folders" : "no match");
         both(l, rr);
@@ -771,8 +774,8 @@ std::vector<std::string> App::build_video_link_panel(int W) const {
     both(box_top("LOCKED IN: SONG", pw_l, border), box_top(prev_is_locked || prev_video.empty() ? "LOCKED IN: VIDEO" : "CONNECTED VIDEO", pw_r, border));
     {
         const bool has_t = !vl_lock_track_.empty(), has_v = !vl_lock_video_.empty();
-        const auto l1 = mq(2, has_t ? video_link_label(vl_lock_track_) : "(none yet -- highlight a song, press [ENTER])", pw_l, has_t ? hdr : std::string());
-        const auto r1 = mq(3, has_v ? path_utf8(vl_lock_video_.filename()) : "(none yet -- highlight a video, press [ENTER])", pw_r, has_v ? hdr : std::string());
+        const auto l1 = mq(2, has_t ? apply_font_map(video_link_label(vl_lock_track_), settings_.font_map) : "(none yet -- highlight a song, press [ENTER])", pw_l, has_t ? hdr : std::string());
+        const auto r1 = mq(3, has_v ? apply_font_map(path_utf8(vl_lock_video_.filename()), settings_.font_map) : "(none yet -- highlight a video, press [ENTER])", pw_r, has_v ? hdr : std::string());
         both(pline(l1.first, l1.second, pw_l), pline(r1.first, r1.second, pw_r));
         std::string now;   // what the locked-in song has now
         if (has_t) {
@@ -781,15 +784,15 @@ std::vector<std::string> App::build_video_link_panel(int W) const {
             if (!linked.empty()) {
                 const std::string dl = path_utf8(video_down_dir());
                 const bool from_dl = !dl.empty() && linked.compare(0, dl.size(), dl) == 0;
-                now = std::string(from_dl ? "paired (download): " : "paired (by hand): ") + path_utf8(path_from_utf8(linked).filename()) + (fs::exists(path_from_utf8(linked), ec) ? "" : " (file is gone)");
+                now = std::string(from_dl ? "paired (download): " : "paired (by hand): ") + apply_font_map(path_utf8(path_from_utf8(linked).filename()), settings_.font_map) + (fs::exists(path_from_utf8(linked), ec) ? "" : " (file is gone)");
             }
             else {
                 const std::string auto_v = video_source_for(vl_lock_track_);
-                now = auto_v.empty() ? "no video yet" : "paired (same name): " + path_utf8(path_from_utf8(auto_v).filename());
+                now = auto_v.empty() ? "no video yet" : "paired (same name): " + apply_font_map(path_utf8(path_from_utf8(auto_v).filename()), settings_.font_map);
             }
         }
         const auto l2 = mq(4, now, pw_l, leg);
-        const auto r2 = mq(5, has_v ? path_utf8(vl_lock_video_.parent_path()) : std::string(), pw_r, leg);
+        const auto r2 = mq(5, has_v ? apply_font_map(path_utf8(vl_lock_video_.parent_path()), settings_.font_map) : std::string(), pw_r, leg);
         both(pline(l2.first, l2.second, pw_l), pline(r2.first, r2.second, pw_r));
         // the preview of the video: a real picture (Kitty / Sixel) in the right box, a note when there is none
         const int panel_h = 16 + list_rows + pic_rows;
@@ -811,7 +814,7 @@ std::vector<std::string> App::build_video_link_panel(int W) const {
             std::string lt;
             int lu = 0;
             if (r == 0 && !vl_lock_track_.empty() && !LocalSource::is_video_file(vl_lock_track_)) {
-                const std::string t = truncate_str(prev_video.empty() ? "no video at the moment" : "has a video: " + path_utf8(path_from_utf8(prev_video).filename()), pw_l - 4);
+                const std::string t = truncate_str(prev_video.empty() ? "no video at the moment" : "has a video: " + apply_font_map(path_utf8(path_from_utf8(prev_video).filename()), settings_.font_map), pw_l - 4);
                 lt = leg + t + R; lu = display_width(t);
             }
             std::string rt;

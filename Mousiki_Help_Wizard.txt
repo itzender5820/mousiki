@@ -716,7 +716,7 @@ Colors and Cover Chromatic Aberration, and the look of its whole ALBUM (no album
 the Video mode on a row "Use Cover or Thumbnail" sets the cover / video thumbnail / disk of THIS track (the
 same choice as in Cover Options; the VIDEO SETTINGS overlay holds the default). [<-][->] change a row (with the
 Video mode on more rows: Video of this track on / off, Video Size, Video Effect, Video Contrast, Video
-Colors, Video Chromatic Aberration, for this track only),
+Brightness, Video Colors, Video Chromatic Aberration, for this track only),
 [DEL] or [d] puts it back to "as in Settings". [t] switches between a real picture
 (Kitty / Sixel terminals, the default) and braille dots. A wide terminal adds a preview of the cover with
 the chosen look on the right. The track's own values win over the album's look and
@@ -1217,6 +1217,7 @@ Pick one in the overlay, with [g] on the video view, or per track in Style Optio
 [PICTURE TUNING (Settings, tab ANIMA/VIZ, and Style Option per track):][[Header]]
 SETTING[[Header]]                       [WHAT IT DOES][[Header]]
 [Video Contrast][[Legend]]                Contrast of the picture.
+[Video Brightness][[Legend]]              50 = as it is, lower darker, higher brighter.
 [Video Colors][[Legend]]                  0 = greyscale.
 [Video Chromatic Aberration][[Legend]]    Colour fringes; works with every effect. Cover Chromatic Aberration
                               does the same for covers.
@@ -1880,6 +1881,7 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
 [Video Effect][[Legend]]                                      A retro look for the picture (also in the full screen
                                                   video, with a preview here).
 [Video Contrast][[Legend]]                                    More contrast for the picture, like Cover Contrast.
+[Video Brightness][[Legend]]                                  50 % = as it is, lower darker, higher brighter.
 [Video Colors][[Legend]]                                      0 = greyscale .. 100 % as they are.
 [Video Chromatic Aberration][[Legend]] Red and blue pushed apart: off / subtle / medium / strong.
 [Video Rounded Corners][[Legend]] Cut the picture's corners round, like the UI: off / on (per track in Style Option).

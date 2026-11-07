@@ -104,6 +104,7 @@ struct Settings : VizPrefs {
     bool video_auto = true;           // Auto Video: a track that has a video switches the field to the video view, one without it to the Lyrics/Viz Default (VideoAuto=)
     int video_size = 0;               // Picture Size of the small field (VideoSize=): 0 regular, 1 cropped (two columns cut off each side), 2 full field (fills the oscilloscope's space, cropped to fit), 3 framed (like full, one row and one column smaller on every side)
     int video_fx = 0;                 // Effect (VideoFx=): 0 off, 1 scanlines, 2 crt, 3 vhs, 4 glitch, 5 pixel, 6 gradient, 7 quiet glitch
+    int video_brightness = 50;        // Video Brightness (VideoBrightness=): 0..100 %, steps of 5 (50 = as it is, lower darker, higher brighter)
     int video_contrast = 0;           // Video Contrast (VideoContrast=): 0..100 %, steps of 5 (0 = as it is)
     int video_colors = 100;           // Video Colors (VideoColors=): 0..100 %, steps of 5 (0 = greyscale, 100 = the video's own colours)
     bool video_mp3 = true;            // yt-dlp mp3 from mp4 (VideoMp3=): a video downloaded in SEARCH YT without a target song also gets its sound as an mp3 song

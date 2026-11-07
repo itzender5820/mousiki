@@ -543,10 +543,11 @@ TEST(settings_video_resolution_buffer_and_effect_are_saved_and_read_back) {
     CHECK_EQ(back.video_buffer, 128);
     CHECK(!back.video_mp3);
     CHECK_EQ(back.video_fx, 7);
-    s.video_contrast = 40; s.video_colors = 25; s.video_chroma = 2; s.cover_chroma = 3;
+    s.video_contrast = 40; s.video_brightness = 65; s.video_colors = 25; s.video_chroma = 2; s.cover_chroma = 3;
     save_settings(s);
     const Settings b2 = load_settings();
     CHECK_EQ(b2.video_contrast, 40);
+    CHECK_EQ(b2.video_brightness, 65);
     CHECK_EQ(b2.video_colors, 25);
     CHECK_EQ(b2.video_chroma, 2);
     CHECK_EQ(b2.cover_chroma, 3);
@@ -572,6 +573,7 @@ TEST(settings_an_old_config_with_gone_keys_and_values_loads_quietly) {
              "VideoFx=bloom\r\n"               // an effect that is not offered any more
              "VideoSize=banana\r\n"            // a value that never existed
              "VideoContrast=abc\r\n"
+             "VideoBrightness=abc\r\n"
              "VideoMode=true\r\n"
              "UpdateCheck=false\r\n";
     }
@@ -582,6 +584,7 @@ TEST(settings_an_old_config_with_gone_keys_and_values_loads_quietly) {
     const Settings d = Settings();
     CHECK_EQ(s.video_size, d.video_size);      // a value that makes no sense: the default
     CHECK_EQ(s.video_contrast, d.video_contrast);
+    CHECK_EQ(s.video_brightness, d.video_brightness);
     save_settings(s);
     std::ifstream in(config_path(), std::ios::binary);
     std::stringstream ss;

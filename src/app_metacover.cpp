@@ -249,7 +249,7 @@ bool App::handle_meta_sty_key(int key) {
         meta_field_ = 0;
         return true;
     }
-    if (arrow && (key == 'A' || key == 'B')) { { const int n = settings_.video_mode ? 16 : 6; meta_sty_sel_ = (meta_sty_sel_ + (key == 'A' ? n - 1 : 1)) % n; } return true; }
+    if (arrow && (key == 'A' || key == 'B')) { { const int n = settings_.video_mode ? 17 : 6; meta_sty_sel_ = (meta_sty_sel_ + (key == 'A' ? n - 1 : 1)) % n; } return true; }
     const std::string album = meta_hover_values_[static_cast<size_t>(MetaField::Album)];
     const std::string folder = path_utf8(path_from_utf8(meta_sty_track_).parent_path());
     CoverStyle st = cover_track_style(meta_sty_track_);
@@ -266,8 +266,8 @@ bool App::handle_meta_sty_key(int key) {
     else if (key == '\r' || key == '\n' || key == ' ') dir = 1;
     if (!dir && !reset) return true;
     // 4 Cover Chromatic Aberration; with the Video mode on: 5 Use Cover or Thumbnail, 6 Video, 7 Use Lyrics on Video, 8 Video Size, 9 Video Effect,
-    // 10 Video Contrast, 11 Video Colors, 12 Video Chromatic Aberration, 13 Video Resolution, 14 Video Rounded Corners; 15 the album (the last row)
-    const int sel = (!settings_.video_mode && meta_sty_sel_ >= 5) ? 15 : meta_sty_sel_;
+    // 10 Video Contrast, 11 Video Brightness, 12 Video Colors, 13 Video Chromatic Aberration, 14 Video Resolution, 15 Video Rounded Corners; 16 the album (the last row)
+    const int sel = (!settings_.video_mode && meta_sty_sel_ >= 5) ? 16 : meta_sty_sel_;
     switch (sel) {
         case 0: st.look = reset ? -1 : sty_step(st.look, dir, kCoverLookCount - 1, 1); break;
         case 1: st.contrast = reset ? -1 : sty_step(st.contrast, dir, 100, 5); break;
@@ -284,20 +284,21 @@ bool App::handle_meta_sty_key(int key) {
             meta_sty_msg_ = std::string("saved: ") + names[mode];
             return true;
         }
-        case 6: case 7: case 8: case 9: case 10: case 11: case 12: case 13: case 14: {   // the video of this track (-1 = as in the VIDEO overlay / in Settings)
+        case 6: case 7: case 8: case 9: case 10: case 11: case 12: case 13: case 14: case 15: {   // the video of this track (-1 = as in the VIDEO overlay / in Settings)
             VideoTrackOpts o = cover_track_video_opts(meta_sty_track_);
             if (sel == 6) o.on = reset ? -1 : (o.on == 0 ? -1 : 0);
             else if (sel == 7) o.lyrics = reset ? -1 : sty_step(o.lyrics, dir, 1, 1);   // as in the VIDEO SETTINGS, off, on
             else if (sel == 8) o.size = reset ? -1 : (o.size + 1 + (dir > 0 ? 1 : 4)) % 5 - 1;   // -1, 0, 1, 2, 3 round
             else if (sel == 9) o.fx = reset ? -1 : video_fx_step(o.fx, dir, true);   // "as in the VIDEO SETTINGS", then the effects in the order of the list
             else if (sel == 10) o.contrast = reset ? -1 : sty_step(o.contrast, dir, 100, 5);
-            else if (sel == 11) o.colors = reset ? -1 : sty_step(o.colors, dir, 100, 5);
-            else if (sel == 12) o.chroma = reset ? -1 : sty_step(o.chroma, dir, kChromaLevels - 1, 1);
-            else if (sel == 13) o.res = reset ? -1 : sty_step(o.res, dir, 2, 1);
+            else if (sel == 11) o.brightness = reset ? -1 : sty_step(o.brightness, dir, 100, 5);
+            else if (sel == 12) o.colors = reset ? -1 : sty_step(o.colors, dir, 100, 5);
+            else if (sel == 13) o.chroma = reset ? -1 : sty_step(o.chroma, dir, kChromaLevels - 1, 1);
+            else if (sel == 14) o.res = reset ? -1 : sty_step(o.res, dir, 2, 1);
             else o.round = reset ? -1 : sty_step(o.round, dir, 1, 1);
             set_cover_track_video_opts(meta_sty_track_, o);
             video_pic_key_.clear();
-            if (sel == 6 || sel == 13) { video_for_track_.clear(); ++video_rev_; force_redraw_ = true; }   // (video on / off, resolution: the video is set up again; a look only makes the picture again)
+            if (sel == 6 || sel == 14) { video_for_track_.clear(); ++video_rev_; force_redraw_ = true; }   // (video on / off, resolution: the video is set up again; a look only makes the picture again)
             else if (sel == 8) force_redraw_ = true;   // (the size changes the layout)
             meta_sty_msg_ = "saved";
             return true;
@@ -474,6 +475,7 @@ std::vector<std::string> App::build_meta_sty_panel(int screen_w) const {
         rows.push_back({"Video Size", vo.size >= 0 ? std::string(size_names[vo.size]) : std::string("as in VIDEO SETTINGS (") + size_names[std::clamp(settings_.video_size, 0, 3)] + ")"});
         rows.push_back({"Video Effect", vo.fx >= 0 ? std::string(video_fx_name(vo.fx)) : std::string("VIDEO SETTINGS (") + video_fx_name(settings_.video_fx) + ")"});
         rows.push_back({"Video Contrast", pct(vo.contrast, settings_.video_contrast)});
+        rows.push_back({"Video Brightness", pct(vo.brightness, settings_.video_brightness)});
         rows.push_back({"Video Colors", pct(vo.colors, settings_.video_colors)});
         rows.push_back({"Video Chromatic Aberration", vo.chroma >= 0 ? std::string(chroma_name(vo.chroma)) : std::string("as in Settings (") + chroma_name(settings_.video_chroma) + ")"});
         rows.push_back({"Video Resolution", vo.res >= 0 ? std::string(video_res_name(vo.res)) : std::string("as in Settings (") + video_res_name(settings_.video_res) + ")"});

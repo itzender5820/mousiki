@@ -722,7 +722,7 @@ Colors and Cover Chromatic Aberration, and the look of its whole ALBUM (no album
 the Video mode on a row "Use Cover or Thumbnail" sets the cover / video thumbnail / disk of THIS track (the
 same choice as in Cover Options; the VIDEO SETTINGS overlay holds the default). [<-][->] change a row (with the
 Video mode on more rows: Video of this track on / off, Video Size, Video Effect, Video Contrast, Video
-Colors, Video Chromatic Aberration, for this track only),
+Brightness, Video Colors, Video Chromatic Aberration, for this track only),
 [DEL] or [d] puts it back to "as in Settings". [t] switches between a real picture
 (Kitty / Sixel terminals, the default) and braille dots. A wide terminal adds a preview of the cover with
 the chosen look on the right. The track's own values win over the album's look and
@@ -779,9 +779,9 @@ or usable file name. MusicBrainz is also involved — needed for album and year.
 
 DISCLAIMER FOR FETCHING META DATA:[[Header]]
 The fetched meta data is not always correct, so definitely check first, which
-is why any fetching meta data comes with a disclaimer and needs a [YES/NO]
 )WIZ",
-R"WIZ(confirmation.
+R"WIZ(is why any fetching meta data comes with a disclaimer and needs a [YES/NO]
+confirmation.
 For tracks without usable title, you can use [SHIFT+p] to play a track, so you
 can identify e.g. the artist / title etc. yourself to check if the fetched
 meta data is correct or not.
@@ -1227,6 +1227,7 @@ Pick one in the overlay, with [g] on the video view, or per track in Style Optio
 [PICTURE TUNING (Settings, tab ANIMA/VIZ, and Style Option per track):][[Header]]
 SETTING[[Header]]                       [WHAT IT DOES][[Header]]
 [Video Contrast][[Legend]]                Contrast of the picture.
+[Video Brightness][[Legend]]              50 = as it is, lower darker, higher brighter.
 [Video Colors][[Legend]]                  0 = greyscale.
 [Video Chromatic Aberration][[Legend]]    Colour fringes; works with every effect. Cover Chromatic Aberration
                               does the same for covers.
@@ -1265,9 +1266,9 @@ KEY[[Header]]                     ACTION[[Header]]
 [SHIFT+o] / [SHIFT+i]   open the options of the oscilloscope / spectrogram
 [SHIFT+g]               grid and scales
 [SHIFT+s]               a panel for effect, contrast, colors and chromatic aberration
-[ESC] or [v] or [>]     close
 )WIZ",
-R"WIZ( A track without a video shows a little film clapperboard (its arm slowly closes and opens while
+R"WIZ([ESC] or [v] or [>]     close
+ A track without a video shows a little film clapperboard (its arm slowly closes and opens while
 it sways) and the note to fetch a video with [ALT+v] or pair a local one with [SHIFT+m]. A track
 can have its own video on / off, size and effect: Style Option [SHIFT+s].
 
@@ -1895,6 +1896,7 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
 [Video Effect][[Legend]]                                      A retro look for the picture (also in the full screen
                                                   video, with a preview here).
 [Video Contrast][[Legend]]                                    More contrast for the picture, like Cover Contrast.
+[Video Brightness][[Legend]]                                  50 % = as it is, lower darker, higher brighter.
 [Video Colors][[Legend]]                                      0 = greyscale .. 100 % as they are.
 [Video Chromatic Aberration][[Legend]] Red and blue pushed apart: off / subtle / medium / strong.
 [Video Rounded Corners][[Legend]] Cut the picture's corners round, like the UI: off / on (per track in Style Option).
@@ -1918,9 +1920,9 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
                                                   1. Just Cover - the cover in its own colours.
                                                   2. Cover with Gradient - a grey version of the cover
                                                   under the disk's gradient colours, a slow wave that moves
-                                                  diagonally over the picture, from the upper left to the
 )WIZ",
-R"WIZ(                                                  lower right.
+R"WIZ(                                                  diagonally over the picture, from the upper left to the
+                                                  lower right.
                                                   3. Cover behind Disk - the grey cover in full resolution
                                                   behind the turning disk: the dots of the disk are
                                                   pinholes through which the cover shines at full
@@ -2007,9 +2009,9 @@ R"WIZ(                                                  lower right.
                                                   the disk: the bar follows the disk animation, with the
                                                   centre of the circle two cells in from the left. Right of
                                                   the toggle: gradient / no gradient, where gradient = the
-                                                  VIZ colours gradient from left to right, like the
 )WIZ",
-R"WIZ(                                                  oscilloscope is using... [<-/->] switch between the two
+R"WIZ(                                                  VIZ colours gradient from left to right, like the
+                                                  oscilloscope is using... [<-/->] switch between the two
                                                   values of the row, [ENTER] changes the options.
                                                   Default: the moving braille blocks (disk), in all modes.
 
@@ -2107,9 +2109,9 @@ R"WIZ(                                                  oscilloscope is using...
                                                   considered one book. A .cue file rests beside each book
                                                   and keeps its narrator, publisher and year and other meta
                                                   data. The music player's library leaves files stored in
-                                                  this folder out (also from its searches): the book folder
 )WIZ",
-R"WIZ(                                                  may lie INSIDE a music folder, but may not be one (a
+R"WIZ(                                                  this folder out (also from its searches): the book folder
+                                                  may lie INSIDE a music folder, but may not be one (a
                                                   conflict message will says so!).
 
 In the audio book mode the GENERAL and ANIMA/VIZ tabs only show what a book needs (no lyrics, no disk
@@ -2251,11 +2253,11 @@ The key legend at the bottom takes as many rows as it needs.
 A preset is a named set of 16 station slots on the keys:
 
 1  2  3  4  5  6  7  8  9  0  e  r  t  d  f  g
-
-Press one on the main screen to recall that slot. [SHIFT+<-/->] switches to the previous / next
-preset. The name of the active preset list is in the pane title: e.g. PRESETS (Morning).
 )WIZ",
 R"WIZ(
+Press one on the main screen to recall that slot. [SHIFT+<-/->] switches to the previous / next
+preset. The name of the active preset list is in the pane title: e.g. PRESETS (Morning).
+
 THE PRESETS MENU:[[Header]] 
 [SHIFT+p] opens it and is where preset lists can be created. A small [◀] behind a pane's 
 title shows which pane is focused, just as in the music palyer. Names are 1 to 24 characters 
@@ -2415,11 +2417,11 @@ on air ends up in your local library (after a rescan with [SHIFT+r] in the playe
 OPEN:[[Header]] 
 As usual [s] opens the radio settings. Same frame, tab strip and editing keys as the other:
 [TAB] next tab, [UP]/[DOWN] rows, [<-/->] or [ENTER] change a value, [s] saves and closes,
-[ESC] / [q] discards (asks first when something changed).
+)WIZ",
+R"WIZ([ESC] / [q] discards (asks first when something changed).
 
 The settings are stored in radio_config.txt, separate from the config.txt of the player. 
-)WIZ",
-R"WIZ(Colors are not carried over between the two modes: the radio has its own palette and its 
+Colors are not carried over between the two modes: the radio has its own palette and its 
 own theme choice, unless the option "Shared profile" is set to true.
 
 COLORS (ONLY THE RADIO HAS): [[Header]]
@@ -2543,10 +2545,10 @@ has the path). Where the visualizations are, a stack of books builds itself up w
 
 META DATA: [[Header]] 
 Given are book, author, narrator, chapter (number and title), publisher, genre, the length 
-of the book and how much of it has been heard, then sampling, format and file size.
-
 )WIZ",
-R"WIZ(MENUS FROM OTHER MODES: [[Header]] 
+R"WIZ(of the book and how much of it has been heard, then sampling, format and file size.
+
+MENUS FROM OTHER MODES: [[Header]] 
 The converter [SHIFT+c] works on the audio books and searches folders with [/f:]. The equalizer
 [SHIFT+e] and sleept timer [SHIFT+z] is also available in this mode. 
 
@@ -2672,9 +2674,9 @@ that plays (else the chapter under the cursor starts). The window shows where yo
 number, time, title, length. You set them while listening:
 [m]        a mark at the point you listen at. The first mark adds the start (0:00:00, "Chapter 1"). 
            A new mark is called "Chapter N" (the standard titles are renumbered when one is inserted); 
-           the title field opens with it selected:[ENTER] keeps it, typing replaces it.
 )WIZ",
-R"WIZ([a]        a mark by its time, h:mm:ss (or m:ss), then the title.        
+R"WIZ(           the title field opens with it selected:[ENTER] keeps it, typing replaces it.
+[a]        a mark by its time, h:mm:ss (or m:ss), then the title.        
 [t] / [r]  change the time / the title.
 [x]        deletes the mark.                                              
 [ENTER]    plays from the mark.

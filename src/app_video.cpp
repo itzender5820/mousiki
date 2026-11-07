@@ -284,6 +284,7 @@ VideoLook App::video_look_for(const fs::path& track) const {
     VideoLook l;
     l.fx = video_fx_canon(std::clamp(o.fx >= 0 ? o.fx : settings_.video_fx, 0, kVideoFxCount - 1));
     l.contrast = o.contrast >= 0 ? o.contrast : settings_.video_contrast;
+    l.brightness = o.brightness >= 0 ? o.brightness : settings_.video_brightness;
     l.colors = o.colors >= 0 ? o.colors : settings_.video_colors;
     l.chroma = o.chroma >= 0 ? o.chroma : settings_.video_chroma;
     if (video_fx_uses_gradient(l.fx)) l.grad = video_fx_gradient(settings_);

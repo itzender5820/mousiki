@@ -913,7 +913,7 @@ static Settings load_from_config(const fs::path& path) {
             {"ElimentDisk", "Eliment_disk"}, {"ElimentDummyButtons", "Element_dummy_buttons"},
             {"ElimentQueue", "Eliment_queue"}, {"ElimentWaveForm", "Eliment_waveform_progress_bar"},
             {"ElimentLyrics", "Eliment_lyrics"}, {"VizLyricsField", "Eliment_vizfield"}, {"LyricsPlaceholderBall", "Eliment_lyrics_placeholder_ball"},
-            {"LyricViz", "lyric_viz"}, {"NoLyricsViz", "nolyrics_viz"}, {"VizDefault", "viz_default"}, {"NoVideoViz", "novideo_viz"}, {"VideoMode", "video_mode"}, {"VideoLyrics", "video_lyrics"}, {"VideoAuto", "video_auto"}, {"VideoCover", "video_cover"}, {"VideoSize", "video_size"}, {"VideoFx", "video_fx"}, {"VideoResolution", "video_resolution"}, {"VideoContrast", "video_contrast"}, {"VideoColors", "video_colors"}, {"VideoChroma", "video_chroma"}, {"VideoRound", "video_round"}, {"VideoClap", "video_clap"}, {"CoverChroma", "cover_chroma"}, {"VideoBuffer", "video_buffer"}, {"VideoMp3", "video_mp3"}, {"VideoFullLyrics", "video_full_lyrics"}, {"VideoDownHeight", "video_down_height"}, {"VideoView", "video_view"},
+            {"LyricViz", "lyric_viz"}, {"NoLyricsViz", "nolyrics_viz"}, {"VizDefault", "viz_default"}, {"NoVideoViz", "novideo_viz"}, {"VideoMode", "video_mode"}, {"VideoLyrics", "video_lyrics"}, {"VideoAuto", "video_auto"}, {"VideoCover", "video_cover"}, {"VideoSize", "video_size"}, {"VideoFx", "video_fx"}, {"VideoResolution", "video_resolution"}, {"VideoContrast", "video_contrast"}, {"VideoColors", "video_colors"}, {"VideoChroma", "video_chroma"}, {"VideoRound", "video_round"}, {"VideoBrightness", "video_brightness"}, {"VideoClap", "video_clap"}, {"CoverChroma", "cover_chroma"}, {"VideoBuffer", "video_buffer"}, {"VideoMp3", "video_mp3"}, {"VideoFullLyrics", "video_full_lyrics"}, {"VideoDownHeight", "video_down_height"}, {"VideoView", "video_view"},
             {"Visualizer", "Eliment_visualizer"},
             {"VisualizerFluidity", "visualizer_fluidity"}, {"DiskRotationSpeed", "disk_rotation_speed"},
             {"VisualizerDegradationSpeed", "visualizer_degradation_speed"}, {"VisualizerViscosity", "visualizer_viscosity"},
@@ -1140,6 +1140,7 @@ static Settings load_from_config(const fs::path& path) {
         if (key == "video_auto") { s.video_auto = parse_bool(value); continue; }
         if (key == "video_cover") { std::string v = ascii_lower_str(trim_ws(unquote(value))); s.video_cover = (v == "snapshot" || v == "thumbnail" || v == "1" || v == "true") ? 1 : (v == "disk" || v == "2") ? 2 : 0; continue; }
         if (key == "video_size") { std::string v = ascii_lower_str(trim_ws(unquote(value))); s.video_size = (v == "cropped" || v == "crop" || v == "1") ? 1 : (v == "full" || v == "2") ? 2 : (v == "framed" || v == "3") ? 3 : 0; continue; }
+        if (key == "video_brightness") { const std::string bv = trim_ws(unquote(value)); if (!bv.empty() && std::isdigit(static_cast<unsigned char>(bv[0]))) s.video_brightness = std::clamp((std::atoi(bv.c_str()) + 2) / 5 * 5, 0, 100); continue; }
         if (key == "video_contrast") { s.video_contrast = std::clamp((std::atoi(trim_ws(unquote(value)).c_str()) + 2) / 5 * 5, 0, 100); continue; }
         if (key == "video_colors") { s.video_colors = std::clamp((std::atoi(trim_ws(unquote(value)).c_str()) + 2) / 5 * 5, 0, 100); continue; }
         if (key == "video_mp3") { s.video_mp3 = parse_bool(value) || ascii_lower_str(trim_ws(unquote(value))) == "on"; continue; }
@@ -2004,6 +2005,7 @@ static void write_settings(std::ostream& out, const Settings& s) {
     out << "VideoFx=" << video_fx_key(s.video_fx) << "\n";
     out << "## a retro effect on the video's picture (small field and full screen): off | scanlines | crt | vhs | glitch | pixel | gradient | quiet glitch\n";
     out << "VideoContrast=" << s.video_contrast << "\n## 0 .. 100 (percent, steps of 5) -- more contrast for the video's picture (0 = as it is)\n";
+    out << "VideoBrightness=" << s.video_brightness << "\n## 0 .. 100 (percent, steps of 5) -- the brightness of the video's picture (50 = as it is, lower = darker, higher = brighter; a track can have its own: Style Option)\n";
     out << "VideoColors=" << s.video_colors << "\n## 0 .. 100 (percent, steps of 5) -- the video's colours (0 = greyscale, 100 = as they are)\n";
     out << "VideoRound=" << tf(s.video_round) << "\n## Rounded Corners: the corners of the video's picture are cut round like the corners of the UI (a track can have its own: Style Option): true | false\n";
     out << "VideoClap=" << (s.video_clap == 2 ? "none" : s.video_clap == 0 ? "text note" : "clap") << "\n## Show Clap Loading: what shows while a video loads, in the small field and in the big video overlay: text note (\"video: starting ...\") | clap (a small clapperboard in the border colours) | none\n";
