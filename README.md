@@ -113,12 +113,12 @@ Everything below is in the current version (v5.0.0) and works the same on Window
 
 - **Video mode** (`&`, else `SHIFT+y`): video files (mp4, mkv, webm ...) join the library, and the field shows a track's video with the current lyric line under it. A sound file can be paired with a video (same name, by hand with *Manually Couple Local Files* (`[ Video Option ]` in the meta editor), or downloaded); **Search YT** (`/sv:`) finds and previews videos on YouTube, and **Fetch Videos** (`ALT+v`) downloads the chosen ones for the songs that have none. Needs ffmpeg and yt-dlp.
 
-The picture can get a **retro look** (*Effect* in the VIDEO SETTINGS overlay, *Video Effect* in Settings → ANIMA/VIZ, per track in Style Option, `g` steps through them): Scanlines, CRT, VHS, Glitch, Pixel, Gradient, Phosphor Green / Amber, Halftone, Dither (B/W and Gradient), Game Boy, EGA 16, Film, Neon Edge, Interlace and more, plus Contrast, Colors and Chromatic Aberration. The same video with three of them:
+The picture can get a **retro look** (*Effect* in the VIDEO SETTINGS overlay, *Video Effect* in Settings → ANIMA/VIZ, per track in Style Option, `g` steps through them): Scanlines, CRT, VHS, Glitch, Pixel, Gradient, Phosphor Green / Amber, Halftone, Dither (B/W and Gradient), Game Boy, EGA 16, Film, Neon Edge, Interlace and more, plus Contrast, Colors and Chromatic Aberration. The same video with Game Boy High-Res Gradient, without an effect and with Dither B/W:
 
 | |
 |:---:|
-| <img width="600" alt="Video effect: Dither Gradient" src="readme_images/video_effect_1.png" /><br>**Dither Gradient** |
-| <img width="600" alt="Video effect: CRT" src="readme_images/video_effect_2.png" /><br>**CRT** |
+| <img width="600" alt="Video effect: Game Boy High-Res Gradient" src="readme_images/video_effect_1.png" /><br>**Game Boy High-Res Gradient** |
+| <img width="600" alt="The video without an effect (Effect: Off)" src="readme_images/video_effect_2.png" /><br>**No effect (Off)** |
 | <img width="600" alt="Video effect: Dither B/W" src="readme_images/video_effect_3.png" /><br>**Dither B/W** |
 
 <p align="center"><img width="850" alt="Video mode: the video in the visualization field with the current lyric line under it" src="readme_images/video_with_lyrics.png" /></p>

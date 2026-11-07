@@ -833,11 +833,11 @@ void App::build_vf_screen(std::ostringstream& frame, int W, int target_height) c
     const bool in_text = vf_focus_ == 0 && text_engaged(vf_tab_ == 0 ? "vf-search" : "vm-search");
     std::vector<LegendGroup> groups;
     if (vf_tab_ == 1) {
-        groups.push_back({"Move", {in_text ? "[\xe2\x86\x90\xe2\x86\x92] Cursor" : "[\xe2\x86\x90\xe2\x86\x92] Tab", "[TAB] Focus", "[\xe2\x86\x91\xe2\x86\x93] Navi.", "[SHIFT+\xe2\x86\x91\xe2\x86\x93] Page\001Page", "[CTRL+\xe2\x86\x91\xe2\x86\x93] Top/bottom\001Top/bot."}});
+        groups.push_back({"Move", {in_text ? "[\xe2\x86\x90\xe2\x86\x92] Cursor" : "[\xe2\x86\x90\xe2\x86\x92] Tab", "[ALT+\xe2\x86\x90\xe2\x86\x92] Tab\001Tab", "[TAB] Focus", "[\xe2\x86\x91\xe2\x86\x93] Navi.", "[SHIFT+\xe2\x86\x91\xe2\x86\x93] Page\001Page", "[CTRL+\xe2\x86\x91\xe2\x86\x93] Top/bottom\001Top/bot."}});
         groups.push_back({"Find", {"[/] Filter field", "[CTRL+f] All / coupled / video only / newest first\001Videos"}});
         groups.push_back({"Delete", {"[DEL] Delete this video file (asked first)\001Delete", "[u] Undo last deletion\001Undo", "[CTRL+3 / m] Make an mp3 from a video only file\001mp3", "[ESC] Back/Exit\001Exit"}});
     } else {
-    groups.push_back({"Move", {in_text ? "[\xe2\x86\x90\xe2\x86\x92] Cursor" : "[TAB] Focus", "[\xe2\x86\x91\xe2\x86\x93] Navi.", "[SHIFT+\xe2\x86\x91\xe2\x86\x93] Page\001Page", "[CTRL+\xe2\x86\x91\xe2\x86\x93] Top/bottom\001Top/bot.", "[ENTER] Videos / Choose\001Choose"}});
+    groups.push_back({"Move", {in_text ? "[\xe2\x86\x90\xe2\x86\x92] Cursor" : "[\xe2\x86\x90\xe2\x86\x92] Tab", "[ALT+\xe2\x86\x90\xe2\x86\x92] Tab\001Tab", "[TAB] Focus", "[\xe2\x86\x91\xe2\x86\x93] Navi.", "[SHIFT+\xe2\x86\x91\xe2\x86\x93] Page\001Page", "[CTRL+\xe2\x86\x91\xe2\x86\x93] Top/bottom\001Top/bot.", "[ENTER] Videos / Choose\001Choose"}});
     groups.push_back({"Search", {"[s] This song\001This", "[r] Re-fetch (song with a video)\001Re-fetch", "[SHIFT+s] All shown songs\001All shown", "[CTRL+t] File name + tags / file name / tags\001Source", "[o] Open page"}});
     groups.push_back({"Find", {"[/] Filter field", "[CTRL+f] Missing video / all / with video\001Songs"}});
     groups.push_back({"Fetch", {"[SHIFT+f] Download the chosen (" + std::to_string(chosen) + ")\001Download (" + std::to_string(chosen) + ")", "[c] Clear choice\001Clear", "[CTRL+c] Cancel download\001Cancel", "[ESC] Back/Exit\001Exit"}});
