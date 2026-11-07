@@ -16,11 +16,14 @@
 #include "string_util.h"
 #include "terminal_ui.h"
 #include "text_edit.h"
+#include "tiny_json.h"
 #include "utf8_util.h"
 #include "video_links.h"
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
+#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -121,6 +124,41 @@ void App::video_fetch_rebuild_list() {
     for (const LocalTrack& t : *src)
         if (LocalSource::is_video_file(t.path)) have.insert(vf_lower(path_utf8(t.path.parent_path())) + "/" + vf_lower(path_utf8(t.path.stem())));
     std::unordered_map<std::string, VFEntry> old;   // what was found and chosen stays when the list is built again
+    if (!vf_saved_loaded_) {   // what the last time left (video_fetch_state.json): the searches and the choices of the songs that were not downloaded
+        vf_saved_loaded_ = true;
+        std::ifstream in(config_path().parent_path() / "video_fetch_state.json", std::ios::binary);
+        std::stringstream ss;
+        ss << in.rdbuf();
+        tinyjson::Value root;
+        if (in.good() || !ss.str().empty()) {
+            if (tinyjson::parse(ss.str(), root) && root.type == tinyjson::Type::Object) {
+                if (const tinyjson::Value* arr = root.find("songs")) {
+                    for (const tinyjson::Value& sv : arr->arr) {
+                        VFEntry e;
+                        const std::string path = tinyjson::string_field(sv, "path");
+                        if (path.empty()) continue;
+                        e.path = path_from_utf8(path);
+                        e.seconds = tinyjson::number_field(sv, "seconds", -1.0);
+                        if (const tinyjson::Value* cv = sv.find("cands")) {
+                            for (const tinyjson::Value& c : cv->arr) {
+                                OnlineResult r;
+                                r.video_id = tinyjson::string_field(c, "id");
+                                r.title = tinyjson::string_field(c, "title");
+                                r.uploader = tinyjson::string_field(c, "uploader");
+                                r.duration_sec = tinyjson::number_field(c, "dur", -1.0);
+                                if (!r.video_id.empty()) e.cands.push_back(std::move(r));
+                            }
+                        }
+                        if (e.cands.empty()) continue;
+                        e.searched = true;
+                        const int ch = static_cast<int>(tinyjson::number_field(sv, "choice", -1.0));
+                        e.choice = ch >= 0 && ch < static_cast<int>(e.cands.size()) ? ch : -1;
+                        vf_saved_[path] = std::move(e);
+                    }
+                }
+            }
+        }
+    }
     for (VFEntry& e : vf_all_) old[path_utf8(e.path)] = std::move(e);
     vf_all_.clear();
     const std::string playing = (has_track_ && !current_path_.empty()) ? path_utf8(current_path_) : std::string();
@@ -136,6 +174,7 @@ void App::video_fetch_rebuild_list() {
         VFEntry e;
         const auto it = old.find(key);
         if (it != old.end()) e = std::move(it->second);
+        else if (!has) { const auto sv = vf_saved_.find(key); if (sv != vf_saved_.end()) e = sv->second; }   // (searched and chosen the last time)
         e.path = t.path;
         e.has_video = has;
         e.label = (t.folder_artist.empty() || t.folder_artist == "-") ? t.title : t.folder_artist + " - " + t.title;
@@ -149,6 +188,60 @@ void App::video_fetch_rebuild_list() {
     video_fetch_refilter();
 }
 
+// The found videos and the choices are kept in video_fetch_state.json (next to config.txt) at every change: leaving the overlay without
+// downloading loses nothing. Songs that are not listed at the moment keep what they had; a song that has its video now, or whose file is
+// gone, is dropped.
+void App::video_fetch_save_state() {
+    for (const VFEntry& e : vf_all_) {
+        const std::string key = path_utf8(e.path);
+        if (e.cands.empty() || (e.has_video && !e.refetch)) vf_saved_.erase(key);
+        else vf_saved_[key] = e;
+    }
+    tinyjson::Value songs = tinyjson::Value::make_arr();
+    for (auto it = vf_saved_.begin(); it != vf_saved_.end();) {
+        std::error_code ec;
+        if (!fs::exists(it->second.path, ec)) { it = vf_saved_.erase(it); continue; }
+        const VFEntry& e = it->second;
+        tinyjson::Value sv = tinyjson::Value::make_obj();
+        sv.set("path", tinyjson::Value::make_str(it->first));
+        sv.set("choice", tinyjson::Value::make_num(e.choice));
+        sv.set("seconds", tinyjson::Value::make_num(e.seconds));
+        tinyjson::Value cv = tinyjson::Value::make_arr();
+        for (const OnlineResult& r : e.cands) {
+            tinyjson::Value c = tinyjson::Value::make_obj();
+            c.set("id", tinyjson::Value::make_str(r.video_id));
+            c.set("title", tinyjson::Value::make_str(r.title));
+            c.set("uploader", tinyjson::Value::make_str(r.uploader));
+            c.set("dur", tinyjson::Value::make_num(r.duration_sec));
+            cv.arr.push_back(std::move(c));
+        }
+        sv.set("cands", std::move(cv));
+        songs.arr.push_back(std::move(sv));
+        ++it;
+    }
+    tinyjson::Value root = tinyjson::Value::make_obj();
+    root.set("songs", std::move(songs));
+    const fs::path p = config_path().parent_path() / "video_fetch_state.json";
+    std::error_code ec;
+    if (vf_saved_.empty()) { fs::remove(p, ec); return; }
+    fs::path tmp = p;
+    tmp += ".tmp";
+    {
+        std::ofstream out(tmp, std::ios::trunc | std::ios::binary);
+        if (!out.is_open()) return;
+        out << tinyjson::write(root);
+    }
+    fs::rename(tmp, p, ec);
+}
+
+void App::video_fetch_refilter_keep() {
+    std::string keep;
+    if (const VFEntry* h = video_fetch_hovered()) keep = path_utf8(h->path);
+    video_fetch_refilter();
+    for (size_t k = 0; k < vf_view_.size() && !keep.empty(); ++k)
+        if (path_utf8(vf_all_[static_cast<size_t>(vf_view_[k])].path) == keep) { vf_sel_ = static_cast<int>(k); break; }
+}
+
 void App::video_fetch_refilter() {
     std::vector<std::string> words;
     std::string cur;
@@ -160,6 +253,7 @@ void App::video_fetch_refilter() {
     for (size_t i = 0; i < vf_all_.size(); ++i) {
         bool ok = true;
         for (const std::string& w : words) if (vf_all_[i].hay.find(w) == std::string::npos) { ok = false; break; }
+        if (ok && vf_filter_ == 3 && vf_all_[i].choice < 0) ok = false;   // only the songs with a chosen video
         if (ok) vf_view_.push_back(static_cast<int>(i));
     }
     vf_sel_ = std::clamp(vf_sel_, 0, std::max(0, static_cast<int>(vf_view_.size()) - 1));
@@ -216,6 +310,7 @@ void App::video_fetch_open(const fs::path& focus) {
 }
 
 void App::video_fetch_close() {
+    video_fetch_save_state();
     text_disengage();
     gfx_.active = false;
     mode_ = Mode::Browse;   // (a running download goes on; its end is reported in the status line)
@@ -282,6 +377,8 @@ void App::video_fetch_poll() {
                 vf_auto_.clear();
             }
             vf_searching_.clear();
+            video_fetch_save_state();
+            if (vf_filter_ == 3) video_fetch_refilter_keep();
             if (auto_go) video_fetch_start();
             force_redraw_ = true;
         }
@@ -383,15 +480,23 @@ void App::video_fetch_poll() {
         for (VFEntry& e : vf_all_)
             if (std::find(done_paths.begin(), done_paths.end(), path_utf8(e.path)) != done_paths.end()) { e.has_video = true; e.refetch = false; e.choice = -1; e.cands.clear(); e.searched = false; }
         video_fetch_refilter();
+        video_fetch_save_state();
     }
     force_redraw_ = true;
 }
 
-void App::video_fetch_start() {
+void App::video_fetch_start(bool only_current) {
     if (vf_.running) { vf_msg_ = "a download is running already"; vf_warn_ = true; return; }
     std::vector<VFJob> jobs;
     int undecided = 0;
+    std::string only;   // only_current: the song under the cursor
+    if (only_current) {
+        const VFEntry* h = video_fetch_hovered();
+        if (!h) { vf_msg_ = "no song selected"; vf_warn_ = true; return; }
+        only = path_utf8(h->path);
+    }
     for (const VFEntry& e : vf_all_) {
+        if (only_current && path_utf8(e.path) != only) continue;
         if (e.choice < 0 || static_cast<size_t>(e.choice) >= e.cands.size()) { if (e.cands.size() > 1) ++undecided; continue; }
         VFJob j;
         j.track = e.path;
@@ -403,7 +508,8 @@ void App::video_fetch_start() {
         jobs.push_back(std::move(j));
     }
     if (jobs.empty()) {
-        vf_msg_ = undecided > 0 ? std::to_string(undecided) + (undecided == 1 ? " song needs" : " songs need") + " a choice"
+        vf_msg_ = only_current ? (undecided > 0 ? "this song needs a choice" : "nothing chosen for this song yet")
+                : undecided > 0 ? std::to_string(undecided) + (undecided == 1 ? " song needs" : " songs need") + " a choice"
                                 : "nothing chosen yet";
         vf_warn_ = true;
         return;
@@ -544,11 +650,11 @@ void App::video_fetch_key(int key) {
         vf_warn_ = true;
         return;
     }
-    if (key == kKeyCtrlF) {   // which songs are listed: missing video only / all songs / songs with a video
+    if (key == kKeyCtrlF) {   // which songs are listed: missing video only / all songs / songs with a video / chosen
         text_disengage();
         std::string keep;
         if (const VFEntry* h = video_fetch_hovered()) keep = path_utf8(h->path);
-        vf_filter_ = (vf_filter_ + 1) % 3;
+        vf_filter_ = (vf_filter_ + 1) % 4;
         video_fetch_rebuild_list();
         vf_sel_ = 0;
         for (size_t k = 0; k < vf_view_.size(); ++k)
@@ -556,7 +662,7 @@ void App::video_fetch_key(int key) {
         vf_cand_sel_ = 0;
         if (vf_focus_ == 2) vf_focus_ = 1;
         vf_hover_.clear();
-        vf_msg_ = vf_filter_ == 0 ? "listed: songs with a missing video (and the playing song)" : vf_filter_ == 1 ? "listed: all songs" : "listed: songs that have a video";
+        vf_msg_ = vf_filter_ == 0 ? "listed: songs with a missing video (and the playing song)" : vf_filter_ == 1 ? "listed: all songs" : vf_filter_ == 2 ? "listed: songs that have a video" : "listed: the songs with a chosen video";
         vf_warn_ = false;
         return;
     }
@@ -571,6 +677,8 @@ void App::video_fetch_key(int key) {
         vf_src_ = (vf_src_ + 1) % 3;
         for (VFEntry& e : vf_all_) { e.cands.clear(); e.searched = false; e.choice = -1; }
         vf_queue_.clear();
+        video_fetch_save_state();
+        if (vf_filter_ == 3) video_fetch_refilter_keep();
         vf_msg_ = vf_src_ == 0 ? "search text: the file name and the tags" : vf_src_ == 1 ? "search text: the file name" : "search text: the tags (artist + title)";
         vf_warn_ = false;
         vf_hover_.clear();
@@ -649,6 +757,7 @@ void App::video_fetch_key(int key) {
         if (!arrow && key == 's' && held) { vf_msg_ = "this song has a video already"; vf_warn_ = false; return; }
         if (!arrow && key == 's') {   // search this song (again)
             for (VFEntry& e : vf_all_) if (e.path == h->path) { e.searched = false; e.cands.clear(); e.choice = -1; }
+            video_fetch_save_state();
             video_fetch_enqueue(path_utf8(h->path), true);
             vf_msg_ = "searching ...";
             vf_warn_ = false;
@@ -663,9 +772,12 @@ void App::video_fetch_key(int key) {
         }
         if (!arrow && key == 'c') {   // clear the choice of this song
             for (VFEntry& e : vf_all_) if (e.path == h->path) e.choice = -1;
+            video_fetch_save_state();
+            if (vf_filter_ == 3) video_fetch_refilter_keep();
             return;
         }
         if (!arrow && key == 'F') { video_fetch_start(); return; }
+        if (!arrow && key == 'A') { video_fetch_start(true); return; }
         return;
     }
     // --- the videos of the song ---
@@ -675,15 +787,17 @@ void App::video_fetch_key(int key) {
     if (arrow && (key == 'A' || key == 'B')) { vf_cand_sel_ = std::clamp(vf_cand_sel_ + (key == 'A' ? -1 : 1), 0, n - 1); return; }
     if (key == '\r' || key == '\n' || key == ' ') {   // the choice of this song; the cursor stays on the song
         for (VFEntry& e : vf_all_) if (e.path == h->path) e.choice = vf_cand_sel_;
+        video_fetch_save_state();
         vf_focus_ = 1;
         vf_cand_sel_ = std::max(0, vf_cand_sel_);
         vf_msg_ = "chosen";
         vf_warn_ = false;
         return;
     }
-    if (!arrow && key == 'c') { for (VFEntry& e : vf_all_) if (e.path == h->path) e.choice = -1; return; }
+    if (!arrow && key == 'c') { for (VFEntry& e : vf_all_) if (e.path == h->path) e.choice = -1; video_fetch_save_state(); if (vf_filter_ == 3) { video_fetch_refilter_keep(); vf_focus_ = 1; } return; }
     if (!arrow && (key == 'o' || key == 'O')) { open_url("https://www.youtube.com/watch?v=" + h->cands[static_cast<size_t>(vf_cand_sel_)].video_id); return; }
     if (!arrow && key == 'F') { video_fetch_start(); return; }
+    if (!arrow && key == 'A') { video_fetch_start(true); return; }
 }
 
 // ---- drawing -----------------------------------------------------------------------------------------------------------------------------
@@ -698,7 +812,7 @@ std::vector<std::string> App::build_vf_songs_panel(int w, int h) const {
     std::vector<std::string> out;
     int chosen = 0;
     for (const VFEntry& e : vf_all_) if (e.choice >= 0) ++chosen;
-    out.push_back(box_top(std::string("SONGS, ") + (vf_filter_ == 0 ? "missing video" : vf_filter_ == 1 ? "all" : "with video") + " (" + std::to_string(vf_view_.size()) + "), " + std::to_string(chosen) + " chosen" + (vf_focus_ == 1 ? focus_indicator(settings_, border) : std::string()), w, border));
+    out.push_back(box_top(std::string("SONGS, ") + (vf_filter_ == 0 ? "missing video" : vf_filter_ == 1 ? "all" : vf_filter_ == 2 ? "with video" : "chosen") + " (" + std::to_string(vf_view_.size()) + "), " + std::to_string(chosen) + " chosen" + (vf_focus_ == 1 ? focus_indicator(settings_, border) : std::string()), w, border));
     const int rows = std::max(1, h - 2);
     const int n = static_cast<int>(vf_view_.size());
     const int sel = std::clamp(vf_sel_, 0, std::max(0, n - 1));
@@ -706,7 +820,7 @@ std::vector<std::string> App::build_vf_songs_panel(int w, int h) const {
     for (int r = 0; r < rows; ++r) {
         const int i = first + r;
         if (i >= n) {
-            std::string c = (r == 0 && n == 0) ? truncate_str(vf_all_.empty() ? (vf_filter_ == 0 ? "every song has a video already" : vf_filter_ == 2 ? "no song has a video yet" : "no songs") : "no song matches the filter", inner) : std::string();
+            std::string c = (r == 0 && n == 0) ? truncate_str(vf_filter_ == 3 && vf_query_.empty() ? "no video is chosen yet" : vf_all_.empty() ? (vf_filter_ == 0 ? "every song has a video already" : vf_filter_ == 2 ? "no song has a video yet" : "no songs") : "no song matches the filter", inner) : std::string();
             out.push_back(bar + " " + pad_right(c, inner) + " " + bar);
             continue;
         }
@@ -741,7 +855,7 @@ std::vector<std::string> App::build_vf_choice_panel(int w, int h) const {
         const std::string c = truncate_str(t, inner);
         return line(sgr + c + R, display_width(c));
     };
-    out.push_back(text_line(e ? "Song:    " + apply_font_map(e->label, settings_.font_map) : std::string("(no song)"), hdr));
+    out.push_back(text_line(e ? "Song:    " + apply_font_map(e->label, settings_.font_map) + (e->seconds > 0 ? "  (" + fmt_mmss(e->seconds) + ")" : std::string()) : std::string("(no song)"), hdr));   // (with its length)
     const bool has_tags = e && !e->tags.empty();
     if (has_tags) out.push_back(text_line("Tags:    " + apply_font_map(e->tags, settings_.font_map), leg));   // title / artist / album, when the song has them
     out.push_back(text_line("Search:  " + src_name + "   [CTRL+t] changes it", leg));
@@ -848,8 +962,9 @@ void App::build_vf_screen(std::ostringstream& frame, int W, int target_height) c
     } else {
     groups.push_back({"Move", {in_text ? "[\xe2\x86\x90\xe2\x86\x92] Cursor" : "[\xe2\x86\x90\xe2\x86\x92] Tab", "[TAB] Focus", "[\xe2\x86\x91\xe2\x86\x93] Navi.", "[SHIFT+\xe2\x86\x91\xe2\x86\x93] Page\001Page", "[CTRL+\xe2\x86\x91\xe2\x86\x93] Top/bottom\001Top/bot.", "[ENTER] Videos / Choose\001Choose"}});
     groups.push_back({"Search", {"[s] This song\001This", "[r] Re-fetch (song with a video)\001Re-fetch", "[SHIFT+s] All shown songs\001All shown", "[CTRL+t] File name + tags / file name / tags\001Source", "[o] Open page"}});
-    groups.push_back({"Find", {"[/] Filter field", "[CTRL+f] Missing video / all / with video\001Songs"}});
-    groups.push_back({"Fetch", {"[SHIFT+f] Download the chosen (" + std::to_string(chosen) + ")\001Download (" + std::to_string(chosen) + ")", "[c] Clear choice\001Clear", "[CTRL+c] Cancel download\001Cancel", "[ESC] Back/Exit\001Exit"}});
+    groups.push_back({"Find", {"[/] Filter field", "[CTRL+f] Missing video / all / with video / chosen\001Songs"}});
+    groups.push_back({"Fetch", {"[SHIFT+a] Download only current selected\001Download current", "[SHIFT+f] Download all chosen (" + std::to_string(chosen) + ")\001Download all (" + std::to_string(chosen) + ")", "[c] Clear choice\001Clear"}});
+    groups.push_back({"Session", {"[CTRL+c] Cancel download\001Cancel", "[ESC] Back/Exit\001Exit"}});
     }
     const auto lrows = layout_legend_tree(groups, W - 1);   // (known first: the panels take every row that the legend and the status line leave)
 

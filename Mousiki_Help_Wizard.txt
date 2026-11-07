@@ -968,12 +968,15 @@ Marks:[[Header]] [ ] not searched  [~] searching  [?] several videos, a choice i
 [s]          search the song again     [SHIFT+s] search every shown song, one after the other
 [CTRL+t]     search with file name + tags / file name / tags
 [/]          jump to the filter (German keyboard: SHIFT+7)
-[CTRL+f]     songs without a video (default) / all songs / songs with a video
+[CTRL+f]     songs without a video (default) / all songs / songs with a video / only the chosen ones
 [r]          fetch a song again that has a video: warns first, the old video is unassigned
              (the file stays on the disk)
-[SHIFT+f]    DOWNLOAD the chosen videos only (mp4) into video_down in the download folder, named
+[SHIFT+a]    download only the chosen video of the song under the cursor
+[SHIFT+f]    DOWNLOAD all chosen videos only (mp4) into video_down in the download folder, named
              like the song and paired with it. A single hit is a choice already; several hits are
              NEVER picked automatically.
+             The found videos and your choices are saved at every change: leaving without
+             downloading loses nothing (video_fetch_state.json).
 [CTRL+c]     cancel a running download        [ESC] back / close (a download goes on)
 
 VIDEO FILES TAB:[[Header]] [ALT+Left/Right] (or [Left/Right] outside a text field) switches tabs.
@@ -1227,6 +1230,9 @@ SETTING[[Header]]                       [WHAT IT DOES][[Header]]
 [Show Clap Loading][[Legend]]             text note / clap / none while a video loads.
 These are also rows of the VIDEO SETTINGS overlay [&]; in the big video overlay [SHIFT+s] opens 
 them as a panel.
+For a song paired with a video, Style Option and that panel have one more row: Use mp4 audio for
+this song (false = the song's own audio, true = the audio of its video; changed while it plays,
+the audio is loaded again at the same time). On the video rows Style Option previews the video.
 
 BUTTONS IN THE OVERLAY:[[Header]]
 BUTTON[[Legend]]                            WHAT IT DOES[[Legend]]

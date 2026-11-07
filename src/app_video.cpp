@@ -49,6 +49,10 @@ std::string App::video_source_for(const fs::path& track) const {
     return std::string();
 }
 
+bool App::song_paired_with_video(const fs::path& track) const {
+    return settings_.video_mode && !track.empty() && !LocalSource::is_video_file(track) && !video_source_for(track).empty();
+}
+
 // A video of the library that is paired with a track (by hand, a download, or the same name beside it) has no tags of its own most of
 // the time: the lists show the tags of that track for it. Tags the video has itself win. Runs when tags arrived, a pairing changed or
 // the library changed; takes the borrowed tags out again when the pairing is gone or the Video mode is off.
@@ -464,14 +468,17 @@ void App::clap_loading_fill(std::vector<std::string>& rows, int W, int H, int ab
 // the box, cropped to fit. `ov`: lyric rows (width ov_w) as a small black box over the bottom of the box (cut out of the picture).
 // abs_col / abs_row: where the box starts on the screen. false: no video.
 bool App::video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, int abs_row, bool second_slot, double t, int mode,
-                     const std::vector<std::string>& ov, int ov_w, bool flush_bottom, bool trim_right) const {
-    video_ensure_source();
+                     const std::vector<std::string>& ov, int ov_w, bool flush_bottom, bool trim_right, VideoPlayer* vp, const fs::path* look_track) const {
+    // vp / look_track: the Style Option preview draws another track's video with its own look (a player of its own); else the playing one
+    if (!vp) video_ensure_source();
+    VideoPlayer& V = vp ? *vp : video_;
+    const fs::path& LT = look_track ? *look_track : current_path_;
     rows.assign(static_cast<size_t>(std::max(0, H)), std::string(static_cast<size_t>(std::max(0, W)), ' '));
-    if (!video_.has_video() || W < 4 || H < 2) return false;
+    if (!V.has_video() || W < 4 || H < 2) return false;
     int cw0 = 10, ch0 = 20;
     gfx_cell_pixels(settings_.cell_pixels, cw0, ch0);
     cw0 = std::max(4, cw0); ch0 = std::max(8, ch0);
-    const bool paused = player_.is_paused();
+    const bool paused = vp ? false : player_.is_paused();
     const bool picture = gfx_proto_ != GfxProto::None;
     // --- geometry: dw x dh = what the decoder delivers; the visible part (outw x outh pixels, vcols x vrows cells) is cut from it
     int vcols = 0, vrows = 0, dw = 0, dh = 0, outw = 0, outh = 0, cx0 = 0, cy0 = 0;
@@ -484,15 +491,15 @@ bool App::video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, 
                 const double f = std::min(1.0, static_cast<double>(maxw) / (vcols * cw0));
                 outw = std::max(2, static_cast<int>(vcols * cw0 * f) & ~1);
                 outh = std::max(2, static_cast<int>(vrows * ch0 * f) & ~1);
-                video_.fit_cover(outw, outh, 1.0, dw, dh);
+                V.fit_cover(outw, outh, 1.0, dw, dh);
             } else {
                 outw = vcols * 2; outh = vrows * 4;
-                video_.fit_cover(outw, outh, 2.0 * cw0 / ch0, dw, dh);
+                V.fit_cover(outw, outh, 2.0 * cw0 / ch0, dw, dh);
             }
             cx0 = (dw - outw) / 2; cy0 = (dh - outh) / 2;
         } else {
             if (picture) {
-                video_.fit(W * cw0, H * ch0, 1.0, fw, fh);
+                V.fit(W * cw0, H * ch0, 1.0, fw, fh);
                 vcols = std::clamp((fw + cw0 / 2) / cw0, 1, W);
                 vrows = std::clamp((fh + ch0 / 2) / ch0, 1, H);
                 const int maxw = video_pic_width();
@@ -500,7 +507,7 @@ bool App::video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, 
                 dw = std::max(2, static_cast<int>(vcols * cw0 * f) & ~1);
                 dh = std::max(2, static_cast<int>(vrows * ch0 * f) & ~1);
             } else {
-                video_.fit(W * 2, H * 4, 2.0 * cw0 / ch0, fw, fh);   // a braille dot is cw0 / 2 wide and ch0 / 4 high
+                V.fit(W * 2, H * 4, 2.0 * cw0 / ch0, fw, fh);   // a braille dot is cw0 / 2 wide and ch0 / 4 high
                 vcols = std::clamp((fw + 1) / 2, 1, W);
                 vrows = std::clamp((fh + 3) / 4, 1, H);
                 dw = vcols * 2; dh = vrows * 4;
@@ -514,16 +521,16 @@ bool App::video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, 
         }
     }
     // A video shorter than the track plays again from its start for the rest of the time; a longer one is simply cut off with the track.
-    const double vdur = video_.duration();
+    const double vdur = V.duration();
     if (vdur > 1.0 && t >= vdur) t = std::fmod(t, vdur);
     bool fresh = false;
-    video_.set_buffer_mb(settings_.video_buffer);
-    video_.set_sharp(video_res_for() > 0);
+    V.set_buffer_mb(settings_.video_buffer);
+    V.set_sharp(video_res_for() > 0);
     // While the audio of a new track is still being handed to the device (launch_device_play_async()), the playback time is still the one of
     // the track before: a decoder started now would begin at that time and show a frame from the middle of the new video (or of the one
     // before, when [n] is hit fast), then restart at 0. So nothing is started until the new audio clock is in.
-    const bool handoff = device_play_pending_gen_.load() != 0;
-    const VideoFrame* frame = handoff ? nullptr : video_.frame_for(t, dw, dh, !paused, &fresh);
+    const bool handoff = !vp && device_play_pending_gen_.load() != 0;
+    const VideoFrame* frame = handoff ? nullptr : V.frame_for(t, dw, dh, !paused, &fresh);
     VideoFrame scaled;   // (the decoder may still deliver the old size for a moment after a resize or a seek: scale what there is)
     if (frame && (frame->w != dw || frame->h != dh)) { scaled = VideoPlayer::resample(*frame, dw, dh); frame = &scaled; }
     const int lead = (W - vcols) / 2, top = (H - vrows) / 2;
@@ -563,14 +570,14 @@ bool App::video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, 
         return o;
     };
     auto in_box_rows = [&](int r) { return oh > 0 && r >= orect_r && r < orect_r + oh; };
-    const VideoLook look = video_look_for(current_path_);
+    const VideoLook look = video_look_for(LT);
     const int fx = look.fx;
-    const bool round_corners = video_round_for(current_path_);
+    const bool round_corners = video_round_for(LT);
     // the interlace look combs against the frame before: cut and scaled like the frame itself
     VideoFrame prev_shown;
     const VideoFrame* prevp = nullptr;
     if (fx == 17 && frame) {
-        if (const VideoFrame* pf = video_.previous_frame()) {
+        if (const VideoFrame* pf = V.previous_frame()) {
             prev_shown = (pf->w != dw || pf->h != dh) ? VideoPlayer::resample(*pf, dw, dh) : *pf;
             if (cx0 != 0 || cy0 != 0 || outw != dw || outh != dh) prev_shown = VideoPlayer::crop(prev_shown, cx0, cy0, outw, outh);
             prevp = &prev_shown;
@@ -666,13 +673,13 @@ bool App::video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, 
             else rows[static_cast<size_t>(r)] = dots(r, 0, W);
         }
     }
-    const bool loading = !frame && video_.status() == "video: starting ...";
+    const bool loading = !frame && V.status() == "video: starting ...";
     if (loading && settings_.video_clap == 1 && H >= 4 && W >= 12) {
         clap_loading_fill(rows, W, H, abs_col, abs_row, second_slot ? gfx2_ : gfx_, video_pic_key_, second_slot ? 1 : 0);
     } else if (loading && settings_.video_clap == 2) {
         // "none": nothing at all while the video loads (an empty field)
     } else if (!frame) {   // no picture (yet): say why, in the middle of the picture's place, instead of a mute empty field
-        std::string msg = video_.status();
+        std::string msg = V.status();
         if (msg.empty()) msg = "video: ...";
         msg = truncate_str(msg, std::max(1, W - 2));
         const int pad = std::max(0, (W - display_width(msg)) / 2);

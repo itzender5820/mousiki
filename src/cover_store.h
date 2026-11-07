@@ -45,7 +45,7 @@ int cover_track_video_mode(const std::string& track_path);
 void set_cover_track_video_mode(const std::string& track_path, int mode);   // 0 removes it
 // The video of one track (meta editor -> Style Option): whether it is shown at all (0 = hidden; -1 = shown, as always), its picture size
 // (0 regular, 1 cropped, 2 full; -1 = as in the VIDEO overlay) and its effect (0 off .. 17 interlace; -1 = as in the VIDEO overlay).
-struct VideoTrackOpts { int on = -1, size = -1, fx = -1, contrast = -1, colors = -1, chroma = -1, res = -1, round = -1, lyrics = -1, brightness = -1; };   // (round: 0 / 1)   // contrast / colors 0..100 %, chroma 0..3, res 0..2 (standard / high / full); -1 = as in Settings
+struct VideoTrackOpts { int on = -1, size = -1, fx = -1, contrast = -1, colors = -1, chroma = -1, res = -1, round = -1, lyrics = -1, brightness = -1, mp4audio = -1; };   // (round: 0 / 1)   // contrast / colors 0..100 %, chroma 0..3, res 0..2 (standard / high / full); -1 = as in Settings
 VideoTrackOpts cover_track_video_opts(const std::string& track_path);
 void set_cover_track_video_opts(const std::string& track_path, const VideoTrackOpts& o);   // all -1 removes it
 std::string cover_track_choice(const std::string& track_path);               // "" = none made

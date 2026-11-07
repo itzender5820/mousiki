@@ -179,7 +179,13 @@ void App::video_opts_change(int row, int dir, bool reset) {
     else if (row == 3) o.colors = reset ? -1 : vopts_step(o.colors, dir, 100, 5);
     else if (row == 4) o.chroma = reset ? -1 : vopts_step(o.chroma, dir, kChromaLevels - 1, 1);
     else if (row == 5) o.res = reset ? -1 : vopts_step(o.res, dir, 2, 1);
-    else o.round = reset ? -1 : vopts_step(o.round, dir, 1, 1);
+    else if (row == 6) o.round = reset ? -1 : vopts_step(o.round, dir, 1, 1);
+    else {   // 7: Use mp4 audio for this song (a song paired with a video); it applies when the song starts the next time
+        const int before = o.mp4audio;
+        o.mp4audio = reset ? -1 : (o.mp4audio == 1 ? -1 : 1);
+        set_cover_track_video_opts(path_utf8(current_path_), o);
+        if (o.mp4audio != before) { reload_current_audio(); status_line_ = o.mp4audio == 1 ? "mp4 audio for this song: true -- the audio is loaded again, at the same time" : "mp4 audio for this song: false -- the audio is loaded again, at the same time"; }
+    }
     set_cover_track_video_opts(path_utf8(current_path_), o);
     video_pic_key_.clear();
     if (row == 5) { video_for_track_.clear(); ++video_rev_; force_redraw_ = true; }   // (the resolution: the video is read again; the other rows only change the picture)
@@ -192,7 +198,7 @@ std::vector<std::string> App::build_video_opts_panel() const {
     const VideoTrackOpts o = cover_track_video_opts(path_utf8(current_path_));
     auto pct = [&](int own, int global) { return own >= 0 ? std::to_string(own) + " %" : std::string("as in Settings (") + std::to_string(global) + " %)"; };
     struct Row { const char* label; std::string value; };
-    const std::vector<Row> rows = {
+    std::vector<Row> rows = {
         {"Video Effect", o.fx >= 0 ? std::string(video_fx_name(o.fx)) : std::string("VIDEO SETTINGS (") + video_fx_name(settings_.video_fx) + ")"},
         {"Video Contrast", pct(o.contrast, settings_.video_contrast)},
         {"Video Brightness", pct(o.brightness, settings_.video_brightness)},
@@ -201,6 +207,7 @@ std::vector<std::string> App::build_video_opts_panel() const {
         {"Video Resolution", o.res >= 0 ? std::string(video_res_name(o.res)) : std::string("as in Settings (") + video_res_name(settings_.video_res) + ")"},
         {"Video Rounded Corners", o.round >= 0 ? std::string(o.round ? "on" : "off") : std::string("as in Settings (") + (settings_.video_round ? "on" : "off") + ")"},
     };
+    if (video_opts_pair_) rows.push_back({"Use mp4 audio for this song", o.mp4audio == 1 ? std::string("true") : std::string("false")});
     std::vector<std::string> lines;
     lines.push_back(box_top("VIDEO OPTIONS  " + truncate_str(path_utf8(current_path_.filename()), 36), W, border));
     auto plain = [&](const std::string& t) { return bar + pad_right(truncate_str(t, inner), inner) + bar; };
@@ -220,14 +227,14 @@ bool App::video_full_key(int key) {
     const bool arrow = last_key_was_arrow();
     if (video_opts_open_) {   // the options panel over the picture
         if (!arrow && (key == 27 || key == 's' || key == 'S')) { video_opts_open_ = false; video_pic_key_.clear(); force_redraw_ = true; return true; }   // (clearing the key sends the whole picture again: a paused video has no new frame, and the old pixels still have the panel's hole in them)
-        if (arrow && key == 'A') { video_opts_sel_ = (video_opts_sel_ + 6) % 7; return true; }
-        if (arrow && key == 'B') { video_opts_sel_ = (video_opts_sel_ + 1) % 7; return true; }
+        if (arrow && key == 'A') { video_opts_sel_ = (video_opts_sel_ + (video_opts_pair_ ? 7 : 6)) % (video_opts_pair_ ? 8 : 7); return true; }
+        if (arrow && key == 'B') { video_opts_sel_ = (video_opts_sel_ + 1) % (video_opts_pair_ ? 8 : 7); return true; }
         if (arrow && (key == 'C' || key == 'D')) { video_opts_change(video_opts_sel_, key == 'C' ? 1 : -1, false); return true; }
         if (!arrow && (key == '\r' || key == '\n' || key == ' ')) { video_opts_change(video_opts_sel_, 1, false); return true; }
         if (!arrow && (key == 'd' || key == 'r' || key == kKeyDelete || key == 127)) { video_opts_change(video_opts_sel_, 0, true); return true; }
         return true;   // (nothing else works under the panel)
     }
-    if (!arrow && (key == 's' || key == 'S')) { video_opts_open_ = true; video_opts_sel_ = 0; force_redraw_ = true; return true; }
+    if (!arrow && (key == 's' || key == 'S')) { video_opts_open_ = true; video_opts_sel_ = 0; video_opts_pair_ = song_paired_with_video(current_path_); force_redraw_ = true; return true; }
     if (!arrow && (key == 27 || key_is("HKeyVideoFull", key))) { video_full_ = false; video_opts_open_ = false; video_pic_key_.clear(); force_redraw_ = true; return true; }
     if (arrow && (key == 'A' || key == 'B') && last_key_was_shifted()) {   // SHIFT+UP / DOWN: the layout
         settings_.video_layout = (std::clamp(settings_.video_layout, 0, 3) + (key == 'B' ? 1 : 3)) % 4;

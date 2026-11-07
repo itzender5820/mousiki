@@ -240,11 +240,13 @@ private:
         std::vector<OnlineResult> cands;
         int choice = -1;                 // the active choice (index into cands), -1 = none
     };
+    std::unordered_map<std::string, VFEntry> vf_saved_;   // what video_fetch_state.json holds (songs that are not listed at the moment too)
+    bool vf_saved_loaded_ = false;
     struct VFJob { fs::path track; std::string label, base, video_id, title; };
     std::vector<VFEntry> vf_all_;
     std::vector<int> vf_view_;
     std::string vf_query_, vf_msg_;
-    int vf_focus_ = 1, vf_sel_ = 0, vf_cand_sel_ = 0, vf_src_ = 0, vf_filter_ = 0;   // vf_filter_: 0 missing video only, 1 all songs, 2 songs with a video; focus: 0 filter field, 1 songs, 2 videos; vf_src_: 0 file name + tags, 1 file name, 2 tags
+    int vf_focus_ = 1, vf_sel_ = 0, vf_cand_sel_ = 0, vf_src_ = 0, vf_filter_ = 0;   // vf_filter_: 0 missing video only, 1 all songs, 2 songs with a video, 3 the songs with a chosen video; focus: 0 filter field, 1 songs, 2 videos; vf_src_: 0 file name + tags, 1 file name, 2 tags
     mutable int vf_page_rows_ = 10;
     mutable int vf_art_col_ = 0;                         // the screen column where the right pane starts (the preview picture)
     bool vf_warn_ = false;
@@ -305,7 +307,9 @@ private:
     void video_fetch_open(const fs::path& focus = fs::path());   // (focus: the song the cursor starts on, default the playing one)
     void video_fetch_close();
     void video_fetch_key(int key);
-    void video_fetch_start();
+    void video_fetch_start(bool only_current = false);   // only_current: just the song under the cursor (its chosen video)
+    void video_fetch_save_state();                       // the found videos and the choices go to video_fetch_state.json (kept until downloaded)
+    void video_fetch_refilter_keep();                    // refilter, the cursor stays on its song
     void video_fetch_poll();
     void video_fetch_rebuild_list();
     void video_fetch_refilter();
@@ -338,7 +342,11 @@ private:
     mutable std::chrono::steady_clock::time_point vtr_at_{};   // when the lookup was made (an empty result is looked up again after a few seconds: a translation may have been saved meanwhile)
     void clap_loading_fill(std::vector<std::string>& rows, int W, int H, int abs_col, int abs_row, GfxFrame& g, std::string& key_ref, int id) const;   // the small clapperboard while a video loads (picture or braille)
     bool video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, int abs_row, bool second_slot, double t, int mode,
-                    const std::vector<std::string>& ov, int ov_w, bool flush_bottom = false, bool trim_right = false) const;
+                    const std::vector<std::string>& ov, int ov_w, bool flush_bottom = false, bool trim_right = false, VideoPlayer* vp = nullptr, const fs::path* look_track = nullptr) const;
+    // The Style Option preview of a track that is not the playing one: a decoder of its own (stopped when the overlay is closed)
+    mutable VideoPlayer sty_video_;
+    mutable std::string sty_video_src_;
+    mutable std::chrono::steady_clock::time_point sty_video_t0_{}, sty_video_seen_{};
     std::string build_video_full(int W, const char* clear_prefix) const;
     bool video_full_key(int key);
     // The layout of the full screen video (SHIFT+UP / DOWN): video, video + oscilloscope, video + oscilloscope + spectrogram. The
@@ -356,6 +364,8 @@ private:
     // choices (and storage) as the video rows of the Style Option overlay.
     bool video_opts_open_ = false;
     int video_opts_sel_ = 0;
+    bool video_opts_pair_ = false;   // the playing track is a song paired with a video: the row "Use mp4 audio for this song" is listed
+    bool song_paired_with_video(const fs::path& track) const;   // not a video itself, the Video mode is on and a video belongs to it
     static constexpr int kVideoOptsPanelWidth = 66;
     std::vector<std::string> build_video_opts_panel() const;
     void video_opts_change(int row, int dir, bool reset);
@@ -998,6 +1008,7 @@ private:
     // (cover_store.h CoverStyle), and the look of its whole album. "As in Settings" = nothing of its own.
     bool meta_sty_open_ = false;
     int meta_sty_sel_ = 0;
+    bool meta_sty_pair_ = false;   // the track is a song paired with a video: the row "Use mp4 audio for this song" is listed (worked out when the overlay opens)
     std::string meta_sty_track_;
     std::string meta_sty_msg_;
     // Style Option preview as a real picture: 0 = none this frame, 1 = it is in gfx_, 2 = in gfx2_ (over the main screen, whose own cover
@@ -1400,6 +1411,12 @@ private:
     // this as its start position instead of 0.0, then zeroes it out so
     // every normal track change afterwards starts at 0 like always.
     double resume_start_sec_ = 0.0;
+    // "Use mp4 audio for this song" changed while the song plays: the audio is loaded again and put in at the same time (reload_current_audio()).
+    // No new play for the listening history, no new lyrics, the pause state stays.
+    void reload_current_audio();
+    bool swap_pending_ = false, swap_paused_ = false, swap_repause_ = false;
+    double swap_pos_ = 0.0;
+    fs::path swap_path_;
     std::chrono::steady_clock::time_point last_autosave_at_;
     // Drives the indicator's brief "something just saved" animation --
     // ticks for kAutosavePulseSeconds after each save, then goes idle.

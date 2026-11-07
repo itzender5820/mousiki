@@ -214,6 +214,7 @@ void App::meta_sty_open() {
     meta_sty_track_ = path;
     meta_sty_open_ = true;
     meta_sty_sel_ = 0;
+    meta_sty_pair_ = song_paired_with_video(path_from_utf8(path));
     meta_sty_msg_.clear();
     text_disengage();
 }
@@ -249,7 +250,7 @@ bool App::handle_meta_sty_key(int key) {
         meta_field_ = 0;
         return true;
     }
-    if (arrow && (key == 'A' || key == 'B')) { { const int n = settings_.video_mode ? 17 : 6; meta_sty_sel_ = (meta_sty_sel_ + (key == 'A' ? n - 1 : 1)) % n; } return true; }
+    if (arrow && (key == 'A' || key == 'B')) { { const int n = (settings_.video_mode ? 17 : 6) + (settings_.video_mode && meta_sty_pair_ ? 1 : 0); meta_sty_sel_ = (meta_sty_sel_ + (key == 'A' ? n - 1 : 1)) % n; } return true; }
     const std::string album = meta_hover_values_[static_cast<size_t>(MetaField::Album)];
     const std::string folder = path_utf8(path_from_utf8(meta_sty_track_).parent_path());
     CoverStyle st = cover_track_style(meta_sty_track_);
@@ -266,8 +267,10 @@ bool App::handle_meta_sty_key(int key) {
     else if (key == '\r' || key == '\n' || key == ' ') dir = 1;
     if (!dir && !reset) return true;
     // 4 Cover Chromatic Aberration; with the Video mode on: 5 Use Cover or Thumbnail, 6 Video, 7 Use Lyrics on Video, 8 Video Size, 9 Video Effect,
-    // 10 Video Contrast, 11 Video Brightness, 12 Video Colors, 13 Video Chromatic Aberration, 14 Video Resolution, 15 Video Rounded Corners; 16 the album (the last row)
-    const int sel = (!settings_.video_mode && meta_sty_sel_ >= 5) ? 16 : meta_sty_sel_;
+    // 10 Video Contrast, 11 Video Brightness, 12 Video Colors, 13 Video Chromatic Aberration, 14 Video Resolution, 15 Video Rounded Corners;
+    // 16 Use mp4 audio for this song (only for a song paired with a video); then the album (the last row)
+    const bool pair_row = settings_.video_mode && meta_sty_pair_;
+    const int sel = (!settings_.video_mode && meta_sty_sel_ >= 5) ? 99 : (meta_sty_sel_ == (pair_row ? 17 : 16) ? 99 : meta_sty_sel_);   // 99 = the album
     switch (sel) {
         case 0: st.look = reset ? -1 : sty_step(st.look, dir, kCoverLookCount - 1, 1); break;
         case 1: st.contrast = reset ? -1 : sty_step(st.contrast, dir, 100, 5); break;
@@ -301,6 +304,15 @@ bool App::handle_meta_sty_key(int key) {
             if (sel == 6 || sel == 14) { video_for_track_.clear(); ++video_rev_; force_redraw_ = true; }   // (video on / off, resolution: the video is set up again; a look only makes the picture again)
             else if (sel == 8) force_redraw_ = true;   // (the size changes the layout)
             meta_sty_msg_ = "saved";
+            return true;
+        }
+        case 16: {   // Use mp4 audio for this song: true / false (false = the song's own audio, as before)
+            VideoTrackOpts o = cover_track_video_opts(meta_sty_track_);
+            const int before = o.mp4audio;
+            o.mp4audio = reset ? -1 : (o.mp4audio == 1 ? -1 : 1);
+            set_cover_track_video_opts(meta_sty_track_, o);
+            if (o.mp4audio != before && has_track_ && meta_sty_track_ == path_utf8(current_path_)) { reload_current_audio(); meta_sty_msg_ = "saved: the audio is loaded again, at the same time"; }
+            else meta_sty_msg_ = "saved: applies when the song starts the next time";
             return true;
         }
         default: {
@@ -383,7 +395,44 @@ std::vector<std::string> App::meta_sty_preview(int prev_w, int rows, const Cover
             disk[i] = gradient_ansi(settings_.disk_color, settings_.disk_color_end, t) + disk[i] + "\x1b[0m";
         }
     };
-    if (look > 0) {
+    // On a row of the video block the preview shows the video of the track instead: the same drawing as the video field (video_draw()), so the
+    // track's effect, contrast, brightness, colours, chromatic aberration and rounded corners apply, and it plays. The playing track uses the
+    // player of the field (in step with the audio; the field is not drawn while this overlay is open); another track uses a decoder of its
+    // own that runs while the preview is shown. A track without a video, or with its video off: the disk.
+    const bool video_rows = settings_.video_mode && meta_sty_sel_ >= 6 && meta_sty_sel_ < (meta_sty_pair_ ? 17 : 16);
+    const fs::path trk = path_from_utf8(meta_sty_track_);
+    const std::string vshown = video_rows ? video_shown_for(trk) : std::string();
+    bool vdone = false;
+    if (!vshown.empty()) {
+        const bool is_playing = has_track_ && path_utf8(current_path_) == meta_sty_track_;
+        const auto now = std::chrono::steady_clock::now();
+        VideoPlayer* vp = nullptr;
+        double vt = 0.0;
+        if (is_playing) vt = player_.poll_elapsed();
+        else {
+            if (sty_video_src_ != vshown) { sty_video_.set_source(vshown); sty_video_src_ = vshown; sty_video_t0_ = now; video_pic_key_.clear(); }
+            vp = &sty_video_;
+            vt = std::chrono::duration<double>(now - sty_video_t0_).count();
+        }
+        sty_video_seen_ = now;
+        const int lpad0 = std::max(0, (prev_w - dw) / 2);
+        const int W = meta_sty_panel_width(screen_w), panel_h = rows + 2;
+        const int start_col = 1 + std::max(0, (screen_w - W) / 2);
+        const int start_row = std::clamp(1 + std::max(0, (term_rows_ - panel_h) / 2 - kFloatingPanelUpShift + 1), 1, std::max(1, term_rows_ - panel_h));
+        const int top0 = std::max(0, (rows - 1 - dh) / 2);
+        const bool second = meta_sty_from_main_ && mode_ == Mode::MetaEdit && gfx_.active;   // (like the cover preview: the main screen's own picture stays in the first slot)
+        std::vector<std::string> vr;
+        if (video_draw(vr, dw, dh, (start_col - 1) + 1 + (kMetaStyPanelWidth - 2) + 1 + lpad0, start_row + top0, second, vt, 0, std::vector<std::string>(), 0, false, false, vp, &trk) &&
+            static_cast<int>(vr.size()) == dh) {
+            disk = std::move(vr);
+            note = "the video of this track";
+            if (gfx_proto_ != GfxProto::None && (second ? gfx2_ : gfx_).active) { meta_sty_pic_ = second ? 2 : 1; note += "  (image)"; }
+            vdone = true;
+        }
+    }
+    if (vdone) {
+        // (the rows are built below like those of the disk)
+    } else if (look > 0) {
         CoverRequest rq;
         rq.path = meta_sty_track_;
         rq.title = meta_hover_values_[static_cast<size_t>(MetaField::Title)];   // (like the disk: the tag title, else the file name)
@@ -481,6 +530,7 @@ std::vector<std::string> App::build_meta_sty_panel(int screen_w) const {
         rows.push_back({"Video Resolution", vo.res >= 0 ? std::string(video_res_name(vo.res)) : std::string("as in Settings (") + video_res_name(settings_.video_res) + ")"});
         rows.push_back({"Video Rounded Corners", vo.round >= 0 ? std::string(vo.round ? "on" : "off") : std::string("as in Settings (") + (settings_.video_round ? "on" : "off") + ")"});
     }
+    if (settings_.video_mode && meta_sty_pair_) rows.push_back({"Use mp4 audio for this song", cover_track_video_opts(meta_sty_track_).mp4audio == 1 ? std::string("true") : std::string("false")});
     rows.push_back({"Look of the whole album", look_text(album_look)});
     // the left column, one string per row (left_w columns each)
     std::vector<std::string> left;

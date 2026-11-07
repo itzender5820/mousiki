@@ -229,6 +229,22 @@ TEST(cover_look_per_album) {
     set_cover_album_look("", "/music/loose", -1);
 }
 
+TEST(video_track_option_mp4_audio_is_kept_per_track) {
+    mt::TempHome home;
+    CHECK_EQ(cover_track_video_opts("/music/a.mp3").mp4audio, -1);     // default: the song's own audio
+    VideoTrackOpts o;
+    o.mp4audio = 1;
+    set_cover_track_video_opts("/music/a.mp3", o);
+    CHECK_EQ(cover_track_video_opts("/music/a.mp3").mp4audio, 1);
+    CHECK_EQ(cover_track_video_opts("/music/b.mp3").mp4audio, -1);     // other tracks keep the default
+    o.brightness = 60;                                                 // the other values around it stay intact
+    set_cover_track_video_opts("/music/a.mp3", o);
+    CHECK_EQ(cover_track_video_opts("/music/a.mp3").brightness, 60);
+    CHECK_EQ(cover_track_video_opts("/music/a.mp3").mp4audio, 1);
+    set_cover_track_video_opts("/music/a.mp3", VideoTrackOpts{});      // all default: the entry is gone
+    CHECK_EQ(cover_track_video_opts("/music/a.mp3").mp4audio, -1);
+}
+
 TEST(cover_scaled_keeps_several_sizes) {
     CoverImage c;
     c.key = "test-cover"; c.w = 64; c.h = 32; c.ok = true;

@@ -90,6 +90,7 @@ void App::write_load_timing_log(const std::string& title, bool is_local, double 
 void App::launch_load_async(fs::path local_path, std::string title, std::string artist,
                              std::string location_label, bool is_local, std::string video_id) {
     if (load_thread_.joinable()) load_thread_.join(); // previous job already signaled done, safe to reap
+    swap_pending_ = false;   // (reload_current_audio() sets it again right after this call)
     load_in_progress_ = true;
     load_ready_ = false;
     load_stage_ = is_local ? 4 : 1;
@@ -105,7 +106,12 @@ void App::launch_load_async(fs::path local_path, std::string title, std::string 
     // freeze if the user switches tracks again quickly.
     const bool want_stereo = settings_.stereo; // read here, on the calling thread, rather than from inside the load thread
     const int sid_seconds = settings_.sid_play_length;
-    load_thread_ = std::thread([this, local_path, title, artist, location_label, is_local, video_id, want_stereo, sid_seconds]() {
+    // "Use mp4 audio for this song" (Style Option / video options): a song paired with a video plays the audio of that video instead of its
+    // own file. Worked out here on the main thread (the pairing looks into the library); a video itself always plays its own audio.
+    std::string video_audio;
+    if (is_local && settings_.video_mode && !LocalSource::is_video_file(local_path) && cover_track_video_opts(path_utf8(local_path)).mp4audio == 1)
+        video_audio = video_source_for(local_path);
+    load_thread_ = std::thread([this, local_path, title, artist, location_label, is_local, video_id, want_stereo, sid_seconds, video_audio]() {
       run_guarded("track load", [&] {
         using clock = std::chrono::steady_clock;
         auto t_start = clock::now();
@@ -146,7 +152,12 @@ void App::launch_load_async(fs::path local_path, std::string title, std::string 
         // Tracker modules / game music (ffmpeg via libopenmpt / libgme) and SID tunes (rendered by sidplayfp into a
         // cached WAV, which is then decoded and probed instead of the .sid -- pl.path stays the .sid itself).
         fs::path decode_from = path;
-        if (is_local && is_chiptune_file(path)) {
+        std::string rate_hint;   // the sample rate the video's audio has (set below when it replaces the song's audio)
+        if (!video_audio.empty()) {
+            decode_from = path_from_utf8(video_audio);
+            rate_hint = probe_metadata(decode_from, pl.title, pl.artist, pl.location_label).sampling;
+        }
+        if (is_local && video_audio.empty() && is_chiptune_file(path)) {
             std::string problem = chiptune_support_problem(path);
             if (problem.empty() && is_sid_file(path)) {
                 fs::path wav;
@@ -183,7 +194,7 @@ void App::launch_load_async(fs::path local_path, std::string title, std::string 
         pl.pcm = std::make_shared<StreamingPcm>();
         // the file's own sample rate: no resampling on the way to the device
         pl.pcm->reserve_for_seconds(duration > 0 ? duration : 300.0,
-                                    native_sample_rate(decode_from, pl.metadata.sampling, duration, settings_.rate_cap_96), want_stereo ? 2 : 1,
+                                    native_sample_rate(decode_from, video_audio.empty() ? pl.metadata.sampling : rate_hint, duration, settings_.rate_cap_96), want_stereo ? 2 : 1,
                                     static_cast<double>(settings_.track_buffer_mb) * 1024.0 * 1024.0, duration <= 0);
         pl.success = true;
 
@@ -292,7 +303,25 @@ void App::launch_lyrics_fetch(std::string title, std::string artist, fs::path pa
     });
 }
 
+// The audio of the song that plays is loaded again (the choice "Use mp4 audio for this song" changed) and goes on at the time the old one had
+// reached; the pause stays. The listening history, the lyrics and the video view are not touched: it is the same play.
+void App::reload_current_audio() {
+    if (!has_track_ || !current_is_local_ || current_path_.empty()) return;
+    if (load_in_progress_.load()) { status_line_ = "still loading -- the audio choice applies when the song starts the next time"; return; }
+    const fs::path path = current_path_;
+    const double pos = player_.poll_elapsed();
+    const bool paused = player_.is_paused();
+    launch_load_async(path, path_utf8(path.stem()), "", path_utf8(path.parent_path().filename()) + "/", /*is_local=*/true, /*video_id=*/"");
+    swap_pending_ = true; swap_pos_ = pos; swap_paused_ = paused; swap_path_ = path;
+}
+
 void App::poll_pending_load() {
+    if (!sty_video_src_.empty() && std::chrono::steady_clock::now() - sty_video_seen_ > std::chrono::milliseconds(800)) {   // the Style Option preview of another track is not shown any more
+        sty_video_.set_source("");
+        sty_video_.stop();
+        sty_video_src_.clear();
+    }
+    if (swap_repause_ && device_play_pending_gen_.load() == 0) { swap_repause_ = false; player_.pause(); }   // (the new audio is in: a paused song stays paused)
     if (!load_ready_.load()) return;
     PendingLoad pl;
     {
@@ -310,6 +339,7 @@ void App::poll_pending_load() {
     advancing_ = false;
 
     if (!pl.success) {
+        swap_pending_ = false;   // (a failed reload leaves the audio that plays as it is)
         status_line_ = pl.error;
         // An automatic advance whose next track failed to load: the previous
         // track is over, so stop treating it as current (otherwise its
@@ -325,6 +355,26 @@ void App::poll_pending_load() {
         }
         return;
     }
+
+    if (swap_pending_ && pl.is_local && pl.path == swap_path_ && pl.path == current_path_) {   // the same song, other audio: nothing else changes
+        swap_pending_ = false;
+        current_pcm_ = pl.pcm;
+        total_sec_ = pl.total_sec;
+        resume_start_sec_ = swap_pos_;
+        waveform_envelope_.clear();
+        waveform_ready_ = false;
+        waveform_pending_ready_ = false;
+        ++waveform_epoch_;
+        hifi().reset();
+        fft_.reset();
+        scope_.reset();
+        player_.clear_finished();
+        swap_repause_ = swap_paused_;
+        launch_device_play_async();
+        status_line_.clear();
+        return;
+    }
+    swap_pending_ = false;
 
     // Player::play() stops whatever it was previously playing as its own
     // first step, so no separate explicit stop() call is needed here —

@@ -1832,15 +1832,67 @@ echo "FILE:$f"
         sess.send(b"\x1b[B", 0.3)  # the second one
         sess.send("\r", 0.8)      # choose it
         check("[x]" in sess.text(), "fetch videos: the choice is marked")
-        sess.send("F", 0.5)
+        t = sess.text()
+        check("Download only current selected" in t and "Download all chosen (1)" in t, "fetch videos: the legend has SHIFT+a (only the current one) and SHIFT+f with the number of choices")
+        state = os.path.join(home, ".config", "mousiki", "video_fetch_state.json")
+        check(os.path.exists(state) and "BBBBBBBBBBB" in open(state, encoding="utf-8").read(), "fetch videos: the choice is saved at once (video_fetch_state.json)")
+        sess.send(b"\x06", 0.6)    # CTRL+f: all songs
+        sess.send(b"\x06", 0.6)    # songs with a video (none)
+        sess.send(b"\x06", 0.8)    # only the chosen ones
+        check("SONGS, chosen (1)" in sess.text() and "Alpha Song" in sess.text(), "fetch videos: CTRL+f has a stop that lists only the songs with a chosen video")
+        sess.send(b"\x06", 0.8)    # back to missing video
+        sess.send("A", 0.5)         # SHIFT+a: only the song under the cursor
         for _ in range(30):
             sess.pump(0.5)
             if "downloaded and paired" in sess.text():
                 break
-        check("1 of 1 chosen videos downloaded and paired" in sess.text(), "fetch videos: the chosen video is downloaded and paired")
+        check("1 of 1 chosen videos downloaded and paired" in sess.text(), "fetch videos: SHIFT+a downloads the chosen video of the song under the cursor")
         links = os.path.join(home, ".config", "mousiki", "video_links.txt")
         ok = os.path.exists(links) and "Alpha Song" in open(links, encoding="utf-8").read()
         check(ok, "fetch videos: the pairing is saved")
+    finally:
+        sess.kill()
+
+
+def video_fetch_restore(binary, root, scripts):
+    """FETCH VIDEOS keeps the found videos and the choices (video_fetch_state.json): a song searched and chosen the last time shows [x] again, and
+    the filter CTRL+f can list the chosen ones only."""
+    home = os.path.join(root, "vfr_home")
+    lib = os.path.join(root, "vfr_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    make_wav(os.path.join(lib, "Beta Song.wav"), 5)
+    make_wav(os.path.join(lib, "Gamma Song.wav"), 5)
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % lib)
+    state = {"songs": [{"path": os.path.join(lib, "Beta Song.wav"), "choice": 1, "seconds": 5,
+                        "cands": [{"id": "CCCCCCCCCCC", "title": "Beta one", "uploader": "U1", "dur": 10},
+                                  {"id": "DDDDDDDDDDD", "title": "Beta two", "uploader": "U2", "dur": 11}]}]}
+    import json
+    with open(os.path.join(home, ".config", "mousiki", "video_fetch_state.json"), "w", encoding="utf-8") as f:
+        json.dump(state, f)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Beta Song" in sess.text():
+                break
+        sess.send(b"\x1bv", 1.5)
+        t = sess.text()
+        check("1 chosen" in t and "[x] Beta Song" in t.replace("  ", " "), "fetch videos: the choice of the last time is there again")
+        sess.send(b"\x06", 0.6)
+        sess.send(b"\x06", 0.6)
+        sess.send(b"\x06", 0.8)
+        t = sess.text()
+        check("SONGS, chosen (1)" in t and "Beta Song" in t and "Gamma Song" not in t, "fetch videos: the filter lists only the chosen song")
+        sess.send("c", 0.8)
+        check("SONGS, chosen (0)" in sess.text() and "no video is chosen yet" in sess.text(), "fetch videos: clearing the choice takes the song out of the chosen list")
+        sess.send(b"\x1b", 1.0)
+        check(not os.path.exists(os.path.join(home, ".config", "mousiki", "video_fetch_state.json")) or "DDDDDDDDDDD" in open(os.path.join(home, ".config", "mousiki", "video_fetch_state.json"), encoding="utf-8").read(), "fetch videos: the state file is kept when the overlay closes")
     finally:
         sess.kill()
 
@@ -2045,6 +2097,16 @@ def video_fullscreen_sizes(binary, root, scripts):
         check("Video Contrast" in t and "Video Colors" in t and "Video Chromatic Aberration" in t and "Cover Chromatic Aberration" in t, "style option: contrast, colors and chromatic aberration rows (video and cover)")
         check(any("Video Chromatic Aberration" in ln and "as in Settings (off)" in ln for ln in t.splitlines()), "style option: the chromatic aberration row shows its value untruncated")
         check("Video Resolution" in t, "style option: a Video Resolution row")
+        check(any("Use mp4 audio for this song" in ln and "false" in ln for ln in t.splitlines()), "style option: a song paired with a video has the row Use mp4 audio for this song (false)")
+        for _ in range(7):                                   # down to the first video row: the preview shows the video instead of the disk
+            sess.send(b"\x1b[B", 0.2)
+        for _ in range(10):
+            if "the video of this track" in sess.text():
+                break
+            sess.pump(0.5)
+        check("the video of this track" in sess.text(), "style option: on a video row the preview shows the video of the track")
+        for _ in range(7):
+            sess.send(b"\x1b[A", 0.2)
         for _ in range(6):
             sess.send(b"\x1b[B", 0.2)
         sess.send(b"\x1b[C", 0.8)
@@ -2368,7 +2430,7 @@ def run_scenario(name, binary, root, scripts):
 
 
 SCENARIOS = ["narrow80", "narrow100", "main", "read_lyrics_play", "karaoke_timing", "book_speed_and_devices", "paging_and_translit_row",
-             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "radio_organigram", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "translation_editor", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key", "video_overlays", "video_pair_tags", "video_fetch_flow", "settings_video_preview", "video_files_tab", "video_library_modes", "video_fullscreen_sizes", "organigram_menu", "scope_spectro_overlays", "radio_waterfall", "radio_station_edit"]
+             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "radio_organigram", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "translation_editor", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key", "video_overlays", "video_pair_tags", "video_fetch_flow", "video_fetch_restore", "settings_video_preview", "video_files_tab", "video_library_modes", "video_fullscreen_sizes", "organigram_menu", "scope_spectro_overlays", "radio_waterfall", "radio_station_edit"]
 
 
 def main():

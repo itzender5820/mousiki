@@ -289,7 +289,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "#. ,", "With Video Mode on, the video view joins the cycle of the lyrics area (lyrics with the picture of the track's video)"},
         {nullptr, "#SHIFT+v", "Playlist editor, meta editor and folder overlay: the library lists audio / video + audio / video"},
         {"FETCH VIDEOS (ALT+v)", "HKeyVideoFetch", "Fetch Videos overlay: the videos found on YouTube for the song under the cursor, with a preview; ALT+Left/Right: the VIDEO FILES tab lists every video, DEL deletes one"},
-        {nullptr, "#/  CTRL+f  ENTER  SHIFT+f  r", "Filter   songs without a video / all / with a video   choose a video   download the chosen ones into video_down and pair them   fetch again (asks first)"},
+        {nullptr, "#/  CTRL+f  ENTER  SHIFT+a  SHIFT+f  r", "Filter   songs without a video / all / with a video / chosen   choose a video   download only the chosen video of the song under the cursor   download all chosen ones into video_down and pair them (choices are saved)   fetch again (asks first)"},
         // --- Search ---
         {"SEARCH LOCAL (MAIN UI)", "HKeySearch", "Search the local library (title, artist and album; type to filter live, ENTER keeps the result)"},
         {nullptr, "#/r:", "Search ARTISTS only: type r: first (e.g. r:beatles) -- only the artist tag / folder name is matched"},
