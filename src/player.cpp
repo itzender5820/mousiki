@@ -13,8 +13,10 @@ void Player::data_callback(ma_device* device, void* output, const void* /*input*
     Player* self = static_cast<Player*>(device->pUserData);
     float* out = static_cast<float*>(output);
 
+    constexpr size_t kCh = StreamingPcm::kChannels;
+
     if (!self || !self->pcm_ || self->paused_.load()) {
-        std::memset(out, 0, frame_count * sizeof(float));
+        std::memset(out, 0, frame_count * kCh * sizeof(float));
         return;
     }
 
@@ -28,10 +30,27 @@ void Player::data_callback(ma_device* device, void* output, const void* /*input*
 
     for (ma_uint32 i = 0; i < frame_count; ++i) {
         long long idx = cur + static_cast<long long>(i);
-        out[i] = (idx >= 0 && static_cast<size_t>(idx) < avail) ? pcm.data[static_cast<size_t>(idx)] * gain : 0.0f;
+        bool have = idx >= 0 && static_cast<size_t>(idx) < avail;
+        const float* src = have ? &pcm.samples[static_cast<size_t>(idx) * kCh] : nullptr;
+        for (size_t c = 0; c < kCh; ++c) out[i * kCh + c] = have ? src[c] * gain : 0.0f;
     }
 
-    if (self->fft_sink_) self->fft_sink_->push_samples(out, frame_count, self->sample_rate_);
+    if (self->fft_sink_) {
+        // The visualizer wants mono: average the channels of what was just
+        // played, in small stack chunks (no allocation on the audio thread).
+        float mono[512];
+        ma_uint32 done = 0;
+        while (done < frame_count) {
+            ma_uint32 n = std::min<ma_uint32>(512, frame_count - done);
+            for (ma_uint32 i = 0; i < n; ++i) {
+                float sum = 0.0f;
+                for (size_t c = 0; c < kCh; ++c) sum += out[(done + i) * kCh + c];
+                mono[i] = sum / static_cast<float>(kCh);
+            }
+            self->fft_sink_->push_samples(mono, n, self->sample_rate_);
+            done += n;
+        }
+    }
 
     long long new_cur = cur + static_cast<long long>(frame_count);
     // Only truly "finished" once decode is done AND playback has caught
@@ -66,7 +85,7 @@ bool Player::play(std::shared_ptr<StreamingPcm> pcm, double start_sec, int volum
 
     ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
     cfg.playback.format = ma_format_f32;
-    cfg.playback.channels = 1;
+    cfg.playback.channels = static_cast<ma_uint32>(StreamingPcm::kChannels);
     cfg.sampleRate = static_cast<ma_uint32>(sample_rate_);
     cfg.dataCallback = data_callback;
     cfg.pUserData = this;
@@ -89,7 +108,7 @@ bool Player::play(std::shared_ptr<StreamingPcm> pcm, double start_sec, int volum
     }
     ConsoleLog::instance().log_verbose(
         std::string("audio: device started, backend=") + ma_get_backend_name(device_.pContext->backend) +
-        ", rate=" + std::to_string(sample_rate_) + "Hz");
+        ", rate=" + std::to_string(sample_rate_) + "Hz, channels=" + std::to_string(StreamingPcm::kChannels));
 
     device_ready_ = true;
     return true;
@@ -105,7 +124,7 @@ void Player::seek_relative(double delta_sec) {
     // Clamp against reserved capacity (the eventual max), not the
     // currently-decoded amount — seeking a bit ahead of what's decoded
     // so far is fine, it just plays silence until decode catches up.
-    long long cap = static_cast<long long>(pcm_->data.capacity());
+    long long cap = static_cast<long long>(pcm_->capacity_frames());
     long long next = std::clamp<long long>(cur + delta_frames, 0, cap);
     cursor_frames_.store(next);
     if (next < cap) finished_.store(false);

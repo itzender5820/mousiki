@@ -679,14 +679,13 @@ void App::launch_load_async(fs::path local_path, std::string title, std::string 
             // Deferred mini-waveform pass — only starts once decode is
             // fully done, never gates playback.
             if (!pcm->decode_failed.load()) {
-                // PERF: decode is done — pcm->data is no longer being
-                // written to, so we pass it directly as a const-ref
-                // instead of making a full snapshot copy.  A 5-minute
-                // track at 44100 Hz is ~50 MB; that copy was the single
-                // biggest reason the waveform appeared so late after
-                // playback started, because it doubled the working-set
-                // size and stalled the RMS pass behind a large memcpy.
-                auto envelope = WaveformQuantizer::generate_high_res_envelope(pcm->data, 4096, waveform_smooth);
+                // Decode is done, so pcm->samples is no longer being
+                // written to and can be read without a snapshot. The
+                // envelope is mono, so build a one-pass mixdown of the
+                // stereo buffer (half its size) on this background
+                // thread; it never gates playback.
+                auto mono = pcm->mono_mixdown(pcm->available.load(std::memory_order_acquire));
+                auto envelope = WaveformQuantizer::generate_high_res_envelope(mono, 4096, waveform_smooth);
                 std::lock_guard<std::mutex> lk(waveform_mutex_);
                 pending_waveform_envelope_ = std::move(envelope);
                 waveform_pending_ready_ = true;
@@ -1977,7 +1976,7 @@ void App::recompute_waveform_for_current_track() {
     std::thread([this, pcm, smooth, my_epoch]() {
         size_t n = pcm->available.load(std::memory_order_acquire);
         if (n == 0) return;
-        std::vector<float> snapshot(pcm->data.begin(), pcm->data.begin() + static_cast<long>(n));
+        std::vector<float> snapshot = pcm->mono_mixdown(n);
         auto envelope = WaveformQuantizer::generate_high_res_envelope(snapshot, 4096, smooth);
         std::lock_guard<std::mutex> lk(waveform_mutex_);
         if (my_epoch != waveform_epoch_.load()) return; // superseded — discard
