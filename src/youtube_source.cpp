@@ -51,7 +51,7 @@ std::optional<SongResult> YoutubeSource::resolve(const std::string& query, std::
     }
 
     std::string url = "https://www.youtube.com/watch?v=" + id;
-    std::string cmd = ytdlp_binary() + " -4 --no-warnings --extractor-args \"youtube:player_client=android;player_skip=webpage,configs,js\" -x -f bestaudio/best --audio-format opus --audio-quality 0 "
+    std::string cmd = ytdlp_binary() + " -4 --no-warnings " + ytdlp_youtube_download_args() + " -x -f bestaudio/best --audio-format opus --audio-quality 0 "
                        "-o " + shell_quote((cached.parent_path() / cached.stem()).string() + ".%(ext)s") + " "
                        + shell_quote(url);
     ProcResult r = run_capture(cmd, /*merge_stderr=*/true);
@@ -74,7 +74,7 @@ std::optional<SongResult> YoutubeSource::resolve_by_id(const std::string& video_
     }
 
     std::string url = "https://www.youtube.com/watch?v=" + video_id;
-    std::string cmd = ytdlp_binary() + " -4 --no-warnings --extractor-args \"youtube:player_client=android;player_skip=webpage,configs,js\" -x -f bestaudio/best --audio-format opus --audio-quality 0 "
+    std::string cmd = ytdlp_binary() + " -4 --no-warnings " + ytdlp_youtube_download_args() + " -x -f bestaudio/best --audio-format opus --audio-quality 0 "
                        "-o " + shell_quote((cached.parent_path() / cached.stem()).string() + ".%(ext)s") + " "
                        + shell_quote(url);
     ProcResult r = run_capture(cmd, /*merge_stderr=*/true);

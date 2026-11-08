@@ -99,6 +99,15 @@ if ! print_dep "cmake" "cmake"; then
     MISSING+=("cmake")
 fi
 
+# Optional: Deno lets yt-dlp solve YouTube's JS challenges, which is what
+# unlocks the real audio-only streams (Opus/AAC, stereo). Without it
+# mousiki falls back to a low-quality 360p-video audio track. Not added to
+# MISSING -- setup still succeeds without it.
+if ! print_dep "deno (optional)" "deno"; then
+    echo "  Tip: install Deno for better YouTube audio quality"
+    echo "       (macOS: brew install deno | Linux: https://deno.com)"
+fi
+
 # libcurl development headers -- needed at build time now that lyrics
 # fetching (src/http_client.cpp) links against libcurl directly instead
 # of shelling out to a Python script. The *runtime* library is normally

@@ -38,4 +38,16 @@ std::string shell_quote(const std::string& s);
 // already has on PATH during development/testing.
 std::string ytdlp_binary();
 
+// Returns the `--extractor-args "..."` fragment to use when *downloading*
+// audio from YouTube (not for metadata-only search).
+//
+// The old android-only client no longer exposes audio-only formats
+// (YouTube SABR rollout), so yt-dlp silently falls back to format 18 -- a
+// 360p muxed MP4 -- and then re-encodes its AAC track to Opus. With a JS
+// runtime available, the web client can solve YouTube's JS challenges and
+// returns the real audio-only streams (Opus 251 / AAC 140) instead.
+// yt-dlp only auto-detects Deno, so that's what we check for; without it
+// we keep the previous android args as a fallback so downloads still work.
+std::string ytdlp_youtube_download_args();
+
 } // namespace muisc

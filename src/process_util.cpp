@@ -50,6 +50,29 @@ std::string ytdlp_binary() {
     return "yt-dlp"; // PATH fallback -- Termux's pkg-installed copy, or a manual install
 }
 
+// True if an executable called `name` is on PATH. Plain PATH walk -- no
+// shell involved, so no quoting concerns.
+static bool on_path(const char* name) {
+    const char* path_env = std::getenv("PATH");
+    if (!path_env) return false;
+    std::stringstream ss(path_env);
+    std::string dir;
+    while (std::getline(ss, dir, ':')) {
+        if (dir.empty()) continue;
+        std::string full = dir + "/" + name;
+        if (access(full.c_str(), X_OK) == 0) return true;
+    }
+    return false;
+}
+
+std::string ytdlp_youtube_download_args() {
+    static const bool has_deno = on_path("deno");
+    if (has_deno) {
+        return "--extractor-args \"youtube:player_client=default,web\"";
+    }
+    return "--extractor-args \"youtube:player_client=android;player_skip=webpage,configs,js\"";
+}
+
 // Deliberately NOT popen()/fork()+exec() — popen() forks, and fork()ing a
 // multithreaded process is unsafe: if another thread holds a libc lock
 // (malloc's arena lock, etc.) at the instant of fork(), the child
