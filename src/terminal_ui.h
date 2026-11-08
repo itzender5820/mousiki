@@ -1,6 +1,7 @@
 // Terminal handling (see terminal_ui.cpp): key codes, the screen interface, text width helpers and the
 // terminal size limits.
 #pragma once
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -105,6 +106,8 @@ constexpr int kKeyCtrlZ = 327;
 constexpr int kKeyCtrlF = 328;
 // Ctrl+O (control byte 0x0f): the add-lyrics overlay shows the original name of the lyrics file / the name of the copy.
 constexpr int kKeyCtrlO = 329;
+// A paste by the terminal (bracketed paste, ESC [ 200 ~ ... ESC [ 201 ~): the whole text arrives as this ONE key (see set_paste_aware()).
+constexpr int kKeyPaste = 332;
 // Ctrl+2 (control byte 0x00 on most terminals, also Ctrl+@ / Ctrl+Space): the Latin-letters switch inside the translation editor.
 constexpr int kKeyCtrl2 = 330;
 // Ctrl+3: reported only by terminals that send modified keys ("ESC [ 51 ; 5 u" / "ESC [ 27 ; 5 ; 51 ~"); a classic terminal sends ESC for it.
@@ -262,6 +265,13 @@ bool text_entry_active();
 // On POSIX there is no portable system clipboard, so an in-process buffer is
 // used instead -- copy/paste still works within one run of the app.
 std::string clipboard_get();
+// Bracketed paste: the terminal marks a text that the person pastes (CTRL+SHIFT+V, the right mouse button, the menu), so it is not mistaken for
+// hundreds of typed keys. A program that handles kKeyPaste says so with set_paste_aware(true); poll_key() then returns kKeyPaste once and
+// take_paste_text() gives the text (line breaks as '\n'). Everywhere else the pasted characters come one by one as before.
+void set_paste_aware(bool on);
+std::string take_paste_text();
+// While set, clipboard_get() returns this text (a paste by the terminal is handled like CTRL+v with it); "" = the real clipboard again.
+void set_paste_override(const std::string& text);
 void clipboard_set(const std::string& utf8);
 
 // Sends one finished frame to the terminal. On POSIX the whole frame goes out
@@ -288,6 +298,31 @@ std::string pad_right(const std::string& s, int width);
 std::string pad_left(const std::string& s, int width);
 std::string truncate_str(const std::string& s, int width);
 std::string utf8_take(const std::string& s, int width);
+
+// The characters (UTF-8 sequences) of a string; a cut-off sequence at the end is returned as it is.
+inline std::vector<std::string> utf8_chars(const std::string& s) {
+    std::vector<std::string> out;
+    for (size_t i = 0; i < s.size();) {
+        const unsigned char c = static_cast<unsigned char>(s[i]);
+        size_t n = 1;
+        if (c >= 0xF0) n = 4; else if (c >= 0xE0) n = 3; else if (c >= 0xC0) n = 2;
+        if (i + n > s.size()) n = s.size() - i;
+        out.push_back(s.substr(i, n));
+        i += n;
+    }
+    return out;
+}
+
+// The braille block of a bar level 0..4 (the spectrum bars of the main screen and of the radio).
+inline const char* fft_glyph(int level) {
+    switch (std::clamp(level, 0, 4)) {
+        case 0: return " ";
+        case 1: return "\u28C0";
+        case 2: return "\u28E4";
+        case 3: return "\u28F6";
+        default: return "\u28FF";
+    }
+}
 
 // Word-wraps `s` to `width` display columns, across at most `max_lines`
 // lines. A word wider than `width` on its own (a long filename, or any

@@ -1324,7 +1324,7 @@ def translation_editor(binary, root, scripts):
             if "Aaa First" in sess.text():
                 break
         sess.send(b"\x0c", 1.5)
-        check("READ LYRICS" in sess.text() and "[SHIFT+e] Edit/Add translation" in sess.text(), "translation editor: the legend names SHIFT+e")
+        check("READ LYRICS" in sess.text() and "[SHIFT+e] Edit/Add" in sess.text(), "translation editor: the legend names SHIFT+e")
         sess.send("E", 1.0)
         t = sess.text()
         check("EDIT / ADD TRANSLATION" in t and "Manual Translation" in t and "first line" in t, "translation editor: opens, new translation named Manual Translation")
@@ -1366,6 +1366,143 @@ def translation_editor(binary, root, scripts):
         sess.send(b"y", 0.6)
         check("EDIT / ADD TRANSLATION" not in sess.text(), "translation editor: y leaves without saving")
         check(sess.alive(), "translation editor: the program is still running")
+    finally:
+        sess.kill()
+
+def play_mode_back(binary, root, scripts):
+    """m steps through the play modes, j steps back (the console log names the mode)."""
+    home = os.path.join(root, "pmb_home")
+    lib = os.path.join(root, "pmb_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    os.makedirs(lib)
+    make_wav(os.path.join(lib, "Aaa First.wav"), 5)
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Aaa First" in sess.text():
+                break
+        sess.send("m", 0.8)                                  # list -> repeat
+        sess.send("j", 0.8)                                  # back to list
+        sess.send("j", 0.8)                                  # list -> queue then stop
+        sess.send("t", 1.5)
+        t = sess.text()
+        check("play mode: repeat" in t and "play mode: list" in t and "play mode: queue then stop" in t, "play mode back: m goes forward, j back (repeat, list, queue then stop)")
+        check(sess.alive(), "play mode back: the program is still running")
+    finally:
+        sess.kill()
+
+def translation_create(binary, root, scripts):
+    """READ LYRICS: the lyrics files and the translations are two panes side by side; SHIFT+c creates an empty translation file (Manual
+    Translation, then Manual Translation 2); LEFT / RIGHT go through the entries of the focused pane and round the ends."""
+    home = os.path.join(root, "tc_home")
+    lib = os.path.join(root, "tc_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    os.makedirs(os.path.join(lib, "lyrics"))
+    make_wav(os.path.join(lib, "Aaa First.wav"), 5)
+    with open(os.path.join(lib, "lyrics", "Aaa First.lrc"), "w", encoding="utf-8") as f:
+        f.write("[00:00.50]first line\n[00:02.00]\n[00:03.00]second line\n")
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    tdir = os.path.join(lib, "lyrics", "translations")
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Aaa First" in sess.text():
+                break
+        sess.send(b"\x0c", 1.5)
+        lines = sess.text().split("\n")
+        check(any("READ LYRICS" in l and "TRANSLATION" in l for l in lines), "translation create: the lyrics pane and the translation pane are side by side")
+        check("[SHIFT+c] Create" in sess.text(), "translation create: the legend names SHIFT+c")
+        sess.send("C", 1.0)
+        t = sess.text()
+        files = sorted(os.listdir(tdir)) if os.path.isdir(tdir) else []
+        check(len(files) == 1 and ".manual." in files[0], "translation create: one file with the manual service id (%r)" % files)
+        if files:
+            body = open(os.path.join(tdir, files[0]), encoding="utf-8").read().split("\n")
+            check(body[0].startswith("#mousiki-translation ") and "lines=3" in body[0] and body[1:4] == ["", "", ""], "translation create: the file is empty, one empty line per lyrics line (%r)" % body[:4])
+        check("Manual Translation" in t, "translation create: the pane lists it")
+        sess.send("C", 1.0)
+        files = sorted(os.listdir(tdir))
+        check(len(files) == 2 and "Manual Translation 2" in sess.text(), "translation create: the second one is Manual Translation 2 (%r)" % files)
+        sess.send(b"\x1b[C", 0.8)                           # RIGHT in the translation pane: round the end to the first
+        check("\u25cf Manual Translation" in sess.text(), "translation create: RIGHT goes to the next translation (and round)")
+        check(sess.alive(), "translation create: the program is still running")
+    finally:
+        sess.kill()
+
+def translation_paste_undo(binary, root, scripts):
+    """A paste by the terminal (bracketed paste) is one event: with no text field it does nothing (no hotkeys fire, no help wizard), in the
+    translation editor its lines go into the rows; CTRL+z / CTRL+y take steps back (up to 10), CTRL+r brings them forward."""
+    home = os.path.join(root, "tpu_home")
+    lib = os.path.join(root, "tpu_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    os.makedirs(os.path.join(lib, "lyrics"))
+    make_wav(os.path.join(lib, "Aaa First.wav"), 5)
+    with open(os.path.join(lib, "lyrics", "Aaa First.lrc"), "w", encoding="utf-8") as f:
+        f.write("[00:00.50]one\n[00:02.00]two\n[00:03.00]three\n")
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Aaa First" in sess.text():
+                break
+        sess.send(b"\x1b[200~hhh???wwww\x1b[201~", 1.0)      # pasted on the main screen: no text field, so nothing happens
+        check("HELP WIZARD" not in sess.text() and "Aaa First" in sess.text(), "paste: on the main screen it fires no hotkeys")
+        sess.send(b"\x0c", 1.5)
+        sess.send("E", 1.0)
+        check("EDIT / ADD TRANSLATION" in sess.text(), "paste: the translation editor is open")
+        sess.send(b"\x1b[200~The person I passed by\rWalks politely on the white line,\rLike a stray cat.\x1b[201~", 1.2)
+        t = sess.text()
+        check("HELP WIZARD" not in t and "pasted 3 lines" in t and "stray cat" in t and "white line" in t, "paste: three lines go into the three rows, no help wizard")
+        for _ in range(3):
+            sess.send(b"\x1b[A", 0.2)                       # up to the first row
+        sess.send(b"\x1b[1;2B", 0.5)                        # SHIFT+down: rows 1 and 2 marked
+        sess.send(b"\x1b[200~AAAA\rBBBB\x1b[201~", 1.0)
+        t = sess.text()
+        check("AAAA" in t and "BBBB" in t and "person I passed" not in t and "white line" not in t and "stray cat" in t, "paste: marked lines are replaced by the pasted lines")
+        sess.send(b"\x1a", 0.8)                             # CTRL+z (the marked-lines paste)
+        sess.send(b"\x1a", 0.8)                             # CTRL+z
+        t = sess.text()
+        check("undone" in t and "stray cat" not in t, "undo: CTRL+z takes the paste back")
+        sess.send(b"\x12", 0.8)                             # CTRL+r
+        t = sess.text()
+        check("redone" in t and "stray cat" in t, "undo: CTRL+r brings it forward again")
+        sess.send(b"\x1a", 0.6)
+        for c in "xyz":
+            sess.send(c, 0.1)
+        sess.send(b"\x19", 0.8)                             # CTRL+y (the undo key of a QWERTZ keyboard)
+        t = sess.text()
+        check("xyz" not in t.split("TRANSLATION")[-1] and "undone" in t, "undo: CTRL+y takes a typed run back as one step")
+        for i in range(12):                                  # more than 10 steps: only the last 10 are kept
+            sess.send("a", 0.05)
+            sess.send(b"\x1b[D", 0.05)
+            sess.send(b"\x7f", 0.05)
+        for i in range(14):
+            sess.send(b"\x1a", 0.1)
+        sess.send(b"\x1a", 0.6)
+        check("nothing to undo" in sess.text(), "undo: after the last step it says nothing is left to undo")
+        check(sess.alive(), "paste / undo: the program is still running")
     finally:
         sess.kill()
 
@@ -1517,7 +1654,7 @@ def disk_field_setting(binary, root, scripts):
         t = sess.text()
         check("DISK / COVER OPTIONS" in t and "Eliment Disk / Cover" in t and "Album Cover" in t, "disk field: the tab has DISK and DISK / COVER OPTIONS")
         check(t.index("Disk Speed") < t.index("DISK / COVER OPTIONS") < t.index("Album Cover"), "disk field: Disk Speed is under DISK, Album Cover under DISK / COVER OPTIONS")
-        for _ in range(16):                                 # to Eliment Disk (after Lyrics/Viz Default: When No Lyrics Show, When No Video Shows, Lyrics Alignment, Lyrics Animation, Video Size, Effect, Contrast, Colors, Chromatic Aberration, Rounded Corners, Show Clap Loading, Resolution, Buffer, yt-dlp mp3 from mp4)
+        for _ in range(17):                                 # to Eliment Disk (after Lyrics/Viz Default: When No Lyrics Show, When No Video Shows, Lyrics Alignment, Lyrics Animation, Include Lyrics, Video Size, Effect, Contrast, Colors, Chromatic Aberration, Rounded Corners, Show Clap Loading, Resolution, Buffer, yt-dlp mp3 from mp4)
             sess.send(b"\x1b[B", 0.2)
         sess.pump(0.6)
         check("Show Disk / Cover" in sess.text(), "disk field: the row says Show Disk / Cover")
@@ -1990,6 +2127,69 @@ def video_library_modes(binary, root, scripts):
         sess.kill()
 
 
+def video_translation_tab(binary, root, scripts):
+    """The big video overlay: TAB goes off -> lyrics -> lyrics + translation -> translation only, through every saved translation; the
+    legend names the one shown. (Needs ffmpeg for the test video.)"""
+    home = os.path.join(root, "vtt_home")
+    lib = os.path.join(root, "vtt_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    os.makedirs(os.path.join(lib, "lyrics", "translations"))
+    ff = ["ffmpeg", "-v", "error", "-y"]
+    ok = subprocess.run(ff + ["-f", "lavfi", "-i", "sine=frequency=440:duration=30", os.path.join(lib, "Clip Song.mp3")], capture_output=True).returncode == 0
+    ok &= subprocess.run(ff + ["-f", "lavfi", "-i", "testsrc=size=160x90:rate=10:duration=30", "-pix_fmt", "yuv420p", os.path.join(lib, "Clip Song.mp4")], capture_output=True).returncode == 0
+    if not ok:
+        print("  (skipped: ffmpeg could not make the test files)")
+        return
+    lines = ["First lyric line here", "Second lyric line here", "Third lyric line here"]
+    with open(os.path.join(lib, "lyrics", "Clip Song.lrc"), "w", encoding="utf-8") as f:
+        f.write("[00:00.10]%s\n[00:20.00]%s\n[00:25.00]%s\n" % tuple(lines))
+    h = 1469598103934665603
+    for l in lines:
+        for c in l.encode("utf-8"):
+            h = ((h ^ c) * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+        h = ((h ^ 0x0a) * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+    for code, texts in (("en", ["Erste Zeile hier", "Zweite Zeile hier", "Dritte Zeile hier"]), ("es", ["Primera linea aqui", "Segunda linea aqui", "Tercera linea aqui"])):
+        with open(os.path.join(lib, "lyrics", "translations", "Clip Song.%s.txt" % code), "w", encoding="utf-8") as f:
+            f.write("#mousiki-translation to=%s from=de svc=google lines=3 hash=%016x\n" % (code, h))
+            f.write("\n".join(texts) + "\n")
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nVideoMode=true\nTranslateTo=en\nLyricsAnimation=0\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(30):
+            sess.pump(0.5)
+            if "Clip Song" in sess.text():
+                break
+        sess.send(b"\r", 0.5)
+        sess.send(b"\r", 3.0)
+        sess.send("v", 2.5)
+        t = sess.text()
+        check("First lyric line" in t and "Lyrics on" in t, "video translation: the overlay starts with the lyric line")
+        sess.send(b"\t", 1.2)
+        t = sess.text()
+        check("Lyrics + transl. en" in t and "First lyric line" in t and "Erste" in t, "video translation: TAB 1 = lyrics + the first translation (en, the Translate To language)")
+        sess.send(b"\t", 1.2)
+        t = sess.text()
+        check("Lyrics transl. en" in t and "Erste" in t and "First lyric line" not in t, "video translation: TAB 2 = the translation only")
+        sess.send(b"\t", 1.2)
+        t = sess.text()
+        check("Lyrics + transl. es" in t and "First lyric line" in t and "Primera" in t, "video translation: TAB 3 = lyrics + the next translation (es)")
+        sess.send(b"\t", 1.2)
+        t = sess.text()
+        check("Lyrics transl. es" in t and "Primera" in t and "First lyric line" not in t, "video translation: TAB 4 = the second translation only")
+        sess.send(b"\t", 1.2)
+        check("Lyrics off" in sess.text(), "video translation: TAB 5 = lyrics off")
+        sess.send(b"\t", 1.2)
+        check("Lyrics on" in sess.text() and "First lyric line" in sess.text(), "video translation: TAB 6 = the lyric line again")
+        check(sess.alive(), "video translation: the program is still running")
+    finally:
+        sess.kill()
+
 def video_fullscreen_sizes(binary, root, scripts):
     """The & overlay: Picture Size (regular / cropped / full) and Effect rows change and are remembered in config.txt; the full screen video (v)
     opens over a playing track with a video, UP / DOWN change the effect, TAB switches the lyric line, ESC closes; it opens without a video too."""
@@ -2050,10 +2250,15 @@ def video_fullscreen_sizes(binary, root, scripts):
         sess.send("v", 2.0)
         t = sess.text()
         check("[UP/DOWN] Effect: Off" in t and "Lyrics on" in t and "Close" in t, "full screen video: the legend names effect, lyrics and close")
+        lines = t.split("\n")
+        leg = [i for i, l in enumerate(lines) if "[S] Options" in l or "[SHIFT+g] Grid/Scale" in l]
+        check(len(leg) == 2 and leg[1] == leg[0] + 1 and "Close" in lines[leg[1]] and "Effect" in lines[leg[0]] and not lines[leg[0]].startswith("\u2502") and lines[leg[0]].count("\u2500") > 4 and not lines[leg[1]].lstrip().startswith("\u2502"), "full screen video: commands row 1 on the bottom border line, row 2 right below it")
+        vid = [l for l in lines if l.startswith("\u2502") and any(0x2800 <= ord(ch) <= 0x28ff for ch in l)]
+        check(bool(vid) and all(l[1:3] == "  " and l.rstrip()[-3:-1] != "" for l in vid) and all(not (0x2800 <= ord(l[1]) <= 0x28ff or 0x2800 <= ord(l[2]) <= 0x28ff) for l in vid), "full screen video: two empty columns between the picture and the border on the left")
         sess.send(b"\x1b[B", 0.8)
         check("Effect: Scanlines" in sess.text(), "full screen video: DOWN changes the effect")
         sess.send(b"\t", 0.8)
-        check("translation" in sess.text(), "full screen video: TAB goes on to the lyrics with their translation (the status line says if none is saved)")
+        check("Lyrics + transl." in sess.text(), "full screen video: TAB goes on to the lyrics with their translation (the status line says if none is saved)")
         sess.send(b"\t", 0.8)
         check("Lyrics off" in sess.text(), "full screen video: TAB again switches the lyric line off")
         check(any(0x2800 <= ord(ch) <= 0x28FF for ch in sess.text()), "full screen video: the picture is drawn (braille dots in this terminal)")
@@ -2084,7 +2289,7 @@ def video_fullscreen_sizes(binary, root, scripts):
         sess.send(b"\x1b", 1.0)
         check("Effect:" not in sess.text() and sess.alive(), "full screen video: ESC closes it")
         conf = open(cfg, encoding="utf-8").read()
-        check("VideoFx=scanlines" not in conf and "VideoFullLyrics=false" in conf, "full screen video: the effect is the track's own (not the general setting), the lyrics choice is saved")
+        check("VideoFx=scanlines" not in conf, "full screen video: the effect is the track's own (not the general setting)")
         # Style Option (SHIFT+s) of the playing track: the rows of its video
         sess.send("S", 1.5)
         for _ in range(10):                                  # (a busy machine draws the overlay a little later)
@@ -2095,6 +2300,7 @@ def video_fullscreen_sizes(binary, root, scripts):
         t = sess.text()
         check("Video of this track" in t and "Video Size" in t and "Video Effect" in t, "style option: video on / off, size and effect rows for this track")
         check("Video Contrast" in t and "Video Colors" in t and "Video Chromatic Aberration" in t and "Cover Chromatic Aberration" in t, "style option: contrast, colors and chromatic aberration rows (video and cover)")
+        check(any("Use Lyrics on Video" in ln and "none" in ln for ln in t.splitlines()), "style option: TAB in the big video overlay is this track's Use Lyrics on Video (none after lyrics -> + translation -> none)")
         check(any("Video Chromatic Aberration" in ln and "as in Settings (off)" in ln for ln in t.splitlines()), "style option: the chromatic aberration row shows its value untruncated")
         check("Video Resolution" in t, "style option: a Video Resolution row")
         check(any("Use mp4 audio for this song" in ln and "false" in ln for ln in t.splitlines()), "style option: a song paired with a video has the row Use mp4 audio for this song (false)")
@@ -2415,6 +2621,8 @@ def run_scenario(name, binary, root, scripts):
         colors_scroll(binary, root, scripts)
     elif name == "translation_editor":
         translation_editor(binary, root, scripts)
+    elif name == "translation_paste_undo":
+        translation_paste_undo(binary, root, scripts)
     elif name == "opened_lyrics_is_current":
         opened_lyrics_is_current(binary, root, scripts)
     elif name == "disk_field_setting":
@@ -2430,7 +2638,7 @@ def run_scenario(name, binary, root, scripts):
 
 
 SCENARIOS = ["narrow80", "narrow100", "main", "read_lyrics_play", "karaoke_timing", "book_speed_and_devices", "paging_and_translit_row",
-             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "radio_organigram", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "translation_editor", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key", "video_overlays", "video_pair_tags", "video_fetch_flow", "video_fetch_restore", "settings_video_preview", "video_files_tab", "video_library_modes", "video_fullscreen_sizes", "organigram_menu", "scope_spectro_overlays", "radio_waterfall", "radio_station_edit"]
+             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "radio_organigram", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "translation_editor", "translation_create", "play_mode_back", "translation_paste_undo", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key", "video_overlays", "video_pair_tags", "video_fetch_flow", "video_fetch_restore", "settings_video_preview", "video_files_tab", "video_library_modes", "video_fullscreen_sizes", "video_translation_tab", "organigram_menu", "scope_spectro_overlays", "radio_waterfall", "radio_station_edit"]
 
 
 def main():

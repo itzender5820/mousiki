@@ -81,6 +81,10 @@ std::pair<std::string, std::string> menu_tab_strip(int W, const std::string& tit
 // Word-wraps one lyric line to `width` columns with the words already sung highlighted (defined in app.cpp).
 fs::path find_preview_video();   // scripts/preview_video.mp4 next to the program (the Settings preview of Use Video)
 std::vector<std::string> render_lyric_line_wrapped(const LyricLine& line, double elapsed, int width, bool is_active, const Settings& settings);
+// The rows of the lyric block of line `act`: mode 1 the lyric line, 2 the lyric line and its translation under it, 3 the translation only.
+// `tr` (one text per line of `lines`, may be null) is shown the way the lyrics are: its letters / words appear while the line is sung (spread over the
+// line's time), not as a dark line. A line without a translation shows its lyric line.
+std::vector<std::string> lyric_translation_rows(const std::vector<LyricLine>& lines, const std::vector<std::string>* tr, int act, double lt, int width, int mode, const Settings& settings);
 // A key as it is shown to the user ("ALT+L" -> the label of this platform), and word wrapping for the help texts (app.cpp).
 std::string pretty_key(const std::string& k);
 std::vector<std::string> wrap_words(const std::string& text, int width);
@@ -180,16 +184,6 @@ inline std::string center_pad(const std::string& text, int width) {
 // Visualizer bars use ONLY this glyph set (per explicit instruction) —
 // distinct from WaveformQuantizer's 6-level top/mid/bot triples used by
 // the progress bar.
-inline const char* fft_glyph(int level) {
-    switch (std::clamp(level, 0, 4)) {
-        case 0: return " ";
-        case 1: return "\u28C0"; // ⣀
-        case 2: return "\u28E4"; // ⣤
-        case 3: return "\u28F6"; // ⣶
-        default: return "\u28FF"; // ⣿
-    }
-}
-
 // "/r:" searches the ARTIST only, "/a:" the ALBUM only (the plain "/" search looks at title, artist and album).
 // Returns 0 (all fields), 1 (artist) or 2 (album) and the query without the prefix.
 inline int local_query_scope(const std::string& query, std::string& rest) {

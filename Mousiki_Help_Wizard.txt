@@ -276,8 +276,10 @@ Main at the top, below it the categories, below the open category its
 menus, and below a menu its lower menus. [LEFT/RIGHT] move between
 the boxes of a row, [DOWN] goes one level in, [UP] one level back, [ENTER]
 opens the menu of the box (on a box that only groups others it goes in),
-[ESC] or [<] closes it. A row that is too wide zigzags over two rows
-(keys stay in the boxes), or hangs in columns when narrower; the tree always starts on the same row.
+[ESC] or [<] closes it. A long row zigzags over two rows (keys stay in the
+boxes) where the rows below have the space, or hangs in columns when narrower; the tree always starts on the same row.
+The boxes on the path (Main too) and the branches on the path are in the header color, everything
+else in the remaining color of the progress bar.
 [SHIFT+t] switches to the classic view (a regular overlay with two columns: every
 category and all its entries; the categories are only headers) and back, the last view is kept. The keys
 are the ones you have bound.
@@ -1110,8 +1112,12 @@ FETCH CHECK:[[Header]]
 READING AND TRANSLATING LYRICS:[[Header]]
 [CTRL+L] opens READ LYRICS (playing track, else the hovered one): the lyrics fetched so far, the
 translations and the text itself.
-[TAB:][[Legend]]                      Switches between the two top panes.
-[<-/->:][[Legend]]                    Chooses the file or the translation.
+[TAB:][[Legend]]                      Switches between the two top panes (lyrics files left,
+                          translations right).
+[<-/->:][[Legend]]                    Chooses the file or the translation of the pane with the keys;
+                          with several, it goes on round the ends.
+[SHIFT+c:][[Legend]]                  Creates an EMPTY translation file (Manual Translation) for the
+                          chosen lyrics file; [SHIFT+e] writes it.
 [Scrolling:][[Legend]]                [UP]/[DOWN] a line, [SHIFT+UP/DOWN] (or [SPACE]/[b]) a page, [HOME] / [END] top /
                           bottom.
 [t:][[Legend]]                        Translate overlay (service Google / MyMemory, translate into, lyrics are in);
@@ -1130,7 +1136,7 @@ translations and the text itself.
                           the line, [TAB] chooses the language, [CTRL+o] copies the original line, [CTRL+n]
                           starts from scratch, [CTRL+s] saves, [ESC] closes.
 [Editor: marking:][[Legend]]          [SHIFT+UP/DOWN] marks whole lines: [CTRL+c/x/v] copy, cut and paste them, [DEL]
-                          clears them, [CTRL+z] undoes. [CTRL+t] switches the Latin letters ([CTRL+2] too,
+                          clears them, [CTRL+z] or [CTRL+y] undoes (10 steps), [CTRL+r] redoes. [CTRL+t] switches the Latin letters ([CTRL+2] too,
                           but not every terminal sends it). Long lines are broken into rows.
 [Editor: result:][[Legend]]           A machine translation that is edited is kept as it was: your version is saved as
                           a new "Manual Translation" ("Manual Translation 2" ... for more), which the
@@ -1192,8 +1198,9 @@ ROW[[Header]]                           WHAT IT DOES[[Header]]
                               the track's video with the current lyric line under it. With "When
                               No Video Shows" set to none the cycle skips it for a track without a
                               video.
-[Include Lyrics][[Legend]]                The current lyric line under the picture. Off: the picture gets the
-                              whole field.
+[Include Lyrics][[Legend]]                What shows under the picture: none (the picture gets the whole
+                              field), lyrics, lyrics+transl. or transl. (the saved translation).
+                              The translation uses the last row first, then the picture shrinks.
 [Auto Video][[Legend]]                    A track with a video shows it. The next track without one follows
                               the Lyrics/Viz Default (a view / last used = the view before the
                               video / video = stays on the video view, then When No Video Shows
@@ -1256,7 +1263,8 @@ the audio book), independent of the Video mode. Seek and pause keys keep working
 
 KEY[[Header]]                     ACTION[[Header]]
 [UP/DOWN]               effect of this track (as in its Style Option)
-[TAB]                   lyrics off / on / with translation (saved in READ LYRICS)
+[TAB]                   lyrics off / lyrics / with translation / translation only (through
+                        every saved translation of READ LYRICS)
 [SHIFT+UP/DOWN]         layout: video / + oscilloscope / + spectrogram / + both, in a column right
                         of the video
 [SHIFT+o] / [SHIFT+i]   open the options of the oscilloscope / spectrogram
@@ -1641,6 +1649,7 @@ TEXT EDITING, IN EVERY FIELD: [[Header]]
 [<-/->] caret            [SHIFT+<-/->] mark          [HOME] [END] jump
 [DEL] [BACKSPACE] delete [CTRL+c] [CTRL+x] [CTRL+v]  copy, cut, paste
 [CTRL+z] or [CTRL+y]  undo the last change (a typed run, a deletion or a paste is one step)
+                      (a text pasted with the terminal, CTRL+SHIFT+V, goes in like [CTRL+v])
 [ENTER] confirm          [ESC] cancel the edit
 [TAB] and the arrows never leave a field that is being edited.
 
@@ -1691,7 +1700,7 @@ the transliteration examples, the emoji (note, radio, space invader, book, black
 marquee.
 
 [MODES:][[Header]]
-[Playback:][[Legend]] the play mode (works like using [m] in the main player UI;
+[Playback:][[Legend]] the play mode (works like using [m] in the main player UI; [j] steps back;
                                                   all player modes have playback modes, but not all of the
                                                   the same).
 

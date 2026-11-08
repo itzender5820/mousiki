@@ -2,6 +2,8 @@
 // Part of class App (src/app.h): Mode switch, the remote control (phone / command line) and the actions they trigger.
 // Split out of app.cpp; the includes are the same as there.
 #include "app.h"
+#include "meta_state.h"
+#include "book_state.h"
 #include "text_edit.h"
 #include "overlay_common.h"
 #include "remote_server.h"
@@ -136,9 +138,9 @@ void App::remote_overlay_draw(std::ostringstream& frame, int W) const {
     frame << "\x1b[0m";
 }
 
-void App::act_cycle_play_mode() {
-    // list -> repeat -> shuffle -> stop -> queue then stop -> list
-    settings_.play_mode = (settings_.play_mode + 1) % 5;
+void App::act_cycle_play_mode(int dir) {
+    // list -> repeat -> shuffle -> stop -> queue then stop -> list (dir -1: the other way round)
+    settings_.play_mode = (settings_.play_mode + (dir < 0 ? 4 : 1)) % 5;
     queue_reset_lap();
     static const char* mode_names[] = {"list", "repeat", "shuffle", "stop", "queue then stop"};
     log_event(std::string("play mode: ") + mode_names[settings_.play_mode]);
@@ -216,7 +218,7 @@ void App::remote_poll() {
             update_latest_ = n.latest; update_current_ = n.current; update_url_ = update_check::release_url(n);
             update_pending_ = true;
         }
-        if (update_pending_ && mode_ == Mode::Browse && !meta_save_.active) {
+        if (update_pending_ && mode_ == Mode::Browse && !meta_->save.active) {
             update_pending_ = false;
             mode_ = Mode::UpdateNotice;
             force_redraw_ = true;
@@ -291,7 +293,7 @@ void App::remote_poll() {
                     for (size_t i = 0; i < chapters_.size(); ++i)
                         if (path_utf8(chapters_[i].path) == r.path) {
                             book_automark_tick(true);
-                            book_prompt_paused_ = false;
+                            book_->prompt_paused = false;
                             book_play_chapter(static_cast<int>(i));
                             phone_note_ = "playing " + path_utf8(path_from_utf8(r.path).stem());
                             break;
@@ -392,10 +394,10 @@ void App::phone_book_reveal() {
     folder_overlay_build_tree();
     phone_page_ = 0;
     phone_note_.clear();
-    if (book_dir_.empty()) return;
-    phone_book_open_.insert(book_dir_);
+    if (book_->dir.empty()) return;
+    phone_book_open_.insert(book_->dir);
     std::set<std::string> roots(fo_roots_.begin(), fo_roots_.end());
-    std::string k = path_utf8(path_from_utf8(book_dir_).parent_path());
+    std::string k = path_utf8(path_from_utf8(book_->dir).parent_path());
     while (!k.empty()) {
         if (fo_subdirs_.count(k)) phone_book_open_.insert(k);
         if (roots.count(k)) break;
@@ -410,7 +412,7 @@ void App::phone_book_reveal() {
     const int page_rows = std::max(1, per + per2 - 1);
     const std::vector<FoRow> v = phone_book_rows();
     for (size_t i = 0; i < v.size(); ++i)
-        if (v[i].path == book_dir_) { phone_page_ = static_cast<int>(i) / page_rows; break; }
+        if (v[i].path == book_->dir) { phone_page_ = static_cast<int>(i) / page_rows; break; }
 }
 
 } // namespace muisc

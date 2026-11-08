@@ -2,6 +2,7 @@
 // lists the books (folders), the right pane lists the chapters of the open book instead of the queue; next / previous and
 // the end of a chapter walk the chapters. Split out of app.cpp; the shared helpers are in app_internal.h.
 #include "app.h"
+#include "book_state.h"
 #include "string_util.h"
 #include "text_edit.h"
 #include "overlay_common.h"
@@ -149,7 +150,7 @@ std::string path_key(const fs::path& p) {
 
 // The books: every folder of the library that directly holds audio files (the folder list of the music player's "/f:", kept
 // as the left pane for good). Keeps the cursor on the same book across a rescan.
-// The books pane walks through the folders like a tree: the level of book_nav_ shows its books (a folder with audio files) and its
+// The books pane walks through the folders like a tree: the level of book_->nav shows its books (a folder with audio files) and its
 // containers (a folder that holds other books: ENTER goes in, ".." comes back). A folder that has audio files AND books below
 // shows as a container whose first row is its own audio files. While a search is typed the list is flat: every matching book.
 void App::book_build_view() {
@@ -158,7 +159,7 @@ void App::book_build_view() {
     if (!last_folder_query_.empty()) { folder_view_ = flat; return; }
     auto trimmed = [](fs::path p) { p = p.lexically_normal(); if (p.filename().empty()) p = p.parent_path(); return p; };
     const fs::path root = trimmed(path_from_utf8(settings_.audiobook_path));
-    const fs::path base = book_nav_.empty() ? root : trimmed(path_from_utf8(book_nav_));
+    const fs::path base = book_->nav.empty() ? root : trimmed(path_from_utf8(book_->nav));
     std::map<std::string, FolderSummary> kids;   // by the first folder name below `base`
     std::vector<FolderSummary> self_rows;
     bool any = false;
@@ -182,11 +183,11 @@ void App::book_build_view() {
         else k.track_count = f.track_count;
     }
     if (!any) {   // the library is not below the AUDIO BOOK PATH (or it is not set): the flat list as ever
-        book_nav_.clear();
+        book_->nav.clear();
         folder_view_ = flat;
         return;
     }
-    if (!book_nav_.empty()) {
+    if (!book_->nav.empty()) {
         FolderSummary up;
         const fs::path parent = trimmed(base.parent_path());
         up.path = parent == root ? std::string() : path_utf8(parent);
@@ -212,11 +213,11 @@ void App::book_refresh_view() {
     scroll_ = std::max(0, std::min(scroll_, selected_));
     if (selected_ >= scroll_ + list_nav_rows()) scroll_ = selected_ - list_nav_rows() + 1;
     // the open book may be gone after a rescan
-    if (!book_dir_.empty()) {
+    if (!book_->dir.empty()) {
         bool still = false;
-        for (const auto& f : filter_folders(last_folder_query_)) if (f.path == book_dir_) still = true;
-        if (!still && last_folder_query_.empty()) { book_dir_.clear(); chapters_.clear(); }
-        else if (still) book_load_chapters(book_dir_);
+        for (const auto& f : filter_folders(last_folder_query_)) if (f.path == book_->dir) still = true;
+        if (!still && last_folder_query_.empty()) { book_->dir.clear(); chapters_.clear(); }
+        else if (still) book_load_chapters(book_->dir);
     }
 }
 
@@ -246,8 +247,8 @@ void App::book_open(int row) {
     if (row < 0 || row >= static_cast<int>(folder_view_.size())) return;
     const FolderSummary pick = folder_view_[static_cast<size_t>(row)];
     if (pick.up || pick.container) {   // walking through the folders: one level up / down, no book opens
-        const std::string from = book_nav_;
-        book_nav_ = pick.up ? pick.path : pick.path;
+        const std::string from = book_->nav;
+        book_->nav = pick.up ? pick.path : pick.path;
         selected_ = 0;
         folder_view_.clear();
         book_build_view();
@@ -258,17 +259,17 @@ void App::book_open(int row) {
         status_line_ = pick.up ? "back" : "folder: " + pick.name + " (" + std::to_string(pick.sub_count) + (pick.sub_count == 1 ? " book)" : " books)");
         return;
     }
-    book_dir_ = folder_view_[static_cast<size_t>(row)].path;
-    book_load_chapters(book_dir_);
+    book_->dir = folder_view_[static_cast<size_t>(row)].path;
+    book_load_chapters(book_->dir);
     book_bookmark_load();   // the bookmark and the notes of this book
-    book_note_shown_ = false;
+    book_->note_shown = false;
     queue_focus_ = true;
     const int cur = book_current_chapter();
     const int mark = book_bookmark_chapter();
     queue_selected_ = cur >= 0 ? cur : mark >= 0 ? mark : 0;   // the cursor: the chapter that plays, else the one with the bookmark
     queue_scroll_ = 0;
     book_fit_scroll();
-    status_line_ = "book: " + path_utf8(path_from_utf8(book_dir_).filename()) + " (" + std::to_string(chapters_.size()) +
+    status_line_ = "book: " + path_utf8(path_from_utf8(book_->dir).filename()) + " (" + std::to_string(chapters_.size()) +
                    (chapters_.size() == 1 ? " chapter)" : " chapters)");
 }
 
@@ -304,7 +305,7 @@ void App::book_step(int delta, bool direct) {
     }
     if (direct) {   // the remote app cannot answer questions on the computer: the auto-mark is kept, the chapter plays from its start
         book_automark_tick(true);
-        book_prompt_paused_ = false;
+        book_->prompt_paused = false;
         book_play_chapter(base);
         return;
     }
@@ -341,16 +342,16 @@ void App::book_seek(int dir) {
     if (!has_track_) return;
     using clock = std::chrono::steady_clock;
     const auto now = clock::now();
-    const double gap = std::chrono::duration<double>(now - book_seek_last_).count();
-    if (gap > 0.4 || dir != book_seek_dir_) { book_seek_start_ = now; book_seek_dir_ = dir; book_seek_run_ = 0; }
-    ++book_seek_run_;
+    const double gap = std::chrono::duration<double>(now - book_->seek_last).count();
+    if (gap > 0.4 || dir != book_->seek_dir) { book_->seek_start = now; book_->seek_dir = dir; book_->seek_run = 0; }
+    ++book_->seek_run;
     double step = 5.0;
-    if (book_seek_run_ > 1) {
-        const double held = std::chrono::duration<double>(now - book_seek_start_).count();
+    if (book_->seek_run > 1) {
+        const double held = std::chrono::duration<double>(now - book_->seek_start).count();
         const double speed = 20.0 * (1.0 + 2.0 * held) * (1.0 + 2.0 * held);   // seconds of audio per second, growing with the time held
         step = std::clamp(speed * std::min(gap, 0.2), 5.0, 900.0);
     }
-    book_seek_last_ = now;
+    book_->seek_last = now;
     player_.seek_relative(dir * step);
     seek_flash(dir);   // the << / >> labels light up in BORDER_COLOR BOTTOM (build_progress_panel)
 }
@@ -359,7 +360,7 @@ void App::book_seek(int dir) {
 // was used (or is not available in this mode).
 bool App::book_intercept(const std::string& action, int key) {
     // [<-] in the library pane inside a folder: one step up (the ".." row)
-    if (last_key_was_arrow() && key == 'D' && !queue_focus_ && last_folder_query_.empty() && !book_nav_.empty() && !folder_view_.empty() && folder_view_[0].up) {
+    if (last_key_was_arrow() && key == 'D' && !queue_focus_ && last_folder_query_.empty() && !book_->nav.empty() && !folder_view_.empty() && folder_view_[0].up) {
         book_open(0);
         return true;
     }
@@ -382,9 +383,9 @@ bool App::book_intercept(const std::string& action, int key) {
         else status_line_ = "[d] deletes the bookmark of the chapter chosen in the chapter pane";
         return true;
     }
-    if (key == kKeyCtrlC && book_note_shown_ && !book_note_edit_) {   // CTRL+c copies the note that is shown (it must not end the program)
-        std::string t = book_note_view_.title;
-        for (const std::string& l : book_note_view_.text) t += "\n" + l;
+    if (key == kKeyCtrlC && book_->note_shown && !book_->note_edit) {   // CTRL+c copies the note that is shown (it must not end the program)
+        std::string t = book_->note_view.title;
+        for (const std::string& l : book_->note_view.text) t += "\n" + l;
         clipboard_set(t);
         status_line_ = "COPIED the note";
         return true;
@@ -405,15 +406,15 @@ bool App::book_intercept(const std::string& action, int key) {
         book_ask_then("Quitting Mousiki", [this]() { quit_ = true; });
         return true;
     }
-    if (action == "HKeyToggleLyricsBack" && book_note_shown_ && !book_note_edit_) {   // "," on a note that is shown: write it again
-        for (size_t i = 0; i < book_notes_.size(); ++i)
-            if (book_notes_[i] == book_note_view_) { book_note_edit_existing(static_cast<int>(i)); return true; }
-        book_note_shown_ = false;   // (a note that is not in this book's list any more: nothing to edit)
+    if (action == "HKeyToggleLyricsBack" && book_->note_shown && !book_->note_edit) {   // "," on a note that is shown: write it again
+        for (size_t i = 0; i < book_->notes.size(); ++i)
+            if (book_->notes[i] == book_->note_view) { book_note_edit_existing(static_cast<int>(i)); return true; }
+        book_->note_shown = false;   // (a note that is not in this book's list any more: nothing to edit)
         book_viz_restore();
         return true;
     }
     if ((action == "HKeyToggleLyrics" || action == "HKeyToggleLyricsBack") && book_field_has_note()) {   // "." puts the note away: the view from before comes back
-        book_note_shown_ = false;
+        book_->note_shown = false;
         book_viz_restore();
         return true;
     }
@@ -423,13 +424,15 @@ bool App::book_intercept(const std::string& action, int key) {
     if (key == kKeyShiftRight) { book_speed_step(1); return true; }
     if (action == "HKeySeekForward") { book_seek(1); return true; }
     if (action == "HKeySeekBackward") { book_seek(-1); return true; }
-    if (action == "HKeyCyclePlayMode") {   // an audio book only has: on to the next chapter / repeat the chapter / stop after it
-        settings_.play_mode = settings_.play_mode == 0 ? 1 : settings_.play_mode == 1 ? 3 : 0;
+    if (action == "HKeyCyclePlayMode" || action == "HKeyCyclePlayModeBack") {   // an audio book only has: on to the next chapter / repeat the chapter / stop after it (j: the other way round)
+        const bool back = action == "HKeyCyclePlayModeBack";
+        settings_.play_mode = back ? (settings_.play_mode == 0 ? 3 : settings_.play_mode == 1 ? 0 : 1)
+                                   : (settings_.play_mode == 0 ? 1 : settings_.play_mode == 1 ? 3 : 0);
         status_line_ = settings_.play_mode == 0 ? "play mode: on to the next chapter" : settings_.play_mode == 1 ? "play mode: repeat the chapter" : "play mode: stop after the chapter";
         return true;
     }
     if (key == 27 && queue_focus_) { queue_focus_ = false; return true; }   // ESC in the chapter pane: the focus goes back to the library pane
-    if (key == 27 && last_folder_query_.empty() && !book_nav_.empty() && !folder_view_.empty() && folder_view_[0].up) { book_open(0); return true; }   // ESC inside a folder: one step up
+    if (key == 27 && last_folder_query_.empty() && !book_->nav.empty() && !folder_view_.empty() && folder_view_[0].up) { book_open(0); return true; }   // ESC inside a folder: one step up
     if (key == 27) {   // ESC (library pane): back to the whole list of books
         last_folder_query_.clear();
         book_refresh_view();
@@ -722,15 +725,15 @@ std::string App::book_cover_report() const {
     if (gfx_proto_ == GfxProto::None)
         return "no Sixel/Kitty found (OsciImageProtocol=sixel in config.txt)";
     const std::string proto = gfx_name(gfx_proto_);
-    if (book_dir_.empty()) return proto + " | open a book to see its cover";
+    if (book_->dir.empty()) return proto + " | open a book to see its cover";
     std::string note, nd, src;
     { std::lock_guard<std::mutex> lk(g_cover_note_mutex); note = g_cover_note; nd = g_cover_note_dir; src = g_cover_src; }
-    if (!note.empty() && nd == book_dir_) {
+    if (!note.empty() && nd == book_->dir) {
         if (note.compare(0, 12, "book cover: ") == 0) note.erase(0, 12);
         if (note.size() > 60) { note.resize(57); note += "..."; }
         return proto + " | no cover: " + note;
     }
-    if (current_cover(book_dir_)) {
+    if (current_cover(book_->dir)) {
         std::lock_guard<std::mutex> lk(g_cover_note_mutex);
         return proto + " | cover: " + (g_cover_src.empty() ? std::string("found") : g_cover_src);
     }
@@ -757,17 +760,17 @@ bool App::book_picture_gfx(int col, int cols, int rows) const {
     int pw = 0, ph = 0;
     // Book Cover on and the open book has a cover image: that one, scaled to fit and centred with a margin of a row at the top and
     // the bottom and a column at the sides (the standard picture brings its own transparent margin and fills the field)
-    const CoverData* cover = settings_.book_cover ? current_cover(book_dir_) : nullptr;
+    const CoverData* cover = settings_.book_cover ? current_cover(book_->dir) : nullptr;
     const bool direct = cover && !settings_.book_cover_wave;   // the cover in its own colours, no wave
     const std::vector<unsigned char>* picp;
     const BookCoverScaled* cs = nullptr;
     int ox, oy;
     // Book Cover on, the book's cover is still being read: nothing yet (not the standard picture, which would then have to be wiped)
     bool waiting = false;
-    if (settings_.book_cover && !cover && !book_dir_.empty()) {
+    if (settings_.book_cover && !cover && !book_->dir.empty()) {
         std::string note, nd;
         { std::lock_guard<std::mutex> lk(g_cover_note_mutex); note = g_cover_note; nd = g_cover_note_dir; }
-        waiting = !(nd == book_dir_ && !note.empty());
+        waiting = !(nd == book_->dir && !note.empty());
     }
     static const std::vector<unsigned char> nothing;
     if (waiting) { picp = &nothing; pw = ph = 0; ox = oy = 0; }
@@ -782,7 +785,7 @@ bool App::book_picture_gfx(int col, int cols, int rows) const {
     }
     const std::vector<unsigned char>& pic = *picp;
     static std::string last_src;
-    const std::string src = cover ? book_dir_ + (direct ? "|c" : "|g") + std::to_string(direct ? 0 : settings_.cover_contrast) + "|" +
+    const std::string src = cover ? book_->dir + (direct ? "|c" : "|g") + std::to_string(direct ? 0 : settings_.cover_contrast) + "|" +
                                         std::to_string(settings_.cover_brightness) + "|" + std::to_string(settings_.cover_colors)
                                   : waiting ? std::string("|w") : std::string();
     const bool changed_src = src != last_src;
@@ -953,13 +956,13 @@ std::vector<std::string> App::book_phone_picture(int& cols, int& rows) const {
     const BookArt& art = BookArt::get(BookArt::Which::Book);
     cols = art.cols();
     rows = art.rows();
-    const CoverData* cover = settings_.book_cover && !book_dir_.empty() ? current_cover(book_dir_) : nullptr;
+    const CoverData* cover = settings_.book_cover && !book_->dir.empty() ? current_cover(book_->dir) : nullptr;
     if (!cover) {
-        if (settings_.book_cover && !book_dir_.empty()) {   // a cover that is being read: nothing yet; a book without one: the standard picture
+        if (settings_.book_cover && !book_->dir.empty()) {   // a cover that is being read: nothing yet; a book without one: the standard picture
             std::lock_guard<std::mutex> lk(g_cover_note_mutex);
-            if (g_cover_note.empty() || g_cover_note_dir != book_dir_) return {};
+            if (g_cover_note.empty() || g_cover_note_dir != book_->dir) return {};
         }
-        return book_art_lines(0, book_anim_t_);
+        return book_art_lines(0, book_->anim_t);
     }
     // The cover as braille dots: the dot field is cols*2 x rows*4, a dot is lit where the brightness beats an ordered-dither
     // threshold; a cell takes the average colour of the pixels in it (or, with the wave on, the wave's colour as in the standard picture).
@@ -1047,13 +1050,13 @@ std::vector<std::string> App::book_phone_picture(int& cols, int& rows) const {
 // per key. nullptr: nothing yet (the cover is still being read).
 const std::string* App::book_phone_png(std::string& key) const {
     static std::string cache_key, cache_png;
-    const CoverData* cover = settings_.book_cover && !book_dir_.empty() ? current_cover(book_dir_) : nullptr;
-    if (!cover && settings_.book_cover && !book_dir_.empty()) {
+    const CoverData* cover = settings_.book_cover && !book_->dir.empty() ? current_cover(book_->dir) : nullptr;
+    if (!cover && settings_.book_cover && !book_->dir.empty()) {
         std::lock_guard<std::mutex> lk(g_cover_note_mutex);
-        if (g_cover_note.empty() || g_cover_note_dir != book_dir_) return nullptr;
+        if (g_cover_note.empty() || g_cover_note_dir != book_->dir) return nullptr;
     }
     const bool direct = cover && !settings_.book_cover_wave;
-    key = (cover ? book_dir_ + (direct ? "|c" : "|g") + std::to_string(direct ? 0 : settings_.cover_contrast) + "|" + std::to_string(settings_.cover_brightness) + "|" +
+    key = (cover ? book_->dir + (direct ? "|c" : "|g") + std::to_string(direct ? 0 : settings_.cover_contrast) + "|" + std::to_string(settings_.cover_brightness) + "|" +
                        std::to_string(settings_.cover_colors) : std::string("standard")) + "|" + settings_.disk_color + "|" +
           (settings_.disk_color_gradient ? settings_.disk_color_end : std::string());
     if (key == cache_key && !cache_png.empty()) return &cache_png;
@@ -1116,8 +1119,8 @@ std::vector<std::string> App::build_chapter_panel(int total_width, int height) c
     const std::string bar = border_ansi + settings_.box_vertical + "\x1b[0m";
     std::vector<std::string> out;
     std::string title = "CHAPTERS";
-    if (!book_dir_.empty()) {
-        const std::string name = path_utf8(path_from_utf8(book_dir_).filename());
+    if (!book_->dir.empty()) {
+        const std::string name = path_utf8(path_from_utf8(book_->dir).filename());
         const int room = std::max(4, total_width - 14);
         title += " - " + truncate_str(name, room);
     }
@@ -1189,7 +1192,7 @@ const char* App::book_tag_label(int i) {
 }
 
 // ffprobe once; the tags of a book vary a lot between taggers, so the usual alternatives are tried per row.
-App::BookTagVals App::book_read_tags(const fs::path& file) {
+BookTagVals App::book_read_tags(const fs::path& file) {
     BookTagVals v{};
     v[0] = path_utf8(file.stem());   // the file name without its ending: the ending is not editable
     const ProcResult r = run_capture({"ffprobe", "-v", "error", "-show_entries", "format_tags", "-of", "default=nw=1",
@@ -1236,10 +1239,10 @@ App::BookTagVals App::book_read_tags(const fs::path& file) {
 
 void App::book_ov_load(int chapter) {
     if (chapters_.empty()) return;
-    book_ov_chapter_ = std::clamp(chapter, 0, static_cast<int>(chapters_.size()) - 1);
-    book_ov_val_ = book_read_tags(chapters_[static_cast<size_t>(book_ov_chapter_)].path);
-    book_ov_orig_ = book_ov_val_;
-    book_ov_editing_ = false;
+    book_->ov_chapter = std::clamp(chapter, 0, static_cast<int>(chapters_.size()) - 1);
+    book_->ov_val = book_read_tags(chapters_[static_cast<size_t>(book_->ov_chapter)].path);
+    book_->ov_orig = book_->ov_val;
+    book_->ov_editing = false;
 }
 
 // The music player's library does not list the audio books: files under the AUDIO BOOK PATH are dropped from the scan result (so
@@ -1289,18 +1292,18 @@ void App::book_totals(double elapsed, double& total, double& done, bool& complet
     if (cur >= 0) done += std::max(0.0, elapsed);
 }
 
-bool App::book_ov_dirty() const { return book_ov_val_ != book_ov_orig_; }
+bool App::book_ov_dirty() const { return book_->ov_val != book_->ov_orig; }
 
 void App::book_tags_open() {
     if (chapters_.empty()) { status_line_ = "open a book first (ENTER on a book), then SHIFT+m edits the tags of its chapters"; return; }
     int ch = queue_focus_ ? queue_selected_ : book_current_chapter();
     if (ch < 0) ch = queue_selected_;
-    book_ov_kind_ = BookOv::Tags;
+    book_->ov_kind = BookOv::Tags;
     book_ov_load(ch);
-    book_ov_row_ = 0;
-    book_ov_confirm_ = false;
-    book_ov_rename_ask_ = false;
-    book_ov_status_.clear();
+    book_->ov_row = 0;
+    book_->ov_confirm = false;
+    book_->ov_rename_ask = false;
+    book_->ov_status.clear();
     text_disengage();
     mode_ = Mode::BookOverlay;
 }
@@ -1320,11 +1323,11 @@ int App::book_numbering() const {
 // time (it stays, or, when it is at the end of every name, it is moved to the front).
 std::vector<std::pair<fs::path, fs::path>> App::book_rename_plan(bool whole_book) const {
     std::vector<std::pair<fs::path, fs::path>> plan;
-    if (chapters_.empty() || book_ov_val_[0] == book_ov_orig_[0]) return plan;
+    if (chapters_.empty() || book_->ov_val[0] == book_->ov_orig[0]) return plan;
     const int kind = book_numbering();
-    std::string typed = clean_file_stem(book_ov_val_[0]);
+    std::string typed = clean_file_stem(book_->ov_val[0]);
     typed = kind == 1 ? strip_front_number(typed) : kind == 2 ? strip_end_number(typed) : typed;
-    if (typed.empty()) typed = clean_file_stem(book_ov_val_[0]);
+    if (typed.empty()) typed = clean_file_stem(book_->ov_val[0]);
     if (typed.empty()) return plan;
     auto target = [&](const fs::path& f, const std::string& name) { return f.parent_path() / path_from_utf8(name + path_utf8(f.extension())); };
     const size_t digits = std::max<size_t>(2, std::to_string(chapters_.size()).size());
@@ -1335,7 +1338,7 @@ std::vector<std::pair<fs::path, fs::path>> App::book_rename_plan(bool whole_book
     }
     for (size_t i = 0; i < chapters_.size(); ++i) {
         const std::string own = path_utf8(chapters_[i].path.stem());
-        const bool is_this = static_cast<int>(i) == book_ov_chapter_;
+        const bool is_this = static_cast<int>(i) == book_->ov_chapter;
         const std::string num = kind == 1 ? front_number(own) : kind == 2 ? end_number(own) : (is_this ? padded(i + 1) : std::string());
         if (is_this) plan.emplace_back(chapters_[i].path, target(chapters_[i].path, num + " " + typed));
         else if (kind == 2) plan.emplace_back(chapters_[i].path, target(chapters_[i].path, num + " " + strip_end_number(own)));   // the numbers at the end go to the front
@@ -1347,40 +1350,40 @@ std::vector<std::pair<fs::path, fs::path>> App::book_rename_plan(bool whole_book
 // changed go to every chapter, the chapter title stays this chapter's own, and a changed file name numbers every file (see above).
 // Narrator, publisher and year also go to the book's .cue file.
 void App::book_ov_save(bool whole_book) {
-    if (book_job_.active) { book_ov_status_ = "still saving ..."; return; }
+    if (book_->job.active) { book_->ov_status = "still saving ..."; return; }
     BookTagJob job;
-    auto changed = [&](int i) { return book_ov_val_[static_cast<size_t>(i)] != book_ov_orig_[static_cast<size_t>(i)]; };
+    auto changed = [&](int i) { return book_->ov_val[static_cast<size_t>(i)] != book_->ov_orig[static_cast<size_t>(i)]; };
     for (size_t i = 0; i < chapters_.size(); ++i) {
-        const bool is_this = static_cast<int>(i) == book_ov_chapter_;
+        const bool is_this = static_cast<int>(i) == book_->ov_chapter;
         if (!whole_book && !is_this) continue;
         std::array<std::pair<bool, std::string>, 7> c;
         bool any = false;
         for (int r = 1; r < kBookTagCount; ++r) {   // row 0, the file name, is a rename (below), not a tag
             const bool book_wide = r == 1 || r == 2 || r == 3 || r == 5 || r == 6;
             const bool want = changed(r) && (is_this || book_wide);
-            c[static_cast<size_t>(r)] = {want, book_ov_val_[static_cast<size_t>(r)]};
+            c[static_cast<size_t>(r)] = {want, book_->ov_val[static_cast<size_t>(r)]};
             any = any || want;
         }
         if (any) job.todo.emplace_back(chapters_[i].path, c);
     }
     if (!chapters_.empty()) {
-        const fs::path dir = chapters_[static_cast<size_t>(book_ov_chapter_)].path.parent_path();
+        const fs::path dir = chapters_[static_cast<size_t>(book_->ov_chapter)].path.parent_path();
         job.cue_file = BookCue::path_for(dir);
-        if (changed(3)) job.cue_set.emplace_back("REM NARRATOR", book_ov_val_[3]);
+        if (changed(3)) job.cue_set.emplace_back("REM NARRATOR", book_->ov_val[3]);
         if (changed(5)) {
             std::string pub, year;
-            split_publisher_year(book_ov_val_[5], pub, year);
+            split_publisher_year(book_->ov_val[5], pub, year);
             job.cue_set.emplace_back("REM PUBLISHER", pub);
             job.cue_set.emplace_back("REM DATE", year);
         }
-        if (whole_book && changed(1)) job.cue_set.emplace_back("TITLE", book_ov_val_[1]);
-        if (whole_book && changed(2)) job.cue_set.emplace_back("PERFORMER", book_ov_val_[2]);
+        if (whole_book && changed(1)) job.cue_set.emplace_back("TITLE", book_->ov_val[1]);
+        if (whole_book && changed(2)) job.cue_set.emplace_back("PERFORMER", book_->ov_val[2]);
     }
     job.renames = book_rename_plan(whole_book);
-    if (job.todo.empty() && job.cue_set.empty() && job.renames.empty()) { book_ov_status_ = "nothing changed"; return; }
+    if (job.todo.empty() && job.cue_set.empty() && job.renames.empty()) { book_->ov_status = "nothing changed"; return; }
     job.active = true;
-    book_job_ = std::move(job);
-    book_ov_status_ = "saving ...";
+    book_->job = std::move(job);
+    book_->ov_status = "saving ...";
 }
 
 // The last step of a save: the .cue, then the renames. A rename is done in two phases (every file to a temporary name, then to its
@@ -1479,7 +1482,7 @@ void App::book_finish_job(BookTagJob& job) {
             for (BookNote& n : notes) for (const auto& nm : names) if (n.file == nm.first) { n.file = nm.second; any = true; break; }
             if (any) book_notes::save(nf, notes);
         }
-        if (path_utf8(dir) == book_dir_) book_bookmark_load();
+        if (path_utf8(dir) == book_->dir) book_bookmark_load();
     }
 }
 
@@ -1488,36 +1491,36 @@ void App::book_poll() {
     player_.set_speed(settings_.book_speed);   // the playback speed (Settings, SHIFT+LEFT / SHIFT+RIGHT): an atomic, cheap every frame
     {   // the picture in the field changes between nothing (cover being read), the cover and the standard picture: wipe the old image
         static std::string shown_kind;
-        const std::string kind = !settings_.book_cover ? "std" : (current_cover(book_dir_) ? "cover:" + book_dir_ : "other:" + book_dir_);
+        const std::string kind = !settings_.book_cover ? "std" : (current_cover(book_->dir) ? "cover:" + book_->dir : "other:" + book_->dir);
         if (kind != shown_kind) { shown_kind = kind; force_redraw_ = true; }
     }
     if (settings_.book_cover && gfx_proto_ == GfxProto::None && audiobook_) {
         static bool said = false;
         if (!said) { said = true; status_line_ = "book cover: " + book_cover_report(); }
     }
-    if (settings_.book_cover && !book_dir_.empty()) {   // why there is no cover, once per book
+    if (settings_.book_cover && !book_->dir.empty()) {   // why there is no cover, once per book
         std::string note, nd;
         { std::lock_guard<std::mutex> lk(g_cover_note_mutex); note = g_cover_note; nd = g_cover_note_dir; }
         static std::string shown;
-        if (!note.empty() && nd == book_dir_ && shown != nd + note) { shown = nd + note; status_line_ = note + " (the console log, t, has the path)"; }
+        if (!note.empty() && nd == book_->dir && shown != nd + note) { shown = nd + note; status_line_ = note + " (the console log, t, has the path)"; }
     }
-    if (has_track_ && current_is_local_ && book_meta_path_ != path_utf8(current_path_)) {
-        book_meta_path_ = path_utf8(current_path_);
-        book_meta_vals_ = book_read_tags(current_path_);
+    if (has_track_ && current_is_local_ && book_->meta_path != path_utf8(current_path_)) {
+        book_->meta_path = path_utf8(current_path_);
+        book_->meta_vals = book_read_tags(current_path_);
     }
-    if (!has_track_) book_meta_path_.clear();
+    if (!has_track_) book_->meta_path.clear();
     // a chapter that was started "at" a time: once it is loaded, go there
-    if (book_seek_pending_) {
-        if (has_track_ && current_is_local_ && path_utf8(current_path_) == book_seek_file_ && !load_in_progress_.load()) {
-            player_.seek_relative(book_seek_sec_ - player_.poll_elapsed());
-            book_seek_pending_ = false;
-            book_prev_elapsed_ = book_seek_sec_;
-        } else if (std::chrono::steady_clock::now() - book_seek_at_ > std::chrono::seconds(20)) book_seek_pending_ = false;
+    if (book_->seek_pending) {
+        if (has_track_ && current_is_local_ && path_utf8(current_path_) == book_->seek_file && !load_in_progress_.load()) {
+            player_.seek_relative(book_->seek_sec - player_.poll_elapsed());
+            book_->seek_pending = false;
+            book_->prev_elapsed = book_->seek_sec;
+        } else if (std::chrono::steady_clock::now() - book_->seek_at > std::chrono::seconds(20)) book_->seek_pending = false;
     }
     book_notes_follow();
     book_automark_tick(false);
-    if (book_cut_.active) { book_cut_step(); return; }
-    BookTagJob& job = book_job_;
+    if (book_->cut.active) { book_cut_step(); return; }
+    BookTagJob& job = book_->job;
     if (!job.active) return;
     if (job.next >= job.todo.size()) {
         book_finish_job(job);
@@ -1525,13 +1528,13 @@ void App::book_poll() {
         std::string what = std::to_string(job.ok) + " chapter" + (job.ok == 1 ? "" : "s");
         if (job.renamed > 0) what += ", " + std::to_string(job.renamed) + " file name" + (job.renamed == 1 ? "" : "s");
         if (job.cue_written) what += ", .cue";
-        book_ov_status_ = job.error.empty() ? "saved " + what : "saved " + what + ", failed: " + job.error;
+        book_->ov_status = job.error.empty() ? "saved " + what : "saved " + what + ", failed: " + job.error;
         if (!chapters_.empty()) {
-            const int keep_row = book_ov_row_;
-            book_ov_load(book_ov_chapter_);
-            book_ov_row_ = keep_row;
+            const int keep_row = book_->ov_row;
+            book_ov_load(book_->ov_chapter);
+            book_->ov_row = keep_row;
         }
-        book_meta_path_.clear();   // the metadata block reads the loaded chapter again
+        book_->meta_path.clear();   // the metadata block reads the loaded chapter again
         {
             std::lock_guard<std::mutex> lk(row_meta_mutex_);   // the tags and names on disk changed: the cached row data is stale
             row_meta_cache_.clear();
@@ -1571,58 +1574,58 @@ void App::book_poll() {
             ++job.ok;
         }
     }
-    book_ov_status_ = "saving " + std::to_string(job.next) + "/" + std::to_string(job.todo.size()) + " ...";
+    book_->ov_status = "saving " + std::to_string(job.next) + "/" + std::to_string(job.todo.size()) + " ...";
 }
 
 bool App::book_tags_key(int key) {
     const bool arrow = last_key_was_arrow();
-    if (book_job_.active) return true;   // a save is running: keys wait
-    if (book_ov_rename_ask_) {   // [a] with a changed file name: the chapter numbers are added to every file
-        if (key == 'y' || key == 'Y') { book_ov_rename_ask_ = false; book_ov_save(book_ov_rename_whole_); }
-        else if (key == 'n' || key == 'N' || key == 27 || key == '\r' || key == '\n') book_ov_rename_ask_ = false;
+    if (book_->job.active) return true;   // a save is running: keys wait
+    if (book_->ov_rename_ask) {   // [a] with a changed file name: the chapter numbers are added to every file
+        if (key == 'y' || key == 'Y') { book_->ov_rename_ask = false; book_ov_save(book_->ov_rename_whole); }
+        else if (key == 'n' || key == 'N' || key == 27 || key == '\r' || key == '\n') book_->ov_rename_ask = false;
         return true;
     }
-    if (book_ov_confirm_) {   // ESC with unsaved changes
-        if (key == 'y' || key == 'Y') { book_ov_confirm_ = false; book_ov_save(false); }
-        else if (key == 'n' || key == 'N') { book_ov_confirm_ = false; mode_ = Mode::Browse; }
-        else if (key == 27 || key == '\r' || key == '\n') book_ov_confirm_ = false;
+    if (book_->ov_confirm) {   // ESC with unsaved changes
+        if (key == 'y' || key == 'Y') { book_->ov_confirm = false; book_ov_save(false); }
+        else if (key == 'n' || key == 'N') { book_->ov_confirm = false; mode_ = Mode::Browse; }
+        else if (key == 27 || key == '\r' || key == '\n') book_->ov_confirm = false;
         return true;
     }
-    if (book_ov_editing_) {
-        std::string& cur = book_ov_val_[static_cast<size_t>(book_ov_row_)];
-        const std::string owner = "booktag" + std::to_string(book_ov_row_);
-        if (!arrow && (key == '\r' || key == '\n' || key == 27)) { book_ov_editing_ = false; return true; }
+    if (book_->ov_editing) {
+        std::string& cur = book_->ov_val[static_cast<size_t>(book_->ov_row)];
+        const std::string owner = "booktag" + std::to_string(book_->ov_row);
+        if (!arrow && (key == '\r' || key == '\n' || key == 27)) { book_->ov_editing = false; return true; }
         edit_focus(owner, cur);
-        edit_text_key(cur, edit_caret_, edit_anchor_, key, book_ov_row_ == 0 ? 200 : 160, &book_ov_status_);
+        edit_text_key(cur, edit_caret_, edit_anchor_, key, book_->ov_row == 0 ? 200 : 160, &book_->ov_status);
         return true;
     }
-    if (arrow && key == 'A') { book_ov_row_ = (book_ov_row_ + kBookTagCount - 1) % kBookTagCount; return true; }
-    if (arrow && key == 'B') { book_ov_row_ = (book_ov_row_ + 1) % kBookTagCount; return true; }
+    if (arrow && key == 'A') { book_->ov_row = (book_->ov_row + kBookTagCount - 1) % kBookTagCount; return true; }
+    if (arrow && key == 'B') { book_->ov_row = (book_->ov_row + 1) % kBookTagCount; return true; }
     if (arrow && (key == 'C' || key == 'D')) {   // the next / previous chapter
-        if (book_ov_dirty()) { book_ov_status_ = "unsaved changes: [s] save, [d] discard them first"; return true; }
-        book_ov_load(book_ov_chapter_ + (key == 'C' ? 1 : -1));
-        book_ov_status_.clear();
+        if (book_ov_dirty()) { book_->ov_status = "unsaved changes: [s] save, [d] discard them first"; return true; }
+        book_ov_load(book_->ov_chapter + (key == 'C' ? 1 : -1));
+        book_->ov_status.clear();
         return true;
     }
     if (key == '\r' || key == '\n') {
-        book_ov_editing_ = true;
-        edit_owner_ = "booktag" + std::to_string(book_ov_row_);
-        edit_caret_ = edit_anchor_ = book_ov_val_[static_cast<size_t>(book_ov_row_)].size();
+        book_->ov_editing = true;
+        edit_owner_ = "booktag" + std::to_string(book_->ov_row);
+        edit_caret_ = edit_anchor_ = book_->ov_val[static_cast<size_t>(book_->ov_row)].size();
         return true;
     }
     if (key == 's') {
-        if (book_ov_val_[0] != book_ov_orig_[0] && book_numbering() == 2 && !book_rename_plan(false).empty()) { book_ov_rename_ask_ = true; book_ov_rename_whole_ = false; }   // the numbers at the end move to the front: say so first
+        if (book_->ov_val[0] != book_->ov_orig[0] && book_numbering() == 2 && !book_rename_plan(false).empty()) { book_->ov_rename_ask = true; book_->ov_rename_whole = false; }   // the numbers at the end move to the front: say so first
         else book_ov_save(false);
         return true;
     }
     if (key == 'a') {
-        if (book_ov_val_[0] != book_ov_orig_[0] && !book_rename_plan(true).empty()) { book_ov_rename_ask_ = true; book_ov_rename_whole_ = true; }   // numbering is added: say so first
+        if (book_->ov_val[0] != book_->ov_orig[0] && !book_rename_plan(true).empty()) { book_->ov_rename_ask = true; book_->ov_rename_whole = true; }   // numbering is added: say so first
         else book_ov_save(true);
         return true;
     }
-    if (key == 'd') { book_ov_val_ = book_ov_orig_; book_ov_status_ = "changes discarded"; return true; }
+    if (key == 'd') { book_->ov_val = book_->ov_orig; book_->ov_status = "changes discarded"; return true; }
     if (key == 27 || key == 'q') {
-        if (book_ov_dirty()) { book_ov_confirm_ = true; return true; }
+        if (book_ov_dirty()) { book_->ov_confirm = true; return true; }
         mode_ = Mode::Browse;
         return true;
     }
@@ -1640,24 +1643,24 @@ std::vector<std::string> App::build_book_tags_panel(int panel_w) const {
     lines.push_back(box_top("Book tags", W, border));
     const std::string plain_ink = ansi_for(settings_.list_color, false) + bg_ansi_for(settings_.list_inactive_bg_color);
     const std::string head = chapters_.empty() ? std::string() :
-        "Chapter " + std::to_string(book_ov_chapter_ + 1) + " of " + std::to_string(chapters_.size()) + "   " + path_utf8(chapters_[static_cast<size_t>(book_ov_chapter_)].path.filename());
+        "Chapter " + std::to_string(book_->ov_chapter + 1) + " of " + std::to_string(chapters_.size()) + "   " + path_utf8(chapters_[static_cast<size_t>(book_->ov_chapter)].path.filename());
     lines.push_back(framed(legend_sgr(settings_) + pad_right(truncate_str(head, inner), inner)));
     lines.push_back(framed(pad_right("", inner)));
     const int label_w = 18;
     // The file name row edits the name only: the ending (.mp3 ...) is shown after it and cannot be changed.
-    const std::string ext0 = chapters_.empty() ? std::string() : path_utf8(chapters_[static_cast<size_t>(book_ov_chapter_)].path.extension());
+    const std::string ext0 = chapters_.empty() ? std::string() : path_utf8(chapters_[static_cast<size_t>(book_->ov_chapter)].path.extension());
     const int val_w_full = std::max(8, inner - label_w - 2);
     for (int i = 0; i < kBookTagCount; ++i) {
-        const bool hov = i == book_ov_row_;
-        const bool edited = book_ov_val_[static_cast<size_t>(i)] != book_ov_orig_[static_cast<size_t>(i)];
+        const bool hov = i == book_->ov_row;
+        const bool edited = book_->ov_val[static_cast<size_t>(i)] != book_->ov_orig[static_cast<size_t>(i)];
         const std::string lab = std::string(hov ? "> " : "  ") + pad_right(book_tag_label(i), label_w - 2);
         const std::string base = hov ? cursor_sgr(settings_.list_cursor_color, settings_.list_cursor_bg_color) : plain_ink;
-        std::string val_raw = book_ov_val_[static_cast<size_t>(i)];
+        std::string val_raw = book_->ov_val[static_cast<size_t>(i)];
         const std::string ending = i == 0 ? ext0 : std::string();
         const int val_w = std::max(4, val_w_full - display_width(ending));
         std::string body;
         int used;
-        if (hov && book_ov_editing_) {
+        if (hov && book_->ov_editing) {
             const std::string owner = "booktag" + std::to_string(i);
             size_t c = val_raw.size();
             size_t a = c;
@@ -1676,8 +1679,8 @@ std::vector<std::string> App::build_book_tags_panel(int panel_w) const {
     lines.push_back(framed(pad_right("", inner)));
     // The note rows: the status, or the question that is asked. The question is shown as a block in the header colour with black
     // text (three rows, a long text is wrapped over them); the status takes two rows.
-    std::string note = book_ov_status_;
-    const bool asking = book_ov_rename_ask_;
+    std::string note = book_->ov_status;
+    const bool asking = book_->ov_rename_ask;
     if (asking) {
         const auto plan = book_rename_plan(true);
         // (the number is in front: a name that has to be shortened keeps it)
@@ -1686,13 +1689,13 @@ std::vector<std::string> App::build_book_tags_panel(int panel_w) const {
             return truncate_str(path_utf8(plan[i].second.stem()), 26);
         };
         const bool at_end = book_numbering() == 2;
-        if (book_ov_rename_whole_)
+        if (book_->ov_rename_whole)
             note = std::string("The chapter number is put in FRONT of every file name (\"") + ex(0) + "\", \"" + ex(1) + "\" ...) so renaming titles can never jumble the track order when the folder is sorted by name." +
                    (at_end ? " The numbers at the end of the old names are removed." : "") + "   [y] rename all   [n] back";
         else
             note = "Your files end in their chapter number (\"" + path_utf8(chapters_[0].path.stem()) + "\"). It is moved to the FRONT of every name (\"" + ex(0) + "\" ...) so renaming titles can never jumble the track order when the folder is sorted by name.   [y] rename the folder's files   [n] back";
-    } else if (book_ov_confirm_) note = "Unsaved changes: [y] save this chapter  [n] discard  [ESC] keep editing";
-    else if (note.empty() && book_ov_val_[0] != book_ov_orig_[0]) note = "[a] renames the whole book (\"01 " + truncate_str(clean_file_stem(book_ov_val_[0]), 22) + "\", \"02 ...\"); [s] renames this chapter and puts its chapter number in front of the name";
+    } else if (book_->ov_confirm) note = "Unsaved changes: [y] save this chapter  [n] discard  [ESC] keep editing";
+    else if (note.empty() && book_->ov_val[0] != book_->ov_orig[0]) note = "[a] renames the whole book (\"01 " + truncate_str(clean_file_stem(book_->ov_val[0]), 22) + "\", \"02 ...\"); [s] renames this chapter and puts its chapter number in front of the name";
     else if (note.empty() && book_ov_dirty()) note = "unsaved changes";
     const size_t note_rows = asking ? 3 : 2;
     std::vector<std::string> nl = wrap_words(note, inner);
@@ -1713,9 +1716,11 @@ std::vector<std::string> App::build_book_tags_panel(int panel_w) const {
         return bar + " " + border_bottom + std::string(static_cast<size_t>(left), ' ') + tx + std::string(static_cast<size_t>(std::max(0, inner - left - display_width(tx))), ' ') + "\x1b[0m" + " " + bar;
     };
     auto leg_bot = [&](const std::string& tx) { return centred_bottom(settings_, W, tx, border_bottom); };
-    if (book_ov_editing_) push_legend_block(lines, W, border_bottom, {"Type the text  [ENTER] / [ESC] done typing"}, leg_in, leg_bot);
+    if (book_->ov_editing) push_legend_block(lines, W, border_bottom, {"Type the text  [ENTER] / [ESC] done typing"}, leg_in, leg_bot);
     else push_legend_block(lines, W, border_bottom, {"[UP/DOWN] row  [ENTER] edit  [LEFT/RIGHT] other chapter", "[s] save this chapter  [a] save the book-wide rows to all chapters", "[d] discard changes  [ESC] close"}, leg_in, leg_bot);
     return lines;
 }
+
+bool App::book_field_has_note() const { return audiobook_ && (book_->note_edit || book_->note_shown); }
 
 } // namespace muisc

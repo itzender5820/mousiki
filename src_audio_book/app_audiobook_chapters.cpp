@@ -4,6 +4,7 @@
 // file at the marks: ffmpeg copies the parts losslessly into the book folder, the original stays as <name>.<ending>.mousiki-backup
 // until it is deleted on purpose ([SHIFT+d]), and the bookmark and the notes are moved to the new files. Member functions of App.
 #include "app.h"
+#include "book_state.h"
 #include "string_util.h"
 #include "text_edit.h"
 #include "utf8_util.h"
@@ -40,31 +41,31 @@ std::string size_text(unsigned long long b) {
 // Opening, saving
 // ---------------------------------------------------------------------
 void App::book_cm_open() {
-    if (book_dir_.empty() || chapters_.empty()) {
+    if (book_->dir.empty() || chapters_.empty()) {
         status_line_ = "open a book first (ENTER on a book): chapter marks are set in the chapter that plays";
         return;
     }
-    if (book_cut_.active) { status_line_ = "a file is being cut ..."; return; }
+    if (book_->cut.active) { status_line_ = "a file is being cut ..."; return; }
     int idx = book_current_chapter();
     if (idx < 0) idx = std::clamp(queue_selected_, 0, static_cast<int>(chapters_.size()) - 1);
     const bool playing_it = idx == book_current_chapter();
     auto go = [this, idx]() {
-        if (idx != book_current_chapter()) { book_prompt_paused_ = false; book_play_chapter(idx); }   // (the marks are set while listening)
+        if (idx != book_current_chapter()) { book_->prompt_paused = false; book_play_chapter(idx); }   // (the marks are set while listening)
         const fs::path file = chapters_[static_cast<size_t>(idx)].path;
-        book_cm_file_ = path_utf8(file.filename());
+        book_->cm_file = path_utf8(file.filename());
         BookCue cue;
-        cue.load(BookCue::path_for(path_from_utf8(book_dir_)));
-        book_cm_ = chapter_marks_of(cue, book_cm_file_);
-        book_cm_dur_ = 0.0;
+        cue.load(BookCue::path_for(path_from_utf8(book_->dir)));
+        book_->cm = chapter_marks_of(cue, book_->cm_file);
+        book_->cm_dur = 0.0;
         const ProcResult r = run_capture({"ffprobe", "-v", "error", "-show_entries", "format=duration",
                                           "-of", "default=nw=1:nk=1", path_utf8(file)}, false);
-        if (r.ok()) book_cm_dur_ = std::max(0.0, std::strtod(r.out.c_str(), nullptr));
-        if (book_cm_dur_ <= 0.0 && idx == book_current_chapter()) book_cm_dur_ = static_cast<double>(total_sec_);
-        book_cm_sel_ = 0;
-        book_cm_mode_ = 0;
-        book_cm_edit_ = -1;
-        book_ov_status_.clear();
-        book_ov_kind_ = BookOv::Chapters;
+        if (r.ok()) book_->cm_dur = std::max(0.0, std::strtod(r.out.c_str(), nullptr));
+        if (book_->cm_dur <= 0.0 && idx == book_current_chapter()) book_->cm_dur = static_cast<double>(total_sec_);
+        book_->cm_sel = 0;
+        book_->cm_mode = 0;
+        book_->cm_edit = -1;
+        book_->ov_status.clear();
+        book_->ov_kind = BookOv::Chapters;
         text_disengage();
         mode_ = Mode::BookOverlay;
     };
@@ -74,34 +75,34 @@ void App::book_cm_open() {
 
 // The marks of the file into the .cue (the marks of other files and every other line stay).
 void App::book_cm_save() {
-    const fs::path cp = BookCue::path_for(path_from_utf8(book_dir_));
+    const fs::path cp = BookCue::path_for(path_from_utf8(book_->dir));
     BookCue cue;
     cue.load(cp);
-    if (cue.empty() && book_cm_.empty()) return;
-    chapter_marks_store(cue, book_cm_file_, book_cm_);
-    if (!cue.save(cp)) book_ov_status_ = "could not write " + path_utf8(cp.filename());
+    if (cue.empty() && book_->cm.empty()) return;
+    chapter_marks_store(cue, book_->cm_file, book_->cm);
+    if (!cue.save(cp)) book_->ov_status = "could not write " + path_utf8(cp.filename());
 }
 
 // A mark at `sec`. The start (0:00:00, "Chapter 1") is added with the first mark; the standard titles follow the order.
 void App::book_cm_insert(double sec, const std::string& title, bool ask_title) {
     sec = std::max(0.0, std::round(sec * 10.0) / 10.0);
-    if (book_cm_dur_ > 0 && sec >= book_cm_dur_ - 1.0) { book_ov_status_ = "that is the end of the file: a chapter needs at least a second"; return; }
-    for (const ChapterMark& m : book_cm_)
-        if (std::fabs(m.sec - sec) < 1.0) { book_ov_status_ = "there is a chapter mark at " + clock_hms(m.sec) + " already"; return; }
-    if (book_cm_.empty() && sec >= 1.0) book_cm_.push_back({book_cm_file_, 0.0, default_title(1)});
-    book_cm_.push_back({book_cm_file_, sec, title});
-    order_marks(book_cm_);
+    if (book_->cm_dur > 0 && sec >= book_->cm_dur - 1.0) { book_->ov_status = "that is the end of the file: a chapter needs at least a second"; return; }
+    for (const ChapterMark& m : book_->cm)
+        if (std::fabs(m.sec - sec) < 1.0) { book_->ov_status = "there is a chapter mark at " + clock_hms(m.sec) + " already"; return; }
+    if (book_->cm.empty() && sec >= 1.0) book_->cm.push_back({book_->cm_file, 0.0, default_title(1)});
+    book_->cm.push_back({book_->cm_file, sec, title});
+    order_marks(book_->cm);
     int at = 0;
-    for (size_t i = 0; i < book_cm_.size(); ++i) if (std::fabs(book_cm_[i].sec - sec) < 0.05) at = static_cast<int>(i);
-    book_cm_sel_ = at;
+    for (size_t i = 0; i < book_->cm.size(); ++i) if (std::fabs(book_->cm[i].sec - sec) < 0.05) at = static_cast<int>(i);
+    book_->cm_sel = at;
     book_cm_save();
-    book_ov_status_ = "chapter mark set at " + clock_hms(sec);
+    book_->ov_status = "chapter mark set at " + clock_hms(sec);
     if (ask_title) {   // the title field, filled with the standard title: ENTER keeps it
-        book_cm_mode_ = 1;
-        book_cm_edit_ = at;
-        book_cm_text_ = book_cm_[static_cast<size_t>(at)].title;
+        book_->cm_mode = 1;
+        book_->cm_edit = at;
+        book_->cm_text = book_->cm[static_cast<size_t>(at)].title;
         edit_owner_ = "bookcm";
-        edit_caret_ = book_cm_text_.size();
+        edit_caret_ = book_->cm_text.size();
         edit_anchor_ = 0;   // selected: typing replaces the standard title, ENTER keeps it
     }
 }
@@ -109,8 +110,8 @@ void App::book_cm_insert(double sec, const std::string& title, bool ask_title) {
 std::vector<fs::path> App::book_backup_files() const {
     std::vector<fs::path> out;
     std::error_code ec;
-    if (book_dir_.empty()) return out;
-    for (const auto& e : fs::directory_iterator(path_from_utf8(book_dir_), ec)) {
+    if (book_->dir.empty()) return out;
+    for (const auto& e : fs::directory_iterator(path_from_utf8(book_->dir), ec)) {
         const std::string n = path_utf8(e.path().filename());
         const std::string end = kBackupEnding;
         if (n.size() > end.size() && n.compare(n.size() - end.size(), end.size(), end) == 0) out.push_back(e.path());
@@ -124,61 +125,61 @@ std::vector<fs::path> App::book_backup_files() const {
 // ---------------------------------------------------------------------
 bool App::book_cm_key(int key) {
     const bool arrow = last_key_was_arrow();
-    auto say = [&](const std::string& s) { book_ov_status_ = s; };
-    if (book_cut_.active) return true;   // the cutting runs: keys wait
-    const int n = static_cast<int>(book_cm_.size());
+    auto say = [&](const std::string& s) { book_->ov_status = s; };
+    if (book_->cut.active) return true;   // the cutting runs: keys wait
+    const int n = static_cast<int>(book_->cm.size());
 
-    if (book_cm_mode_ >= 1 && book_cm_mode_ <= 3) {   // a field
+    if (book_->cm_mode >= 1 && book_->cm_mode <= 3) {   // a field
         if (!arrow && key == 27) {   // a new mark keeps its standard title; everything else is left as it was
-            book_cm_mode_ = 0;
+            book_->cm_mode = 0;
             text_disengage();
             return true;
         }
         if (!arrow && (key == '\r' || key == '\n')) {
-            const int mode = book_cm_mode_;
-            book_cm_mode_ = 0;
+            const int mode = book_->cm_mode;
+            book_->cm_mode = 0;
             text_disengage();
-            if (mode == 1 && book_cm_edit_ >= 0 && book_cm_edit_ < n) {
-                const std::string t = trim_ws(book_cm_text_);
-                const double at = book_cm_[static_cast<size_t>(book_cm_edit_)].sec;
-                book_cm_[static_cast<size_t>(book_cm_edit_)].title = t;   // (empty: the standard title comes back)
-                order_marks(book_cm_);
-                for (size_t i = 0; i < book_cm_.size(); ++i) if (std::fabs(book_cm_[i].sec - at) < 0.05) book_cm_sel_ = static_cast<int>(i);
+            if (mode == 1 && book_->cm_edit >= 0 && book_->cm_edit < n) {
+                const std::string t = trim_ws(book_->cm_text);
+                const double at = book_->cm[static_cast<size_t>(book_->cm_edit)].sec;
+                book_->cm[static_cast<size_t>(book_->cm_edit)].title = t;   // (empty: the standard title comes back)
+                order_marks(book_->cm);
+                for (size_t i = 0; i < book_->cm.size(); ++i) if (std::fabs(book_->cm[i].sec - at) < 0.05) book_->cm_sel = static_cast<int>(i);
                 book_cm_save();
                 say("title set");
-            } else if (mode == 2 && book_cm_edit_ >= 0 && book_cm_edit_ < n) {
+            } else if (mode == 2 && book_->cm_edit >= 0 && book_->cm_edit < n) {
                 double s = 0;
-                if (!parse_clock(book_cm_text_, s)) { say("not a time: write h:mm:ss (or m:ss)"); return true; }
+                if (!parse_clock(book_->cm_text, s)) { say("not a time: write h:mm:ss (or m:ss)"); return true; }
                 s = std::round(s * 10.0) / 10.0;
-                if (s < 1.0 || (book_cm_dur_ > 0 && s >= book_cm_dur_ - 1.0)) { say("a chapter starts between 0:00:01 and the end of the file"); return true; }
+                if (s < 1.0 || (book_->cm_dur > 0 && s >= book_->cm_dur - 1.0)) { say("a chapter starts between 0:00:01 and the end of the file"); return true; }
                 for (int i = 0; i < n; ++i)
-                    if (i != book_cm_edit_ && std::fabs(book_cm_[static_cast<size_t>(i)].sec - s) < 1.0) { say("there is a chapter mark at " + clock_hms(book_cm_[static_cast<size_t>(i)].sec) + " already"); return true; }
-                book_cm_[static_cast<size_t>(book_cm_edit_)].sec = s;
-                order_marks(book_cm_);
-                for (size_t i = 0; i < book_cm_.size(); ++i) if (std::fabs(book_cm_[i].sec - s) < 0.05) book_cm_sel_ = static_cast<int>(i);
+                    if (i != book_->cm_edit && std::fabs(book_->cm[static_cast<size_t>(i)].sec - s) < 1.0) { say("there is a chapter mark at " + clock_hms(book_->cm[static_cast<size_t>(i)].sec) + " already"); return true; }
+                book_->cm[static_cast<size_t>(book_->cm_edit)].sec = s;
+                order_marks(book_->cm);
+                for (size_t i = 0; i < book_->cm.size(); ++i) if (std::fabs(book_->cm[i].sec - s) < 0.05) book_->cm_sel = static_cast<int>(i);
                 book_cm_save();
                 say("time set to " + clock_hms(s));
             } else if (mode == 3) {
                 double s = 0;
-                if (!parse_clock(book_cm_text_, s)) { say("not a time: write h:mm:ss (or m:ss)"); return true; }
+                if (!parse_clock(book_->cm_text, s)) { say("not a time: write h:mm:ss (or m:ss)"); return true; }
                 book_cm_insert(s, std::string(), true);
             }
             return true;
         }
-        edit_focus("bookcm", book_cm_text_);
-        edit_text_key(book_cm_text_, edit_caret_, edit_anchor_, key, 120, &book_ov_status_);
+        edit_focus("bookcm", book_->cm_text);
+        edit_text_key(book_->cm_text, edit_caret_, edit_anchor_, key, 120, &book_->ov_status);
         return true;
     }
-    if (book_cm_mode_ >= 4) {   // questions
-        const int mode = book_cm_mode_;
-        book_cm_mode_ = 0;
+    if (book_->cm_mode >= 4) {   // questions
+        const int mode = book_->cm_mode;
+        book_->cm_mode = 0;
         const bool trim_cut = mode == 5 && !arrow && (key == 't' || key == 'T');   // [t]: cut and trim the blank audio at the edges to 2 s
         if (arrow || (key != 'y' && key != 'Y' && !trim_cut)) { say("cancelled"); return true; }
-        if (mode == 4 && book_cm_sel_ >= 0 && book_cm_sel_ < n) {
-            book_cm_.erase(book_cm_.begin() + book_cm_sel_);
-            if (book_cm_.size() == 1) book_cm_.clear();   // a lone start is no division
-            order_marks(book_cm_);
-            book_cm_sel_ = std::clamp(book_cm_sel_, 0, std::max(0, static_cast<int>(book_cm_.size()) - 1));
+        if (mode == 4 && book_->cm_sel >= 0 && book_->cm_sel < n) {
+            book_->cm.erase(book_->cm.begin() + book_->cm_sel);
+            if (book_->cm.size() == 1) book_->cm.clear();   // a lone start is no division
+            order_marks(book_->cm);
+            book_->cm_sel = std::clamp(book_->cm_sel, 0, std::max(0, static_cast<int>(book_->cm.size()) - 1));
             book_cm_save();
             say("chapter mark deleted");
         } else if (mode == 5) {
@@ -198,11 +199,11 @@ bool App::book_cm_key(int key) {
 
     // the list. The playback keys work as everywhere: Left / Right seek (held down: faster and faster), SPACE pauses.
     if (arrow && (key == 'A' || key == 'B') && last_key_was_shifted()) {   // SHIFT+arrow / PgUp / PgDn: a page (no wrapping)
-        if (n) book_cm_sel_ = std::clamp(book_cm_sel_ + (key == 'A' ? -10 : 10), 0, n - 1);
+        if (n) book_->cm_sel = std::clamp(book_->cm_sel + (key == 'A' ? -10 : 10), 0, n - 1);
         return true;
     }
-    if (arrow && key == 'A') { if (n) book_cm_sel_ = (book_cm_sel_ + n - 1) % n; return true; }
-    if (arrow && key == 'B') { if (n) book_cm_sel_ = (book_cm_sel_ + 1) % n; return true; }
+    if (arrow && key == 'A') { if (n) book_->cm_sel = (book_->cm_sel + n - 1) % n; return true; }
+    if (arrow && key == 'B') { if (n) book_->cm_sel = (book_->cm_sel + 1) % n; return true; }
     if (arrow && key == 'C') { book_seek(1); return true; }
     if (arrow && key == 'D') { book_seek(-1); return true; }
     if (arrow) return true;
@@ -217,7 +218,7 @@ bool App::book_cm_key(int key) {
         if (act == "HKeyDecreaseVolume") { act_volume_change(-5); return true; }
         if (act == "HKeyLyricsTiming") { mode_ = Mode::Browse; return true; }   // the key that opened it closes it
     }
-    const bool this_file_plays = has_track_ && current_is_local_ && path_utf8(current_path_.filename()) == book_cm_file_ && path_utf8(current_path_.parent_path()) == book_dir_;
+    const bool this_file_plays = has_track_ && current_is_local_ && path_utf8(current_path_.filename()) == book_->cm_file && path_utf8(current_path_.parent_path()) == book_->dir;
     if (key == 27 || key == 'q') { mode_ = Mode::Browse; return true; }
     if (key == 'm' || key == 'M') {   // a mark where one is listening
         if (!this_file_plays) { say("play this file first: a mark is set at the point you are listening to"); return true; }
@@ -225,51 +226,51 @@ bool App::book_cm_key(int key) {
         return true;
     }
     if (key == 'a') {   // a mark at a typed time
-        book_cm_mode_ = 3;
-        book_cm_edit_ = -1;
-        book_cm_text_ = this_file_plays ? clock_hms(player_.poll_elapsed()) : std::string("0:00:00");
+        book_->cm_mode = 3;
+        book_->cm_edit = -1;
+        book_->cm_text = this_file_plays ? clock_hms(player_.poll_elapsed()) : std::string("0:00:00");
         edit_owner_ = "bookcm";
-        edit_caret_ = book_cm_text_.size();
+        edit_caret_ = book_->cm_text.size();
         edit_anchor_ = 0;   // selected: typing replaces it
         return true;
     }
     if (key == 'D') {   // SHIFT+d: delete the backup
         const auto files = book_backup_files();
         if (files.empty()) { say("this book has no backup"); return true; }
-        book_cm_mode_ = 6;
+        book_->cm_mode = 6;
         return true;
     }
     if (key == 'c') {
         std::string err;
-        const std::string ext = path_utf8(path_from_utf8(book_cm_file_).extension());
-        if (plan_split(book_cm_, book_cm_dur_, ext, &err).empty()) { say(err.empty() ? "nothing to cut" : err); return true; }
-        book_cm_mode_ = 5;
+        const std::string ext = path_utf8(path_from_utf8(book_->cm_file).extension());
+        if (plan_split(book_->cm, book_->cm_dur, ext, &err).empty()) { say(err.empty() ? "nothing to cut" : err); return true; }
+        book_->cm_mode = 5;
         return true;
     }
-    if (n == 0 || book_cm_sel_ < 0 || book_cm_sel_ >= n) { say("[m] sets the first chapter mark where you are listening, [a] by its time"); return true; }
-    const ChapterMark& cur = book_cm_[static_cast<size_t>(book_cm_sel_)];
+    if (n == 0 || book_->cm_sel < 0 || book_->cm_sel >= n) { say("[m] sets the first chapter mark where you are listening, [a] by its time"); return true; }
+    const ChapterMark& cur = book_->cm[static_cast<size_t>(book_->cm_sel)];
     if (key == 'r') {
-        book_cm_mode_ = 1;
-        book_cm_edit_ = book_cm_sel_;
-        book_cm_text_ = cur.title;
+        book_->cm_mode = 1;
+        book_->cm_edit = book_->cm_sel;
+        book_->cm_text = cur.title;
         edit_owner_ = "bookcm";
-        edit_caret_ = book_cm_text_.size();
+        edit_caret_ = book_->cm_text.size();
         edit_anchor_ = 0;
         return true;
     }
     if (key == 't') {
-        if (book_cm_sel_ == 0) { say("the first chapter always starts at 0:00:00"); return true; }
-        book_cm_mode_ = 2;
-        book_cm_edit_ = book_cm_sel_;
-        book_cm_text_ = clock_hms(cur.sec);
+        if (book_->cm_sel == 0) { say("the first chapter always starts at 0:00:00"); return true; }
+        book_->cm_mode = 2;
+        book_->cm_edit = book_->cm_sel;
+        book_->cm_text = clock_hms(cur.sec);
         edit_owner_ = "bookcm";
-        edit_caret_ = book_cm_text_.size();
+        edit_caret_ = book_->cm_text.size();
         edit_anchor_ = 0;   // selected: typing replaces it
         return true;
     }
     if (key == 'x' || key == kKeyDelete || key == 127) {
-        if (book_cm_sel_ == 0 && n > 1) { say("the first chapter always starts at 0:00:00 (delete the others, or this one goes with the last)"); return true; }
-        book_cm_mode_ = 4;
+        if (book_->cm_sel == 0 && n > 1) { say("the first chapter always starts at 0:00:00 (delete the others, or this one goes with the last)"); return true; }
+        book_->cm_mode = 4;
         return true;
     }
     if (key == '\r' || key == '\n') {   // plays from the mark
@@ -286,19 +287,19 @@ bool App::book_cm_key(int key) {
 // Cutting
 // ---------------------------------------------------------------------
 void App::book_cut_start(bool trim) {
-    const fs::path dir = path_from_utf8(book_dir_);
-    const std::string ext = path_utf8(path_from_utf8(book_cm_file_).extension());
+    const fs::path dir = path_from_utf8(book_->dir);
+    const std::string ext = path_utf8(path_from_utf8(book_->cm_file).extension());
     std::string err;
     BookCutJob job;
-    job.parts = plan_split(book_cm_, book_cm_dur_, ext, &err);
-    if (job.parts.empty()) { book_ov_status_ = err.empty() ? "nothing to cut" : err; return; }
-    job.src = dir / path_from_utf8(book_cm_file_);
-    job.dir = book_dir_;
-    job.file = book_cm_file_;
+    job.parts = plan_split(book_->cm, book_->cm_dur, ext, &err);
+    if (job.parts.empty()) { book_->ov_status = err.empty() ? "nothing to cut" : err; return; }
+    job.src = dir / path_from_utf8(book_->cm_file);
+    job.dir = book_->dir;
+    job.file = book_->cm_file;
     std::error_code ec;
     for (const SplitPart& p : job.parts)
-        if (fs::exists(dir / path_from_utf8(p.file), ec)) { book_ov_status_ = "the file " + p.file + " exists already: rename or move it first"; return; }
-    if (load_in_progress_.load()) { book_ov_status_ = "the chapter is still loading: try again in a moment"; return; }
+        if (fs::exists(dir / path_from_utf8(p.file), ec)) { book_->ov_status = "the file " + p.file + " exists already: rename or move it first"; return; }
+    if (load_in_progress_.load()) { book_->ov_status = "the chapter is still loading: try again in a moment"; return; }
     bool plays_it = has_track_ && current_is_local_ && path_utf8(current_path_) == path_utf8(job.src);
     if (has_track_ && current_is_local_ && !plays_it) { std::error_code eq; plays_it = fs::equivalent(current_path_, job.src, eq) && !eq; }
     if (!plays_it && has_track_ && current_is_local_) plays_it = current_path_.filename() == job.src.filename() && current_path_.parent_path().filename() == job.src.parent_path().filename();   // (another spelling of the same folder)
@@ -311,7 +312,7 @@ void App::book_cut_start(bool trim) {
         has_track_ = false;
         history_end_current_play();
     }
-    book_seek_pending_ = false;
+    book_->seek_pending = false;
     job.active = true;
     if (trim) {   // ffmpeg looks for blank stretches first (in the background: a long file takes a while), the parts are trimmed with the result
         job.trim = job.detecting = true;
@@ -319,19 +320,19 @@ void App::book_cut_start(bool trim) {
                           "-af", "silencedetect=noise=-50dB:d=2.5", "-f", "null", "-"};
         job.detect = std::async(std::launch::async, [cmd]() { return run_capture(cmd, true).out; });
     }
-    book_cut_ = std::move(job);
-    book_ov_status_ = trim ? "looking for blank audio ..." : "cutting 0/" + std::to_string(book_cut_.parts.size()) + " ...";
+    book_->cut = std::move(job);
+    book_->ov_status = trim ? "looking for blank audio ..." : "cutting 0/" + std::to_string(book_->cut.parts.size()) + " ...";
 }
 
 void App::book_cut_step() {
-    BookCutJob& job = book_cut_;
+    BookCutJob& job = book_->cut;
     if (job.detecting) {   // waiting for the blank stretches; then the parts shrink to 2 s of blank at their edges
         if (job.detect.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         const std::string log = job.detect.get();
         job.detecting = false;
-        const int n = trim_silence(job.parts, parse_silences(log, book_cm_dur_), book_cm_dur_, 2.0);
+        const int n = trim_silence(job.parts, parse_silences(log, book_->cm_dur), book_->cm_dur, 2.0);
         ConsoleLog::instance().log_basic("book cut: " + std::to_string(n) + " part" + (n == 1 ? "" : "s") + " trimmed to 2 s of blank audio");
-        book_ov_status_ = "cutting 0/" + std::to_string(job.parts.size()) + " ...  (" + std::to_string(n) + (n == 1 ? " part" : " parts") + " trimmed)";
+        book_->ov_status = "cutting 0/" + std::to_string(job.parts.size()) + " ...  (" + std::to_string(n) + (n == 1 ? " part" : " parts") + " trimmed)";
         return;
     }
     if (job.next >= job.parts.size()) { book_cut_finish(); return; }
@@ -352,18 +353,18 @@ void App::book_cut_step() {
         job.error = "ffmpeg could not write " + p.file;
         for (const fs::path& f : job.made) fs::remove(f, ec);   // nothing is left half done; the original was not touched
         job.active = false;
-        book_ov_status_ = "cutting failed: " + job.error + " -- the original is unchanged";
-        status_line_ = book_ov_status_;
+        book_->ov_status = "cutting failed: " + job.error + " -- the original is unchanged";
+        status_line_ = book_->ov_status;
         return;
     }
     ++job.next;
-    book_ov_status_ = "cutting " + std::to_string(job.next) + "/" + std::to_string(job.parts.size()) + " ...";
+    book_->ov_status = "cutting " + std::to_string(job.next) + "/" + std::to_string(job.parts.size()) + " ...";
     if (job.next >= job.parts.size()) book_cut_finish();
 }
 
 // The parts are all there: the original becomes the backup, the .cue and the notes follow the new files.
 void App::book_cut_finish() {
-    BookCutJob& job = book_cut_;
+    BookCutJob& job = book_->cut;
     std::error_code ec;
     fs::path backup = job.src;
     backup += kBackupEnding;
@@ -379,7 +380,7 @@ void App::book_cut_finish() {
         fs::rename(job.src, backup, ec);
         if (ec && now - job.wait_start < std::chrono::seconds(90)) {
             const long secs = static_cast<long>(std::chrono::duration_cast<std::chrono::seconds>(now - job.wait_start).count());
-            book_ov_status_ = "the original is still in use (" + ec.message() + ") -- waiting for it to be let go, " + std::to_string(secs) + " s ...";
+            book_->ov_status = "the original is still in use (" + ec.message() + ") -- waiting for it to be let go, " + std::to_string(secs) + " s ...";
             return;
         }
     }
@@ -392,15 +393,15 @@ void App::book_cut_finish() {
             if (ec2) { std::error_code ec3; fs::remove(backup, ec3); }
         }
         ec = ec2 ? why : std::error_code();
-        if (ec) book_cut_error_ = why.message();
+        if (ec) book_->cut_error = why.message();
     }
     if (ec) {
-        const std::string reason = book_cut_error_;
+        const std::string reason = book_->cut_error;
         for (const fs::path& f : job.made) fs::remove(f, ec);
         job.active = false;
-        book_ov_status_ = "could not move the original aside, even after waiting 90 s: " + reason + " (" + path_utf8(job.src.filename()) +
+        book_->ov_status = "could not move the original aside, even after waiting 90 s: " + reason + " (" + path_utf8(job.src.filename()) +
                           ") -- nothing changed. Close whatever else has the file open (a preview, a virus scanner, a sync client) and cut again.";
-        status_line_ = book_ov_status_;
+        status_line_ = book_->ov_status;
         return;
     }
     // the .cue: the marks are used up; the bookmark moves to the part that holds its place
@@ -445,21 +446,21 @@ void App::book_cut_finish() {
     const size_t count = job.parts.size();
     const std::string backup_name = path_utf8(backup.filename());
     job.active = false;
-    book_cm_.clear();
+    book_->cm.clear();
     book_bookmark_load();
     {
         std::lock_guard<std::mutex> lk(row_meta_mutex_);
         row_meta_cache_.clear();
     }
     search_idx_.clear();
-    book_meta_path_.clear();
+    book_->meta_path.clear();
     rescan_library();   // the new files show up as the chapters
     std::string msg = "cut into " + std::to_string(count) + " chapters; the original is kept as " + backup_name + " (ALT+L, SHIFT+d deletes it)";
     if (moved_marks > 0) msg += "; the bookmark moved";
     if (moved_notes > 0) msg += "; " + std::to_string(moved_notes) + (moved_notes == 1 ? " note" : " notes") + " moved";
     if (!job.error.empty()) msg += "; " + job.error;
     status_line_ = msg;
-    book_ov_status_ = msg;
+    book_->ov_status = msg;
     mode_ = Mode::Browse;
 }
 
@@ -475,14 +476,14 @@ std::vector<std::string> App::build_book_cm_panel(int panel_w, int panel_h) cons
     const std::string head = header_sgr(settings_), leg = legend_sgr(settings_);
     const std::string plain_ink = ansi_for(settings_.list_color, false) + bg_ansi_for(settings_.list_inactive_bg_color);
     std::vector<std::string> lines;
-    lines.push_back(box_top("Chapter marks - " + truncate_str(book_cm_file_, std::max(8, W - 28)), W, border));
+    lines.push_back(box_top("Chapter marks - " + truncate_str(book_->cm_file, std::max(8, W - 28)), W, border));
 
-    const bool this_file = has_track_ && current_is_local_ && path_utf8(current_path_.filename()) == book_cm_file_ && path_utf8(current_path_.parent_path()) == book_dir_;
+    const bool this_file = has_track_ && current_is_local_ && path_utf8(current_path_.filename()) == book_->cm_file && path_utf8(current_path_.parent_path()) == book_->dir;
     const double pos = this_file ? player_.poll_elapsed() : -1.0;
-    const int n = static_cast<int>(book_cm_.size());
+    const int n = static_cast<int>(book_->cm.size());
     {   // where one is
         std::string info = this_file ? std::string(player_.is_paused() ? "paused at " : "playing at ") + clock_hms(pos) : std::string("not playing");
-        info += " of " + (book_cm_dur_ > 0 ? clock_hms(book_cm_dur_) : std::string("?"));
+        info += " of " + (book_->cm_dur > 0 ? clock_hms(book_->cm_dur) : std::string("?"));
         info += n >= 2 ? "   -   " + std::to_string(n) + " chapters when cut" : "   -   no chapter marks yet";
         const std::string t = truncate_str(info, inner);
         lines.push_back(framed(head + t, display_width(t)));
@@ -506,17 +507,17 @@ std::vector<std::string> App::build_book_cm_panel(int panel_w, int panel_h) cons
     const std::vector<LegendRow> lrows = book_overlay_legend(W, groups, 3);
     // the question or the status below the list: as many rows as it needs (three at most), never cut off
     std::string st_text;
-    if (book_cm_mode_ == 4) st_text = "Delete this chapter mark?   [y] yes   [n] no";
-    else if (book_cm_mode_ == 5) {
-        const std::string ext = path_utf8(path_from_utf8(book_cm_file_).extension());
-        st_text = "Cut into " + std::to_string(plan_split(book_cm_, book_cm_dur_, ext).size()) + " chapters? Playback stops; the original is kept as backup; bookmark and notes move on.   [y] yes   [t] yes, and trim blank audio at the edges to 2 s   [n] no";
-    } else if (book_cm_mode_ >= 6) {
+    if (book_->cm_mode == 4) st_text = "Delete this chapter mark?   [y] yes   [n] no";
+    else if (book_->cm_mode == 5) {
+        const std::string ext = path_utf8(path_from_utf8(book_->cm_file).extension());
+        st_text = "Cut into " + std::to_string(plan_split(book_->cm, book_->cm_dur, ext).size()) + " chapters? Playback stops; the original is kept as backup; bookmark and notes move on.   [y] yes   [t] yes, and trim blank audio at the edges to 2 s   [n] no";
+    } else if (book_->cm_mode >= 6) {
         unsigned long long bytes = 0;
         const auto files = book_backup_files();
         for (const fs::path& f : files) { std::error_code ec; bytes += fs::file_size(f, ec); }
         st_text = "Delete the backup (" + std::to_string(files.size()) + (files.size() == 1 ? " file, " : " files, ") + size_text(bytes) + ") for good? The uncut original is gone then.   [y] yes   [n] no";
-    } else if (book_cm_mode_ == 0) {
-        st_text = book_ov_status_;
+    } else if (book_->cm_mode == 0) {
+        st_text = book_->ov_status;
         if (st_text.empty()) {
             const auto files = book_backup_files();
             if (!files.empty()) st_text = "this book has a backup of an uncut original (" + std::to_string(files.size()) + (files.size() == 1 ? " file" : " files") + "): SHIFT+d deletes it";
@@ -527,20 +528,20 @@ std::vector<std::string> App::build_book_cm_panel(int panel_w, int panel_h) cons
         st_lines = wrap_words(st_text, std::max(8, inner));
         if (st_lines.size() > 3) { st_lines.resize(3); st_lines.back() = truncate_str(st_lines.back(), std::max(8, inner)); }
     }
-    const int st_rows = book_cm_mode_ >= 1 && book_cm_mode_ <= 3 ? 1 : std::max<int>(1, static_cast<int>(st_lines.size()));
+    const int st_rows = book_->cm_mode >= 1 && book_->cm_mode <= 3 ? 1 : std::max<int>(1, static_cast<int>(st_lines.size()));
     const int body = std::max(3, panel_h - 4 - st_rows - static_cast<int>(lrows.size()));   // top, info, header, status rows, bottom border, the legend
     int playing_row = -1;
-    for (int i = 0; i < n; ++i) if (pos >= 0 && pos >= book_cm_[static_cast<size_t>(i)].sec - 0.05) playing_row = i;
+    for (int i = 0; i < n; ++i) if (pos >= 0 && pos >= book_->cm[static_cast<size_t>(i)].sec - 0.05) playing_row = i;
     int first = 0;
-    if (book_cm_sel_ >= first + body) first = book_cm_sel_ - body + 1;
+    if (book_->cm_sel >= first + body) first = book_->cm_sel - body + 1;
     for (int i = 0; i < body; ++i) {
         const int idx = first + i;
         if (idx >= n) { lines.push_back(framed("", 0)); continue; }
-        const ChapterMark& m = book_cm_[static_cast<size_t>(idx)];
-        const double end = idx + 1 < n ? book_cm_[static_cast<size_t>(idx) + 1].sec : book_cm_dur_;
+        const ChapterMark& m = book_->cm[static_cast<size_t>(idx)];
+        const double end = idx + 1 < n ? book_->cm[static_cast<size_t>(idx) + 1].sec : book_->cm_dur;
         const std::string len = end > 0 ? clock_hms(std::max(0.0, end - m.sec)) : std::string("-");
         const std::string plain = cols(idx == playing_row ? "▶" : " ", std::to_string(idx + 1), clock_hms(m.sec), m.title, len);
-        const bool sel = idx == book_cm_sel_;
+        const bool sel = idx == book_->cm_sel;
         lines.push_back(framed((sel ? cursor_sgr(settings_.list_cursor_color, settings_.list_cursor_bg_color) : (idx == playing_row ? head + bg_ansi_for(settings_.list_inactive_bg_color) : plain_ink)) + plain, inner));
     }
     if (n == 0) {
@@ -552,15 +553,15 @@ std::vector<std::string> App::build_book_cm_panel(int panel_w, int panel_h) cons
         int used = 0;
         const std::string hb = bg_ansi_for(settings_.header_color);
         const std::string ask_sgr = hb.empty() ? std::string("\x1b[7m") : hb + "\x1b[30m";
-        if (book_cm_mode_ >= 1 && book_cm_mode_ <= 3) {
-            const std::string label = book_cm_mode_ == 1 ? "Title: " : book_cm_mode_ == 2 ? "Time (h:mm:ss): " : "New mark at (h:mm:ss): ";
-            size_t c = book_cm_text_.size();
+        if (book_->cm_mode >= 1 && book_->cm_mode <= 3) {
+            const std::string label = book_->cm_mode == 1 ? "Title: " : book_->cm_mode == 2 ? "Time (h:mm:ss): " : "New mark at (h:mm:ss): ";
+            size_t c = book_->cm_text.size();
             size_t a = c;
             if (edit_owner_ == "bookcm") { c = edit_caret_; a = edit_anchor_; }
-            const EditPaint p = paint_edit_field(book_cm_text_, c, a, std::max(4, inner - display_width(label)), change_sgr(settings_), true);
+            const EditPaint p = paint_edit_field(book_->cm_text, c, a, std::max(4, inner - display_width(label)), change_sgr(settings_), true);
             body_s = head + label + change_sgr(settings_) + p.s;
             used = display_width(label) + p.cols;
-        } else if (book_cm_mode_ >= 4) {
+        } else if (book_->cm_mode >= 4) {
             for (size_t i = 0; i < st_lines.size(); ++i) {
                 const std::string row = ask_sgr + pad_right(st_lines[i], inner);
                 if (i + 1 < st_lines.size()) lines.push_back(framed(row, inner)); else { body_s = row; used = inner; }

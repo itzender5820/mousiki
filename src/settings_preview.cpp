@@ -6,6 +6,7 @@
 // and sphere are fed with the signal of the radio's "TEST Stereo Chords" station, made here in the program; the spectrogram
 // with a spectrogram the Creator makes from the text "Mousiki Plus". No file, no network and no ffmpeg are needed.
 #include "app.h"
+#include "coverfetch_state.h"
 #include "hifi_bars.h"
 #include "app_internal.h"
 #include "app_settings_tables.h"
@@ -121,7 +122,7 @@ void make_sample_cover(CoverImage& c) {
 PvKind kind_of(int id, const Settings& s) {
     switch (id) {
         case kSidLyrAlign: case kSidLyrAnim: case kSidUseLyrics: return kPvLyrics;
-        case kSidUseVideo: case kSidVideoSize: case kSidVideoFx: case kSidVideoRes: case kSidVideoBuffer: case kSidVideoMp3: case kSidVideoContrast: case kSidVideoBrightness: case kSidVideoColors: case kSidVideoChroma: case kSidVideoRound: return kPvVideo;   // (a sample video; the lyrics preview when it is not there)
+        case kSidUseVideo: case kSidVideoLyrics: case kSidVideoSize: case kSidVideoFx: case kSidVideoRes: case kSidVideoBuffer: case kSidVideoMp3: case kSidVideoContrast: case kSidVideoBrightness: case kSidVideoColors: case kSidVideoChroma: case kSidVideoRound: return kPvVideo;   // (a sample video; the lyrics preview when it is not there)
         case kSidVideoClap: return kPvClap;
         case kSidDisk: case kSidDiskSpeed: return kPvDisk;
         case kSidAlbumCover: case kSidCoverMode: case kSidCoverContrast: case kSidCoverBrightness: case kSidCoverColors: case kSidCoverChroma:
@@ -328,7 +329,7 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
         const bool cover_look = kind == kPvCover;
         if (cover_look) {
             if (!P.cover.ok) make_sample_cover(P.cover);
-            if (cf_full_res_ && gfx_proto_ != GfxProto::None && settings_.cover_mode <= 4) {
+            if (cf_->full_res && gfx_proto_ != GfxProto::None && settings_.cover_mode <= 4) {
                 // a real picture (like the Style Option overlay): the box gets placeholders, the picture is set up below
                 for (int i = 0; i < dr; ++i) rows.push_back(gfx_hole(dc));
                 out.cover_mode = settings_.cover_mode;
@@ -336,7 +337,7 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
             } else {
                 rows = album_cover_lines_for(P.cover, settings_.cover_mode, settings_.cover_contrast, settings_.cover_brightness,
                                              settings_.cover_colors, P.angle, dc, dr, settings_.cover_chroma);
-                out.caption = std::string(gfx_proto_ != GfxProto::None && cf_full_res_ ? "sample cover (braille)" : "sample cover")
+                out.caption = std::string(gfx_proto_ != GfxProto::None && cf_->full_res ? "sample cover (braille)" : "sample cover")
                               + (settings_.album_cover ? "" : " (Album Cover is off)");
             }
         }

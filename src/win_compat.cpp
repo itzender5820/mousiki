@@ -195,6 +195,8 @@ std::atomic<bool> g_restored{false};
 bool g_text_entry = false;
 // While a pasted text is being thrown away (see win_poll_key()): until when its remaining characters are dropped too.
 std::chrono::steady_clock::time_point g_paste_drop_until{};
+bool g_win_paste_aware = false;   // the program handles a paste as ONE key (kKeyPaste)
+std::string g_win_paste_text;     // the text of the paste that was just returned as kKeyPaste
 Utf8ConsoleStreambuf* g_cout_buf = nullptr;
 std::streambuf* g_cout_orig_buf = nullptr;
 
@@ -330,6 +332,8 @@ void win_raw_mode_enter() {
     SetConsoleMode(g_con.in, mode);
 }
 
+void win_set_paste_aware(bool on) { g_win_paste_aware = on; }
+std::string win_take_paste() { std::string t; t.swap(g_win_paste_text); return t; }
 void win_set_text_entry(bool on) {
     if (g_text_entry == on) return;
     g_text_entry = on;
@@ -388,6 +392,53 @@ int win_poll_key() {
     if (!GetNumberOfConsoleInputEvents(g_con.in, &events) || events == 0) {
         g_last_key_was_arrow = false;
         return 0;
+    }
+
+    // Windows Terminal and conhost take CTRL+V for themselves and type the text into the console as a burst of key presses. For a program
+    // that handles pastes (and with a text field open) a burst of several characters is ONE paste: it is gathered (line breaks as '\n')
+    // and returned as kKeyPaste, so a marked text is replaced and the line breaks do not act as ENTER key by key.
+    if (g_win_paste_aware && g_text_entry && events >= 4) {
+        auto count_chars = [&](std::vector<INPUT_RECORD>& buf, DWORD& n) {
+            n = 0;
+            if (!PeekConsoleInputW(g_con.in, buf.data(), static_cast<DWORD>(buf.size()), &n)) return 0;
+            int c = 0;
+            for (DWORD i = 0; i < n; ++i) {
+                const INPUT_RECORD& r = buf[i];
+                if (r.EventType != KEY_EVENT || !r.Event.KeyEvent.bKeyDown) continue;
+                const wchar_t ch = r.Event.KeyEvent.uChar.UnicodeChar;
+                if (ch >= 32 || ch == L'\r' || ch == L'\t') ++c;
+            }
+            return c;
+        };
+        std::vector<INPUT_RECORD> buf(events < 1024 ? events : 1024);
+        DWORD n = 0;
+        if (count_chars(buf, n) >= 4) {
+            std::wstring w;
+            int quiet = 0;
+            while (quiet < 3 && w.size() < 200000) {   // (the terminal may hand the text over in pieces: wait for the end of it)
+                DWORD got = 0;
+                DWORD avail = 0;
+                GetNumberOfConsoleInputEvents(g_con.in, &avail);
+                if (avail == 0) { ++quiet; Sleep(8); continue; }
+                quiet = 0;
+                buf.resize(avail < 1024 ? avail : 1024);
+                if (!ReadConsoleInputW(g_con.in, buf.data(), static_cast<DWORD>(buf.size()), &got) || got == 0) break;
+                for (DWORD i = 0; i < got; ++i) {
+                    const INPUT_RECORD& r = buf[i];
+                    if (r.EventType != KEY_EVENT || !r.Event.KeyEvent.bKeyDown) continue;
+                    const wchar_t ch = r.Event.KeyEvent.uChar.UnicodeChar;
+                    const int reps = r.Event.KeyEvent.wRepeatCount > 0 ? r.Event.KeyEvent.wRepeatCount : 1;
+                    for (int q = 0; q < reps; ++q) {
+                        if (ch == L'\r') w.push_back(L'\n');
+                        else if (ch == L'\n') { if (w.empty() || w.back() != L'\n') w.push_back(L'\n'); }
+                        else if (ch >= 32 || ch == L'\t') w.push_back(ch);
+                    }
+                }
+            }
+            g_win_paste_text = narrow(w);
+            g_last_key_was_arrow = false;
+            return kKeyPaste;
+        }
     }
 
     // A paste (CTRL+V, SHIFT+INSERT or right click: Windows Terminal and conhost take them for themselves) reaches us as a burst of

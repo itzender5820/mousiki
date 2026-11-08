@@ -492,7 +492,7 @@ bool App::convert_overlay_key(int key) {
     if (action.empty() && lookup >= 'A' && lookup <= 'Z') action = resolve_hotkey_action(lookup + 32);
     if (action == "HKeyConvertOverlay") { convert_overlay_close(); return true; }
     static const char* const kPass[] = {
-        "HKeyTogglePlayPause", "HKeyPlayNextSong", "HKeyPlayPreviousSong", "HKeyShuffleNext", "HKeyCyclePlayMode",
+        "HKeyTogglePlayPause", "HKeyPlayNextSong", "HKeyPlayPreviousSong", "HKeyShuffleNext", "HKeyCyclePlayMode", "HKeyCyclePlayModeBack",
         "HKeySeekForward", "HKeySeekBackward", "HKeyIncreaseVolume", "HKeyDecreaseVolume", "HKeyToggleMute",
         "HKeyToggleNormalize", "HKeyQuit"};
     for (const char* a : kPass) if (action == a) return false;

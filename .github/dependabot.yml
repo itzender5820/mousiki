@@ -7,3 +7,9 @@ updates:
       interval: "weekly"
     commit-message:
       prefix: "ci"
+    groups:
+      # All steps of github/codeql-action (init, analyze, upload-sarif) must run the same version, or CodeQL fails with
+      # "Loaded a configuration file for version X, but running version Y": one pull request updates them together.
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"

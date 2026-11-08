@@ -1,6 +1,7 @@
 // Help screens: the wizard (SHIFT+w) and the cheat sheet (?). Split out of app.cpp.
 // Member functions of App (declared in app.h); the helpers shared with app.cpp are in app_internal.h.
 #include "app.h"
+#include "creator_state.h"
 #include "text_edit.h"
 #include "help_search.h"
 #include "overlay_common.h"
@@ -63,7 +64,7 @@ bool App::wizard_allowed_over_mode() const {
         case Mode::LyricsEdit: case Mode::Karaoke:
             return true;
         case Mode::Equalizer:   return !eq_naming_;                            // the "Save as:" prompt takes typed text
-        case Mode::Creator:     return !creator_on_text_field() || creator_list_open_;  // the text field takes the keyboard
+        case Mode::Creator:     return !creator_on_text_field() || creator_->list_open;  // the text field takes the keyboard
         case Mode::Playlist: case Mode::MetaEdit: case Mode::CoverFetch: return !text_entry_active(); // a text field has the keyboard
         default:                return false;                                  // text fields (search, playlist and meta editors ...), prompts
     }
@@ -194,6 +195,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "HKeyMetaEditor", "Tag editor of the chapter: file name, book title, author, narrator, chapter, publisher + year, genre (edits only, nothing is fetched); LEFT/RIGHT other chapter, [s] save, [a] book-wide rows to all chapters"},
         {nullptr, "HKeyConvertOverlay", "Converter (works on the audio books; /f: searches folders)"},
         {nullptr, "HKeyCyclePlayMode", "Play mode: on to the next chapter / repeat the chapter / stop after the chapter"},
+        {nullptr, "HKeyCyclePlayModeBack", "The same the other way round. Play mode: on to the next chapter / repeat the chapter / stop after the chapter"},
         {nullptr, "HKeySearch", "Search the books (fuzzy, over the folder names); ESC shows all books again; in the chapter pane ESC goes back to the library pane; inside a folder of the library pane ESC and LEFT go one step up"},
         {nullptr, "HKeyRescan", "Scan the audio book folder again (new books and chapters)"},
         {nullptr, "HKeyBookmark", "Audio book: set a bookmark at the exact time - a book may carry many (the last bookmarked chapter is lit in the header colour). Three kinds of time stamps: the auto-mark (kept by itself while you listen), bookmarks and notes (a bookmark with a text)"},
@@ -214,6 +216,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "HKeyPlayPreviousSong", "Play previous in list (a locked queue with titles, any pane: previous queue song)"},
         {nullptr, "HKeyShuffleNext", "Shuffle to a random next track"},
         {nullptr, "HKeyCyclePlayMode", "Cycle play mode (list/repeat/shuffle/stop/queue then stop)"},
+        {nullptr, "HKeyCyclePlayModeBack", "Cycle play mode backwards (list/repeat/shuffle/stop/queue then stop)"},
         {nullptr, "HKeySeekForward", "Seek forward 5s"},
         {nullptr, "HKeySeekBackward", "Seek backward 5s"},
         {nullptr, "HKeyIncreaseVolume", "Volume up"},
@@ -275,7 +278,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {"LYRICS & KARAOKE (MAIN UI)", "HKeyRetryLyrics", "LYRICS REFETCH AND VERSION CONTROL: pick the lyrics in use (embedded / fetched / older) with SPACE, delete a saved copy with d (asks first), or ENTER to refetch them (with your own title / artist if you like); the old version is kept. Also opens over READ LYRICS (for the track that plays) and over the karaoke screen; closing returns there"},
         {nullptr, "HKeyLyricsTiming", "Lyrics timing overlay: shift the lyrics earlier / later (toggle; only while synced lyrics are loaded)"},
         {nullptr, "#LEFT/RIGHT  UP/DOWN", "Lyrics timing overlay: -/+ 0.1 s / -/+ 0.5 s   [R] reset   [ENTER] save to the .lrc   [ESC] cancel"},
-        {nullptr, "HKeyReadLyrics", "READ AND TRANSLATE OVERLAY (READ LYRICS): the saved lyrics of the playing (else hovered) track as plain text; two top lines list the lyrics files (embedded / fetched / older) and the saved translations, which are shown in ( ) below each line"},
+        {nullptr, "HKeyReadLyrics", "READ AND TRANSLATE OVERLAY (READ LYRICS): the saved lyrics of the playing (else hovered) track as plain text; two panes side by side list the lyrics files (left: embedded / fetched / older) and the saved translations (right), which are shown in ( ) below each line   [SHIFT+c] creates an empty translation to fill in with [SHIFT+e]"},
         {nullptr, "HKeySearch", "READ LYRICS: search EVERY lyrics file by name (all lyrics folders of the library) instead of the playing track's lyrics: type to filter, UP/DOWN pick, ENTER shows the file, ESC closes the search (CTRL+L opens the playing track's lyrics again)"},
         {nullptr, "#a  CTRL+n", "ADD LYRICS MANUALLY: assign a .lrc / .txt file to a track by hand (the overlay legend lists its keys); [a] in READ LYRICS and karaoke, CTRL+n also in the re-fetch form; the old lyrics are kept as an older version"},
         {nullptr, "#LEFT/RIGHT  TAB  UP/DOWN  t  SHIFT+t  d  e", "READ LYRICS: choose the file / translation, TAB switches the pane, scroll   [t] translate   [SHIFT+t] show / next / hide translations   [d] delete a translation   [SHIFT+e] edit / add a translation by hand   [e] export the lyrics into lyrics/export   [ESC] close (the overlay legend lists the rest)"},
@@ -285,7 +288,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {"VIDEO MODE (MAIN UI)", "HKeyVideo", "VIDEO SETTINGS overlay (& = SHIFT+6 on a German keyboard, else SHIFT+y): Use Video in Lyrics Field, Include Lyrics, Auto Video, cover or thumbnail on the disk, Picture Size, Rounded Corners, Effect (this track's own effect with UP/DOWN in the big overlay), Contrast, Brightness, Colors, Chromatic Aberration, Resolution, Buffer, Show Clap Loading, Full Screen Video, Manually Couple Local Files, Quick Search/Down. YT, Delete Current Video, Refetch this Video"},
         {nullptr, "HKeyVideoFxBack", "Previous video effect for this track (the other direction of the key for the next one)"},
         {nullptr, "HKeyVideoFx", "Next video effect for this track (the picture in the video view of the field; the same effect as Video Effect in Style Option)"},
-        {nullptr, "HKeyVideoFull", "Video over the whole screen: UP/DOWN effect (of this track), SHIFT+UP/DOWN layout (video / + osci / + spectrogram; O, I their options, G grid and scales), TAB lyrics off / on / with translation, S effect, contrast, colors and chromatic aberration, LEFT/RIGHT seek, ESC closes"},
+        {nullptr, "HKeyVideoFull", "Video over the whole screen: UP/DOWN effect (of this track), SHIFT+UP/DOWN layout (video / + osci / + spectrogram; O, I their options, G grid and scales), TAB lyrics off / on / with translation / translation only (each saved translation), S effect, contrast, colors and chromatic aberration, LEFT/RIGHT seek, ESC closes"},
         {nullptr, "#. ,", "With Video Mode on, the video view joins the cycle of the lyrics area (lyrics with the picture of the track's video)"},
         {nullptr, "#SHIFT+v", "Playlist editor, meta editor and folder overlay: the library lists audio / video + audio / video"},
         {"FETCH VIDEOS (ALT+v)", "HKeyVideoFetch", "Fetch Videos overlay: the videos found on YouTube for the song under the cursor, with a preview; ALT+Left/Right: the VIDEO FILES tab lists every video, DEL deletes one"},
@@ -337,7 +340,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "#CTRL+s", "Save the playlist"},
         {nullptr, "#SHIFT+LEFT/RIGHT", "Mark text (name / search fields)"},
         {nullptr, "#CTRL+C/X/V", "Copy / cut / paste text"},
-        {nullptr, "#CTRL+z / CTRL+y", "Undo the last change in a text box (typed run / deletion / paste = one step each; both keys, as CTRL+z sits on the y key of a QWERTZ keyboard)"},
+        {nullptr, "#CTRL+z / CTRL+y", "Undo the last change in a text box (typed run / deletion / paste = one step each; both keys, as CTRL+z sits on the y key of a QWERTZ keyboard). In the translation editor: 10 steps, CTRL+r redoes"},
         // --- Meta editor -- same deal: HKeyMetaEditor opens it, everything
         // else is build_meta_screen()'s own fixed legend (both tabs).
         {"META EDITOR", "HKeyMetaEditor", "Meta editor: edit file name / artist / title / album / year; the cover of the track below the tags, [Cover Options] to choose / delete / search a cover"},
@@ -424,7 +427,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
                     cat == "SETTINGS" || cat == "SETTINGS (REFERENCE TAB)" || cat == "EQUALIZER" || cat == "SOUND (MAIN UI)" ||
                     cat == "SLEEP TIMER (MAIN UI)") keep = true;
                 else if (cat == "PLAYBACK (MAIN UI)") {
-                    static const char* const drop[] = {"HKeyPlay", "HKeyPlayNextSong", "HKeyPlayPreviousSong", "HKeyShuffleNext", "HKeyCyclePlayMode",
+                    static const char* const drop[] = {"HKeyPlay", "HKeyPlayNextSong", "HKeyPlayPreviousSong", "HKeyShuffleNext", "HKeyCyclePlayMode", "HKeyCyclePlayModeBack",
                                                        "HKeySeekForward", "HKeySeekBackward"};
                     keep = true;
                     for (const char* d : drop) if (act == d) keep = false;

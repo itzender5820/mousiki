@@ -2,6 +2,12 @@
 // Part of class App (src/app.h): Drawing a whole frame of the main screen (render_frame) and the pieces it is made of.
 // Split out of app.cpp; the includes are the same as there.
 #include "app.h"
+#include "playlist_state.h"
+#include "meta_state.h"
+#include "book_state.h"
+#include "creator_state.h"
+#include "coverfetch_state.h"
+#include "readlyrics_state.h"
 #include "text_edit.h"
 #include "overlay_common.h"
 #include "remote_server.h"
@@ -229,6 +235,255 @@ void App::karaoke_ensure_lyrics() {
     launch_lyrics_fetch(metadata_.name, artist, current_path_);
 }
 
+// The screens that take over the whole terminal (settings, console, cheat sheet, wizard, karaoke, playlist editor, the fetch / meta / history
+// / lyrics screens ...), split out of render_frame(): nullopt when the current mode is none of them (the Browse view follows).
+std::optional<std::string> App::render_takeover_screen(int term_cols, int W, bool hard_clear) {
+    // Every overlay below lays itself out against player_view_height() --
+    // the height of the Browse view it stands in for -- but that value can
+    // exceed what actually fits: list_visible_rows_ is only recomputed
+    // while Browse itself is being rendered, so anything that grows the
+    // metadata panel while another mode is up (playback starting, for
+    // instance) leaves it stale and pvH points past the bottom of the
+    // screen. clamp_output_rows() keeps term_rows_ - 1 lines, so the
+    // budget asked for here is min(pvH, term_rows_ - 1): an overlay laid
+    // out taller than the screen would have its own footer -- hint line
+    // plus status line -- chopped off on every single frame, which is the
+    // same bug that would otherwise hide Browse's status line entirely.
+    auto overlay_budget = [&](int w) {
+        return std::min(player_view_height(w), std::max(1, term_rows_ - 1));
+    };
+
+    // Finishes a full-screen frame: clamp to the terminal height, and -- unless
+    // this is the frame that switches the mode / resizes (hard_clear) -- repaint
+    // in place instead of erasing the whole screen again (see
+    // soften_fullscreen_frame()).
+    auto fullscreen_out = [&](std::ostringstream& frame) {
+        std::string clamped = clamp_output_rows(frame.str(), term_rows_);
+        return hard_clear ? clamped : soften_fullscreen_frame(clamped, term_cols);
+    };
+
+    if (term_cols < 40) {   // narrower than any screen is drawn (W is never below 40): a note instead of a frame the terminal would wrap
+        std::ostringstream frame;
+        frame << "\x1b[2J\x1b[H\x1b[?25l";
+        const auto msg = wrap_lines("Window too narrow: Mousiki needs at least 40 columns.", std::max(1, term_cols), std::max(1, term_rows_ - 1));
+        for (size_t i = 0; i < msg.size(); ++i) frame << "\x1b[" << (i + 1) << ";1H" << msg[i];
+        return fullscreen_out(frame);
+    }
+
+    if (mode_ == Mode::Settings || mode_ == Mode::ColorEdit || (mode_ == Mode::AudioDevice && adev_from_settings_)) {
+        std::ostringstream frame;
+        frame << "\x1b[2J\x1b[H\x1b[?25l";
+        build_settings_screen(frame, W, overlay_budget(W));
+        // The cover preview of the Settings screen is the one picture it may show; any other picture switched on while building the
+        // screen (the colour tab's theme preview builds the main screen's disk) must stay off.
+        if (!pv_cover_pic_) gfx_.active = false;
+        gfx2_.active = false;   // (the main screen's second picture -- the oscilloscope next to a cover -- never belongs here)
+        gfx_ok_ = gfx_.active;
+        if (remote_ov_.open) remote_overlay_draw(frame, W);
+        if (mode_ == Mode::AudioDevice) draw_floating_panel(frame, build_audio_device_panel(), kAudioDevicePanelWidth, W);
+        return fullscreen_out(frame);
+    }
+
+    if (mode_ == Mode::Console) {
+        capture_status();
+        std::ostringstream frame;
+        frame << "\x1b[2J\x1b[H\x1b[?25l";
+        build_console_screen(frame, W, overlay_budget(W));
+        return fullscreen_out(frame);
+    }
+
+    if (mode_ == Mode::Cheatsheet) {
+        std::ostringstream frame;
+        frame << "\x1b[2J\x1b[H\x1b[?25l";
+        build_cheatsheet_screen(frame, W);
+        return fullscreen_out(frame);
+    }
+
+    if (mode_ == Mode::Wizard) {
+        std::ostringstream frame;
+        frame << "\x1b[2J\x1b[H\x1b[?25l";
+        build_wizard_screen(frame, W);
+        return fullscreen_out(frame);
+    }
+
+    // The karaoke screen.
+    if (mode_ == Mode::Karaoke || (mode_ == Mode::LyricsEdit && lyrics_edit_from_karaoke_) || (mode_ == Mode::RetryLyrics && rl_from_karaoke_)) {
+        karaoke_ensure_lyrics();   // the karaoke overlay always has the lyrics engine, whatever the main screen uses
+        std::ostringstream frame;
+        frame << "\x1b[2J\x1b[H\x1b[?25l";
+        build_karaoke_screen(frame, W, term_rows_);
+        // The legend occupies the very last terminal row (it has no line break after it, so nothing scrolls): the clamp
+        // is told about one more row than usual so it does not cut that row off.
+        std::string out = clamp_output_rows(frame.str(), term_rows_ + 1);
+        if (!hard_clear) out = soften_fullscreen_frame(out, term_cols);
+        if (mode_ == Mode::LyricsEdit) {
+            std::ostringstream floating;
+            draw_floating_panel(floating, build_lyrics_edit_panel(), kLyricsEditPanelWidth, W);
+            out += floating.str();
+        }
+        if (mode_ == Mode::RetryLyrics) {
+            std::ostringstream floating;
+            draw_floating_panel(floating, build_retry_lyrics_panel(), kRetryLyricsPanelWidth, W, 0, true);
+            out += floating.str();
+        }
+        return out;
+    }
+
+    if (mode_ == Mode::Playlist) {
+        std::ostringstream frame;
+        frame << "\x1b[2J\x1b[H\x1b[?25l";
+        build_playlist_screen(frame, W, overlay_budget(W));
+        std::string out = fullscreen_out(frame);
+        if (playlist_->export_open) {
+            // The export overlay floats on top (absolute cursor positions, no newlines) -- appended AFTER the row clamp,
+            // which would otherwise cut it off with everything past the last screen row.
+            std::ostringstream panel;
+            const int pw = std::clamp(W - 10, 50, 100);
+            draw_floating_panel(panel, build_playlist_export_panel(pw), pw, W);
+            out += panel.str();
+        }
+        if (playlist_->import_open) { // same floating treatment as the export overlay
+            std::ostringstream panel;
+            const int pw = std::clamp(W - 10, 50, 100);
+            draw_floating_panel(panel, build_playlist_import_panel(pw), pw, W);
+            out += panel.str();
+        }
+        return out;
+    }
+
+    if (mode_ == Mode::VideoFetch) {
+        std::ostringstream frame;
+        frame << "\x1b[2J\x1b[H\x1b[?25l";
+        const int vf_budget = overlay_budget(W);
+        gfx_.active = false;
+        gfx2_.active = false;
+        build_vf_screen(frame, W, vf_budget);   // (switches gfx_ on when the preview is drawn as a real picture)
+        std::string shown = fullscreen_out(frame);
+        frame_main_len_ = shown.size();
+        gfx_ok_ = gfx_.active;
+        return shown;
+    }
+
+    if (mode_ == Mode::CoverFetch) {
+        std::ostringstream frame;
+        frame << "\x1b[2J\x1b[H\x1b[?25l";
+        const int cf_budget = overlay_budget(W);   // (this builds the main screen's metadata panel, which switches the cover picture slots on)
+        gfx_.active = false;
+        gfx2_.active = false;
+        build_cf_screen(frame, W, cf_budget);   // (switches gfx_ on when the cover is drawn as a real picture)
+        std::string shown = fullscreen_out(frame);
+        frame_main_len_ = shown.size();
+        gfx_ok_ = gfx_.active;
+        return shown;
+    }
+
+    if (mode_ == Mode::MetaEdit && !(meta_->sty_open && meta_->sty_from_main)) {
+        // The five field values are resolved right before drawing them:
+        // reading a tag can promote into the shared cache, and the panel
+        // builder itself is const (see meta_refresh_hover_values()).
+        meta_refresh_hover_values();
+        std::ostringstream frame;
+        frame << "\x1b[2J\x1b[H\x1b[?25l";
+        const int meta_budget = overlay_budget(W);   // (this builds the main screen's metadata panel, which switches the picture slots on)
+        gfx_.active = false;
+        gfx2_.active = false;
+        // Opened with the main UI's key (HKeyStyleOptions): only the Style Option panel, no meta editor behind it
+        build_meta_screen(frame, W, meta_budget);   // (switches gfx_ on when the cover is drawn as a real picture)
+        std::string shown = fullscreen_out(frame);
+        frame_main_len_ = shown.size();
+        gfx_ok_ = gfx_.active;
+        if (meta_->choice_open) {
+            std::ostringstream panel;
+            draw_floating_panel(panel, build_meta_choice_panel(), kMetaChoicePanelWidth, W);
+            shown += panel.str();
+        }
+        if (meta_->cov_open) {
+            std::ostringstream panel;
+            draw_floating_panel(panel, build_meta_cov_panel(W), kMetaCovPanelWidth, W);
+            shown += panel.str();
+            gfx_ok_ = gfx_.active;   // (the panel's preview is a real picture when [t] says so)
+        }
+        if (meta_->sty_open) {
+            std::ostringstream panel;
+            { const auto sty = build_meta_sty_panel(W); draw_floating_panel(panel, sty, meta_sty_panel_width(W), W, 0, false, meta_sty_start_row(static_cast<int>(sty.size()))); }
+            shown += panel.str();
+            gfx_ok_ = gfx_.active;   // (the preview is a real picture when the terminal can show one and [t] says so)
+        }
+        // Saving takes a moment for a few files and a while for hundreds: the panel only appears when it lasts longer than ~1 s.
+        if (meta_->save.active && std::chrono::steady_clock::now() - meta_->save.started > std::chrono::milliseconds(1000)) {
+            std::ostringstream panel;
+            draw_floating_panel(panel, build_meta_save_panel(), kMetaSavePanelWidth, W);
+            shown += panel.str();
+        }
+        return shown;
+    }
+
+    if (mode_ == Mode::History) {
+        std::ostringstream frame;
+        frame << "\x1b[2J\x1b[H\x1b[?25l";
+        build_history_screen(frame, W, overlay_budget(W));
+        return fullscreen_out(frame);
+    }
+
+    if (mode_ == Mode::ReadLyrics && rd_->add_open) {   // "add lyrics manually": a full-window screen of its own
+        std::ostringstream frame;
+        frame << "\x1b[2J\x1b[H\x1b[?25l";
+        draw_floating_panel(frame, build_readlyrics_add_panel(W), std::max(70, W), W, 1, true, 1);
+        {   // the key legend under the panel
+            const auto legend = build_readlyrics_add_legend(W);
+            const int first_row = std::max(1, term_rows_ - 1 - static_cast<int>(legend.size()) + 1);
+            for (size_t i = 0; i < legend.size(); ++i) frame << "\x1b[" << (first_row + static_cast<int>(i)) << ";1H" << legend[i];
+        }
+        return fullscreen_out(frame);
+    }
+
+    if (mode_ == Mode::ReadLyrics && rd_->te_open) {   // "edit / add translation": a full-window screen of its own
+        std::ostringstream frame;
+        frame << "\x1b[2J\x1b[H\x1b[?25l";
+        draw_floating_panel(frame, build_readlyrics_te_panel(W), std::max(70, W), W, 1, true, 1);
+        {
+            const auto legend = build_readlyrics_te_legend(W);
+            const int first_row = std::max(1, term_rows_ - 1 - static_cast<int>(legend.size()) + 1);
+            for (size_t i = 0; i < legend.size(); ++i) frame << "\x1b[" << (first_row + static_cast<int>(i)) << ";1H" << legend[i];
+        }
+        return fullscreen_out(frame);
+    }
+
+    if (mode_ == Mode::ReadLyrics || (mode_ == Mode::LyricsEdit && lyrics_edit_from_reader_) || (mode_ == Mode::RetryLyrics && rl_from_reader_)) {
+        std::ostringstream frame;
+        frame << "\x1b[2J\x1b[H\x1b[?25l";
+        build_readlyrics_screen(frame, W, overlay_budget(W));
+        std::string shown = fullscreen_out(frame);
+        if (mode_ == Mode::LyricsEdit) {
+            std::ostringstream panel;
+            draw_floating_panel(panel, build_lyrics_edit_panel(), kLyricsEditPanelWidth, W);
+            shown += panel.str();
+        }
+        if (mode_ == Mode::RetryLyrics) {
+            std::ostringstream panel;
+            draw_floating_panel(panel, build_retry_lyrics_panel(), kRetryLyricsPanelWidth, W, 0, true);
+            shown += panel.str();
+        }
+        if (rd_->opts_open) {
+            std::ostringstream panel;
+            draw_floating_panel(panel, build_readlyrics_options_panel(), 66, W);
+            shown += panel.str();
+        }
+        if (rd_->exp_open) {
+            std::ostringstream panel;
+            draw_floating_panel(panel, build_readlyrics_export_panel(), 74, W);
+            shown += panel.str();
+        }
+        if (rd_->search_open) {
+            std::ostringstream panel;
+            draw_floating_panel(panel, build_readlyrics_search_panel(), 74, W);
+            shown += panel.str();
+        }
+        return shown;
+    }
+    return std::nullopt;
+}
+
 std::string App::render_frame(TerminalIO& term) {
     // SHIFT+p in the theme picker: the normal main screen with the highlighted theme, kept still (the first frame is stored and
     // handed out again; the caller skips identical frames) until a key closes it, the theme changes or the window is resized.
@@ -329,7 +584,7 @@ std::string App::render_frame(TerminalIO& term) {
     auto mode_family = [this](Mode m) {
         if ((m == Mode::LyricsEdit && lyrics_edit_from_reader_) || (m == Mode::RetryLyrics && rl_from_reader_)) return 9;   // (drawn on the READ LYRICS screen)
         if ((m == Mode::LyricsEdit && lyrics_edit_from_karaoke_) || (m == Mode::RetryLyrics && rl_from_karaoke_)) return 7;   // (drawn on the karaoke screen)
-        if (m == Mode::MetaEdit && meta_sty_open_ && meta_sty_from_main_) return 0;   // the Style Option panel over the main screen
+        if (m == Mode::MetaEdit && meta_->sty_open && meta_->sty_from_main) return 0;   // the Style Option panel over the main screen
         if (m == Mode::AudioDevice) return adev_from_settings_ ? 1 : 0;     // over the settings screen or over the main screen
         switch (m) {
             case Mode::Browse: case Mode::Search: case Mode::BulkAdd: case Mode::RetryLyrics: case Mode::ClearQueue: case Mode::UpdateNotice: case Mode::QueueToPlaylist: case Mode::OsciMenu: case Mode::SpectroMenu: case Mode::NormMenu: case Mode::BarsMenu: case Mode::Equalizer: case Mode::SleepTimer: case Mode::Creator: case Mode::LyricsEdit: case Mode::BookOverlay: case Mode::AudioDevice: case Mode::VideoMenu: case Mode::VideoLink: case Mode::VideoSearch: return 0;
@@ -351,7 +606,7 @@ std::string App::render_frame(TerminalIO& term) {
     // (the audio book's full-screen faces - notes, bookmarks, chapter marks - count too: closing them clears the whole screen, so no row of
     // their window or legend can stay behind in the main screen)
     const bool book_big_overlay = audiobook_ && mode_ == Mode::BookOverlay &&
-        (book_ov_kind_ == BookOv::Notes || book_ov_kind_ == BookOv::Marks || book_ov_kind_ == BookOv::Chapters);
+        (book_->ov_kind == BookOv::Notes || book_->ov_kind == BookOv::Marks || book_->ov_kind == BookOv::Chapters);
     const bool big_overlay_now = list_overlay_active() || convert_overlay_active() || folder_overlay_active() || queue_overlay_active() || book_big_overlay;
     const bool overlay_closed = last_big_overlay_ && !big_overlay_now;
     last_big_overlay_ = big_overlay_now;
@@ -374,13 +629,13 @@ std::string App::render_frame(TerminalIO& term) {
     // screen first is what shows as the UI "jumping up, getting cut and redrawing" while a window is dragged. Everything else keeps
     // the full erase (pictures must be re-sent, other screens place cells absolutely).
     const bool size_only_change = hard_clear && !overlay_closed && !force_was && mode_family(mode_) == mode_family(prev_mode_for_clear) &&
-        mode_ == Mode::Browse && !(gfx_ok_ && gfx_.active) && !creator_show_ && !list_overlay_active() && !convert_overlay_active() &&
+        mode_ == Mode::Browse && !(gfx_ok_ && gfx_.active) && !creator_->show && !list_overlay_active() && !convert_overlay_active() &&
         !folder_overlay_active() && !queue_overlay_active() && !book_big_overlay;
     const char* clear_prefix = (hard_clear && !size_only_change) ? "\x1b[2J\x1b[H" : "\x1b[H";
-    if (hard_clear) cf_pic_key_.clear();   // the screen is wiped: a cover preview picture (meta editor, cover menus) must be sent again
+    if (hard_clear) cf_->pic_key.clear();   // the screen is wiped: a cover preview picture (meta editor, cover menus) must be sent again
 
     // The creator's preview (after "Create"): the oscilloscope music or the spectrogram of the new file over the whole screen
-    if (creator_show_ && mode_ == Mode::Browse) {
+    if (creator_->show && mode_ == Mode::Browse) {
         std::string out = build_creator_preview(W, clear_prefix);
         frame_main_len_ = out.size();
         gfx_ok_ = gfx_.active;
@@ -391,7 +646,7 @@ std::string App::render_frame(TerminalIO& term) {
     if (mode_ == Mode::MenuIndex && !settings_.menu_index_classic) {
         gfx_.active = false;
         gfx_ok_ = false;
-        std::string out = clear_prefix + build_menu_index_full(W);
+        std::string out = clear_prefix + clamp_output_rows(build_menu_index_full(W), term_rows_);
         frame_main_len_ = out.size();
         return out;
     }
@@ -479,249 +734,7 @@ std::string App::render_frame(TerminalIO& term) {
         return out;
     }
 
-    // Every overlay below lays itself out against player_view_height() --
-    // the height of the Browse view it stands in for -- but that value can
-    // exceed what actually fits: list_visible_rows_ is only recomputed
-    // while Browse itself is being rendered, so anything that grows the
-    // metadata panel while another mode is up (playback starting, for
-    // instance) leaves it stale and pvH points past the bottom of the
-    // screen. clamp_output_rows() keeps term_rows_ - 1 lines, so the
-    // budget asked for here is min(pvH, term_rows_ - 1): an overlay laid
-    // out taller than the screen would have its own footer -- hint line
-    // plus status line -- chopped off on every single frame, which is the
-    // same bug that would otherwise hide Browse's status line entirely.
-    auto overlay_budget = [&](int w) {
-        return std::min(player_view_height(w), std::max(1, term_rows_ - 1));
-    };
-
-    // Finishes a full-screen frame: clamp to the terminal height, and -- unless
-    // this is the frame that switches the mode / resizes (hard_clear) -- repaint
-    // in place instead of erasing the whole screen again (see
-    // soften_fullscreen_frame()).
-    auto fullscreen_out = [&](std::ostringstream& frame) {
-        std::string clamped = clamp_output_rows(frame.str(), term_rows_);
-        return hard_clear ? clamped : soften_fullscreen_frame(clamped, term_cols);
-    };
-
-    if (term_cols < 40) {   // narrower than any screen is drawn (W is never below 40): a note instead of a frame the terminal would wrap
-        std::ostringstream frame;
-        frame << "\x1b[2J\x1b[H\x1b[?25l";
-        const auto msg = wrap_lines("Window too narrow: Mousiki needs at least 40 columns.", std::max(1, term_cols), std::max(1, term_rows_ - 1));
-        for (size_t i = 0; i < msg.size(); ++i) frame << "\x1b[" << (i + 1) << ";1H" << msg[i];
-        return fullscreen_out(frame);
-    }
-
-    if (mode_ == Mode::Settings || mode_ == Mode::ColorEdit || (mode_ == Mode::AudioDevice && adev_from_settings_)) {
-        std::ostringstream frame;
-        frame << "\x1b[2J\x1b[H\x1b[?25l";
-        build_settings_screen(frame, W, overlay_budget(W));
-        // The cover preview of the Settings screen is the one picture it may show; any other picture switched on while building the
-        // screen (the colour tab's theme preview builds the main screen's disk) must stay off.
-        if (!pv_cover_pic_) gfx_.active = false;
-        gfx2_.active = false;   // (the main screen's second picture -- the oscilloscope next to a cover -- never belongs here)
-        gfx_ok_ = gfx_.active;
-        if (remote_ov_.open) remote_overlay_draw(frame, W);
-        if (mode_ == Mode::AudioDevice) draw_floating_panel(frame, build_audio_device_panel(), kAudioDevicePanelWidth, W);
-        return fullscreen_out(frame);
-    }
-
-    if (mode_ == Mode::Console) {
-        capture_status();
-        std::ostringstream frame;
-        frame << "\x1b[2J\x1b[H\x1b[?25l";
-        build_console_screen(frame, W, overlay_budget(W));
-        return fullscreen_out(frame);
-    }
-
-    if (mode_ == Mode::Cheatsheet) {
-        std::ostringstream frame;
-        frame << "\x1b[2J\x1b[H\x1b[?25l";
-        build_cheatsheet_screen(frame, W);
-        return fullscreen_out(frame);
-    }
-
-    if (mode_ == Mode::Wizard) {
-        std::ostringstream frame;
-        frame << "\x1b[2J\x1b[H\x1b[?25l";
-        build_wizard_screen(frame, W);
-        return fullscreen_out(frame);
-    }
-
-    // The karaoke screen.
-    if (mode_ == Mode::Karaoke || (mode_ == Mode::LyricsEdit && lyrics_edit_from_karaoke_) || (mode_ == Mode::RetryLyrics && rl_from_karaoke_)) {
-        karaoke_ensure_lyrics();   // the karaoke overlay always has the lyrics engine, whatever the main screen uses
-        std::ostringstream frame;
-        frame << "\x1b[2J\x1b[H\x1b[?25l";
-        build_karaoke_screen(frame, W, term_rows_);
-        // The legend occupies the very last terminal row (it has no line break after it, so nothing scrolls): the clamp
-        // is told about one more row than usual so it does not cut that row off.
-        std::string out = clamp_output_rows(frame.str(), term_rows_ + 1);
-        if (!hard_clear) out = soften_fullscreen_frame(out, term_cols);
-        if (mode_ == Mode::LyricsEdit) {
-            std::ostringstream floating;
-            draw_floating_panel(floating, build_lyrics_edit_panel(), kLyricsEditPanelWidth, W);
-            out += floating.str();
-        }
-        if (mode_ == Mode::RetryLyrics) {
-            std::ostringstream floating;
-            draw_floating_panel(floating, build_retry_lyrics_panel(), kRetryLyricsPanelWidth, W, 0, true);
-            out += floating.str();
-        }
-        return out;
-    }
-
-    if (mode_ == Mode::Playlist) {
-        std::ostringstream frame;
-        frame << "\x1b[2J\x1b[H\x1b[?25l";
-        build_playlist_screen(frame, W, overlay_budget(W));
-        std::string out = fullscreen_out(frame);
-        if (playlist_export_open_) {
-            // The export overlay floats on top (absolute cursor positions, no newlines) -- appended AFTER the row clamp,
-            // which would otherwise cut it off with everything past the last screen row.
-            std::ostringstream panel;
-            const int pw = std::clamp(W - 10, 50, 100);
-            draw_floating_panel(panel, build_playlist_export_panel(pw), pw, W);
-            out += panel.str();
-        }
-        if (playlist_import_open_) { // same floating treatment as the export overlay
-            std::ostringstream panel;
-            const int pw = std::clamp(W - 10, 50, 100);
-            draw_floating_panel(panel, build_playlist_import_panel(pw), pw, W);
-            out += panel.str();
-        }
-        return out;
-    }
-
-    if (mode_ == Mode::VideoFetch) {
-        std::ostringstream frame;
-        frame << "\x1b[2J\x1b[H\x1b[?25l";
-        const int vf_budget = overlay_budget(W);
-        gfx_.active = false;
-        gfx2_.active = false;
-        build_vf_screen(frame, W, vf_budget);   // (switches gfx_ on when the preview is drawn as a real picture)
-        std::string shown = fullscreen_out(frame);
-        frame_main_len_ = shown.size();
-        gfx_ok_ = gfx_.active;
-        return shown;
-    }
-
-    if (mode_ == Mode::CoverFetch) {
-        std::ostringstream frame;
-        frame << "\x1b[2J\x1b[H\x1b[?25l";
-        const int cf_budget = overlay_budget(W);   // (this builds the main screen's metadata panel, which switches the cover picture slots on)
-        gfx_.active = false;
-        gfx2_.active = false;
-        build_cf_screen(frame, W, cf_budget);   // (switches gfx_ on when the cover is drawn as a real picture)
-        std::string shown = fullscreen_out(frame);
-        frame_main_len_ = shown.size();
-        gfx_ok_ = gfx_.active;
-        return shown;
-    }
-
-    if (mode_ == Mode::MetaEdit && !(meta_sty_open_ && meta_sty_from_main_)) {
-        // The five field values are resolved right before drawing them:
-        // reading a tag can promote into the shared cache, and the panel
-        // builder itself is const (see meta_refresh_hover_values()).
-        meta_refresh_hover_values();
-        std::ostringstream frame;
-        frame << "\x1b[2J\x1b[H\x1b[?25l";
-        const int meta_budget = overlay_budget(W);   // (this builds the main screen's metadata panel, which switches the picture slots on)
-        gfx_.active = false;
-        gfx2_.active = false;
-        // Opened with the main UI's key (HKeyStyleOptions): only the Style Option panel, no meta editor behind it
-        build_meta_screen(frame, W, meta_budget);   // (switches gfx_ on when the cover is drawn as a real picture)
-        std::string shown = fullscreen_out(frame);
-        frame_main_len_ = shown.size();
-        gfx_ok_ = gfx_.active;
-        if (meta_choice_open_) {
-            std::ostringstream panel;
-            draw_floating_panel(panel, build_meta_choice_panel(), kMetaChoicePanelWidth, W);
-            shown += panel.str();
-        }
-        if (meta_cov_open_) {
-            std::ostringstream panel;
-            draw_floating_panel(panel, build_meta_cov_panel(W), kMetaCovPanelWidth, W);
-            shown += panel.str();
-            gfx_ok_ = gfx_.active;   // (the panel's preview is a real picture when [t] says so)
-        }
-        if (meta_sty_open_) {
-            std::ostringstream panel;
-            { const auto sty = build_meta_sty_panel(W); draw_floating_panel(panel, sty, meta_sty_panel_width(W), W, 0, false, meta_sty_start_row(static_cast<int>(sty.size()))); }
-            shown += panel.str();
-            gfx_ok_ = gfx_.active;   // (the preview is a real picture when the terminal can show one and [t] says so)
-        }
-        // Saving takes a moment for a few files and a while for hundreds: the panel only appears when it lasts longer than ~1 s.
-        if (meta_save_.active && std::chrono::steady_clock::now() - meta_save_.started > std::chrono::milliseconds(1000)) {
-            std::ostringstream panel;
-            draw_floating_panel(panel, build_meta_save_panel(), kMetaSavePanelWidth, W);
-            shown += panel.str();
-        }
-        return shown;
-    }
-
-    if (mode_ == Mode::History) {
-        std::ostringstream frame;
-        frame << "\x1b[2J\x1b[H\x1b[?25l";
-        build_history_screen(frame, W, overlay_budget(W));
-        return fullscreen_out(frame);
-    }
-
-    if (mode_ == Mode::ReadLyrics && rd_add_open_) {   // "add lyrics manually": a full-window screen of its own
-        std::ostringstream frame;
-        frame << "\x1b[2J\x1b[H\x1b[?25l";
-        draw_floating_panel(frame, build_readlyrics_add_panel(W), std::max(70, W), W, 1, true, 1);
-        {   // the key legend under the panel
-            const auto legend = build_readlyrics_add_legend(W);
-            const int first_row = std::max(1, term_rows_ - 1 - static_cast<int>(legend.size()) + 1);
-            for (size_t i = 0; i < legend.size(); ++i) frame << "\x1b[" << (first_row + static_cast<int>(i)) << ";1H" << legend[i];
-        }
-        return fullscreen_out(frame);
-    }
-
-    if (mode_ == Mode::ReadLyrics && rd_te_open_) {   // "edit / add translation": a full-window screen of its own
-        std::ostringstream frame;
-        frame << "\x1b[2J\x1b[H\x1b[?25l";
-        draw_floating_panel(frame, build_readlyrics_te_panel(W), std::max(70, W), W, 1, true, 1);
-        {
-            const auto legend = build_readlyrics_te_legend(W);
-            const int first_row = std::max(1, term_rows_ - 1 - static_cast<int>(legend.size()) + 1);
-            for (size_t i = 0; i < legend.size(); ++i) frame << "\x1b[" << (first_row + static_cast<int>(i)) << ";1H" << legend[i];
-        }
-        return fullscreen_out(frame);
-    }
-
-    if (mode_ == Mode::ReadLyrics || (mode_ == Mode::LyricsEdit && lyrics_edit_from_reader_) || (mode_ == Mode::RetryLyrics && rl_from_reader_)) {
-        std::ostringstream frame;
-        frame << "\x1b[2J\x1b[H\x1b[?25l";
-        build_readlyrics_screen(frame, W, overlay_budget(W));
-        std::string shown = fullscreen_out(frame);
-        if (mode_ == Mode::LyricsEdit) {
-            std::ostringstream panel;
-            draw_floating_panel(panel, build_lyrics_edit_panel(), kLyricsEditPanelWidth, W);
-            shown += panel.str();
-        }
-        if (mode_ == Mode::RetryLyrics) {
-            std::ostringstream panel;
-            draw_floating_panel(panel, build_retry_lyrics_panel(), kRetryLyricsPanelWidth, W, 0, true);
-            shown += panel.str();
-        }
-        if (rd_opts_open_) {
-            std::ostringstream panel;
-            draw_floating_panel(panel, build_readlyrics_options_panel(), 66, W);
-            shown += panel.str();
-        }
-        if (rd_exp_open_) {
-            std::ostringstream panel;
-            draw_floating_panel(panel, build_readlyrics_export_panel(), 74, W);
-            shown += panel.str();
-        }
-        if (rd_search_open_) {
-            std::ostringstream panel;
-            draw_floating_panel(panel, build_readlyrics_search_panel(), 74, W);
-            shown += panel.str();
-        }
-        return shown;
-    }
+    if (auto takeover = render_takeover_screen(term_cols, W, hard_clear)) return *takeover;
 
     // --- Browse mode (and the background behind BulkAdd/RetryLyrics):
     // figure out how many list/queue rows actually fit before building
@@ -739,7 +752,7 @@ std::string App::render_frame(TerminalIO& term) {
     // loading indicator row -- and, since neither of them is there most of
     // the time, no row at all is reserved when both are absent (see below).
     std::vector<std::string> prompt_lines;
-    if (meta_prompt_ != MetaPrompt::None && mode_ == Mode::Browse) {
+    if (meta_->prompt != MetaPrompt::None && mode_ == Mode::Browse) {
         prompt_lines = wrap_lines(meta_fetch_disclaimer() + "   [Y]es   [N]o   [ESC] cancel",
                                   std::max(10, W - 2), 2);
     }
@@ -939,7 +952,7 @@ std::string App::render_frame(TerminalIO& term) {
         draw_floating_panel(floating, build_eq_panel(), kEqPanelWidth, W);
     } else if (mode_ == Mode::MetaEdit) {   // the Style Option panel of the playing track (HKeyStyleOptions), over the main screen
         meta_refresh_hover_values();
-        meta_sty_pic_ = 0;
+        meta_->sty_pic = 0;
         { const auto sty = build_meta_sty_panel(W); draw_floating_panel(floating, sty, meta_sty_panel_width(W), W, 0, false, meta_sty_start_row(static_cast<int>(sty.size()))); }
     }
     out += floating.str();
@@ -982,7 +995,7 @@ std::string App::render_frame(TerminalIO& term) {
         const bool floating_mode = mode_ != Mode::Browse && mode_ != Mode::Search;
         const bool covered_all = list_overlay_active() || queue_overlay_active() || folder_overlay_active() || convert_overlay_active();
         if (covered_all || (mode_family(mode_) != 0)) gfx_.active = false;
-        else if ((meta_sty_pic_ == 1 && mode_ == Mode::MetaEdit) || (vs_pic_ == 1 && mode_ == Mode::VideoSearch) || (vl_pic_ == 1 && mode_ == Mode::VideoLink)) {   // the preview of the Style Option panel (over the main screen) owns the picture slot: it lies inside the panel
+        else if ((meta_->sty_pic == 1 && mode_ == Mode::MetaEdit) || (vs_pic_ == 1 && mode_ == Mode::VideoSearch) || (vl_pic_ == 1 && mode_ == Mode::VideoLink)) {   // the preview of the Style Option panel (over the main screen) owns the picture slot: it lies inside the panel
             gfx_.crop = 0;
             gfx_.cut_w = 0;
         } else {
@@ -1001,7 +1014,7 @@ std::string App::render_frame(TerminalIO& term) {
         // the oscilloscope picture next to an album cover (second slot): a floating panel frees its columns as it does for gfx_
         if (gfx_.active && gfx2_.active) {
             gfx2_.crop = 0;
-            const bool own_second = (meta_sty_pic_ == 2 && mode_ == Mode::MetaEdit) || (vs_pic_ == 2 && mode_ == Mode::VideoSearch) || (vl_pic_ == 2 && mode_ == Mode::VideoLink);   // the Style Option preview lies inside its own panel
+            const bool own_second = (meta_->sty_pic == 2 && mode_ == Mode::MetaEdit) || (vs_pic_ == 2 && mode_ == Mode::VideoSearch) || (vl_pic_ == 2 && mode_ == Mode::VideoLink);   // the Style Option preview lies inside its own panel
             const bool floating_mode = !own_second && mode_ != Mode::Browse && mode_ != Mode::Search;
             const int fx = float_rect_[0], fy = float_rect_[1], fw = float_rect_[2], fh = float_rect_[3];
             if (gfx2_.plain) plain_hole(gfx2_, gfx2_full_level_, gfx2_last_cut_, floating_mode);   // (the video next to the disk: a hole, not a cut-off of whole columns)

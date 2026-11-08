@@ -11,6 +11,8 @@
 #include "scope_big.h"
 
 #include <algorithm>
+#include <sstream>
+#include <system_error>
 #include <chrono>
 #include <cmath>
 
@@ -309,50 +311,97 @@ void App::video_ensure_source() const {
     }
 }
 
-// The current lyric line (wrapped to `width`, coloured, padded) for the video's views; empty when there are no lyrics.
-// The saved translation (READ LYRICS) of the lyrics that play: one entry per line of lyrics_result_.lines (the caller holds lyrics_mutex_),
-// empty when there is none. The lyrics are read the way READ LYRICS reads them (that is what the translation's fingerprint was made from).
-const std::vector<std::string>& App::video_translation_lines() const {
-    static const std::vector<std::string> none;
-    if (!has_track_ || audiobook_ || lyrics_result_.lines.empty()) return none;
+// The lyric block (line + translation) for the video's views. The translation is shown in ( ) in the inactive lyrics colour, without any
+// highlighting of its own: the sung words are lit on the lyric line only.
+std::vector<std::string> lyric_translation_rows(const std::vector<LyricLine>& lines, const std::vector<std::string>* tr, int act, double lt, int width, int mode, const Settings& settings) {
+    if (lines.empty() || act < 0 || act >= static_cast<int>(lines.size())) return {};
+    const LyricLine& cur = lines[static_cast<size_t>(act)];
+    std::string text;
+    if (tr && mode >= 2 && act < static_cast<int>(tr->size())) text = (*tr)[static_cast<size_t>(act)];
+    if (text == cur.full_text) text.clear();   // (the lyrics already are in that language)
+    if (mode == 1 || text.empty()) return render_lyric_line_wrapped(cur, lt, width, true, settings);   // (no translation for this line: the lyric line)
+    LyricLine tl;
+    tl.start_time = cur.start_time;
+    tl.full_text = "(" + text + ")";
+    std::vector<std::string> rows;
+    if (mode == 2) rows = render_lyric_line_wrapped(cur, lt, width, true, settings);
+    for (const std::string& r : render_lyric_line_wrapped(tl, lt, width, false, settings)) rows.push_back(r);
+    return rows;
+}
+
+// The saved translations of the lyrics that play (the caller holds lyrics_mutex_ if `cur` is lyrics_result_.lines). The lyrics are read the way
+// READ LYRICS reads them (that is what a translation's fingerprint was made from). With several lyrics files that have a translation the
+// one that was edited last is used; its translations are listed with the one for Translate To first.
+const std::vector<App::VTr>& App::video_translations(const std::vector<LyricLine>& cur) const {
+    static const std::vector<VTr> none;
+    if (!has_track_ || audiobook_ || cur.empty()) return none;
     const std::string key = path_utf8(current_path_) + "|" + settings_.translate_to + "|" + settings_.translate_service + "|" +
-                            std::to_string(lyrics_result_.lines.size()) + "|" + (lyrics_result_.lines.front().full_text);
+                            std::to_string(cur.size()) + "|" + cur.front().full_text;
     const auto now = std::chrono::steady_clock::now();
-    if (key == vtr_key_ && (!vtr_lines_.empty() || now - vtr_at_ < std::chrono::seconds(3))) return vtr_lines_;
+    if (key == vtr_key_ && (!vtr_all_.empty() || now - vtr_at_ < std::chrono::seconds(3))) return vtr_all_;
     vtr_key_ = key;
     vtr_at_ = now;
-    vtr_lines_.clear();
+    vtr_all_.clear();
     std::vector<LyricsVersion> vs = list_lyrics_versions(current_path_);
-    std::stable_sort(vs.begin(), vs.end(), [](const LyricsVersion& a, const LyricsVersion& b) { return a.active && !b.active; });
+    auto edited = [](const LyricsVersion& v) {
+        std::error_code ec;
+        if (v.file.empty()) return fs::file_time_type::min();
+        const auto t = fs::last_write_time(v.file, ec);
+        return ec ? fs::file_time_type::min() : t;
+    };
+    std::stable_sort(vs.begin(), vs.end(), [&](const LyricsVersion& a, const LyricsVersion& b) {
+        const auto ta = edited(a), tb = edited(b);
+        if (ta != tb) return ta > tb;   // the file edited last first
+        return a.active && !b.active;
+    });
     for (const LyricsVersion& v : vs) {
         double delay = 0.0;
         const std::vector<LyricLine> timed = lyrics_read_lines(read_lyrics_version_text(current_path_, v), &delay);
         if (timed.empty()) continue;
         std::vector<std::string> plain;
         for (const LyricLine& l : timed) plain.push_back(l.full_text);
-        const std::vector<TranslationInfo> tl = list_lyrics_translations(current_path_, v, plain);
+        std::vector<TranslationInfo> tl = list_lyrics_translations(current_path_, v, plain);
         if (tl.empty()) continue;
-        size_t pick = 0;
-        for (size_t i = 0; i < tl.size(); ++i)
-            if (tl[i].to == settings_.translate_to && (tl[pick].to != settings_.translate_to || tl[i].service == settings_.translate_service)) pick = i;
-        LyricsTranslation t;
-        if (!load_lyrics_translation(current_path_, v, tl[pick].to, plain, t, tl[pick].service) || t.same || t.lines.size() != plain.size()) continue;
-        // line by line: the same time stamp (or, with equal counts, the same place)
-        const auto& cur = lyrics_result_.lines;
-        std::vector<std::string> out(cur.size());
-        bool any = false;
-        for (size_t k = 0; k < cur.size(); ++k) {
-            int at = -1;
-            if (cur.size() == timed.size()) at = static_cast<int>(k);
-            else for (size_t m = 0; m < timed.size(); ++m) if (std::abs(timed[m].start_time - cur[k].start_time) < 0.02 && timed[m].full_text == cur[k].full_text) { at = static_cast<int>(m); break; }
-            if (at >= 0) { out[k] = t.lines[static_cast<size_t>(at)]; if (!out[k].empty()) any = true; }
+        std::stable_sort(tl.begin(), tl.end(), [&](const TranslationInfo& a, const TranslationInfo& b) {
+            const int ra = (a.to == settings_.translate_to ? 2 : 0) + (a.service == settings_.translate_service ? 1 : 0);
+            const int rb = (b.to == settings_.translate_to ? 2 : 0) + (b.service == settings_.translate_service ? 1 : 0);
+            return ra > rb;
+        });
+        std::vector<VTr> found;
+        for (const TranslationInfo& info : tl) {
+            LyricsTranslation t;
+            if (!load_lyrics_translation(current_path_, v, info.to, plain, t, info.service) || t.same || t.lines.size() != plain.size()) continue;
+            // line by line: the same time stamp (or, with equal counts, the same place)
+            std::vector<std::string> out(cur.size());
+            bool any = false;
+            for (size_t k = 0; k < cur.size(); ++k) {
+                int at = -1;
+                if (cur.size() == timed.size()) at = static_cast<int>(k);
+                else for (size_t m = 0; m < timed.size(); ++m) if (std::abs(timed[m].start_time - cur[k].start_time) < 0.02 && timed[m].full_text == cur[k].full_text) { at = static_cast<int>(m); break; }
+                if (at >= 0) { out[k] = t.lines[static_cast<size_t>(at)]; if (!out[k].empty()) any = true; }
+            }
+            if (any) found.push_back({info.to + "|" + info.service, std::move(out)});
         }
-        if (any) { vtr_lines_ = std::move(out); break; }
+        if (found.empty()) continue;
+        // two translations into the same language (other services): the service tells them apart
+        for (VTr& f : found) {
+            const std::string to = f.label.substr(0, f.label.find('|'));
+            int same = 0;
+            for (const VTr& g : found) if (g.label.substr(0, g.label.find('|')) == to) ++same;
+            f.label = same > 1 ? to + " (" + f.label.substr(f.label.find('|') + 1) + ")" : to;
+        }
+        vtr_all_ = std::move(found);
+        break;
     }
-    return vtr_lines_;
+    return vtr_all_;
 }
 
-std::vector<std::string> App::video_lyric_rows(int width, double elapsed) const {
+int App::video_lyr_mode_for(const fs::path& track) const {
+    const int own = track.empty() ? -1 : cover_track_video_opts(path_utf8(track)).lyrics;
+    return std::clamp(own >= 0 ? own : settings_.video_lyrics, 0, 3);
+}
+
+std::vector<std::string> App::video_lyric_rows(int width, double elapsed, int mode, int tr_idx, bool all_shown) const {
     std::vector<std::string> rows;
     std::lock_guard<std::mutex> lock(lyrics_mutex_);
     if (audiobook_ || !settings_.lyrics_on() || !lyrics_ready_ || lyrics_result_.lines.empty()) return rows;
@@ -361,17 +410,12 @@ std::vector<std::string> App::video_lyric_rows(int width, double elapsed) const 
     const double lt = elapsed - lyrics_result_.delay;
     int act = 0;
     for (size_t i = 0; i < lines.size(); ++i) { if (lines[i].start_time <= lt) act = static_cast<int>(i); else break; }
-    rows = render_lyric_line_wrapped(lines[static_cast<size_t>(act)], lt, width, true, settings_);
-    if (settings_.video_full_translation) {   // the translation (if the lyrics have one) in the lines below
-        const std::vector<std::string>& tr = video_translation_lines();
-        if (act < static_cast<int>(tr.size()) && !tr[static_cast<size_t>(act)].empty() && tr[static_cast<size_t>(act)] != lyrics_result_.lines[static_cast<size_t>(act)].full_text) {
-            LyricLine tl;
-            tl.start_time = lines[static_cast<size_t>(act)].start_time;
-            tl.full_text = tr[static_cast<size_t>(act)];
-            for (const std::string& r : render_lyric_line_wrapped(tl, lt, width, false, settings_)) rows.push_back(r);
-        }
+    const std::vector<std::string>* tr = nullptr;
+    if (mode >= 2) {
+        const std::vector<VTr>& all = video_translations(lyrics_result_.lines);
+        if (!all.empty()) tr = &all[static_cast<size_t>(std::clamp(tr_idx, 0, static_cast<int>(all.size()) - 1))].lines;
     }
-    return rows;
+    return lyric_translation_rows(lines, tr, act, all_shown ? 1e9 : lt, width, mode, settings_);   // (all_shown: every word lit - the size of the box)
 }
 
 namespace {
@@ -547,7 +591,7 @@ bool App::video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, 
             const std::string& g = ref_ok ? video_ov_ref_[k] : ov[k];
             if (filled(g)) { geom.push_back(g); use.push_back(ov[k]); }
         }
-        if (use.size() > 2) { use.resize(2); geom.resize(2); }
+        if (use.size() > 6) { use.resize(6); geom.resize(6); }   // (a lyric line + its translation may need more than two rows)
         if (!use.empty()) {
             int lmin = ov_w, tmin = ov_w;
             for (const auto& r : geom) { int l = 0, tr = 0; ansi_pad(r, l, tr); lmin = std::min(lmin, l); tmin = std::min(tmin, tr); }
@@ -708,19 +752,19 @@ bool App::video_field_rows(std::vector<std::string>& rows, int W, int H, int are
         const int lw = std::max(12, (W - 4) * 2 / 3);
         std::vector<std::string> txt;
         if (video_lyrics_for(current_path_)) for (const auto& r : line_rows) if (display_width(r) > 0 && r.find_first_not_of(' ') != std::string::npos) txt.push_back(r);
-        std::vector<std::string> in_pic;
-        if (!txt.empty()) in_pic.push_back(txt[0]);
+        std::vector<std::string> in_pic;   // (the last row is the frame's bottom row, the ones before it are in the picture's box: it grows upwards)
+        for (size_t k = 0; k + 1 < txt.size() || (k == 0 && txt.size() == 1); ++k) in_pic.push_back(txt[k]);
         if (!video_draw(inner, W - 4, H - 2, area_col + 2, 2, second_slot, t, 2, in_pic, lw, true)) return false;
         rows.assign(static_cast<size_t>(H), std::string(static_cast<size_t>(W), ' '));
         for (size_t i = 0; i < inner.size() && i + 2 < static_cast<size_t>(H); ++i) rows[i + 1] = "  " + inner[i] + "  ";
-        if (txt.size() > 1) {   // (in a black box too, like the first line)
+        if (txt.size() > 1) {   // (in a black box too, like the first line; the last row of the block)
             int l2 = 0, t2 = 0;
             {   // (measured on the fully shown line, like the box in the picture)
                 std::vector<std::string> g;
                 if (video_ov_ref_.size() == line_rows.size()) for (const auto& r : video_ov_ref_) if (display_width(r) > 0 && r.find_first_not_of(' ') != std::string::npos) g.push_back(r);
-                ansi_pad(g.size() > 1 ? g[1] : txt[1], l2, t2);
+                ansi_pad(g.size() > 1 ? g.back() : txt.back(), l2, t2);
             }
-            const std::string box = ansi_black_box_row(txt[1], l2, t2);
+            const std::string box = ansi_black_box_row(txt.back(), l2, t2);
             const int w2 = display_width(strip_csi(box));   // (display_width does not skip escape sequences: counted with them, the row came out far too short and its border jumped to the left)
             const int lead = std::max(0, (W - w2) / 2);
             if (lead + w2 <= W) rows[static_cast<size_t>(H - 1)] = std::string(static_cast<size_t>(lead), ' ') + box + std::string(static_cast<size_t>(W - lead - w2), ' ');
@@ -729,7 +773,10 @@ bool App::video_field_rows(std::vector<std::string>& rows, int W, int H, int are
     }
     // Two rows under the picture are always reserved (the picture keeps its size from line to line): the lyric line sits on the
     // first one, the second is for the continuation when the line has to break. Longer breaks are cut after the second row.
-    const int kReserve = video_lyrics_for(current_path_) ? 2 : 0;   // (Include Lyrics off: the picture gets the whole field)
+    // With a translation shown the block may need more: the second row is the extra space first, then the block grows upwards (the picture
+    // gets smaller, but for the whole track at once - video_need_rows_ is the most any line needs).
+    const int kPad0 = video_lyrics_for(current_path_) ? 1 : 0;
+    const int kReserve = video_lyrics_for(current_path_) ? std::clamp(video_need_rows_, 2, std::max(2, H - kPad0 - 3)) : 0;   // (Include Lyrics off: the picture gets the whole field)
     const int lrows = std::min<int>(kReserve, static_cast<int>(line_rows.size()));
     const int kPad = video_lyrics_for(current_path_) ? 1 : 0;   // one empty row above the picture while the lyrics are on
     const int vavail = H - kReserve - kPad;
@@ -907,7 +954,10 @@ std::vector<std::string> clapper_frame(int cols, int rows, double t) {
 
 std::string App::build_video_full(int W, const char* clear_prefix) const {
     const int H = std::max(6, term_rows_ - 1);
-    const int cols = std::max(4, W - 2), rows_n = std::max(2, H - 2);
+    // The picture keeps two empty columns to the left and to the right of it (it is scaled down to fit, never cropped), and the commands
+    // take the bottom border line (row 1) and the otherwise empty last terminal row below the box (row 2).
+    const int mg = W >= 48 ? 2 : 0;
+    const int cols = std::max(4, W - 2 - 2 * mg), rows_n = std::max(2, H - 2);
     const std::string border = ansi_for(settings_.border_color, false);
     const std::string border_bottom = ansi_for(settings_.border_color_bottom, false);
     const std::string legend = ansi_for(settings_.legend_color, false);
@@ -945,8 +995,13 @@ std::string App::build_video_full(int W, const char* clear_prefix) const {
     std::vector<std::string> pic;
     const double elapsed = has_track_ ? player_.poll_elapsed() : 0.0;
     const int lw = std::max(12, vid_w * 2 / 3);
-    const bool lyr = settings_.video_full_lyrics;
-    const bool ok = video_draw(pic, vid_w, vid_rows, 1, 1, false, elapsed, 0, lyr ? video_lyric_rows(lw, elapsed) : std::vector<std::string>(), lw);
+    // What the lyrics do here is the track's own "Use Lyrics on Video" (Style Option, else Include Lyrics of the VIDEO SETTINGS): the same as in the small field.
+    const int lmode = video_lyr_mode_for(current_path_);
+    const bool lyr = lmode != 0;
+    // The box over the picture is measured on the line with ALL its words shown (video_ov_ref_); it must be this line's, not one left by the small field.
+    const std::vector<std::string> lyr_rows = lyr ? video_lyric_rows(lw, elapsed, lmode, vfull_tr_idx_, false) : std::vector<std::string>();
+    video_ov_ref_ = lyr ? video_lyric_rows(lw, elapsed, lmode, vfull_tr_idx_, true) : std::vector<std::string>();
+    const bool ok = video_draw(pic, vid_w, vid_rows, 1 + mg, 1, false, elapsed, 0, lyr ? lyr_rows : std::vector<std::string>(), lw);
 
     // ---- the oscilloscope (one picture: XY or YT) in a box of `width` x `rows` cells whose first cell is at the screen row `row0`, column `col0` ----
     auto draw_osci = [&](int width, int rows, int row0, int col0) {
@@ -1064,8 +1119,8 @@ std::string App::build_video_full(int W, const char* clear_prefix) const {
     };
 
     std::vector<std::string> osc, spl;
-    if (has_o) osc = draw_osci(side_w, osc_rows, 1, 1 + vid_w + 1);
-    if (has_s) spl = draw_spectro(side_w, sp_rows, 1 + osc_rows, 1 + vid_w + 1);
+    if (has_o) osc = draw_osci(side_w, osc_rows, 1, 1 + mg + vid_w + 1);
+    if (has_s) spl = draw_spectro(side_w, sp_rows, 1 + osc_rows, 1 + mg + vid_w + 1);
 
     std::vector<std::string> clap;
     const int note_rows = 3;   // under the clapperboard: the note (2 lines) and a free line
@@ -1097,7 +1152,7 @@ std::string App::build_video_full(int W, const char* clear_prefix) const {
             line = centred_note(note[r - (vid_rows / 2 - 1)]);
         }
         if (right) line += " " + (r < static_cast<int>(side.size()) ? side[static_cast<size_t>(r)] : std::string(static_cast<size_t>(side_w), ' '));
-        f << bar << line << bar << "\n";
+        f << bar << std::string(static_cast<size_t>(mg), ' ') << line << std::string(static_cast<size_t>(mg), ' ') << bar << "\n";
     }
     static const char* kLayoutName[4] = {"Video", "Video+Osci", "Video+Spectro", "Video+Osci+Spectro"};
     const std::string fx = std::string("Effect: ") + video_fx_name(video_fx_for(current_path_));
@@ -1106,14 +1161,32 @@ std::string App::build_video_full(int W, const char* clear_prefix) const {
     const std::string grid = "[SHIFT+g] Grid/Scale";
     const std::string opts = std::string("[S] Options") + (vl_has_osci(L) ? "  [" + hotkey_text("HKeyOscMenu", "O") + "] Osci" : "") +
                              (vl_has_spectro(L) ? "  [" + hotkey_text("HKeySpectroMenu", "I") + "] Spectro" : "");
-    const std::string tab = "[TAB] Lyrics " + std::string(!lyr ? "off" : settings_.video_full_translation ? "+ translation" : "on");
-    const std::string foot = scope_pick_head({"[UP/DOWN] " + fx + "  " + lay + "  " + tab + "  " + opts + "  " + grid + "  " + keys,
-                                              "[UP/DOWN] " + fx + "  " + lay + "  " + tab + "  " + grid + "  " + keys,
-                                              "[UP/DOWN] " + fx + "  " + lay + "  " + opts + "  " + grid + "  " + keys,
-                                              "[↑↓] " + fx + "  [SHIFT+↑↓] Layout  [TAB] Lyrics  " + grid + "  " + keys,
-                                              "[↑↓] " + fx + "  [SHIFT+↑↓] Layout  [TAB] Lyrics  [S] Options  " + keys, keys}, W - 6);
-    f << centred_bottom(settings_, W, foot, border_bottom) << "\n";
-    return clamp_output_rows(f.str(), term_rows_);
+    std::string tab_state = "on";
+    if (!lyr) tab_state = "off";
+    else if (lmode >= 2) {
+        std::string lab;
+        { std::lock_guard<std::mutex> lk(lyrics_mutex_);
+          const std::vector<VTr>& all = video_translations(lyrics_result_.lines);
+          if (!all.empty()) lab = all[static_cast<size_t>(std::clamp(vfull_tr_idx_, 0, static_cast<int>(all.size()) - 1))].label; }
+        tab_state = std::string(lmode == 3 ? "transl." : "+ transl.") + (lab.empty() ? "" : " " + lab);
+    }
+    const std::string tab = "[TAB] Lyrics " + tab_state;
+    auto pick = [&](const std::vector<std::string>& cands, int w) {   // the first that fits (display columns), the last one cut otherwise
+        for (const std::string& s : cands) if (display_width(s) <= w) return s;
+        return truncate_str(cands.back(), w);
+    };
+    // line 1 sits ON the bottom border line: what changes the picture | line 2 below the box, in the otherwise empty last terminal row:
+    // the panels and leaving (the same commands at every size; only the wording gets shorter)
+    const std::string l1 = pick({"[UP/DOWN] " + fx + "   " + lay + "   " + tab + "   " + grid,
+                                 "[↑↓] " + fx + "   [SHIFT+↑↓] Layout   [TAB] Lyrics   " + grid,
+                                 "[↑↓] Effect   [SHIFT+↑↓] Layout   [TAB] Lyrics   [SHIFT+g] Grid"}, W - 6);
+    const std::string l2 = pick({opts + "   " + keys, "[S] Options   " + keys, keys}, W - 2);
+    f << centred_bottom(settings_, W, l1, border_bottom) << "\n";
+    const int w2 = display_width(l2);
+    const int lp = std::max(0, (W - w2) / 2);
+    std::string out = clamp_output_rows(f.str(), term_rows_);   // (the clamp would cut a row after the box: row 2 is added behind it)
+    if (term_rows_ > H) out += std::string(static_cast<size_t>(lp), ' ') + legend + l2 + R;   // (no line break: the terminal must not scroll)
+    return out;
 }
 
 }  // namespace muisc

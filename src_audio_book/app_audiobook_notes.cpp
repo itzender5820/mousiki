@@ -6,6 +6,7 @@
 #include "time_util.h"
 #include "string_util.h"
 #include "app.h"
+#include "book_state.h"
 #include "text_edit.h"
 #include "utf8_util.h"
 #include "path_utf8.h"
@@ -53,20 +54,20 @@ std::vector<BookMark> marks_of(const BookCue& cue) {
 } // namespace
 
 void App::book_bookmark_load() {
-    book_bookmark_ = BookBookmark();
-    book_automark_ = BookMark();
-    book_marks_.clear();
-    book_notes_.clear();
-    if (book_dir_.empty()) return;
-    const fs::path dir = path_from_utf8(book_dir_);
+    book_->bookmark = BookBookmark();
+    book_->automark = BookMark();
+    book_->marks.clear();
+    book_->notes.clear();
+    if (book_->dir.empty()) return;
+    const fs::path dir = path_from_utf8(book_->dir);
     BookCue cue;
     if (cue.load(BookCue::path_for(dir))) {
-        book_marks_ = marks_of(cue);
-        if (const BookMark* n = newest_of(book_marks_)) book_bookmark_ = *n;
+        book_->marks = marks_of(cue);
+        if (const BookMark* n = newest_of(book_->marks)) book_->bookmark = *n;
         BookMark am;
-        if (parse_bookmark(cue.get_raw("REM AUTOMARK"), am)) book_automark_ = am;
+        if (parse_bookmark(cue.get_raw("REM AUTOMARK"), am)) book_->automark = am;
     }
-    book_notes::load(book_notes::path_for(dir), book_notes_);
+    book_notes::load(book_notes::path_for(dir), book_->notes);
 }
 
 // Writes the bookmarks of a book (its .cue keeps everything else as it is).
@@ -78,7 +79,7 @@ void App::book_marks_write(const std::string& dir, const std::vector<BookMark>& 
     for (const BookMark& m : marks) raw.push_back(format_bookmark(m));
     cue.set_all_raw("REM BOOKMARK", raw);
     if (!cue.save(cp)) { status_line_ = "could not write " + path_utf8(cp.filename()); return; }
-    if (dir == book_dir_) book_bookmark_load();
+    if (dir == book_->dir) book_bookmark_load();
 }
 
 // A new bookmark for the book that plays (which need not be the open one). A book may carry many; one that lies within a second of
@@ -98,15 +99,15 @@ void App::book_bookmark_store(const std::string& file, double sec) {
 }
 
 int App::book_bookmark_chapter() const {
-    return book_bookmark_.valid() ? book_chapter_of(book_bookmark_.file) : -1;
+    return book_->bookmark.valid() ? book_chapter_of(book_->bookmark.file) : -1;
 }
 
 int App::book_mark_in_chapter(int idx) const {
     if (idx < 0 || idx >= static_cast<int>(chapters_.size())) return -1;
     const std::string file = path_utf8(chapters_[static_cast<size_t>(idx)].path.filename());
     int best = -1;
-    for (size_t i = 0; i < book_marks_.size(); ++i)
-        if (book_marks_[i].file == file && (best < 0 || book_marks_[i].when >= book_marks_[static_cast<size_t>(best)].when)) best = static_cast<int>(i);
+    for (size_t i = 0; i < book_->marks.size(); ++i)
+        if (book_->marks[i].file == file && (best < 0 || book_->marks[i].when >= book_->marks[static_cast<size_t>(best)].when)) best = static_cast<int>(i);
     return best;
 }
 
@@ -115,7 +116,7 @@ void App::book_set_bookmark_now() {
     if (!has_track_ || !current_is_local_) { status_line_ = "play a chapter first: a bookmark marks the place where you stopped"; return; }
     const double el = player_.poll_elapsed();
     book_bookmark_store(path_utf8(current_path_.filename()), el);
-    status_line_ = "bookmark " + std::to_string(book_marks_.size()) + " set: " + stem_of(path_utf8(current_path_.filename())) + " at " + clock_text(el);
+    status_line_ = "bookmark " + std::to_string(book_->marks.size()) + " set: " + stem_of(path_utf8(current_path_.filename())) + " at " + clock_text(el);
 }
 
 // ---------------------------------------------------------------------
@@ -129,14 +130,14 @@ bool App::book_ask_due() const {
 void App::book_ask_then(const std::string& what, std::function<void()> then) {
     book_automark_tick(true);   // where one leaves is kept as the auto-mark whatever the answer is
     if (!book_ask_due()) { then(); return; }
-    book_then_ = std::move(then);
-    book_ask_what_ = what;
-    book_ask_file_ = path_utf8(current_path_.filename());
-    book_ask_sec_ = player_.poll_elapsed();
-    book_prompt_paused_ = !player_.is_paused();
-    if (book_prompt_paused_) player_.pause();
-    book_ov_kind_ = BookOv::Ask;
-    book_ov_status_.clear();
+    book_->then = std::move(then);
+    book_->ask_what = what;
+    book_->ask_file = path_utf8(current_path_.filename());
+    book_->ask_sec = player_.poll_elapsed();
+    book_->prompt_paused = !player_.is_paused();
+    if (book_->prompt_paused) player_.pause();
+    book_->ov_kind = BookOv::Ask;
+    book_->ov_status.clear();
     text_disengage();
     mode_ = Mode::BookOverlay;
 }
@@ -147,16 +148,16 @@ bool App::book_ask_key(int key) {
     const bool no = !arrow && (key == 'n' || key == 'N');
     if (!yes && !no && key != 27) return true;
     mode_ = Mode::Browse;
-    std::function<void()> then = std::move(book_then_);
-    book_then_ = nullptr;
+    std::function<void()> then = std::move(book_->then);
+    book_->then = nullptr;
     if (key == 27) {   // stay where one is: the audio goes on
-        if (book_prompt_paused_) player_.resume();
-        book_prompt_paused_ = false;
+        if (book_->prompt_paused) player_.resume();
+        book_->prompt_paused = false;
         return true;
     }
     if (yes) {
-        book_bookmark_store(book_ask_file_, book_ask_sec_);
-        status_line_ = "bookmark set: " + stem_of(book_ask_file_) + " at " + clock_text(book_ask_sec_);
+        book_bookmark_store(book_->ask_file, book_->ask_sec);
+        status_line_ = "bookmark set: " + stem_of(book_->ask_file) + " at " + clock_text(book_->ask_sec);
     }
     if (then) then();   // (the paused state stays until what follows plays something, or the resume choice is given up)
     return true;
@@ -177,8 +178,8 @@ std::vector<std::string> App::build_book_ask_panel(int panel_w) const {
     lines.push_back(framed("", 0));
     lines.push_back(centred(header_sgr(settings_), "Set a bookmark here?"));
     lines.push_back(framed("", 0));
-    lines.push_back(centred(ansi_for(settings_.list_color, false), stem_of(book_ask_file_) + "  at  " + clock_text(book_ask_sec_)));
-    lines.push_back(centred(legend_sgr(settings_), book_ask_what_));
+    lines.push_back(centred(ansi_for(settings_.list_color, false), stem_of(book_->ask_file) + "  at  " + clock_text(book_->ask_sec)));
+    lines.push_back(centred(legend_sgr(settings_), book_->ask_what));
     lines.push_back(framed("", 0));
     auto leg_in = [&](const std::string& plain) {
         const std::string tx = truncate_str(plain, inner);
@@ -194,9 +195,9 @@ std::vector<std::string> App::build_book_ask_panel(int panel_w) const {
 void App::book_delmark_open(int idx) {
     const int mi = book_mark_in_chapter(idx);
     if (mi < 0) { status_line_ = "this chapter has no bookmark"; return; }
-    book_del_mark_ = book_marks_[static_cast<size_t>(mi)];
-    book_ov_kind_ = BookOv::DelMark;
-    book_ov_status_.clear();
+    book_->del_mark = book_->marks[static_cast<size_t>(mi)];
+    book_->ov_kind = BookOv::DelMark;
+    book_->ov_status.clear();
     text_disengage();
     mode_ = Mode::BookOverlay;
 }
@@ -209,10 +210,10 @@ bool App::book_delmark_key(int key) {
     mode_ = Mode::Browse;
     if (!yes) return true;
     BookStamp st;
-    st.kind = 1; st.dir = book_dir_; st.book = path_utf8(path_from_utf8(book_dir_).filename());
-    st.file = book_del_mark_.file; st.sec = book_del_mark_.sec; st.when = book_del_mark_.when;
+    st.kind = 1; st.dir = book_->dir; st.book = path_utf8(path_from_utf8(book_->dir).filename());
+    st.file = book_->del_mark.file; st.sec = book_->del_mark.sec; st.when = book_->del_mark.when;
     if (book_stamp_remove(st))
-        status_line_ = "bookmark deleted: " + stem_of(book_del_mark_.file) + " at " + clock_text(book_del_mark_.sec) + "  (CTRL+SHIFT+u brings it back)";
+        status_line_ = "bookmark deleted: " + stem_of(book_->del_mark.file) + " at " + clock_text(book_->del_mark.sec) + "  (CTRL+SHIFT+u brings it back)";
     return true;
 }
 
@@ -231,7 +232,7 @@ std::vector<std::string> App::build_book_delmark_panel(int panel_w) const {
     lines.push_back(framed("", 0));
     lines.push_back(centred(header_sgr(settings_), "Delete this bookmark?"));
     lines.push_back(framed("", 0));
-    lines.push_back(centred(ansi_for(settings_.list_color, false), stem_of(book_del_mark_.file) + "  at  " + clock_text(book_del_mark_.sec)));
+    lines.push_back(centred(ansi_for(settings_.list_color, false), stem_of(book_->del_mark.file) + "  at  " + clock_text(book_->del_mark.sec)));
     lines.push_back(centred(legend_sgr(settings_), "It is removed from the book's .cue file for good."));
     lines.push_back(framed("", 0));
     auto leg_in = [&](const std::string& plain) {
@@ -260,7 +261,7 @@ void App::book_go(int idx) {
                 if (b.kind == 1) { BookMark m; m.file = b.file; m.sec = b.sec; m.when = b.when; book_resume_open(idx, m); break; }
         }
         else if (nb + na > 0) book_pick_open(idx, std::move(st));
-        else { book_prompt_paused_ = false; book_play_chapter(idx); }
+        else { book_->prompt_paused = false; book_play_chapter(idx); }
     };
     if (idx == book_current_chapter()) arrive();
     else book_ask_then("Going on to " + stem_of(path_utf8(chapters_[static_cast<size_t>(idx)].path.filename())), arrive);
@@ -279,25 +280,25 @@ bool App::book_play_file(const std::string& path) {
 // Starts chapter idx and goes to `sec` in it (once it is loaded).
 void App::book_play_at(int idx, double sec) {
     if (idx < 0 || idx >= static_cast<int>(chapters_.size())) return;
-    book_prompt_paused_ = false;
+    book_->prompt_paused = false;
     if (idx == book_current_chapter()) {
         player_.seek_relative(sec - player_.poll_elapsed());
         if (player_.is_paused()) player_.resume();
         return;
     }
     book_play_chapter(idx);
-    book_seek_pending_ = true;
-    book_seek_file_ = path_utf8(chapters_[static_cast<size_t>(idx)].path);
-    book_seek_sec_ = std::max(0.0, sec);
-    book_seek_at_ = std::chrono::steady_clock::now();
+    book_->seek_pending = true;
+    book_->seek_file = path_utf8(chapters_[static_cast<size_t>(idx)].path);
+    book_->seek_sec = std::max(0.0, sec);
+    book_->seek_at = std::chrono::steady_clock::now();
 }
 
 void App::book_resume_open(int idx, const BookMark& mark, const std::string& label) {
-    book_resume_idx_ = idx;
-    book_resume_mark_ = mark;
-    book_resume_label_ = label;
-    book_resume_sel_ = 0;
-    book_ov_kind_ = BookOv::Resume;
+    book_->resume_idx = idx;
+    book_->resume_mark = mark;
+    book_->resume_label = label;
+    book_->resume_sel = 0;
+    book_->ov_kind = BookOv::Resume;
     text_disengage();
     mode_ = Mode::BookOverlay;
 }
@@ -311,22 +312,22 @@ const ResumeChoice kResume[] = {{"right on the spot", 0}, {"10 seconds before", 
 bool App::book_resume_key(int key) {
     const bool arrow = last_key_was_arrow();
     constexpr int n = 6;
-    if (arrow && key == 'A') { book_resume_sel_ = (book_resume_sel_ + n - 1) % n; return true; }
-    if (arrow && key == 'B') { book_resume_sel_ = (book_resume_sel_ + 1) % n; return true; }
+    if (arrow && key == 'A') { book_->resume_sel = (book_->resume_sel + n - 1) % n; return true; }
+    if (arrow && key == 'B') { book_->resume_sel = (book_->resume_sel + 1) % n; return true; }
     int pick = -1;
     if (!arrow && key >= '1' && key <= '6') pick = key - '1';
-    if (!arrow && (key == '\r' || key == '\n')) pick = book_resume_sel_;
+    if (!arrow && (key == '\r' || key == '\n')) pick = book_->resume_sel;
     if (pick >= 0) {
         mode_ = Mode::Browse;
         const double back = kResume[pick].back;
-        const double at = back < 0 ? 0.0 : std::max(0.0, book_resume_mark_.sec - back);
-        book_play_at(book_resume_idx_, at);
+        const double at = back < 0 ? 0.0 : std::max(0.0, book_->resume_mark.sec - back);
+        book_play_at(book_->resume_idx, at);
         return true;
     }
     if (key == 27 && !arrow) {   // give up: the chapter that was paused for the question goes on
         mode_ = Mode::Browse;
-        if (book_prompt_paused_) player_.resume();
-        book_prompt_paused_ = false;
+        if (book_->prompt_paused) player_.resume();
+        book_->prompt_paused = false;
     }
     return true;
 }
@@ -338,16 +339,16 @@ std::vector<std::string> App::build_book_resume_panel(int panel_w) const {
     const Framer framed{border + settings_.box_vertical + "\x1b[0m", inner};
     std::vector<std::string> lines;
     lines.push_back(box_top("Resume", W, border));
-    const std::string what = book_resume_idx_ >= 0 && book_resume_idx_ < static_cast<int>(chapters_.size())
-        ? stem_of(path_utf8(chapters_[static_cast<size_t>(book_resume_idx_)].path.filename())) : std::string();
-    const std::string head = truncate_str(what + "  -  " + book_resume_label_ + " at " + clock_text(book_resume_mark_.sec), inner);
+    const std::string what = book_->resume_idx >= 0 && book_->resume_idx < static_cast<int>(chapters_.size())
+        ? stem_of(path_utf8(chapters_[static_cast<size_t>(book_->resume_idx)].path.filename())) : std::string();
+    const std::string head = truncate_str(what + "  -  " + book_->resume_label + " at " + clock_text(book_->resume_mark.sec), inner);
     lines.push_back(framed(header_sgr(settings_) + head, display_width(head)));
     lines.push_back(framed("", 0));
     const std::string plain_ink = ansi_for(settings_.list_color, false) + bg_ansi_for(settings_.list_inactive_bg_color);
     for (int i = 0; i < 6; ++i) {
-        const bool sel = i == book_resume_sel_;
+        const bool sel = i == book_->resume_sel;
         std::string label = std::to_string(i + 1) + "  " + kResume[i].label;
-        if (kResume[i].back >= 0) label += "  (" + clock_text(std::max(0.0, book_resume_mark_.sec - kResume[i].back)) + ")";
+        if (kResume[i].back >= 0) label += "  (" + clock_text(std::max(0.0, book_->resume_mark.sec - kResume[i].back)) + ")";
         else label += "  (00:00)";
         const std::string row = pad_right(truncate_str((sel ? "> " : "  ") + label, inner), inner);
         lines.push_back(framed((sel ? cursor_sgr(settings_.list_cursor_color, settings_.list_cursor_bg_color) : plain_ink) + row, inner));
@@ -378,17 +379,17 @@ std::string App::book_stamp_name(const BookStamp& s) {
 // The auto-mark of the chapter that plays: every few seconds, and when one leaves (book_ask_then). Nothing is written while the
 // position does not move (paused), and not while "leave, but keep the time stamp" holds the old one back.
 void App::book_automark_tick(bool force) {
-    if (!has_track_ || !current_is_local_ || book_seek_pending_ || load_in_progress_.load()) return;
+    if (!has_track_ || !current_is_local_ || book_->seek_pending || load_in_progress_.load()) return;
     const double el = player_.poll_elapsed();
     if (el <= 3.0) return;
     const std::string file = path_utf8(current_path_.filename());
-    if (book_am_hold_) {
-        if (file == book_am_hold_file_ && el < book_am_hold_sec_) return;
-        book_am_hold_ = false;
+    if (book_->am_hold) {
+        if (file == book_->am_hold_file && el < book_->am_hold_sec) return;
+        book_->am_hold = false;
     }
     const auto now = std::chrono::steady_clock::now();
-    if (!force && now - book_am_last_ < std::chrono::seconds(5)) return;
-    if (file == book_am_last_file_ && std::fabs(el - book_am_last_sec_) < (force ? 0.5 : 4.0)) { book_am_last_ = now; return; }
+    if (!force && now - book_->am_last < std::chrono::seconds(5)) return;
+    if (file == book_->am_last_file && std::fabs(el - book_->am_last_sec) < (force ? 0.5 : 4.0)) { book_->am_last = now; return; }
     const std::string dir = path_utf8(current_path_.parent_path());
     BookMark m;
     m.file = file;
@@ -398,41 +399,41 @@ void App::book_automark_tick(bool force) {
     BookCue cue;
     cue.load(cp);
     cue.set_raw("REM AUTOMARK", format_bookmark(m));
-    book_am_last_ = now;
-    book_am_last_file_ = file;
-    book_am_last_sec_ = el;
+    book_->am_last = now;
+    book_->am_last_file = file;
+    book_->am_last_sec = el;
     if (!cue.save(cp)) return;   // (no message: it would come again every few seconds)
-    if (dir == book_dir_) book_automark_ = m;
+    if (dir == book_->dir) book_->automark = m;
 }
 
 // The time stamps of chapter idx: the auto-mark (unless it lies within 5 seconds of a bookmark: that is the same place), the
 // bookmarks and the notes.
-std::vector<App::BookStamp> App::book_chapter_stamps(int idx, bool with_auto) const {
+std::vector<BookStamp> App::book_chapter_stamps(int idx, bool with_auto) const {
     std::vector<BookStamp> out;
     if (idx < 0 || idx >= static_cast<int>(chapters_.size())) return out;
     const std::string file = path_utf8(chapters_[static_cast<size_t>(idx)].path.filename());
-    const std::string book = path_utf8(path_from_utf8(book_dir_).filename());
+    const std::string book = path_utf8(path_from_utf8(book_->dir).filename());
     std::vector<BookStamp> marks, notes;
-    for (size_t i = 0; i < book_marks_.size(); ++i) {
-        const BookMark& m = book_marks_[i];
+    for (size_t i = 0; i < book_->marks.size(); ++i) {
+        const BookMark& m = book_->marks[i];
         if (m.file != file || m.sec <= 3.0) continue;
-        BookStamp b; b.kind = 1; b.dir = book_dir_; b.book = book; b.file = file; b.sec = m.sec; b.when = m.when; b.num = static_cast<int>(i) + 1;
+        BookStamp b; b.kind = 1; b.dir = book_->dir; b.book = book; b.file = file; b.sec = m.sec; b.when = m.when; b.num = static_cast<int>(i) + 1;
         marks.push_back(b);
     }
-    for (size_t i = 0; i < book_notes_.size(); ++i) {
-        const BookNote& n = book_notes_[i];
+    for (size_t i = 0; i < book_->notes.size(); ++i) {
+        const BookNote& n = book_->notes[i];
         if (n.file != file) continue;
-        BookStamp b; b.kind = 2; b.dir = book_dir_; b.book = book; b.file = file; b.sec = n.sec; b.title = n.title; b.num = static_cast<int>(i) + 1; b.note = n;
+        BookStamp b; b.kind = 2; b.dir = book_->dir; b.book = book; b.file = file; b.sec = n.sec; b.title = n.title; b.num = static_cast<int>(i) + 1; b.note = n;
         notes.push_back(b);
     }
     auto by_sec = [](const BookStamp& a, const BookStamp& b) { return a.sec < b.sec; };
     std::stable_sort(marks.begin(), marks.end(), by_sec);
     std::stable_sort(notes.begin(), notes.end(), by_sec);
-    if (with_auto && book_automark_.valid() && book_automark_.file == file && book_automark_.sec > 3.0) {
+    if (with_auto && book_->automark.valid() && book_->automark.file == file && book_->automark.sec > 3.0) {
         bool same = false;
-        for (const BookStamp& b : marks) if (std::fabs(b.sec - book_automark_.sec) < 5.0) same = true;
+        for (const BookStamp& b : marks) if (std::fabs(b.sec - book_->automark.sec) < 5.0) same = true;
         if (!same) {
-            BookStamp a; a.kind = 0; a.dir = book_dir_; a.book = book; a.file = file; a.sec = book_automark_.sec; a.when = book_automark_.when; a.num = 1;
+            BookStamp a; a.kind = 0; a.dir = book_->dir; a.book = book; a.file = file; a.sec = book_->automark.sec; a.when = book_->automark.when; a.num = 1;
             out.push_back(a);
         }
     }
@@ -463,7 +464,7 @@ int App::book_automark_convert(const std::string& dir, const BookMark& am) {
 }
 
 void App::book_stamps_changed(const std::string& dir) {
-    if (dir == book_dir_) book_bookmark_load();
+    if (dir == book_->dir) book_bookmark_load();
 }
 
 namespace {
@@ -504,8 +505,8 @@ bool App::book_stamp_remove(BookStamp s) {
             if (!cue.save(cp)) return false;
         }
     }
-    book_undo_.push_back(s);
-    if (book_undo_.size() > 30) book_undo_.erase(book_undo_.begin());
+    book_->undo.push_back(s);
+    if (book_->undo.size() > 30) book_->undo.erase(book_->undo.begin());
     book_stamps_changed(s.dir);
     return true;
 }
@@ -540,11 +541,11 @@ bool App::book_stamp_restore(const BookStamp& s) {
 
 // CTRL+SHIFT+u: the last deletion comes back (up to 30, newest first).
 std::string App::book_undo_pop() {
-    while (!book_undo_.empty()) {
-        const BookStamp s = book_undo_.back();
-        book_undo_.pop_back();
+    while (!book_->undo.empty()) {
+        const BookStamp s = book_->undo.back();
+        book_->undo.pop_back();
         if (book_stamp_restore(s)) {
-            if (mode_ == Mode::BookOverlay && book_ov_kind_ == BookOv::Marks) book_marks_fill();
+            if (mode_ == Mode::BookOverlay && book_->ov_kind == BookOv::Marks) book_marks_fill();
             return std::string("brought back: ") + book_stamp_type(s) + " " + (s.kind == 1 ? std::to_string(s.num) + " " : std::string()) +
                    "in " + stem_of(s.file) + " at " + clock_text(s.sec);
         }
@@ -557,12 +558,12 @@ std::string App::book_undo_pop() {
 // ---------------------------------------------------------------------
 void App::book_continue_open(int idx) {
     const std::vector<BookStamp> st = book_chapter_stamps(idx, true);
-    if (st.empty()) { book_prompt_paused_ = false; book_play_chapter(idx); return; }
-    book_cont_idx_ = idx;
-    book_cont_mark_.file = st[0].file;
-    book_cont_mark_.sec = st[0].sec;
-    book_cont_mark_.when = st[0].when;
-    book_ov_kind_ = BookOv::Continue;
+    if (st.empty()) { book_->prompt_paused = false; book_play_chapter(idx); return; }
+    book_->cont_idx = idx;
+    book_->cont_mark.file = st[0].file;
+    book_->cont_mark.sec = st[0].sec;
+    book_->cont_mark.when = st[0].when;
+    book_->ov_kind = BookOv::Continue;
     text_disengage();
     mode_ = Mode::BookOverlay;
 }
@@ -573,16 +574,16 @@ bool App::book_continue_key(int key) {
     const bool yes = key == 'y' || key == 'Y' || key == '\r' || key == '\n';
     if (!yes && key != 'n' && key != 'N' && key != 'b' && key != 'B' && key != 27) return true;
     mode_ = Mode::Browse;
-    if (yes) { book_play_at(book_cont_idx_, book_cont_mark_.sec); return true; }   // only "yes" starts the chapter
+    if (yes) { book_play_at(book_->cont_idx, book_->cont_mark.sec); return true; }   // only "yes" starts the chapter
     // Everything else leaves: nothing is played (the chapter that was paused for the question goes on).
-    if (book_prompt_paused_) player_.resume();
-    book_prompt_paused_ = false;
+    if (book_->prompt_paused) player_.resume();
+    book_->prompt_paused = false;
     if (key == 'b' || key == 'B') {   // the auto-mark becomes a regular bookmark (kept for good)
-        const int num = book_automark_convert(book_dir_, book_cont_mark_);
-        status_line_ = num > 0 ? "auto-mark converted to bookmark " + std::to_string(num) + ": " + stem_of(book_cont_mark_.file) + " at " + clock_text(book_cont_mark_.sec)
+        const int num = book_automark_convert(book_->dir, book_->cont_mark);
+        status_line_ = num > 0 ? "auto-mark converted to bookmark " + std::to_string(num) + ": " + stem_of(book_->cont_mark.file) + " at " + clock_text(book_->cont_mark.sec)
                                : "could not write the .cue file";
     } else if (key == 'n' || key == 'N') {
-        status_line_ = "left; the auto-mark at " + clock_text(book_cont_mark_.sec) + " is kept";
+        status_line_ = "left; the auto-mark at " + clock_text(book_->cont_mark.sec) + " is kept";
     }
     return true;
 }
@@ -602,7 +603,7 @@ std::vector<std::string> App::build_book_continue_panel(int panel_w) const {
     lines.push_back(framed("", 0));
     lines.push_back(centred(header_sgr(settings_), inner >= 42 ? "Do you want to continue where you left?" : "Continue where you left?"));
     lines.push_back(framed("", 0));
-    lines.push_back(centred(ansi_for(settings_.list_color, false), stem_of(book_cont_mark_.file) + "  at  " + clock_text(book_cont_mark_.sec)));
+    lines.push_back(centred(ansi_for(settings_.list_color, false), stem_of(book_->cont_mark.file) + "  at  " + clock_text(book_->cont_mark.sec)));
     lines.push_back(centred(legend_sgr(settings_), "(the auto-mark: nothing was bookmarked there)"));
     lines.push_back(framed("", 0));
     auto leg_in = [&](const std::string& plain) {
@@ -617,41 +618,41 @@ std::vector<std::string> App::build_book_continue_panel(int panel_w) const {
 }
 
 void App::book_pick_open(int idx, std::vector<BookStamp> rows) {
-    book_pick_idx_ = idx;
-    book_pick_rows_ = std::move(rows);
-    book_pick_sel_ = 0;
-    book_ov_kind_ = BookOv::Pick;
+    book_->pick_idx = idx;
+    book_->pick_rows = std::move(rows);
+    book_->pick_sel = 0;
+    book_->ov_kind = BookOv::Pick;
     text_disengage();
     mode_ = Mode::BookOverlay;
 }
 
 bool App::book_pick_key(int key) {
     const bool arrow = last_key_was_arrow();
-    const int n = static_cast<int>(book_pick_rows_.size()) + 1;   // (the last row: the start of the chapter)
-    if (arrow && key == 'A') { book_pick_sel_ = (book_pick_sel_ + n - 1) % n; return true; }
-    if (arrow && key == 'B') { book_pick_sel_ = (book_pick_sel_ + 1) % n; return true; }
+    const int n = static_cast<int>(book_->pick_rows.size()) + 1;   // (the last row: the start of the chapter)
+    if (arrow && key == 'A') { book_->pick_sel = (book_->pick_sel + n - 1) % n; return true; }
+    if (arrow && key == 'B') { book_->pick_sel = (book_->pick_sel + 1) % n; return true; }
     if (arrow) return true;
     int pick = -1;
     if (key >= '1' && key <= '9' && key - '1' < n) pick = key - '1';
-    if (key == '\r' || key == '\n') pick = book_pick_sel_;
+    if (key == '\r' || key == '\n') pick = book_->pick_sel;
     if (pick >= 0) {
         mode_ = Mode::Browse;
         if (pick == n - 1) {   // the start of the chapter: the auto-mark of it stays until the playback passes it
-            for (const BookStamp& b : book_pick_rows_)
-                if (b.kind == 0) { book_am_hold_ = true; book_am_hold_file_ = b.file; book_am_hold_sec_ = b.sec; }
-            book_play_at(book_pick_idx_, 0.0);
+            for (const BookStamp& b : book_->pick_rows)
+                if (b.kind == 0) { book_->am_hold = true; book_->am_hold_file = b.file; book_->am_hold_sec = b.sec; }
+            book_play_at(book_->pick_idx, 0.0);
             return true;
         }
-        const BookStamp& b = book_pick_rows_[static_cast<size_t>(pick)];
+        const BookStamp& b = book_->pick_rows[static_cast<size_t>(pick)];
         BookMark m; m.file = b.file; m.sec = b.sec; m.when = b.when;
         std::string label = b.kind == 0 ? "auto-mark" : b.kind == 1 ? "bookmark " + std::to_string(b.num) : "note " + book_stamp_name(b);
-        book_resume_open(book_pick_idx_, m, label);
+        book_resume_open(book_->pick_idx, m, label);
         return true;
     }
     if (key == 27) {
         mode_ = Mode::Browse;
-        if (book_prompt_paused_) player_.resume();
-        book_prompt_paused_ = false;
+        if (book_->prompt_paused) player_.resume();
+        book_->prompt_paused = false;
     }
     return true;
 }
@@ -663,22 +664,22 @@ std::vector<std::string> App::build_book_pick_panel(int panel_w) const {
     const Framer framed{border + settings_.box_vertical + "\x1b[0m", inner};
     std::vector<std::string> lines;
     lines.push_back(box_top("Time stamps", W, border));
-    const std::string what = book_pick_idx_ >= 0 && book_pick_idx_ < static_cast<int>(chapters_.size())
-        ? stem_of(path_utf8(chapters_[static_cast<size_t>(book_pick_idx_)].path.filename())) : std::string();
+    const std::string what = book_->pick_idx >= 0 && book_->pick_idx < static_cast<int>(chapters_.size())
+        ? stem_of(path_utf8(chapters_[static_cast<size_t>(book_->pick_idx)].path.filename())) : std::string();
     const std::string head = truncate_str(what + "  -  where do you want to go on?", inner);
     lines.push_back(framed(header_sgr(settings_) + head, display_width(head)));
     lines.push_back(framed("", 0));
     const std::string plain_ink = ansi_for(settings_.list_color, false) + bg_ansi_for(settings_.list_inactive_bg_color);
-    const int n = static_cast<int>(book_pick_rows_.size()) + 1;
+    const int n = static_cast<int>(book_->pick_rows.size()) + 1;
     const int body = std::clamp(term_rows_ - 14, 3, n);
-    int first = std::clamp(book_pick_sel_ - body / 2, 0, std::max(0, n - body));
+    int first = std::clamp(book_->pick_sel - body / 2, 0, std::max(0, n - body));
     const int name_w = std::max(10, inner - 4 - 9 - 2 - 12);
     for (int i = first; i < first + body && i < n; ++i) {
-        const bool sel = i == book_pick_sel_;
+        const bool sel = i == book_->pick_sel;
         std::string label;
         if (i == n - 1) label = std::string(i < 9 ? std::to_string(i + 1) : " ") + "  " + "the start of the chapter";
         else {
-            const BookStamp& b = book_pick_rows_[static_cast<size_t>(i)];
+            const BookStamp& b = book_->pick_rows[static_cast<size_t>(i)];
             label = std::string(i < 9 ? std::to_string(i + 1) : " ") + "  " + pad_right(truncate_str(apply_font_map(book_stamp_name(b), settings_.font_map), name_w), name_w) +
                     "  " + pad_right(clock_text(b.sec), 9) + (b.kind == 2 ? "(note)" : "");
         }
@@ -715,23 +716,23 @@ bool App::book_overlay_switch(int key) {
     Which cur = None;
     if (folder_overlay_open_ && mode_ == Mode::Browse) cur = Library;
     else if (mode_ == Mode::BookOverlay) {
-        if (book_ov_kind_ == BookOv::Marks) cur = Stamps;
-        else if (book_ov_kind_ == BookOv::Notes) cur = Notes;
-        else if (book_ov_kind_ == BookOv::Tags) cur = Tags;
+        if (book_->ov_kind == BookOv::Marks) cur = Stamps;
+        else if (book_->ov_kind == BookOv::Notes) cur = Notes;
+        else if (book_->ov_kind == BookOv::Tags) cur = Tags;
     }
     if (cur == None || cur == target) return false;   // (the same key closes the overlay, as before)
     // not while something is typed or asked
     if (cur == Library && fo_search_) return false;
-    if (cur == Notes && book_notes_mode_ != 0) return false;
-    if (cur == Stamps && book_mmode_ != 0) return false;
+    if (cur == Notes && book_->notes_mode != 0) return false;
+    if (cur == Stamps && book_->mmode != 0) return false;
     if (cur == Tags) {
-        if (book_job_.active || book_ov_editing_ || book_ov_rename_ask_ || book_ov_confirm_) return false;
-        if (book_ov_dirty()) { book_ov_status_ = "unsaved changes: [s] save, [d] discard them first"; return true; }
+        if (book_->job.active || book_->ov_editing || book_->ov_rename_ask || book_->ov_confirm) return false;
+        if (book_ov_dirty()) { book_->ov_status = "unsaved changes: [s] save, [d] discard them first"; return true; }
     }
     if (target == Tags && chapters_.empty()) { status_line_ = "open a book first (ENTER on a book), then SHIFT+m edits the tags of its chapters"; return true; }
-    if ((target == Notes) && book_dir_.empty()) { status_line_ = "open a book first (ENTER on a book), then SHIFT+l lists its notes"; return true; }
+    if ((target == Notes) && book_->dir.empty()) { status_line_ = "open a book first (ENTER on a book), then SHIFT+l lists its notes"; return true; }
     if (cur == Library) folder_overlay_close();
-    book_mfilter_ = 0; book_notes_sort_ = 0;
+    book_->mfilter = 0; book_->notes_sort = 0;
     text_disengage();
     switch (target) {
         case Library: mode_ = Mode::Browse; folder_overlay_open(); break;
@@ -745,7 +746,7 @@ bool App::book_overlay_switch(int key) {
 
 bool App::book_overlay_key(int key) {
     if (book_overlay_switch(key)) return true;
-    switch (book_ov_kind_) {
+    switch (book_->ov_kind) {
         case BookOv::Ask: return book_ask_key(key);
         case BookOv::Resume: return book_resume_key(key);
         case BookOv::Notes: return book_notes_key(key);
@@ -759,7 +760,7 @@ bool App::book_overlay_key(int key) {
 }
 
 std::vector<std::string> App::build_book_overlay_panel(int panel_w) const {
-    switch (book_ov_kind_) {
+    switch (book_->ov_kind) {
         case BookOv::Ask: return build_book_ask_panel(panel_w);
         case BookOv::Resume: return build_book_resume_panel(panel_w);
         case BookOv::Notes: return build_book_notes_panel(panel_w, std::max(14, term_rows_ - 1));   // the whole screen (its last row stays untouched, like every full-screen view)
@@ -773,7 +774,7 @@ std::vector<std::string> App::build_book_overlay_panel(int panel_w) const {
 }
 
 int App::book_ov_width(int term_w) const {
-    switch (book_ov_kind_) {
+    switch (book_->ov_kind) {
         case BookOv::Ask: case BookOv::Resume: case BookOv::DelMark: case BookOv::Continue: case BookOv::Pick: return std::clamp(term_w - 2, 40, 62);
         case BookOv::Notes: case BookOv::Marks: case BookOv::Chapters: return std::max(40, term_w);   // full width
         default: return std::clamp(term_w - 2, 60, kBookOverlayWidth);
@@ -784,111 +785,111 @@ int App::book_ov_width(int term_w) const {
 // The notes
 // ---------------------------------------------------------------------
 void App::book_viz_remember() {
-    if (book_field_has_note() && book_viz_before_ >= 0) return;   // (the note is already there: the view from before is kept)
-    book_viz_before_ = settings_.element_lyrics ? 3 : settings_.lyric_viz == 1 ? 1 : settings_.lyric_viz == 2 ? 2 : 0;
+    if (book_field_has_note() && book_->viz_before >= 0) return;   // (the note is already there: the view from before is kept)
+    book_->viz_before = settings_.element_lyrics ? 3 : settings_.lyric_viz == 1 ? 1 : settings_.lyric_viz == 2 ? 2 : 0;
 }
 
 void App::book_viz_restore() {
-    if (book_viz_before_ < 0) return;
-    if (book_viz_before_ == 3) settings_.element_lyrics = true;
-    else { settings_.element_lyrics = false; settings_.lyric_viz = book_viz_before_; }
-    book_viz_before_ = -1;
+    if (book_->viz_before < 0) return;
+    if (book_->viz_before == 3) settings_.element_lyrics = true;
+    else { settings_.element_lyrics = false; settings_.lyric_viz = book_->viz_before; }
+    book_->viz_before = -1;
 }
 
 void App::book_note_new() {
     if (!has_track_ || !current_is_local_) { status_line_ = "play a chapter first: a note belongs to a point in a chapter"; return; }
     book_viz_remember();
-    book_note_edit_ = true;
-    book_note_typing_ = true;
-    book_note_discard_ask_ = false;
-    book_note_lines_.assign(1, std::string());
-    book_note_row_ = 0;
-    book_note_replace_ = -1;
-    book_note_file_ = path_utf8(current_path_.filename());
-    book_note_dir_ = path_utf8(current_path_.parent_path());
-    book_note_sec_ = std::floor(player_.poll_elapsed());
-    book_note_status_.clear();
-    book_note_shown_ = false;
-    edit_owner_ = "booknote"; book_note_arow_ = 0; book_note_vscroll_ = 0;
+    book_->note_edit = true;
+    book_->note_typing = true;
+    book_->note_discard_ask = false;
+    book_->note_lines.assign(1, std::string());
+    book_->note_row = 0;
+    book_->note_replace = -1;
+    book_->note_file = path_utf8(current_path_.filename());
+    book_->note_dir = path_utf8(current_path_.parent_path());
+    book_->note_sec = std::floor(player_.poll_elapsed());
+    book_->note_status.clear();
+    book_->note_shown = false;
+    edit_owner_ = "booknote"; book_->note_arow = 0; book_->note_vscroll = 0;
     edit_caret_ = edit_anchor_ = 0;
 }
 
 void App::book_note_edit_existing(int idx) {
-    if (idx < 0 || idx >= static_cast<int>(book_notes_.size())) return;
-    const BookNote& n = book_notes_[static_cast<size_t>(idx)];
+    if (idx < 0 || idx >= static_cast<int>(book_->notes.size())) return;
+    const BookNote& n = book_->notes[static_cast<size_t>(idx)];
     book_viz_remember();
-    book_note_edit_ = true;
-    book_note_typing_ = true;
-    book_note_discard_ask_ = false;
-    book_note_lines_.assign(1, n.title);
-    for (const std::string& l : n.text) book_note_lines_.push_back(l);
-    if (book_note_lines_.size() == 1) book_note_lines_.emplace_back();
-    book_note_row_ = 0;
-    book_note_replace_ = idx;
-    book_note_file_ = n.file;
-    book_note_dir_ = book_dir_;
-    book_note_sec_ = n.sec;
-    book_note_status_.clear();
-    book_note_shown_ = false;
-    edit_owner_ = "booknote"; book_note_arow_ = 0; book_note_vscroll_ = 0;
+    book_->note_edit = true;
+    book_->note_typing = true;
+    book_->note_discard_ask = false;
+    book_->note_lines.assign(1, n.title);
+    for (const std::string& l : n.text) book_->note_lines.push_back(l);
+    if (book_->note_lines.size() == 1) book_->note_lines.emplace_back();
+    book_->note_row = 0;
+    book_->note_replace = idx;
+    book_->note_file = n.file;
+    book_->note_dir = book_->dir;
+    book_->note_sec = n.sec;
+    book_->note_status.clear();
+    book_->note_shown = false;
+    edit_owner_ = "booknote"; book_->note_arow = 0; book_->note_vscroll = 0;
     edit_caret_ = edit_anchor_ = n.title.size();
 }
 
 // CTRL+n in the small field: the note that is written goes on in the big notes overlay (same text, same caret); one that is only shown
 // is opened there for editing; with no note at all a new one is started there.
 void App::book_note_to_overlay() {
-    if (book_dir_.empty()) { status_line_ = "open a book first: the big notes overlay belongs to the open book"; return; }
-    if (!book_note_edit_) {
+    if (book_->dir.empty()) { status_line_ = "open a book first: the big notes overlay belongs to the open book"; return; }
+    if (!book_->note_edit) {
         int idx = -1;
-        if (book_note_shown_)
-            for (size_t i = 0; i < book_notes_.size(); ++i) if (book_notes_[i] == book_note_view_) { idx = static_cast<int>(i); break; }
+        if (book_->note_shown)
+            for (size_t i = 0; i < book_->notes.size(); ++i) if (book_->notes[i] == book_->note_view) { idx = static_cast<int>(i); break; }
         if (idx >= 0) book_note_edit_existing(idx);
         else if (has_track_ && current_is_local_) book_note_new();
         else { status_line_ = "play a chapter first: a note belongs to a point in a chapter"; return; }
-    } else if (book_note_dir_ != book_dir_) {
+    } else if (book_->note_dir != book_->dir) {
         status_line_ = "this note belongs to the book that plays, not to the open one: save it first";
         return;
     }
-    book_ov_kind_ = BookOv::Notes;
-    book_notes_scroll_ = 0;
-    book_notes_sel_ = 0;
-    if (book_note_replace_ >= 0) {   // the note that is changed stays selected in the list
+    book_->ov_kind = BookOv::Notes;
+    book_->notes_scroll = 0;
+    book_->notes_sel = 0;
+    if (book_->note_replace >= 0) {   // the note that is changed stays selected in the list
         const std::vector<int> order = book_notes_order();
-        for (size_t i = 0; i < order.size(); ++i) if (order[i] == book_note_replace_) book_notes_sel_ = static_cast<int>(i);
+        for (size_t i = 0; i < order.size(); ++i) if (order[i] == book_->note_replace) book_->notes_sel = static_cast<int>(i);
     }
-    book_notes_mode_ = 4;
-    book_ov_status_.clear();
+    book_->notes_mode = 4;
+    book_->ov_status.clear();
     mode_ = Mode::BookOverlay;   // (the text stays engaged: the caret is where it was)
 }
 
 void App::book_note_save() {
     BookNote n;
-    n.file = book_note_file_;
-    n.sec = book_note_sec_;
-    n.title = trim_ws(book_note_lines_.empty() ? std::string() : book_note_lines_[0]);
-    for (size_t i = 1; i < book_note_lines_.size(); ++i) n.text.push_back(book_note_lines_[i]);
+    n.file = book_->note_file;
+    n.sec = book_->note_sec;
+    n.title = trim_ws(book_->note_lines.empty() ? std::string() : book_->note_lines[0]);
+    for (size_t i = 1; i < book_->note_lines.size(); ++i) n.text.push_back(book_->note_lines[i]);
     while (!n.text.empty() && trim_ws(n.text.back()).empty()) n.text.pop_back();
-    if (n.title.empty() && n.text.empty()) { book_note_status_ = "nothing to save yet"; return; }
+    if (n.title.empty() && n.text.empty()) { book_->note_status = "nothing to save yet"; return; }
     if (n.title.empty()) n.title = truncate_str(trim_ws(n.text.front()), 40);
-    const bool open_book = book_note_dir_ == book_dir_;
-    const fs::path nf = book_notes::path_for(path_from_utf8(book_note_dir_));
+    const bool open_book = book_->note_dir == book_->dir;
+    const fs::path nf = book_notes::path_for(path_from_utf8(book_->note_dir));
     std::vector<BookNote> list;
-    if (open_book) list = book_notes_; else book_notes::load(nf, list);
+    if (open_book) list = book_->notes; else book_notes::load(nf, list);
     const long long now_t = epoch_now();
-    if (book_note_replace_ >= 0 && open_book && book_note_replace_ < static_cast<int>(list.size())) {
-        const BookNote& old = list[static_cast<size_t>(book_note_replace_)];
+    if (book_->note_replace >= 0 && open_book && book_->note_replace < static_cast<int>(list.size())) {
+        const BookNote& old = list[static_cast<size_t>(book_->note_replace)];
         n.set = old.set > 0 ? old.set : now_t;
         n.changed = old == n && old.changed > 0 ? old.changed : now_t;   // (saved without a change: the date stays)
-        list[static_cast<size_t>(book_note_replace_)] = n;
+        list[static_cast<size_t>(book_->note_replace)] = n;
     } else { n.set = n.changed = now_t; list.push_back(n); }
-    if (!book_notes::save(nf, list)) { book_note_status_ = "could not write " + path_utf8(nf.filename()); return; }
-    if (open_book) book_notes_ = list;
-    book_note_edit_ = false;
-    if (mode_ == Mode::BookOverlay && book_ov_kind_ == BookOv::Notes && book_notes_mode_ == 4) {   // written in the notes overlay: it stays, on that note
+    if (!book_notes::save(nf, list)) { book_->note_status = "could not write " + path_utf8(nf.filename()); return; }
+    if (open_book) book_->notes = list;
+    book_->note_edit = false;
+    if (mode_ == Mode::BookOverlay && book_->ov_kind == BookOv::Notes && book_->notes_mode == 4) {   // written in the notes overlay: it stays, on that note
         text_disengage();
-        book_ov_status_ = "note saved: " + n.title + " (" + stem_of(n.file) + ", " + book_notes::time_text(n.sec) + ")";
+        book_->ov_status = "note saved: " + n.title + " (" + stem_of(n.file) + ", " + book_notes::time_text(n.sec) + ")";
         const std::vector<int> order = book_notes_order();
-        for (size_t i = 0; i < order.size(); ++i) if (book_notes_[static_cast<size_t>(order[i])] == n) book_notes_sel_ = static_cast<int>(i);
+        for (size_t i = 0; i < order.size(); ++i) if (book_->notes[static_cast<size_t>(order[i])] == n) book_->notes_sel = static_cast<int>(i);
         return;
     }
     status_line_ = "note saved: " + n.title + " (" + stem_of(n.file) + ", " + book_notes::time_text(n.sec) + ") in " + path_utf8(nf.filename());
@@ -897,10 +898,10 @@ void App::book_note_save() {
 
 void App::book_note_show(const BookNote& n, bool automatic) {
     book_viz_remember();
-    book_note_view_ = n;
-    book_note_shown_ = true;
-    book_note_auto_ = automatic;
-    book_note_auto_at_ = std::chrono::steady_clock::now();
+    book_->note_view = n;
+    book_->note_shown = true;
+    book_->note_auto = automatic;
+    book_->note_auto_at = std::chrono::steady_clock::now();
 }
 
 // ---------------------------------------------------------------------
@@ -1022,39 +1023,39 @@ void note_insert(std::vector<std::string>& L, NoteCur& c, const std::string& tex
 // The note editor: every key belongs to it while it is open (the audio goes on).
 bool App::book_note_key(int key) {
     const bool arrow = last_key_was_arrow();
-    auto& L = book_note_lines_;
-    auto close_editor = [&]() { book_note_edit_ = false; book_note_discard_ask_ = false; text_disengage(); if (!book_note_shown_) book_viz_restore(); };
-    if (book_note_discard_ask_) {
+    auto& L = book_->note_lines;
+    auto close_editor = [&]() { book_->note_edit = false; book_->note_discard_ask = false; text_disengage(); if (!book_->note_shown) book_viz_restore(); };
+    if (book_->note_discard_ask) {
         if (!arrow && (key == 'y' || key == 'Y')) close_editor();
-        else if (!arrow && (key == 'n' || key == 'N' || key == 27 || key == '\r' || key == '\n')) book_note_discard_ask_ = false;
+        else if (!arrow && (key == 'n' || key == 'N' || key == 27 || key == '\r' || key == '\n')) book_->note_discard_ask = false;
         return true;
     }
-    if (!book_note_typing_) {   // the keys do not type: SHIFT+s saves, ENTER types again, ESC lets go of the note
+    if (!book_->note_typing) {   // the keys do not type: SHIFT+s saves, ENTER types again, ESC lets go of the note
         if (!arrow && key == 'S') { book_note_save(); return true; }
-        if (!arrow && (key == '\r' || key == '\n')) { book_note_typing_ = true; return true; }
+        if (!arrow && (key == '\r' || key == '\n')) { book_->note_typing = true; return true; }
         if (!arrow && key == 27) {
             bool empty = true;
             for (const std::string& l : L) if (!trim_ws(l).empty()) empty = false;
-            if (empty) close_editor(); else book_note_discard_ask_ = true;
+            if (empty) close_editor(); else book_->note_discard_ask = true;
         }
         return true;
     }
     if (key == kKeyCtrlShiftS) { book_note_save(); return true; }
-    if (!arrow && key == 27) { book_note_typing_ = false; return true; }
+    if (!arrow && key == 27) { book_->note_typing = false; return true; }
     if (L.empty()) L.emplace_back();
     if (edit_owner_ != "booknote") {   // another field had the caret: start at the end of the line
         edit_owner_ = "booknote";
-        edit_caret_ = edit_anchor_ = L[static_cast<size_t>(std::clamp(book_note_row_, 0, static_cast<int>(L.size()) - 1))].size();
-        book_note_arow_ = book_note_row_;
+        edit_caret_ = edit_anchor_ = L[static_cast<size_t>(std::clamp(book_->note_row, 0, static_cast<int>(L.size()) - 1))].size();
+        book_->note_arow = book_->note_row;
     }
     NoteCur c;
-    c.row = std::clamp(book_note_row_, 0, static_cast<int>(L.size()) - 1);
-    c.arow = std::clamp(book_note_arow_, 0, static_cast<int>(L.size()) - 1);
+    c.row = std::clamp(book_->note_row, 0, static_cast<int>(L.size()) - 1);
+    c.arow = std::clamp(book_->note_arow, 0, static_cast<int>(L.size()) - 1);
     c.col = std::min(edit_caret_, L[static_cast<size_t>(c.row)].size());
     c.acol = std::min(edit_anchor_, L[static_cast<size_t>(c.arow)].size());
     const int last = static_cast<int>(L.size()) - 1;
     auto line = [&](int r) -> std::string& { return L[static_cast<size_t>(r)]; };
-    auto done = [&]() { book_note_row_ = c.row; book_note_arow_ = c.arow; edit_caret_ = c.col; edit_anchor_ = c.acol; return true; };
+    auto done = [&]() { book_->note_row = c.row; book_->note_arow = c.arow; edit_caret_ = c.col; edit_anchor_ = c.acol; return true; };
     auto collapse = [&](bool shift) { if (!shift) { c.arow = c.row; c.acol = c.col; } };
     auto left = [&]() {
         if (c.col > 0) c.col = utf8_prev_cut(line(c.row), c.col);
@@ -1074,7 +1075,7 @@ bool App::book_note_key(int key) {
     };
     // Up / Down: one visual row (the wrapped rows of a paragraph count), the column (in screen cells) kept as well as it goes
     auto vertical = [&](int dir) {
-        const int w = std::max(4, book_note_wrap_w_);
+        const int w = std::max(4, book_->note_wrap_w);
         const NoteSegs seg = c.row == 0 ? NoteSegs{{0, line(0).size()}} : note_segments(line(c.row), w);
         const size_t si = note_seg_of(seg, c.col);
         const int want = display_width(line(c.row).substr(seg[si].first, c.col - seg[si].first));
@@ -1138,18 +1139,18 @@ bool App::book_note_key(int key) {
         if (note_has_sel(c)) t = note_sel_text(L, c);
         else for (size_t i = 1; i < L.size(); ++i) t += (i > 1 ? "\n" : "") + L[i];   // nothing marked: the whole text
         clipboard_set(t);
-        book_note_status_ = t.empty() ? "nothing to copy" : (note_has_sel(c) ? "COPIED" : "COPIED the whole text");
+        book_->note_status = t.empty() ? "nothing to copy" : (note_has_sel(c) ? "COPIED" : "COPIED the whole text");
         return done();
     }
     if (key == kKeyCtrlX) {
-        if (!note_has_sel(c)) { book_note_status_ = "nothing marked to cut"; return done(); }
+        if (!note_has_sel(c)) { book_->note_status = "nothing marked to cut"; return done(); }
         clipboard_set(note_sel_text(L, c));
         note_erase_sel(L, c);
-        book_note_status_ = "CUT";
+        book_->note_status = "CUT";
         return done();
     }
-    if (key == kKeyCtrlV) { note_insert(L, c, clipboard_get()); book_note_status_ = "PASTED"; return done(); }
-    book_note_status_.clear();
+    if (key == kKeyCtrlV) { note_insert(L, c, clipboard_get()); book_->note_status = "PASTED"; return done(); }
+    book_->note_status.clear();
     if (key == kKeyDelete) {
         if (note_has_sel(c)) note_erase_sel(L, c);
         else if (c.col < line(c.row).size()) { const size_t n = utf8_next_cut(line(c.row), c.col); line(c.row).erase(c.col, n - c.col); c.acol = c.col; }
@@ -1213,13 +1214,13 @@ std::vector<std::string> App::book_note_field_rows(int w, int h) const {
         rows.push_back(sgr + t + std::string(static_cast<size_t>(std::max(0, w - display_width(t))), ' ') + R);
     };
     const std::string head = header_sgr(settings_), leg = legend_sgr(settings_), ink = ansi_for(settings_.list_color, false);
-    const std::string wfile = book_note_edit_ ? book_note_file_ : book_note_view_.file;
-    const double wsec = book_note_edit_ ? book_note_sec_ : book_note_view_.sec;
-    if (book_note_edit_) {
+    const std::string wfile = book_->note_edit ? book_->note_file : book_->note_view.file;
+    const double wsec = book_->note_edit ? book_->note_sec : book_->note_view.sec;
+    if (book_->note_edit) {
         {   // the header: what it is + chapter and time (the time always whole); the hint about the time only where there is room
-            std::string kind = book_note_replace_ >= 0 ? "EDIT NOTE  " : "NEW NOTE  ";
-            if (w < display_width(kind) + 14) kind = book_note_replace_ >= 0 ? "EDIT  " : "NEW  ";
-            const std::string hint = book_note_replace_ >= 0 ? "" : "  (time set when SHIFT+n was pressed)";
+            std::string kind = book_->note_replace >= 0 ? "EDIT NOTE  " : "NEW NOTE  ";
+            if (w < display_width(kind) + 14) kind = book_->note_replace >= 0 ? "EDIT  " : "NEW  ";
+            const std::string hint = book_->note_replace >= 0 ? "" : "  (time set when SHIFT+n was pressed)";
             std::string where = book_note_where(wfile, wsec, w - display_width(kind));
             if (!hint.empty() && display_width(kind) + display_width(where) + display_width(hint) <= w && where.find("...") == std::string::npos) where += hint;
             put(head, kind + where);
@@ -1227,16 +1228,16 @@ std::vector<std::string> App::book_note_field_rows(int w, int h) const {
         const int body = std::max(1, h - 5);   // header, title, and three rows for the legend / status (the legend wraps)
         // the caret and the marked text, as the keys see them
         NoteCur cur;
-        const bool engaged = book_note_typing_ && !book_note_discard_ask_;
-        const int nl = static_cast<int>(book_note_lines_.size());
-        cur.row = std::clamp(book_note_row_, 0, nl - 1);
-        cur.arow = std::clamp(book_note_arow_, 0, nl - 1);
-        cur.col = std::min(edit_owner_ == "booknote" ? edit_caret_ : book_note_lines_[static_cast<size_t>(cur.row)].size(), book_note_lines_[static_cast<size_t>(cur.row)].size());
-        cur.acol = std::min(edit_owner_ == "booknote" ? edit_anchor_ : cur.col, book_note_lines_[static_cast<size_t>(cur.arow)].size());
+        const bool engaged = book_->note_typing && !book_->note_discard_ask;
+        const int nl = static_cast<int>(book_->note_lines.size());
+        cur.row = std::clamp(book_->note_row, 0, nl - 1);
+        cur.arow = std::clamp(book_->note_arow, 0, nl - 1);
+        cur.col = std::min(edit_owner_ == "booknote" ? edit_caret_ : book_->note_lines[static_cast<size_t>(cur.row)].size(), book_->note_lines[static_cast<size_t>(cur.row)].size());
+        cur.acol = std::min(edit_owner_ == "booknote" ? edit_anchor_ : cur.col, book_->note_lines[static_cast<size_t>(cur.arow)].size());
         if (edit_owner_ != "booknote") { cur.arow = cur.row; cur.acol = cur.col; }
         // the title: one line that scrolls sideways
         {
-            const std::string& text = book_note_lines_[0];
+            const std::string& text = book_->note_lines[0];
             const std::string prefix = "Title: ";
             size_t sa = 0, sb = 0;
             note_sel_in_row(cur, 0, text.size(), sa, sb);
@@ -1250,22 +1251,22 @@ std::vector<std::string> App::book_note_field_rows(int w, int h) const {
             else rows.push_back(base + prefix + (here ? change_sgr(settings_) : std::string()) + pt.s + R + std::string(static_cast<size_t>(std::max(0, w - pw - pt.cols)), ' '));
         }
         // the text: every paragraph wrapped to the width (nothing is changed in it), scrolled so that the caret row is visible
-        book_note_wrap_w_ = std::max(4, w - 2);   // (one column is left for the caret at the end of a row, one for the scroll bar)
+        book_->note_wrap_w = std::max(4, w - 2);   // (one column is left for the caret at the end of a row, one for the scroll bar)
         struct VRow { int row; size_t a, b, si; };
         std::vector<VRow> vrows;
         int caret_v = 0;
         for (int r = 1; r < nl; ++r) {
-            const NoteSegs seg = note_segments(book_note_lines_[static_cast<size_t>(r)], book_note_wrap_w_);
+            const NoteSegs seg = note_segments(book_->note_lines[static_cast<size_t>(r)], book_->note_wrap_w);
             if (r == cur.row) caret_v = static_cast<int>(vrows.size()) + static_cast<int>(note_seg_of(seg, cur.col));
             for (size_t q = 0; q < seg.size(); ++q) vrows.push_back({r, seg[q].first, seg[q].second, q});
         }
         if (cur.row == 0) caret_v = 0;
-        if (caret_v < book_note_vscroll_) book_note_vscroll_ = caret_v;
-        if (caret_v >= book_note_vscroll_ + body) book_note_vscroll_ = caret_v - body + 1;
-        book_note_vscroll_ = std::clamp(book_note_vscroll_, 0, std::max(0, static_cast<int>(vrows.size()) - 1));
+        if (caret_v < book_->note_vscroll) book_->note_vscroll = caret_v;
+        if (caret_v >= book_->note_vscroll + body) book_->note_vscroll = caret_v - body + 1;
+        book_->note_vscroll = std::clamp(book_->note_vscroll, 0, std::max(0, static_cast<int>(vrows.size()) - 1));
         // the scroll bar (last column) when the text is longer than the rows there are
         overlay::Thumb thumb;
-        const bool bar = overlay::scroll_thumb(book_note_vscroll_, body, static_cast<int>(vrows.size()), thumb);
+        const bool bar = overlay::scroll_thumb(book_->note_vscroll, body, static_cast<int>(vrows.size()), thumb);
         auto bar_cell = [&](int i) -> std::string {   // the last column of row i of the text (empty: no bar)
             if (!bar) return std::string();
             return gradient_ansi(settings_.disk_color, settings_.disk_color_end, body > 1 ? static_cast<float>(i) / static_cast<float>(body - 1) : 0.0f)
@@ -1273,13 +1274,13 @@ std::vector<std::string> App::book_note_field_rows(int w, int h) const {
         };
         const int fill = w - (bar ? 1 : 0);   // the text rows are this wide, the bar takes the rest
         for (int i = 0; i < body; ++i) {
-            const int vi = book_note_vscroll_ + i;
+            const int vi = book_->note_vscroll + i;
             if (vi >= static_cast<int>(vrows.size())) { rows.push_back(ink + std::string(static_cast<size_t>(fill), ' ') + R + bar_cell(i)); continue; }
             const VRow& v = vrows[static_cast<size_t>(vi)];
-            const std::string& text = book_note_lines_[static_cast<size_t>(v.row)];
+            const std::string& text = book_->note_lines[static_cast<size_t>(v.row)];
             size_t sa = 0, sb = 0;
             note_sel_in_row(cur, v.row, text.size(), sa, sb);
-            const NoteSegs full = note_segments(text, book_note_wrap_w_);
+            const NoteSegs full = note_segments(text, book_->note_wrap_w);
             const bool owns_caret = engaged && v.row == cur.row && note_seg_of(full, cur.col) == v.si;
             std::string out;
             int cols = 0;
@@ -1300,13 +1301,13 @@ std::vector<std::string> App::book_note_field_rows(int w, int h) const {
         }
         // the legend (wrapped to the width of the field, at most three rows; a status or the question takes the first row)
         std::vector<std::pair<std::string, std::string>> leg_rows;   // (colour, text)
-        if (book_note_discard_ask_) {
+        if (book_->note_discard_ask) {
             leg_rows.push_back({head, "Throw the note away?"});
             leg_rows.push_back({leg, "[y] yes   [n] keep it"});
         }
         else {
-            if (!book_note_status_.empty()) leg_rows.push_back({head, book_note_status_});
-            const std::string text = book_note_typing_ ? "[ENTER] new line  [ESC] stop typing  [CTRL+SHIFT+s] save  [CTRL+n] big editor"
+            if (!book_->note_status.empty()) leg_rows.push_back({head, book_->note_status});
+            const std::string text = book_->note_typing ? "[ENTER] new line  [ESC] stop typing  [CTRL+SHIFT+s] save  [CTRL+n] big editor"
                                                        : "typing is off:  [SHIFT+s] save  [ENTER] type on  [ESC] discard  [CTRL+n] big editor";
             for (const std::string& piece : wrap_words(text, std::max(4, w))) leg_rows.push_back({leg, piece});
         }
@@ -1314,10 +1315,10 @@ std::vector<std::string> App::book_note_field_rows(int w, int h) const {
         for (size_t i = leg_rows.size(); i < 3; ++i) leg_rows.push_back({leg, std::string()});
         for (const auto& lr : leg_rows) put(lr.first, lr.second);
     } else {
-        put(head + "\x1b[1m", book_note_view_.title.empty() ? std::string("(no title)") : book_note_view_.title);
+        put(head + "\x1b[1m", book_->note_view.title.empty() ? std::string("(no title)") : book_->note_view.title);
         put(leg, book_note_where(wfile, wsec, w));
         put(ink, "");
-        for (const std::string& l : book_note_view_.text) {
+        for (const std::string& l : book_->note_view.text) {
             for (const std::string& piece : wrap_words(l.empty() ? std::string(" ") : l, std::max(4, w))) {
                 if (static_cast<int>(rows.size()) >= h - 1) break;
                 put(ink, piece);
@@ -1325,7 +1326,7 @@ std::vector<std::string> App::book_note_field_rows(int w, int h) const {
         }
     }
     while (static_cast<int>(rows.size()) < h) rows.push_back(std::string(static_cast<size_t>(w), ' '));
-    if (!book_note_edit_) {   // the way out, on the last row
+    if (!book_->note_edit) {   // the way out, on the last row
         {
             const std::string out_t = truncate_str(w >= 62 ? "[.] put the note away  [,] write it again  [CTRL+n] big editor" : w >= 44 ? "[.] away  [,] edit again  [CTRL+n] big editor" : "[.] away [,] edit [CTRL+n] big", w);
             rows[static_cast<size_t>(h - 1)] = leg + out_t + std::string(static_cast<size_t>(std::max(0, w - display_width(out_t))), ' ') + R;
@@ -1341,16 +1342,16 @@ void App::book_notes_follow() {
     const std::string file = path_utf8(current_path_.filename());
     if (!player_.is_paused()) {
         const double el = player_.poll_elapsed();
-        const double prev = book_prev_elapsed_;
-        book_prev_elapsed_ = el;
-        if (el >= prev && el - prev < 3.0 && !book_note_edit_) {   // playing through, not a seek
-            for (const BookNote& n : book_notes_)
+        const double prev = book_->prev_elapsed;
+        book_->prev_elapsed = el;
+        if (el >= prev && el - prev < 3.0 && !book_->note_edit) {   // playing through, not a seek
+            for (const BookNote& n : book_->notes)
                 if (n.file == file && n.sec > prev && n.sec <= el) { book_note_show(n, true); break; }
         }
     }
-    if (book_note_shown_ && book_note_auto_ && !load_in_progress_.load() && !book_seek_pending_ && book_note_view_.file != file) book_note_shown_ = false;
-    if (book_note_shown_ && book_note_auto_ &&
-        std::chrono::duration<double>(std::chrono::steady_clock::now() - book_note_auto_at_).count() > 20.0) book_note_shown_ = false;
+    if (book_->note_shown && book_->note_auto && !load_in_progress_.load() && !book_->seek_pending && book_->note_view.file != file) book_->note_shown = false;
+    if (book_->note_shown && book_->note_auto &&
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - book_->note_auto_at).count() > 20.0) book_->note_shown = false;
 }
 
 // ---------------------------------------------------------------------
@@ -1358,14 +1359,14 @@ void App::book_notes_follow() {
 // ---------------------------------------------------------------------
 std::vector<int> App::book_notes_order() const {
     std::vector<int> idx;
-    for (size_t i = 0; i < book_notes_.size(); ++i) idx.push_back(static_cast<int>(i));
+    for (size_t i = 0; i < book_->notes.size(); ++i) idx.push_back(static_cast<int>(i));
     std::stable_sort(idx.begin(), idx.end(), [&](int a, int b) {
-        const BookNote& x = book_notes_[static_cast<size_t>(a)];
-        const BookNote& y = book_notes_[static_cast<size_t>(b)];
+        const BookNote& x = book_->notes[static_cast<size_t>(a)];
+        const BookNote& y = book_->notes[static_cast<size_t>(b)];
         int cx = book_chapter_of(x.file), cy = book_chapter_of(y.file);
         if (cx < 0) cx = 1 << 20;
         if (cy < 0) cy = 1 << 20;
-        if (book_notes_sort_ == 1) {   // SHIFT+t: the recently edited first (notes without a date last, in file order)
+        if (book_->notes_sort == 1) {   // SHIFT+t: the recently edited first (notes without a date last, in file order)
             const long long ex = x.changed > 0 ? x.changed : x.set, ey = y.changed > 0 ? y.changed : y.set;
             if (ex != ey) return ex > ey;
             return a > b;
@@ -1377,14 +1378,14 @@ std::vector<int> App::book_notes_order() const {
 }
 
 void App::book_notes_open() {
-    if (book_dir_.empty()) { status_line_ = "open a book first (ENTER on a book), then SHIFT+l lists its notes"; return; }
+    if (book_->dir.empty()) { status_line_ = "open a book first (ENTER on a book), then SHIFT+l lists its notes"; return; }
     book_bookmark_load();   // (the files may have been edited meanwhile)
-    book_ov_kind_ = BookOv::Notes;
-    book_notes_sel_ = 0;
-    book_notes_scroll_ = 0;
-    book_notes_mode_ = 0;
-    book_notes_sort_ = 0;
-    book_ov_status_.clear();
+    book_->ov_kind = BookOv::Notes;
+    book_->notes_sel = 0;
+    book_->notes_scroll = 0;
+    book_->notes_mode = 0;
+    book_->notes_sort = 0;
+    book_->ov_status.clear();
     text_disengage();
     mode_ = Mode::BookOverlay;
 }
@@ -1399,66 +1400,66 @@ bool App::book_notes_key(int key) {
     const bool arrow = last_key_was_arrow();
     const std::vector<int> order = book_notes_order();
     const int n = static_cast<int>(order.size());
-    const fs::path book = path_from_utf8(book_dir_);
-    auto say = [&](const std::string& s) { book_ov_status_ = s; };
-    if (book_notes_mode_ == 4) {   // a note is written or changed here, in the right pane
-        if (key == kKeyCtrlN && !book_note_discard_ask_) {   // CTRL+n: back to the small field, the note goes on there
-            book_notes_mode_ = 0;
+    const fs::path book = path_from_utf8(book_->dir);
+    auto say = [&](const std::string& s) { book_->ov_status = s; };
+    if (book_->notes_mode == 4) {   // a note is written or changed here, in the right pane
+        if (key == kKeyCtrlN && !book_->note_discard_ask) {   // CTRL+n: back to the small field, the note goes on there
+            book_->notes_mode = 0;
             mode_ = Mode::Browse;
             return true;
         }
         book_note_key(key);
-        if (!book_note_edit_) {   // saved, or thrown away
-            book_notes_mode_ = 0;
-            if (book_ov_status_.empty()) say("");
+        if (!book_->note_edit) {   // saved, or thrown away
+            book_->notes_mode = 0;
+            if (book_->ov_status.empty()) say("");
         }
         return true;
     }
-    if (book_notes_mode_ == 1 || book_notes_mode_ == 2) {   // a path is typed
-        if (!arrow && key == 27) { book_notes_mode_ = 0; say("cancelled"); return true; }
+    if (book_->notes_mode == 1 || book_->notes_mode == 2) {   // a path is typed
+        if (!arrow && key == 27) { book_->notes_mode = 0; say("cancelled"); return true; }
         if (!arrow && (key == '\r' || key == '\n')) {
-            const fs::path p = path_from_utf8(trim_ws(book_notes_path_));
-            if (book_notes_mode_ == 1) {
+            const fs::path p = path_from_utf8(trim_ws(book_->notes_path));
+            if (book_->notes_mode == 1) {
                 std::error_code ec;
                 if (p.has_parent_path()) fs::create_directories(p.parent_path(), ec);
-                say(book_notes::save(p, book_notes_) ? "exported " + std::to_string(book_notes_.size()) + " note" + (book_notes_.size() == 1 ? "" : "s") + " to " + path_utf8(p)
+                say(book_notes::save(p, book_->notes) ? "exported " + std::to_string(book_->notes.size()) + " note" + (book_->notes.size() == 1 ? "" : "s") + " to " + path_utf8(p)
                                                      : "could not write " + path_utf8(p));
             } else {
                 std::vector<BookNote> in;
                 if (!book_notes::load(p, in)) say("no such file: " + path_utf8(p));
                 else {
-                    const int added = book_notes::merge(book_notes_, in);
-                    if (added > 0 && !book_notes::save(book_notes::path_for(book), book_notes_)) say("could not write the notes file");
+                    const int added = book_notes::merge(book_->notes, in);
+                    if (added > 0 && !book_notes::save(book_notes::path_for(book), book_->notes)) say("could not write the notes file");
                     else say("imported " + std::to_string(added) + " new note" + (added == 1 ? "" : "s") + " (" + std::to_string(static_cast<int>(in.size()) - added) + " already there)");
                 }
             }
-            book_notes_mode_ = 0;
+            book_->notes_mode = 0;
             return true;
         }
-        edit_focus("booknotespath", book_notes_path_);
-        edit_text_key(book_notes_path_, edit_caret_, edit_anchor_, key, 400, &book_ov_status_);
+        edit_focus("booknotespath", book_->notes_path);
+        edit_text_key(book_->notes_path, edit_caret_, edit_anchor_, key, 400, &book_->ov_status);
         return true;
     }
-    if (book_notes_mode_ == 3) {   // delete?
+    if (book_->notes_mode == 3) {   // delete?
         if (!arrow && (key == 'y' || key == 'Y')) {
-            const int e = book_notes_sel_ >= 0 && book_notes_sel_ < n ? order[static_cast<size_t>(book_notes_sel_)] : -1;
+            const int e = book_->notes_sel >= 0 && book_->notes_sel < n ? order[static_cast<size_t>(book_->notes_sel)] : -1;
             if (e >= 0) {
                 BookStamp st;
-                const BookNote& bn = book_notes_[static_cast<size_t>(e)];
-                st.kind = 2; st.dir = book_dir_; st.book = path_utf8(book.filename());
+                const BookNote& bn = book_->notes[static_cast<size_t>(e)];
+                st.kind = 2; st.dir = book_->dir; st.book = path_utf8(book.filename());
                 st.file = bn.file; st.sec = bn.sec; st.title = bn.title; st.note = bn;
                 if (book_stamp_remove(st)) say("note deleted  (CTRL+SHIFT+u brings it back)");
                 else say("could not delete the note");
-                book_notes_sel_ = std::max(0, book_notes_sel_ - 1);
+                book_->notes_sel = std::max(0, book_->notes_sel - 1);
             }
         }
-        book_notes_mode_ = 0;
+        book_->notes_mode = 0;
         return true;
     }
     if (!arrow && key == kKeyCtrlShiftU) { say(book_undo_pop()); return true; }
     if (key == kKeyCtrlC) {   // CTRL+c copies the chosen note (title and text)
-        if (n > 0 && book_notes_sel_ >= 0 && book_notes_sel_ < n) {
-            const BookNote& bn = book_notes_[static_cast<size_t>(order[static_cast<size_t>(book_notes_sel_)])];
+        if (n > 0 && book_->notes_sel >= 0 && book_->notes_sel < n) {
+            const BookNote& bn = book_->notes[static_cast<size_t>(order[static_cast<size_t>(book_->notes_sel)])];
             std::string t = bn.title;
             for (const std::string& l : bn.text) t += "\n" + l;
             clipboard_set(t);
@@ -1466,56 +1467,56 @@ bool App::book_notes_key(int key) {
         }
         return true;
     }
-    if (arrow && key == 'A') { if (n) book_notes_sel_ = (book_notes_sel_ + n - 1) % n; return true; }
-    if (arrow && key == 'B') { if (n) book_notes_sel_ = (book_notes_sel_ + 1) % n; return true; }
-    const int e = (n > 0 && book_notes_sel_ >= 0 && book_notes_sel_ < n) ? order[static_cast<size_t>(book_notes_sel_)] : -1;   // -1: no note
-    if (!arrow && (key == 27 || key == 'q' || key == 'L')) { book_notes_sort_ = 0; mode_ = Mode::Browse; return true; }
+    if (arrow && key == 'A') { if (n) book_->notes_sel = (book_->notes_sel + n - 1) % n; return true; }
+    if (arrow && key == 'B') { if (n) book_->notes_sel = (book_->notes_sel + 1) % n; return true; }
+    const int e = (n > 0 && book_->notes_sel >= 0 && book_->notes_sel < n) ? order[static_cast<size_t>(book_->notes_sel)] : -1;   // -1: no note
+    if (!arrow && (key == 27 || key == 'q' || key == 'L')) { book_->notes_sort = 0; mode_ = Mode::Browse; return true; }
     if (!arrow && key == 'T') {   // SHIFT+t: chapter order, furthest on top <-> recently edited first
-        book_notes_sort_ = (book_notes_sort_ + 1) % 2;
+        book_->notes_sort = (book_->notes_sort + 1) % 2;
         if (e >= 0) {   // the cursor stays on the same note
             const std::vector<int> neu = book_notes_order();
-            for (size_t i = 0; i < neu.size(); ++i) if (neu[i] == e) { book_notes_sel_ = static_cast<int>(i); break; }
+            for (size_t i = 0; i < neu.size(); ++i) if (neu[i] == e) { book_->notes_sel = static_cast<int>(i); break; }
         }
-        say(book_notes_sort_ == 0 ? "sorted by chapter, the highest chapter and the furthest time on top" : "sorted by the last edit, the most recent on top");
+        say(book_->notes_sort == 0 ? "sorted by chapter, the highest chapter and the furthest time on top" : "sorted by the last edit, the most recent on top");
         return true;
     }
     if (!arrow && key == 'f') {   // [f]: shows it in the field of the main screen (the overlay closes)
-        if (e >= 0) { book_note_show(book_notes_[static_cast<size_t>(e)], false); mode_ = Mode::Browse; }
+        if (e >= 0) { book_note_show(book_->notes[static_cast<size_t>(e)], false); mode_ = Mode::Browse; }
         return true;
     }
     if (!arrow && key == 'P') {   // plays from there; the overlay stays, the note is in the field once it is closed
         if (e < 0) return true;
-        const std::string file = book_notes_[static_cast<size_t>(e)].file;
-        const double sec = book_notes_[static_cast<size_t>(e)].sec;
+        const std::string file = book_->notes[static_cast<size_t>(e)].file;
+        const double sec = book_->notes[static_cast<size_t>(e)].sec;
         const int c = book_chapter_of(file);
         if (c < 0) { say("that chapter is not in the book any more"); return true; }
         book_play_at(c, sec);
-        book_note_show(book_notes_[static_cast<size_t>(e)], false);
+        book_note_show(book_->notes[static_cast<size_t>(e)], false);
         say("playing " + stem_of(file) + " from " + book_notes::time_text(sec));
         return true;
     }
     if (!arrow && (key == 't' || key == '\r' || key == '\n') && e >= 0) {   // ENTER (or t): edit it here, in the right pane
         book_note_edit_existing(e);
-        book_notes_mode_ = 4;
-        book_ov_status_.clear();
+        book_->notes_mode = 4;
+        book_->ov_status.clear();
         return true;
     }
     if (!arrow && key == 'n') {   // a new note at the point that plays
         if (!has_track_ || !current_is_local_) { say("play a chapter first: a note belongs to a point in a chapter"); return true; }
         book_note_new();
-        book_notes_mode_ = 4;
-        book_ov_status_.clear();
+        book_->notes_mode = 4;
+        book_->ov_status.clear();
         return true;
     }
-    if (!arrow && (key == 'x' || key == kKeyDelete || key == 127) && e >= 0) { book_notes_mode_ = 3; return true; }
+    if (!arrow && (key == 'x' || key == kKeyDelete || key == 127) && e >= 0) { book_->notes_mode = 3; return true; }
     if (!arrow && (key == 'E' || key == 'I')) {
         std::error_code ec;
         const std::string folder = path_utf8(book.filename());
         const fs::path dir = book / "notes";   // an extra folder inside the book's folder (made when the export is written)
-        book_notes_path_ = path_utf8(dir / path_from_utf8(folder + "_notes_export.txt"));
-        book_notes_mode_ = key == 'E' ? 1 : 2;
+        book_->notes_path = path_utf8(dir / path_from_utf8(folder + "_notes_export.txt"));
+        book_->notes_mode = key == 'E' ? 1 : 2;
         edit_owner_ = "booknotespath";
-        edit_caret_ = edit_anchor_ = book_notes_path_.size();
+        edit_caret_ = edit_anchor_ = book_->notes_path.size();
         say("");
         return true;
     }
@@ -1531,12 +1532,12 @@ std::vector<std::string> App::build_book_notes_panel(int panel_w, int panel_h) c
     const Framer framed{bar, inner};
     const int left_w = std::clamp(inner * 45 / 100, 30, 60);
     const int right_w = std::max(10, inner - left_w - 3);
-    const std::string folder = path_utf8(path_from_utf8(book_dir_).filename());
+    const std::string folder = path_utf8(path_from_utf8(book_->dir).filename());
     std::vector<std::string> lines;
     lines.push_back(box_top("Book notes - " + truncate_str(folder, std::max(8, W - 24)), W, border));
     const std::vector<int> order = book_notes_order();
     const int n = static_cast<int>(order.size());
-    const bool editing = book_notes_mode_ == 4;
+    const bool editing = book_->notes_mode == 4;
     // the legend: three groups, below the window (the keys that work now)
     std::vector<LegendGroup> groups;
     if (editing) {
@@ -1549,9 +1550,9 @@ std::vector<std::string> App::build_book_notes_panel(int panel_w, int panel_h) c
     }
     const std::vector<LegendRow> lrows = book_overlay_legend(W, groups, 3);
     const int body = std::max(3, panel_h - 4 - static_cast<int>(lrows.size()));   // top, header, status, bottom border, the legend
-    int first = std::clamp(book_notes_scroll_, 0, std::max(0, n - body));
-    if (book_notes_sel_ < first) first = book_notes_sel_;
-    if (book_notes_sel_ >= first + body) first = book_notes_sel_ - body + 1;
+    int first = std::clamp(book_->notes_scroll, 0, std::max(0, n - body));
+    if (book_->notes_sel < first) first = book_->notes_sel;
+    if (book_->notes_sel >= first + body) first = book_->notes_sel - body + 1;
     first = std::max(0, first);
     const std::string head = header_sgr(settings_), leg = legend_sgr(settings_);
     const std::string plain_ink = ansi_for(settings_.list_color, false) + bg_ansi_for(settings_.list_inactive_bg_color);
@@ -1569,8 +1570,8 @@ std::vector<std::string> App::build_book_notes_panel(int panel_w, int panel_h) c
     std::vector<std::string> editor;
     if (editing) {
         editor = book_note_field_rows(right_w, body);
-    } else if (n > 0 && book_notes_sel_ >= 0 && book_notes_sel_ < n) {
-        const BookNote& nt = book_notes_[static_cast<size_t>(order[static_cast<size_t>(book_notes_sel_)])];
+    } else if (n > 0 && book_->notes_sel >= 0 && book_->notes_sel < n) {
+        const BookNote& nt = book_->notes[static_cast<size_t>(order[static_cast<size_t>(book_->notes_sel)])];
         rtitle = nt.title.empty() ? std::string("(no title)") : nt.title;
         rp.push_back(book_note_where(nt.file, nt.sec, right_w));
         rp.push_back("");
@@ -1584,11 +1585,11 @@ std::vector<std::string> App::build_book_notes_panel(int panel_w, int panel_h) c
         std::string lcell, rcell;
         int lu = 0, ru = 0;
         if (idx < n) {
-            const BookNote& nt = book_notes_[static_cast<size_t>(order[static_cast<size_t>(idx)])];
+            const BookNote& nt = book_->notes[static_cast<size_t>(order[static_cast<size_t>(idx)])];
             const int c = book_chapter_of(nt.file);
             std::string plain = "  " + std::string(c >= 0 ? std::to_string(c + 1) : "?") + "  " + truncate_str(stem_of(nt.file), 16) + "  " + book_notes::time_text(nt.sec) + "  " + nt.title;
             plain = pad_right(truncate_str(plain, left_w), left_w);
-            const bool sel = idx == book_notes_sel_;
+            const bool sel = idx == book_->notes_sel;
             lcell = (sel ? cursor_sgr(settings_.list_cursor_color, settings_.list_cursor_bg_color) : plain_ink) + plain;
             lu = left_w;
         }
@@ -1602,21 +1603,21 @@ std::vector<std::string> App::build_book_notes_panel(int panel_w, int panel_h) c
     {
         std::string body_s;
         int used = 0;
-        if (book_notes_mode_ == 1 || book_notes_mode_ == 2) {
-            const std::string label = book_notes_mode_ == 1 ? "Export to: " : "Import from: ";
-            size_t c = book_notes_path_.size();
+        if (book_->notes_mode == 1 || book_->notes_mode == 2) {
+            const std::string label = book_->notes_mode == 1 ? "Export to: " : "Import from: ";
+            size_t c = book_->notes_path.size();
             size_t a = c;
             if (edit_owner_ == "booknotespath") { c = edit_caret_; a = edit_anchor_; }
-            const EditPaint p = paint_edit_field(book_notes_path_, c, a, std::max(4, inner - display_width(label)), change_sgr(settings_), true);
+            const EditPaint p = paint_edit_field(book_->notes_path, c, a, std::max(4, inner - display_width(label)), change_sgr(settings_), true);
             body_s = head + label + change_sgr(settings_) + p.s;
             used = display_width(label) + p.cols;
-        } else if (book_notes_mode_ == 3) {
+        } else if (book_->notes_mode == 3) {
             const std::string t = "Delete this note?   [y] yes   [n] no";
             const std::string hb = bg_ansi_for(settings_.header_color);
             body_s = (hb.empty() ? std::string("\x1b[7m") : hb + "\x1b[30m") + pad_right(t, inner);
             used = inner;
         } else {
-            const std::string t = truncate_str(book_ov_status_, inner);
+            const std::string t = truncate_str(book_->ov_status, inner);
             body_s = leg + t;
             used = display_width(t);
         }

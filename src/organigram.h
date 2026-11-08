@@ -61,6 +61,8 @@ struct Theme {
     std::string line = "\x1b[2m";   // the branches and the boxes that are off the path (the overlays' border colour)
     std::string path = "\x1b[1m";   // the boxes on the path from Main to the selection (the overlays' header colour)
     std::string key = "";           // the keys shown in the boxes (the overlays' legend colour)
+    std::string walked;             // the branches on the path (the progress bar's "played" colour; empty = `path`)
+    std::string pending;            // the branches and boxes that are not on the path (the progress bar's "remaining" colour; empty = `line`)
     std::function<std::string(const Node&)> key_text;   // the key shown with a node ("" = none)
 };
 
@@ -218,7 +220,7 @@ inline std::string label_of(const Tree& t, const Theme& th, int i, bool with_key
 }
 inline std::string key_of(const Tree& t, const Theme& th, int i) { const Node& n = t.n[i]; return n.action && th.key_text ? th.key_text(n) : std::string(); }
 
-inline Layout make_layout(const Tree& t, const Theme& th, int sel, int room) {
+inline Layout make_layout(const Tree& t, const Theme& th, int sel, int room, bool prefer_zig = false) {
     Layout L;
     for (int k = sel; k >= 0; k = parent_of(t, k)) L.chain.insert(L.chain.begin(), k);
     L.levels.push_back(Level{{0}, 0, -1});
@@ -240,8 +242,10 @@ inline Layout make_layout(const Tree& t, const Theme& th, int sel, int room) {
             for (int nn : lv.nodes) w.push_back(std::max(9, width_of(label_of(t, th, nn, true)) + pad));
             return zig_layout(w).total;
         };
-        // boxes in a row: with the keys and roomy, with the keys and tight; then (keys to show) a zigzag of two rows with the keys; then without the keys
-        if (total(3, 4, true) <= room) { p.gap = 3; p.pad = 4; }
+        // boxes in a row, narrow (the keys in them); a zigzag of two rows when the row is long and the rows below have the space (prefer_zig);
+        // then, when it does not fit, the zigzag anyway, a row without the keys, columns
+        const bool long_row = lv.nodes.size() >= 4 && total(2, 2, true) * 5 > room * 2;   // (more than two fifths of the window)
+        if (prefer_zig && any_key && long_row && zig_total(2) <= room) { p.kind = Zig; p.pad = 2; }
         else if (total(2, 2, true) <= room) { p.gap = 2; p.pad = 2; }
         else if (any_key && lv.nodes.size() >= 3 && zig_total(4) <= room) { p.kind = Zig; p.pad = 4; }
         else if (any_key && lv.nodes.size() >= 3 && zig_total(2) <= room) { p.kind = Zig; p.pad = 2; }
@@ -306,6 +310,8 @@ inline std::vector<std::string> render(const Tree& t, int sel, int W, int H, dou
     for (int k = sel; k >= 0; k = parent_of(t, k)) chain.insert(chain.begin(), k);
     auto on_path = [&](int node) { return std::find(chain.begin(), chain.end(), node) != chain.end(); };
     const std::string sel_sgr = th.path + "\x1b[1m";   // the selection: the header colour in bold
+    const std::string pend = th.pending.empty() ? th.line : th.pending;   // not on the path: the progress bar's "remaining" colour
+    const std::string walk = th.walked.empty() ? th.path : th.walked;      // the branches on the path: its "played" colour
     const char* tl = "\xe2\x95\xad", *tr = "\xe2\x95\xae", *bl = "\xe2\x95\xb0", *br = "\xe2\x95\xaf";   // ╭ ╮ ╰ ╯
     const char* hz = "\xe2\x94\x80", *vt = "\xe2\x94\x82";
 
@@ -315,7 +321,8 @@ inline std::vector<std::string> render(const Tree& t, int sel, int W, int H, dou
         const int avail = H - 3 - y0;   // rows for the boxes (a spare row, the path and the selected menu below)
         bool tall = true;   // the boxes' height is the same whatever is selected: tall only if the deepest tree of all fits
         for (int s = 1; s < t.count && tall; ++s) if (layout_height(make_layout(t, th, s, room), true) > avail) tall = false;
-        const Layout L = make_layout(t, th, sel, room);
+        Layout L = make_layout(t, th, sel, room, true);   // the zigzag where the rows below have the space for it
+        if (layout_height(L, tall) > avail) L = make_layout(t, th, sel, room, false);
         const int nl = static_cast<int>(L.levels.size());
         const int bh = tall ? 3 : 1;
         int y = y0;
@@ -339,7 +346,7 @@ inline std::vector<std::string> render(const Tree& t, int sel, int W, int H, dou
                         bool down = false;
                         for (int k = 0; k < c; ++k) if (trunk_of(k) == x) down = true;
                         const bool lit = act_x >= 0 && x >= std::min(parent_cx, act_x) && x <= std::max(parent_cx, act_x);
-                        cv.put(x, y, junction(x == parent_cx, down, x > a, x < b), lit ? th.path : th.line);
+                        cv.put(x, y, junction(x == parent_cx, down, x > a, x < b), lit ? walk : pend);
                     }
                     ++y;
                 }
@@ -349,7 +356,7 @@ inline std::vector<std::string> render(const Tree& t, int sel, int W, int H, dou
                     const bool is_sel = node == sel, path = on_path(node);
                     const bool last = i + c >= n;
                     const int tx = trunk_of(col), ry = y + row;
-                    put_text(cv, tx, ry, last ? "\xe2\x94\x94\xe2\x94\x80" : "\xe2\x94\x9c\xe2\x94\x80", path ? th.path : th.line);   // └─ / ├─
+                    put_text(cv, tx, ry, last ? "\xe2\x94\x94\xe2\x94\x80" : "\xe2\x94\x9c\xe2\x94\x80", path ? walk : pend);   // └─ / ├─
                     put_text(cv, tx + 2, ry, is_sel ? "\xe2\x96\xb8" : " ", th.path);   // ▸ marks the selection
                     put_text(cv, tx + 3, ry, label_of(t, th, node, false), is_sel ? sel_sgr : path ? th.path : "");
                     const std::string key = key_of(t, th, node);
@@ -360,7 +367,7 @@ inline std::vector<std::string> render(const Tree& t, int sel, int W, int H, dou
                     next_parent = act_x;
                     int cnt = 0;
                     for (int i = 0; i < n; ++i) if (i % c == act) ++cnt;
-                    for (int r = cnt; r < rows; ++r) cv.put(act_x, y + r, vt, th.path);
+                    for (int r = cnt; r < rows; ++r) cv.put(act_x, y + r, vt, walk);
                 }
                 y += rows;
                 parent_cx = next_parent;
@@ -382,7 +389,7 @@ inline std::vector<std::string> render(const Tree& t, int sel, int W, int H, dou
                         bool down = false;
                         for (int i = 0; i < n; ++i) if (base + z.x[static_cast<size_t>(i)] + w[static_cast<size_t>(i)] / 2 == cx) down = true;
                         const bool lit = act_x >= 0 && cx >= std::min(parent_cx, act_x) && cx <= std::max(parent_cx, act_x);
-                        cv.put(cx, y, junction(cx == parent_cx, down, cx > mn, cx < mx), lit ? th.path : th.line);
+                        cv.put(cx, y, junction(cx == parent_cx, down, cx > mn, cx < mx), lit ? walk : pend);
                     }
                     ++y;
                 }
@@ -391,9 +398,9 @@ inline std::vector<std::string> render(const Tree& t, int sel, int W, int H, dou
                     const int node = lv.nodes[static_cast<size_t>(i)], pw = w[static_cast<size_t>(i)];
                     const int px = base + z.x[static_cast<size_t>(i)], cx = px + pw / 2;
                     const bool lower = i % 2 == 1, is_sel = node == sel, path = on_path(node);
-                    const std::string edge = path ? "\x1b[1m" + th.line : th.line;   // (a box border follows the frame's colour gradient; the path is shown bold)
+                    const std::string edge = path ? th.path : pend;   // (the box on the path: its border in the header colour like its text; the others in the "remaining" colour)
                     const int ry = lower ? y + bh : y;
-                    if (lower) for (int d = 0; d < bh; ++d) cv.put(cx, y + d, vt, edge);   // its branch runs down between the upper boxes
+                    if (lower) for (int d = 0; d < bh; ++d) cv.put(cx, y + d, vt, path ? walk : pend);   // its branch runs down between the upper boxes
                     const std::string lab = label_of(t, th, node, false);
                     const std::string key = key_of(t, th, node);
                     const std::string kt = key.empty() ? std::string() : " [" + key + "]";
@@ -416,7 +423,7 @@ inline std::vector<std::string> render(const Tree& t, int sel, int W, int H, dou
                     }
                     if (node == lv.active || (lv.active < 0 && li + 1 == nl)) {
                         next_parent = cx;
-                        if (!lower && li + 1 < nl) for (int d = 0; d < bh; ++d) cv.put(cx, y + bh + d, vt, th.path);   // down past the lower row
+                        if (!lower && li + 1 < nl) for (int d = 0; d < bh; ++d) cv.put(cx, y + bh + d, vt, walk);   // down past the lower row
                     }
                 }
                 y += 2 * bh;
@@ -439,14 +446,14 @@ inline std::vector<std::string> render(const Tree& t, int sel, int W, int H, dou
                     bool down = false;
                     for (const auto& p : row) if (p.x + p.w / 2 == cx) down = true;
                     const bool lit = act_x >= 0 && cx >= std::min(parent_cx, act_x) && cx <= std::max(parent_cx, act_x);
-                    cv.put(cx, y, junction(cx == parent_cx, down, cx > mn, cx < mx), lit ? th.path : th.line);
+                    cv.put(cx, y, junction(cx == parent_cx, down, cx > mn, cx < mx), lit ? walk : pend);
                 }
                 ++y;
             }
             int next_parent = parent_cx;
             for (const auto& p : row) {
                 const bool is_sel = p.node == sel, path = on_path(p.node);
-                const std::string edge = path ? "\x1b[1m" + th.line : th.line;   // (a box border follows the frame's colour gradient; the path is shown bold)
+                const std::string edge = path ? th.path : pend;   // (the box on the path: its border in the header colour like its text; the others in the "remaining" colour)
                 const std::string lab = label_of(t, th, p.node, false);
                 const std::string key = key_of(t, th, p.node);
                 const std::string kt = key.empty() || !pl.keys ? std::string() : " [" + key + "]";
@@ -478,7 +485,7 @@ inline std::vector<std::string> render(const Tree& t, int sel, int W, int H, dou
     // the path and the selected menu
     std::string crumb;
     for (size_t i = 0; i < chain.size(); ++i) crumb += (i ? "  \xe2\x80\xba  " : "") + std::string(t.n[chain[i]].title);
-    put_text(cv, std::max(0, (W - width_of(clip(crumb, W - 2))) / 2), H - 2, clip(crumb, W - 2), th.line);
+    put_text(cv, std::max(0, (W - width_of(clip(crumb, W - 2))) / 2), H - 2, clip(crumb, W - 2), pend);
     const std::string inf = clip(info, W - 2);
     put_text(cv, std::max(0, (W - width_of(inf)) / 2), H - 1, inf, th.path);
     return detail::to_rows(cv);

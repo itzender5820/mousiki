@@ -2,6 +2,7 @@
 // Part of class App (src/app.h): Loading and playing a track: the load worker, search, play next / previous, the queue and its playlists.
 // Split out of app.cpp; the includes are the same as there.
 #include "app.h"
+#include "playlist_state.h"
 #include "hifi_bars.h"
 #include "text_edit.h"
 #include "overlay_common.h"
@@ -413,7 +414,7 @@ void App::poll_pending_load() {
     // fetched, no Python is started and there is no network access.
     // The video view of a track WITHOUT a video that shows a visual ("When No Video Shows" is not the lyrics) needs no lyrics: nothing is fetched
     // (the "." key fetches them when you cycle to the lyrics view).
-    const bool video_placeholder = settings_.video_mode && settings_.video_view && settings_.novideo_viz != 4 && pl.is_local && video_shown_for(pl.path).empty();
+    const bool video_placeholder = settings_.video_mode && settings_.video_view && settings_.novideo_viz != 4 && video_shown_for(pl.path).empty();
     if (settings_.lyrics_on() && !audiobook_ && !video_placeholder) {   // (no lyrics for audio books)
         launch_lyrics_fetch(pl.title, pl.artist, pl.path);
     } else {
@@ -889,8 +890,8 @@ void App::queue_add_selected_impl(bool at_end) {
 // Loads the playlist from disk and queues every track that's still
 // present on disk, skipping (and reporting) any that aren't.
 void App::playlist_add_selected_to_queue() {
-    if (playlist_view_.empty() || selected_ < 0 || selected_ >= static_cast<int>(playlist_view_.size())) return;
-    status_line_ = queue_playlist(playlist_view_[selected_].name);
+    if (playlist_->view.empty() || selected_ < 0 || selected_ >= static_cast<int>(playlist_->view.size())) return;
+    status_line_ = queue_playlist(playlist_->view[selected_].name);
 }
 
 std::string App::queue_playlist(const std::string& name) {
@@ -1145,7 +1146,7 @@ void App::atp_add_file(const std::string& playlist, const std::string& title, co
     std::string err;
     if (!PlaylistManager::save(playlists_dir(), pl, &err)) { status_line_ = "could not save \"" + playlist + "\": " + err; return; }
     status_line_ = "added \"" + title + "\" to " + std::string(existed ? "" : "the new playlist ") + "\"" + playlist + "\" (" + std::to_string(pl.tracks.size()) + " tracks, saved)";
-    if (list_source_ == ListSource::Playlist) playlist_view_ = filter_playlists(last_playlist_query_);   // a shown /p: list gets the new count
+    if (list_source_ == ListSource::Playlist) playlist_->view = filter_playlists(last_playlist_query_);   // a shown /p: list gets the new count
 }
 
 void App::track_to_playlist_apply(const std::string& playlist) {
@@ -1221,30 +1222,30 @@ void App::queue_to_playlist_apply(const std::string& existing) {
     const std::string skipped_note = skipped > 0 ? " (" + std::to_string(skipped) + " online skipped)" : std::string();
     playlist_open_editor();           // fresh editor, tab 0
     if (existing.empty()) {
-        playlist_edit_tracks_ = std::move(tracks);
+        playlist_->edit_tracks = std::move(tracks);
         resolve_playlist_tracks_async();
-        playlist_edit_track_selected_ = 0;
-        playlist_edit_focus_ = 0;         // the name field
-        playlist_edit_dirty_ = true;
-        playlist_status_ = "queue -> playlist: " + std::to_string(n) + " track" + (n == 1 ? "" : "s") + skipped_note
+        playlist_->edit_track_selected = 0;
+        playlist_->edit_focus = 0;         // the name field
+        playlist_->edit_dirty = true;
+        playlist_->status = "queue -> playlist: " + std::to_string(n) + " track" + (n == 1 ? "" : "s") + skipped_note
                          + " -- type a name, Ctrl+S saves";
         return;
     }
     playlist_load_into_editor(existing);
-    if (playlist_edit_name_ != existing) return;   // could not be loaded: the status line says so
-    const int first_new = static_cast<int>(playlist_edit_tracks_.size());
+    if (playlist_->edit_name != existing) return;   // could not be loaded: the status line says so
+    const int first_new = static_cast<int>(playlist_->edit_tracks.size());
     int added = 0;
     for (auto& t : tracks) {
         bool dup = false;
-        for (const auto& e : playlist_edit_tracks_) if (e.path == t.path) { dup = true; break; }
+        for (const auto& e : playlist_->edit_tracks) if (e.path == t.path) { dup = true; break; }
         if (dup) continue;
-        playlist_edit_tracks_.push_back(std::move(t));
+        playlist_->edit_tracks.push_back(std::move(t));
         ++added;
     }
-    playlist_edit_track_selected_ = std::min(first_new, std::max(0, static_cast<int>(playlist_edit_tracks_.size()) - 1));
-    playlist_edit_focus_ = 2;          // the track list, on the first added track
-    playlist_edit_dirty_ = added > 0;
-    playlist_status_ = "queue -> \"" + existing + "\": " + std::to_string(added) + " track" + (added == 1 ? "" : "s") + " added"
+    playlist_->edit_track_selected = std::min(first_new, std::max(0, static_cast<int>(playlist_->edit_tracks.size()) - 1));
+    playlist_->edit_focus = 2;          // the track list, on the first added track
+    playlist_->edit_dirty = added > 0;
+    playlist_->status = "queue -> \"" + existing + "\": " + std::to_string(added) + " track" + (added == 1 ? "" : "s") + " added"
                      + (n - added > 0 ? ", " + std::to_string(n - added) + " already in it" : std::string()) + skipped_note
                      + (added > 0 ? " -- Ctrl+S saves" : "");
 }

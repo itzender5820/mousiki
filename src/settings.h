@@ -25,6 +25,17 @@ namespace fs = std::filesystem;
 // preset ("cyan", "white", etc.) anymore; type the number directly in
 // the settings panel with Enter. "_end" fields, when non-empty, turn a
 // solid color into a gradient between the base color and that end color.
+// "Use Lyrics" on a video (Include Lyrics / Use Lyrics on Video): 0 none, 1 lyrics, 2 lyrics + translation, 3 translation only.
+inline const char* lyr_mode_name(int m) { return m == 1 ? "lyrics" : m == 2 ? "lyrics+transl." : m == 3 ? "transl." : "none"; }
+inline int lyr_mode_parse(const std::string& v) {   // (an old config says true / false)
+    std::string t;
+    for (char c : v) t += static_cast<char>(c >= 'A' && c <= 'Z' ? c + 32 : c);
+    if (t == "true" || t == "on" || t == "1" || t == "lyrics") return 1;
+    if (t == "2" || t == "both" || t == "lyrics+transl." || t == "lyrics+translation") return 2;
+    if (t == "3" || t == "transl." || t == "translation" || t == "only") return 3;
+    return 0;
+}
+
 struct Settings : VizPrefs {
     // --- element visibility toggles (config.txt: "Eliment_*") ----------
     bool element_disk = true;
@@ -100,7 +111,7 @@ struct Settings : VizPrefs {
     // The & overlay (HKeyVideo): "Include Lyrics" = the current lyric line is shown under the picture; "Cover or Video Snapshot": 0 = the
     // disk shows the track's cover as always, 1 = a frame (a thumbnail) of the track's video, with the cover / the disk when the track has no
     // video. config.txt: VideoLyrics=, VideoCover=cover|snapshot.
-    bool video_lyrics = true;
+    int video_lyrics = 1;             // Include Lyrics (VideoLyrics=): 0 none, 1 lyrics, 2 lyrics + translation, 3 translation only (the lines under the picture)
     bool video_auto = true;           // Auto Video: a track that has a video switches the field to the video view, one without it to the Lyrics/Viz Default (VideoAuto=)
     int video_size = 0;               // Picture Size of the small field (VideoSize=): 0 regular, 1 cropped (two columns cut off each side), 2 full field (fills the oscilloscope's space, cropped to fit), 3 framed (like full, one row and one column smaller on every side)
     int video_fx = 0;                 // Effect (VideoFx=): 0 off, 1 scanlines, 2 crt, 3 vhs, 4 glitch, 5 pixel, 6 gradient, 7 quiet glitch
@@ -114,11 +125,9 @@ struct Settings : VizPrefs {
     int cover_chroma = 0;             // Cover Chromatic Aberration (CoverChroma=): the same, for covers that show their own colours
     int video_res = 0;                // Video Resolution (VideoResolution=): 0 standard, 1 high, 2 full (see video_fx.h)
     int video_buffer = 32;            // Video Buffer (VideoBuffer=): MB of decoded frames the decoder keeps ahead of the picture
-    bool video_full_lyrics = true;    // the full screen video (HKeyVideoFull, ">") shows the current lyric line (VideoFullLyrics=)
     // The layout of the full screen video (SHIFT+UP / SHIFT+DOWN there): 0 video, 1 video + oscilloscope, 2 video + oscilloscope + spectrogram
     // (spectrogram at the bottom). The picture styles and versions of the two visuals are the layout's own (-1 = as in the oscilloscope /
     // spectrogram options); every other option is shared with them.
-    bool video_full_translation = false;   // the full screen video: the saved translation under the lyric line (TAB: lyrics off / on / with translation)
     int video_layout = 0;                  // full screen video: 0 video | 1 + oscilloscope | 2 + spectrogram | 3 + both
     int vl_osci_style = -1;           // VideoLayoutOsciStyle=: -1 as in the options, 0 braille, 1 image
     int vl_osci_mode = -1;            // VideoLayoutOsciMode=: -1 as in the options, 0 XY, 1 YT

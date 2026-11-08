@@ -15,6 +15,7 @@
 #include <memory>
 #include "video_player.h"
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -22,6 +23,7 @@
 #include <vector>
 
 #include "book_notes.h"
+#include "book_types.h"
 #include "book_cue.h"
 #include "book_split.h"
 #include "cover_art.h"
@@ -93,13 +95,28 @@ struct QueueItem {
 
 struct CoverImage;   // cover_art.h
 
+struct LyricsFileHit;      // (readlyrics_state.h)
+struct ReadLyricsState;    // the READ LYRICS reader
+struct PlaylistState;
+struct MetaState;
+struct BookState;
+struct CreatorState;
+struct CoverFetchState;
+struct CfAlbum;    // (coverfetch_state.h)
+struct CfFolder;
+struct CfRow;
+struct CfFetchItem;
+
 class App {
 public:
     // `shared`: the settings main() loaded, used by every App instance (the music player and the audio book player are two
     // instances; changes made in one are seen by the other at once). nullptr = this App loads its own copy.
     // `audiobook`: this instance is the audio book player (see is_audiobook()).
     explicit App(Settings* shared = nullptr, bool audiobook = false);
+    ~App();   // (app.cpp: the parts kept behind a pointer, like the READ LYRICS state, are complete types only there)
     int run();
+    void run_poll_terminal(TerminalIO& term, bool& gfx_shown);   // (app.cpp) parts of one pass of the main loop of run()
+    void run_tick();
     void shutdown();                       // really end the session (also when it was suspended for the radio)
     bool suspended() const { return suspended_; }
     // The audio book player is the same engine as the music player with a different library (the AUDIO BOOK PATH, only its
@@ -334,11 +351,18 @@ private:
     int video_pic_width() const;
     int video_res_for() const;   // the resolution of the playing track's video: its own (Style Option / big video panel), else the Setting   // the widest picture that is decoded (Settings -> Video Resolution; never wider than the video itself unless standard)
     void video_ensure_source() const;
-    std::vector<std::string> video_lyric_rows(int width, double elapsed) const;
-    // the saved translation of the lyrics that play (one entry per lyric line, empty when there is none); cached per track / language
-    const std::vector<std::string>& video_translation_lines() const;
+    // The lyric block of the big video overlay: `mode` 1 lyrics, 2 lyrics + translation, 3 translation only; `tr_idx` picks the translation.
+    std::vector<std::string> video_lyric_rows(int width, double elapsed, int mode, int tr_idx, bool all_shown = false) const;
+    int video_lyr_mode_for(const fs::path& track) const;   // Include Lyrics / Use Lyrics on Video: 0 none, 1 lyrics, 2 lyrics + translation, 3 translation only (the track's own, else the VIDEO overlay)
+    // The saved translations of the lyrics that play, aligned to `cur` (one entry per lyric line, empty where a line has none). They come from the
+    // lyrics file that was edited last (of those that have a translation); the one for Translate To comes first. Cached per track.
+    struct VTr { std::string label; std::vector<std::string> lines; };
+    const std::vector<VTr>& video_translations(const std::vector<LyricLine>& cur) const;
+    mutable int vfull_tr_idx_ = 0;      // the big video overlay: which translation TAB has reached
+    mutable int video_need_rows_ = 2;   // the rows the lyric block of the small field needs at most on this track (see video_field_rows)
+    mutable std::string video_need_key_;
     mutable std::string vtr_key_;
-    mutable std::vector<std::string> vtr_lines_;
+    mutable std::vector<VTr> vtr_all_;
     mutable std::chrono::steady_clock::time_point vtr_at_{};   // when the lookup was made (an empty result is looked up again after a few seconds: a translation may have been saved meanwhile)
     void clap_loading_fill(std::vector<std::string>& rows, int W, int H, int abs_col, int abs_row, GfxFrame& g, std::string& key_ref, int id) const;   // the small clapperboard while a video loads (picture or braille)
     bool video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, int abs_row, bool second_slot, double t, int mode,
@@ -664,7 +688,7 @@ private:
     // browsing saved playlists the same way "/s:" browses online results.
     // Selecting one and hitting Enter queues every (non-missing) track it
     // contains -- see playlist_add_selected_to_queue().
-    std::vector<PlaylistSummary> playlist_view_;
+    std::unique_ptr<PlaylistState> playlist_;   // the playlist editor's state (src/playlist_state.h) -- allocated in the constructor
     std::string last_playlist_query_;
     std::vector<PlaylistSummary> filter_playlists(const std::string& query) const;
 
@@ -702,18 +726,8 @@ private:
     // saved playlists (Enter loads one into tab 0 for re-editing).
     // HOME saves (deliberately not a plain letter -- "s" collided with
     // typing an "s" into the name/search fields). ESC exits; if tab 0 has
-    // unsaved changes it asks first (playlist_confirm_exit_) rather than
+    // unsaved changes it asks first (playlist_->confirm_exit) rather than
     // silently discarding them.
-    int playlist_tab_ = 0;
-    int playlist_edit_focus_ = 0; // 0=name field, 1=library picker, 2=playlist-tracks list -- cycled with Tab
-    std::string playlist_edit_name_;
-    bool playlist_edit_imported_ = false;   // the playlist being edited is a given (imported) one: it is saved back into imported_lists
-    int playlist_manage_filter_ = 0;        // SAVED PLAYLISTS: 0 all, 1 created here (c), 2 given / imported (g)
-    std::string playlist_edit_orig_name_;   // the saved name of the playlist being edited ("" = a new one): a changed name renames it instead of copying it
-    std::vector<PlaylistTrack> playlist_edit_tracks_;
-    std::string playlist_edit_lib_query_;
-    std::vector<LocalTrack> playlist_edit_lib_view_;   // filter_and_rank_local(playlist_edit_lib_query_)
-    int playlist_edit_lib_selected_ = 0;
     std::vector<LocalTrack> filter_local_or_folders(const std::string& query, int pane_media = -1) const;   // search, or "/f:" folder search
     // What a list shows of the video files (the library always holds them, the Video mode only decides what is shown):
     // 0 audio = the audio files and the videos that have no audio file of their name beside them (their sound is the track),
@@ -729,53 +743,27 @@ private:
     mutable bool paired_ok_ = false;
     int pl_media_ = -1;       // SHIFT+v in the playlist editor's library pane (-1 = the Video mode decides)
     int fo_media_ = -1;       // SHIFT+v in the big folder overlay
-    int meta_media_ = -1;     // SHIFT+v in the meta editor's library pane
-    int playlist_edit_sort_ = 0;   // LIBRARY sort (Shift+T): 0 folder order, 1 file names, 2 titles, 3 artists, 4 albums A-Z, 5 recently added (newest first)
+    std::unique_ptr<MetaState> meta_;   // the meta data editor's state (src/meta_state.h) -- allocated in the constructor
     static const char* playlist_sort_name(int mode);
-    int playlist_edit_track_selected_ = 0;
-    bool playlist_edit_dirty_ = false;    // true once tab 0 has unsaved changes -- see ESC's confirm prompt below
-    bool playlist_confirm_exit_ = false;  // "save before exiting?" Y/N prompt, shown in place of the hint line
-    std::vector<PlaylistSummary> playlist_manage_view_; // tab 1's list
-    int playlist_manage_selected_ = 0;
     // Tab 1 got a search box of its own (the same caret/selection/clipboard
     // treatment as every other text field -- see edit_text_key()). Focus
     // decides who owns the keys: in the box, typing filters and Left/Right
     // are caret keys; in the list, Up/Down/Enter/DEL work and Left/Right
     // keep switching tabs.
-    std::string playlist_manage_query_; // filter behind playlist_manage_view_
-    int playlist_manage_focus_ = 0;     // 0=search box, 1=list -- cycled with Tab
-    bool playlist_confirm_delete_ = false; // "really delete this playlist?" Y/N prompt (tab 1, DEL key)
     // Export overlay ('e' on the Saved Playlists tab): writes the hovered
     // playlist as an M3U8 (default) or M3U file into a folder that starts as
     // Settings -> PATHS -> PLAYLIST EXPORT PATH and can be changed in place.
-    bool playlist_export_open_ = false;
-    std::string playlist_export_name_;     // the playlist being exported
-    std::string playlist_export_dir_;      // the folder field
-    bool playlist_export_m3u_ = false;     // false = .m3u8 (UTF-8, the default), true = .m3u
-    int playlist_export_field_ = 0;        // 0 = folder field, 1 = format row, 2 = scope row
-    bool playlist_export_all_ = false;     // scope: false = the hovered playlist, true = the whole folder (every playlist the list shows)
-    std::string playlist_export_status_;   // shown inside the overlay
     void playlist_export_begin();          // opens the overlay for the hovered saved playlist
     void playlist_export_run();            // ENTER in the overlay
     std::vector<std::string> build_playlist_export_panel(int panel_w) const;
 
     // Import overlay ('i' on the Saved Playlists tab): reads the .m3u / .m3u8 files of a folder
     // (default: the same folder the export overlay starts in) and saves them as playlists of their own.
-    bool playlist_import_open_ = false;
-    std::string playlist_import_dir_;                 // the folder field
-    int playlist_import_field_ = 0;                   // 0 = folder field, 1 = file list, 2 = scope row
-    bool playlist_import_all_ = false;                // scope: false = the marked (else the hovered) files, true = the whole folder
-    std::vector<std::string> playlist_import_files_;  // .m3u / .m3u8 files found in the folder (full paths)
-    std::vector<int> playlist_import_counts_;         // entries per file
-    std::vector<char> playlist_import_marked_;
-    int playlist_import_selected_ = 0;
-    std::string playlist_import_status_;              // shown inside the overlay
     void playlist_import_begin();
     void playlist_import_scan();                      // refills the file list from the folder field
     void playlist_import_run();                       // ENTER in the overlay
     std::vector<std::string> build_playlist_import_panel(int panel_w) const;
     std::vector<std::string> build_playlist_manage_search_panel(int width) const; // SEARCH PLAYLISTS
-    std::string playlist_status_; // shown at the bottom of the overlay; cleared on (re)entry
 
     void playlist_refresh_lib_view();
     void playlist_refresh_manage_view();
@@ -786,15 +774,12 @@ private:
     struct PlLibRow { bool header; int lib; std::string folder, name; int count; bool open; };
     static bool is_folder_query(const std::string& raw);
     std::vector<PlLibRow> playlist_lib_rows() const;
-    std::unordered_set<std::string> playlist_folder_open_;
-    int playlist_edit_row_sel_ = 0;   // cursor row in the folder view
-    std::vector<std::vector<fs::path>> playlist_add_undo_;   // one entry per add (a file or a whole folder): SHIFT+u takes the last one back
     void playlist_lib_move(int delta);
     void playlist_add_folder_to_edit();
     void playlist_undo_add();
     void playlist_remove_hovering_track();
     void playlist_move_hovering_track(int dir); // dir=-1 up, +1 down -- keys 4/5, mirrors queue_move_hovering
-    void playlist_delete_selected(); // tab 1's DEL, after playlist_confirm_delete_ confirms
+    void playlist_delete_selected(); // tab 1's DEL, after playlist_->confirm_delete confirms
     void playlist_save_current(bool leave = false); // leave: also close the editor (only the "save before exiting?" prompt does)
     void handle_playlist_key(int key);
     void build_playlist_screen(std::ostringstream& frame, int W, int player_h) const;
@@ -811,42 +796,10 @@ private:
     // tab 1 = the FETCH LIST, fetched through scripts/fetch_cover.py (MusicBrainz + Cover Art Archive). A fetched cover is saved in
     // a "fetched_covers" folder inside every folder that holds the album. The album's default picture chosen here is overruled by
     // the choice for a single track in the meta editor (cover_store.h).
-    struct CfAlbum { std::string name, artist; std::vector<std::string> tracks; };
-    struct CfFolder { std::string path, name; std::vector<CfAlbum> albums; bool only_album = false; };
-    struct CfRow { int folder = 0; int album = -1; };   // album -1: the folder's own row
-    struct CfFetchItem { std::string album, artist; std::vector<std::string> folders, tracks; std::string state; bool done = false, ok = false; };
-    int cf_tab_ = 0;
-    int cf_focus_ = 1;                  // 0 search bar, 1 album library, 2 the pictures of the highlighted album
-    std::string cf_query_;
-    int cf_filter_ = 0;                 // 0 all albums, 1 no cover, 2 one cover, 3 several covers, 4 previous unsuccessful fetch
-    bool cf_full_res_ = true;          // [t]: the cover as a real picture (cover fetch menu and meta editor; the default) (Kitty / Sixel) instead of braille dots
-    mutable int cf_art_col_ = 0;        // screen column of the ALBUM ART pane (set while drawing)
+    std::unique_ptr<CoverFetchState> cf_;   // the cover fetch overlay's state (src/coverfetch_state.h) -- allocated in the constructor
     bool cover_full_picture_img(const CoverImage* img, int pcols, int preview_rows, int scr_col, int scr_row, bool second = false) const;
     bool cover_full_picture(const std::string& pfile, bool pemb, int pcols, int preview_rows, int scr_col, int scr_row, bool second = false) const;
-    mutable bool cf_cur_fallback_ = false;   // the picture playback would use is another album's (loose name match in the folder)
-    mutable std::string cf_pic_key_;    // what the picture in gfx_ shows
-    int cf_selected_ = 0, cf_art_sel_ = 0, cf_list_sel_ = 0;
-    mutable int cf_page_rows_ = 10;
-    std::string cf_status_;
-    std::vector<CfFolder> cf_folders_;  // the index of what the search shows
-    std::vector<CfRow> cf_rows_;        // the visible rows (folders and, under the open ones, their albums)
-    std::set<std::string> cf_open_;     // the folders that are opened
-    std::vector<CfFetchItem> cf_list_;
-    std::map<std::string, int> cf_covers_;      // "folder|album key" -> number of covers (filled in by the worker)
-    mutable std::mutex cf_mutex_;
-    std::thread cf_index_thread_;
-    std::atomic<unsigned> cf_gen_{0};           // a new search / close stops the running index worker
-    bool cf_index_ready_ = false;               // cf_folders_ was swapped in (poll_cover_fetch)
-    std::vector<CfFolder> cf_pending_folders_;  // the worker's result, taken by poll_cover_fetch()
-    std::atomic<bool> cf_pending_ready_{false};
-    std::atomic<int> cf_progress_{0}, cf_total_{0};
-    std::atomic<bool> cf_scanning_{false};
-    int cf_untagged_ = 0;                       // tracks of the search without an album tag (not listed)
     // fetching
-    std::thread cf_fetch_thread_;
-    std::atomic<bool> cf_fetch_running_{false};
-    MetaFetchCancel cf_fetch_cancel_;
-    fs::path cf_script_;                        // scripts/fetch_cover.py
     // --- the Latin name lookup (Settings -> GENERAL -> TRANSLITERATION -> Latin Name Lookup): artists written in Chinese characters are asked
     // for on MusicBrainz in the background, one at a time (scripts/lookup_artist_name.py); the answers are kept in kanji_readings_learned.txt
     struct NameLookupJob { std::atomic<bool> done{false}; std::string name; NameLookupResult result; };
@@ -864,27 +817,14 @@ private:
     int kanji_fails_ = 0;
     fs::path kanji_script_;
     void poll_kanji_reader();
-    std::string cf_fetch_progress_;
-    enum class CfPrompt { None, Fetch, Delete, ClearList, ClearAlbum };
-    CfPrompt cf_prompt_ = CfPrompt::None;
     // the cover of the highlighted album and the pictures to choose from, made again when the highlight or the store changes
-    mutable std::string cf_cur_key_;
-    mutable CoverSource cf_cur_src_;
-    mutable std::vector<CoverCandidate> cf_cands_;
     void cf_open();
     void cf_close();
     void cf_refresh();                          // search again (starts the index worker)
     void cf_rebuild_rows();
-    void cf_remember_selection();               // before cf_folders_ is replaced: the rows index into it
-    std::string cf_keep_folder_, cf_keep_album_;
-    bool cf_keep_ready_ = false;
+    void cf_remember_selection();               // before cf_->folders is replaced: the rows index into it
     enum class CfPromptX { None };              // (placeholder, keeps the enum below readable)
     void cf_clear_album_title();                // SHIFT+d: the album tag of the highlighted album becomes a pending (empty) edit of the meta editor
-    std::unordered_map<std::string, std::string> cf_album_override_;   // path -> album tag pending in the meta editor (for the index worker)
-    mutable int cf_marq_idx_ = -1;
-    mutable std::chrono::steady_clock::time_point cf_marq_since_;
-    mutable int cf_marq_art_[2] = {-1, -1};
-    mutable std::chrono::steady_clock::time_point cf_marq_art_since_[2];
     int cf_covers_of(const CfFolder& f, const CfAlbum& a) const;
     bool cf_album_shown(const CfFolder& f, const CfAlbum& a) const;   // the filter keeps it (and a failed fetch hides it)   // -1 = not known yet
     void poll_cover_fetch();
@@ -894,7 +834,7 @@ private:
     void cf_add_view();
     void cf_start_fetch();
     void cf_delete_candidate();
-    void cf_update_current() const;             // cf_cur_src_ / cf_cands_ for the highlighted album
+    void cf_update_current() const;             // cf_->cur_src / cf_->cands for the highlighted album
     const CfAlbum* cf_selected_album(const CfFolder** folder = nullptr) const;
     int cf_nav(int selected, int total, bool up) const;
     void build_cf_screen(std::ostringstream& frame, int W, int target_height) const;
@@ -932,54 +872,34 @@ private:
     // ARTIST/TITLE/ALBUM/YEAR -- for the row the picker is on); tab 1 = the
     // fetch list, filled with 'a' and run through AcoustID with Enter.
     //
-    // Everything typed or fetched here goes into meta_session_ -- a pending
+    // Everything typed or fetched here goes into meta_->session -- a pending
     // edit session that is autosaved to disk after every change (meta_editor.h)
     // but is NEVER written to the audio files on its own. Ctrl+Shift+S applies
     // it, Ctrl+Shift+X throws it away, and simply leaving (ESC or quitting)
     // keeps the autosave backup, so no amount of editing can lose work by
     // accident.
-    int meta_tab_ = 0;
-    int meta_focus_ = 0; // 0=search field, 1=library picker, 2=field editor -- cycled with Tab
-    std::string meta_query_;
-    std::vector<LocalTrack> meta_lib_view_;  // filter_and_rank_local(meta_query_)
     // 'r' in the library pane: park every file that carries a pending edit
     // at the top of the pane. Off by default, so merely opening the editor
     // never reorders the list behind the user's back -- see
     // meta_refresh_lib_view(), which does the sorting on every refresh.
     // Folder view of the FILE LIBRARY ([f]): the files grouped by folder, every folder a header row ("v folder (5)") with its files numbered
-    // from 1 below it. The cursor is on a file (meta_lib_selected_) or on a folder header (meta_folder_hover_ = the folder); [a] on a header
+    // from 1 below it. The cursor is on a file (meta_->lib_selected) or on a folder header (meta_->folder_hover = the folder); [a] on a header
     // queues the folder's titles, ENTER opens / closes it.
     struct MetaFolderRow { bool header = false; int lib = 0; std::string folder, name; int num = 0, count = 0; bool closed = false; };
-    bool meta_folder_view_ = false;
     bool meta_take_linked_tags(const std::string& video);   // a video paired with a track: its pending tags become the track's (false: nothing to take)
-    std::string meta_folder_hover_;
-    std::unordered_set<std::string> meta_folder_closed_;
     std::vector<MetaFolderRow> meta_folder_rows() const;
     int meta_folder_cursor(const std::vector<MetaFolderRow>& rows) const;
     void meta_lib_move(bool up);
     void meta_add_folder_to_fetch(const std::string& folder);
-    bool meta_resort_edited_ = false;
-    bool meta_sort_added_ = false;     // 'n': the library pane newest-arrived first
-    int meta_lib_selected_ = 0;
-    int meta_field_ = 0; // hovered row of the field editor (0=FILE .. 4=YEAR, kMetaFieldCount = the "Cover Options" button)
-    // Two-stage field editor (meta_focus_ == 2): a hovered tag is only
+    // Two-stage field editor (meta_->focus == 2): a hovered tag is only
     // highlighted until ENTER arms this, showing the caret in the CHANGE
     // colours (change_sgr()) -- the same split the PATHS tab uses between
     // a selected folder row and one actually being typed into. Reset
     // whenever focus leaves the field editor or moves to another tag.
-    bool meta_field_editing_ = false;
-    std::vector<MetaEditEntry> meta_session_;          // the pending edits
-    std::vector<std::string> meta_fetch_list_;         // paths queued for an AcoustID lookup
     // The FETCH options (bit mask, see meta_editor.h): which tags a fetch fills in. Set on the FETCH LIST tab (its option
     // line in the header); one setting for the whole list and for SHIFT+b. Default: missing only.
-    unsigned meta_fetch_opts_ = kMetaFetchDefault;   // the ticked boxes of the FETCH LIST tab (used by ENTER = fetch the full list)
-    unsigned meta_prompt_opts_ = kMetaFetchDefault;  // what the pending fetch confirmation will fetch (SHIFT+b missing / SHIFT+n all / the list's boxes)
     std::string meta_fetch_disclaimer() const;
-    int meta_opt_cursor_ = 0;                          // the box the option line's cursor is on
-    int meta_fetch_skipped_ = 0;                       // files of the running batch that had nothing missing
-    std::string meta_fetch_note_;                      // first MusicBrainz hiccup of the running batch
     // Per path of the running batch: the tag fields the fetch was allowed to fill in (set when it starts).
-    std::unordered_map<std::string, std::array<bool, kMetaFieldCount>> meta_fetch_want_;
     // --- the cover of a track in the meta editor: the picture under the fields and the "Cover Options" overlay ---
     // The choice made here is kept per track (cover_store.h) and goes before the album's default and before Settings -> Cover Search
     // (except "Within File Only").
@@ -987,33 +907,17 @@ private:
     int auto_prev_view_ = 3;        // Auto Video: the view before a track with a video took the field (0..2 a visual, 3 lyrics)
     bool auto_prev_set_ = false;
     bool auto_prev_known_ = false;  // auto_prev_view_ was seen this run (a start on the video view has no earlier view)
-    struct MetaCovItem { int special = 0; CoverCandidate c; };   // special: 0 a picture, 1 "automatic" (the search decides), 2 "no cover", 3 "video thumbnail, else cover"
-    bool meta_cov_open_ = false;
-    bool meta_cov_search_ = false;       // the file name search field has the keyboard
-    bool meta_cov_ask_delete_ = false;
-    int meta_cov_sel_ = 0;
-    std::string meta_cov_query_;
-    std::string meta_cov_track_;
-    std::string meta_cov_msg_;
-    std::vector<MetaCovItem> meta_cov_items_;
     void meta_cov_open();
     void meta_cov_rebuild();
     bool handle_meta_cov_key(int key);
     std::vector<std::string> build_meta_cov_panel(int screen_w) const;   // (screen_w: where the floating panel will stand, for the picture)
     void meta_toggle_cover_res();
-    mutable int meta_pane_col_ = 0;     // screen column of the FIELDS panel (where a full-resolution cover picture starts)
     std::vector<std::string> meta_cover_pane(int inner, int rows) const;   // the track's cover as braille lines, `rows` x `inner` columns
     static constexpr int kMetaCovPanelWidth = 86;
     // The "Style Option" overlay (next to the Cover Options button): the look and the Cover Contrast / Brightness / Colors of one track
     // (cover_store.h CoverStyle), and the look of its whole album. "As in Settings" = nothing of its own.
-    bool meta_sty_open_ = false;
-    int meta_sty_sel_ = 0;
-    bool meta_sty_pair_ = false;   // the track is a song paired with a video: the row "Use mp4 audio for this song" is listed (worked out when the overlay opens)
-    std::string meta_sty_track_;
-    std::string meta_sty_msg_;
     // Style Option preview as a real picture: 0 = none this frame, 1 = it is in gfx_, 2 = in gfx2_ (over the main screen, whose own cover
     // picture keeps gfx_). The picture lies inside its own panel, so the panel must not crop it.
-    mutable int meta_sty_pic_ = 0;
     mutable int vl_pic_ = 0;                                       // VIDEO OPTION: the preview of the connected video is a picture in gfx_ (1) / gfx2_ (2) inside the panel, 0: none
     void video_link_refresh_flags();
     void video_link_ask_delete(const std::string& video);
@@ -1021,7 +925,6 @@ private:
     mutable std::string vs_pic_key_;
     mutable std::string sty2_key_;                                  // what the preview in gfx2_ shows
     mutable std::chrono::steady_clock::time_point sty2_at_{};
-    bool meta_sty_from_main_ = false;   // opened by HKeyStyleOptions: ESC returns to the main UI
     void meta_sty_open();
     void meta_open_style_playing();     // HKeyStyleOptions: the Style Option overlay of the playing track
     bool handle_meta_sty_key(int key);
@@ -1033,10 +936,6 @@ private:
     mutable struct CoverOvr { bool on = false; int contrast = 0, brightness = 0, colors = 0, chroma = 0; } cover_ovr_;
     static constexpr int kMetaStyPanelWidth = 64;
     // The choice overlay (ENTER on a field with several fetched candidates).
-    bool meta_choice_open_ = false;
-    int meta_choice_field_ = 0;
-    int meta_choice_sel_ = 0;
-    int meta_fetch_focus_ = 0;                         // FETCH LIST tab: 0 = the list, 1 = the option line in the header
     void meta_toggle_fetch_opt(int i);                 // tick / untick one FETCH option (the exclusivity rules apply)
     std::array<bool, kMetaFieldCount> meta_want_for(const std::string& path, unsigned opts);
     void meta_choice_open();
@@ -1050,54 +949,23 @@ private:
     // while: the work is done in slices from the render loop (poll_meta_save(), ~0.12 s per frame) instead of in one go, the
     // screen stays alive, a "please wait" panel with a progress bar shows up when it takes longer than a moment, and ESC
     // stops after the current file (what is not saved yet stays pending).
-    struct MetaSaveJob {
-        bool active = false;
-        std::vector<MetaEditEntry> todo;    // the session as it was when saving started
-        size_t next = 0;                    // first entry not processed yet
-        std::vector<MetaEditEntry> failed;  // processed, could not be written (stay pending)
-        int ok = 0;
-        std::vector<std::pair<std::string, std::string>> renamed;   // old -> new path of files the save renamed
-        std::string first_error;
-        bool cancel = false;
-        std::chrono::steady_clock::time_point started;
-        std::chrono::steady_clock::time_point last_persist;
-    };
-    MetaSaveJob meta_save_;
     void poll_meta_save();                                    // render loop: one slice of the job
     void meta_save_finish();                                  // lists, status line, log
     std::vector<std::string> build_meta_save_panel() const;   // the "please wait" panel
-    int meta_fetch_selected_ = 0;
-    bool meta_session_loaded_ = false; // load_session() already ran (once per run, not once per open)
-    std::string meta_status_; // bottom line of the overlay; cleared on (re)entry
     // Y/N confirmation currently covering the footer (in the menu) or the
     // status line (in Browse, for Shift+B), plus the exact paths it will act
     // on once confirmed. Every key is swallowed while one is up.
-    enum class MetaPrompt { None, Save, Discard, Fetch, ClearFetch };   // ClearFetch: SHIFT+d / SHIFT+DEL on the fetch list
-    MetaPrompt meta_prompt_ = MetaPrompt::None;
-    std::vector<std::string> meta_prompt_paths_;
     // AcoustID batch: runs on its own thread, publishes results under
-    // meta_fetch_mutex_, applied to the session on the main thread by
+    // meta_->fetch_mutex, applied to the session on the main thread by
     // poll_pending_meta_fetch() (called from the render loop).
-    fs::path meta_script_; // scripts/fetch_meta.py, next to the exe
-    std::thread meta_fetch_thread_;
-    std::atomic<bool> meta_fetch_running_{false};
-    MetaFetchCancel meta_fetch_cancel_;          // SHIFT+c on the Fetch List tab
-    mutable std::mutex meta_fetch_mutex_;
-    std::vector<MetaFetchResult> meta_fetch_results_;
     // Paths the current batch has already delivered successfully (filled in
     // by poll_pending_meta_fetch() on the main thread, so no lock needed).
     // On completion they leave the fetch list -- what stays queued is
     // exactly what still needs another try.
-    std::vector<std::string> meta_fetch_ok_paths_;
-    bool meta_fetch_done_ = false;
-    MetaFetchOutcome meta_fetch_outcome_;
-    std::string meta_fetch_progress_; // "3/7", shown while a batch runs
     // What the field editor panel draws for the currently hovered path.
     // Precomputed once per frame (meta_refresh_hover_values(), just before
     // rendering) because the current tag values need a mutable cache lookup,
     // while build_meta_screen() itself is const.
-    std::array<std::string, kMetaFieldCount> meta_hover_values_{};
-    bool meta_hover_resolved_ = false; // tags for that path are final (vs. not read yet)
 
     void meta_open();                  // HKeyMetaEditor entry point
     void meta_ensure_session_loaded(); // restores the autosaved session, once
@@ -1109,8 +977,6 @@ private:
     // metadata at all ('x'), 2 = missing title (Shift+T), 3 = missing artist
     // (Shift+A), 4 = missing year (Shift+Y), 5 = missing album (Shift+L). Pressing the same key again
     // clears it -- see meta_toggle_filter().
-    int meta_filter_ = 0;
-    mutable int meta_page_rows_ = 10;  // rows of a list pane (set while drawing): SHIFT+up / down move this far
     // Up / Down in a meta editor list: plain = one row, SHIFT = a page, CTRL = first / last. Returns the new row.
     int meta_nav(int selected, int total, bool up) const;
     void meta_toggle_filter(int filter);
@@ -1123,7 +989,7 @@ private:
     std::string meta_display_value(const std::string& path, int field, const MetaEditEntry* e);
     RowMeta meta_row_meta(const fs::path& path); // current tags of a file, cached + native
     std::string meta_hovering_path() const;      // path the picker/editor/fetch tab is on
-    void meta_refresh_hover_values();            // fills meta_hover_values_ for this frame
+    void meta_refresh_hover_values();            // fills meta_->hover_values for this frame
     void meta_add_hovering_to_fetch();           // 'a', mirrors the queue's add key
     void meta_cancel_fetch();                    // SHIFT+c on the Fetch List tab: stop the running AcoustID batch
     void meta_add_view_to_fetch();               // SHIFT+f: every title of the (filtered) library pane
@@ -1267,7 +1133,7 @@ private:
     // when it started, so moving the cursor to a different row always
     // restarts the scroll from the beginning of that row's title instead
     // of resuming wherever the previous row's animation had reached.
-    std::string book_cut_error_;           // why the original could not be moved aside (the system's own words)
+    std::unique_ptr<BookState> book_;   // the audio book player's state (src/book_state.h) -- allocated in the constructor
     mutable int marquee_ch_idx_ = -1;      // the audio book's chapter pane: the row that scrolls (see build_chapter_panel)
     mutable std::chrono::steady_clock::time_point marquee_ch_since_;
     mutable int marquee_row_idx_ = -1;
@@ -1729,6 +1595,12 @@ private:
     int settings_tab_first_line(int W, int visible) const;       // first layout line shown on tab 1 / 2 (scrolling)
     // Every overlay sizes itself from term_rows_ directly.
     void build_settings_screen(std::ostringstream& frame, int W, int player_h) const;
+    struct SettingsPaint;   // (app_settings.cpp) what the tab functions of the settings screen share
+    void settings_tab_colors(SettingsPaint& c) const;
+    void settings_tab_general(SettingsPaint& c) const;
+    void settings_tab_paths(SettingsPaint& c) const;
+    void settings_tab_reference(SettingsPaint& c) const;
+    void settings_tab_about(SettingsPaint& c) const;
     // The preview box right of the rows of GENERAL / ANIMA/VIZ: a live example of the highlighted option only (settings_preview.cpp)
     void settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int tab, const std::function<std::string(int)>& border_at) const;
     mutable std::shared_ptr<struct SettingsPreviewState> pv_;
@@ -2020,58 +1892,20 @@ private:
     // the spectrogram, played as notes of a scale) -- saves it in <music folder>/creator and plays it. The work is
     // done by creator.h; this is only the panel. The settings of the panel are kept until Mousiki is closed.
     static constexpr int kCreatorPanelWidth = 62;
-    int creator_row_ = 0;                               // index into creator_rows()
-    int creator_mode_ = 0;                              // 0 text to sound, 1 microphone
-    bool creator_grid_ = true;                          // the grid of the scope previews (text to scope and microphone)
-    int creator_live_view_ = 0;                         // microphone view: 0 spectrogram (default), 1 oscilloscope XY, 2 oscilloscope YT
+    std::unique_ptr<CreatorState> creator_;   // the creator overlay's state (src/creator_state.h) -- allocated in the constructor
     std::vector<int> creator_rows() const;              // the row ids on the screen for the current mode
     bool creator_on_text_field() const;
-    std::string creator_text_ = "MOUSIKI";
-    bool creator_list_open_ = false;                    // the list of created files is shown instead of the rows
-    std::vector<fs::path> creator_files_;
-    int creator_list_sel_ = 0;
-    int creator_target_ = 0;                            // 0 oscilloscope (XY), 1 spectrogram
-    int creator_len_ = 1;                               // index into the length list
-    int creator_invert_ = 0;                            // 0 auto, 1 on, 2 off
-    int creator_fps_ = 1;                               // scope: frame rate list index
-    int creator_motion_ = 0;                            // scope: Motion
-    int creator_detail_ = 1;                            // scope: 0 low .. 2 high
-    int creator_scale_ = 0;                             // spectrogram: Scale
-    int creator_octaves_ = 5;                           // spectrogram: 3..6
-    int creator_reverb_ = 1;                            // spectrogram: 0 off, 1 light, 2 hall
-    std::string creator_status_;
-    std::vector<std::string> creator_preview_;          // braille lines of the current picture
-    std::string creator_loaded_key_;                    // what creator_preview_ / creator_gray_ were made from
-    std::shared_ptr<void> creator_gray_;                // a creator::Gray (kept opaque so app.h does not need creator.h)
     std::vector<std::string> build_creator_panel() const;
     // The preview that opens after "Create": a full-screen picture of what the file draws (the XY scope in music mode, or the
-    // spectrogram) that loops until ESC. It has its own scope / spectrogram and its own settings (creator_spectro_set_, the
+    // spectrogram) that loops until ESC. It has its own scope / spectrogram and its own settings (creator_->spectro_set, the
     // parameters in build_creator_preview()), so the SHIFT+o / SHIFT+i settings are neither used nor changed. The pictures
     // are made from the samples of the file itself, in step with the player's position.
-    bool creator_show_ = false;
-    int creator_preview_kind_ = 0;                      // 0 = oscilloscope (XY), 1 = spectrogram, 2 = oscilloscope (YT, microphone only)
     // The microphone preview: the same big overlay, but the pictures are made from the live microphone and ENTER records it.
-    bool creator_live_ = false;
-    std::unique_ptr<MicCapture> creator_mic_;
-    bool creator_rec_on_ = false;
-    std::vector<float> creator_rec_;                    // interleaved L/R of the running recording
-    int creator_rec_rate_ = 44100;
     void creator_live_start();
     void creator_live_tick();
     void creator_record_toggle();
     void creator_record_save();
-    std::shared_ptr<creator::Stereo> creator_audio_;
-    LocalTrack creator_track_;
-    size_t creator_fed_ = 0;                            // frames of creator_audio_ given to the scope / spectrogram
-    double creator_last_pos_ = 0.0;
-    mutable OscilloscopeVisualizer creator_scope_;
-    mutable SpectroAnalyzer creator_spectro_;
-    mutable SpectroGfx creator_spectro_gfx_;
-    SpectroSettings creator_spectro_set_;
     void creator_preview_open();
-    bool creator_prev_valid_ = false;                   // a song was playing before the creator started its file: it comes back when the preview closes
-    LocalTrack creator_prev_;
-    bool creator_resume_ = false;
     void creator_remember_previous();
     void creator_resume_tick();                         // once per frame: restarts that song as soon as the player is free
     void creator_preview_close();                       // stops the playback and the loop
@@ -2119,35 +1953,8 @@ private:
     // (UP / DOWN / SPACE / b / HOME / END scroll). `t` translates non-English lyrics into English
     // (scripts/translate_lyrics.py, in the background): the translation is saved in lyrics/translations/ and shown in
     // "( )" right below each original line; `t` again hides it, `r` translates anew.
-    fs::path rd_track_;                                 // track the files belong to
-    std::string rd_title_;                              // "Artist - Title" for the pane's border
-    std::vector<LyricsVersion> rd_versions_;
-    int rd_sel_ = 0;                                    // chosen file
-    int rd_first_ = 0;                                  // first file shown on the one-line chooser (scrolls with the choice)
-    std::vector<std::string> rd_lines_;                 // plain lyrics of the chosen file
-    std::vector<LyricLine> rd_timed_;                   // the same lines with their times (rd_timed_[i].full_text == rd_lines_[i]): the highlight while the track plays
-    double rd_delay_ = 0.0;                             // the [offset:] of the chosen file (as LyricsResult::delay)
-    bool rd_follow_ = true;                             // the view scrolls along with the song (any scrolling turns it off, [f] on again)
     void readlyrics_play();                             // [p]: start this track, else pause / resume it
     bool readlyrics_track_plays() const;                // the track of the reader is the loaded one
-    std::vector<TranslationInfo> rd_tlist_;             // the translations saved for the chosen file (TRANSLATION pane)
-    int rd_tsel_ = 0;                                   // the one chosen / shown
-    int rd_tfirst_ = 0;                                 // first entry shown on the one-line chooser
-    int rd_pane_ = 0;                                   // pane with the keys: 0 READ LYRICS, 1 TRANSLATION (TAB)
-    bool rd_confirm_del_ = false;                       // "delete this translation?" is asked
-    std::vector<std::string> rd_trans_;                 // the chosen translation, one entry per line
-    std::string rd_from_;                               // language the translation came from ("de")
-    std::string rd_to_, rd_svc_;                        // language it is in ("en") and the service that made it ("google")
-    bool rd_opts_open_ = false;                         // the translate overlay ([t]): service, translate into, lyrics are in
-    int rd_opts_row_ = 0;
-    bool rd_opts_dirty_ = false;
-    std::string rd_opts_warn_;                          // warning inside the translate overlay
-    bool rd_exp_open_ = false;                          // the export overlay ([e]): original only / + translation / + transliteration
-    int rd_exp_choice_ = 0;                             // what the export holds: bit 1 = the translation, bit 2 = the Latin spelling
-    std::string rd_exp_msg_;                            // what the last export did (shown in the overlay, which stays open)
-    bool rd_exp_warn_ = false;
-    int rd_watch_epoch_ = -1;                           // the lyrics fetch the reader waits for after the re-fetch overlay (lyrics_epoch_ at that time), -1 = none
-    bool rd_exp_wait_ = false;                          // the last ENTER only said "the kanji reader is still working": the next one exports anyway
     bool readlyrics_reader_working() const;             // the kanji reader can still answer (it is on, not broken)
     std::vector<std::string> build_readlyrics_export_panel() const;
     void readlyrics_export_key(int key);
@@ -2157,19 +1964,8 @@ private:
     void readlyrics_export_do();
     std::vector<std::string> build_readlyrics_options_panel() const;
     void readlyrics_options_key(int key);
-    bool rd_show_ = false;                              // translation visible
-    bool rd_same_ = false;                              // the lyrics already are in the target language
-    bool rd_busy_ = false;                              // a translation is running (it goes on when the overlay is closed)
     // The running translation: what it was asked for and which lyrics it belongs to.
-    std::string rd_job_to_, rd_job_svc_;
-    fs::path rd_job_track_;
-    LyricsVersion rd_job_version_;
-    int rd_scroll_ = 0;
-    std::string rd_status_;
-    bool rd_status_warn_ = false;                       // the status is a warning / error (drawn in red)
-    std::mutex rd_mutex_;
-    bool rd_result_ready_ = false;
-    LyricsTranslation rd_result_;
+    std::unique_ptr<ReadLyricsState> rd_;                // the READ LYRICS reader (src/readlyrics_state.h) -- allocated in the constructor
     fs::path translate_script_;                         // scripts/translate_lyrics.py
 
     void readlyrics_open();
@@ -2185,35 +1981,14 @@ private:
     // CTRL+s in READ LYRICS: a search over EVERY lyrics file (by file name) in the lyrics folders of the library, as an
     // alternative to the lyrics of the current track. ENTER shows the chosen file in the reader (it is read like a
     // track's own lyrics, translations included); the reader is opened for the playing track again with CTRL+L.
-    struct LyricsFileHit { fs::path path; std::string name; std::string lname; std::string folder; };
-    bool rd_search_open_ = false;
-    std::string rd_search_q_;
-    std::vector<LyricsFileHit> rd_search_all_;          // every lyrics file found when the search was opened
-    std::vector<int> rd_search_view_;                   // indices into rd_search_all_ that match the query
-    size_t rd_search_dirs_ = 0;                         // lyrics folders that were searched
-    int rd_search_sel_ = 0;
-    int rd_search_first_ = 0;
+    // (LyricsFileHit: see readlyrics_state.h)
     void readlyrics_search_open();
     void readlyrics_search_rebuild();
     void readlyrics_search_key(int key);
     void readlyrics_show_file(const LyricsFileHit& hit);
-    LyricsFileHit rd_opened_hit_;                       // the reader shows this lyrics file, opened from the search (empty: it shows the lyrics of a track)
     // "Add manually" ([a] / CTRL+n): assigns a .lrc / .txt file to a track by hand. Two search panes: the lyrics files
     // (every lyrics folder of the library, subfolders included, or a path typed in) and the tracks of the library, whose
     // first entry is always the current track. TAB changes the pane, ENTER assigns.
-    bool rd_add_open_ = false;
-    int rd_add_pane_ = 0;                               // 0 = lyrics file, 1 = track
-    std::string rd_add_fq_, rd_add_tq_;                 // what is typed in each pane
-    std::vector<LyricsFileHit> rd_add_files_;           // every lyrics file found when the overlay was opened
-    std::vector<int> rd_add_fview_;                     // indices into rd_add_files_ that match; -1 = the typed path
-    LyricsFileHit rd_add_typed_;                        // a path typed into the file pane that names a lyrics file (path empty = none)
-    std::vector<int> rd_add_tview_;                     // tracks that match: -1 = the current track, else an index into all_local_tracks_
-    int rd_add_fsel_ = 0, rd_add_tsel_ = 0;
-    size_t rd_add_dirs_ = 0;
-    fs::path rd_add_cur_;                               // the current track (the one the overlay was opened for), empty = none
-    std::string rd_add_cur_title_;
-    std::string rd_add_msg_;
-    bool rd_add_warn_ = false;
     void readlyrics_add_open();                         // in READ LYRICS
     void readlyrics_add_open_from_playing();            // from the re-fetch form and the karaoke screen: the reader opens for the playing track, with the overlay open
     void readlyrics_add_rebuild();
@@ -2222,52 +1997,23 @@ private:
     void readlyrics_add_clear();                        // [c]: clear the locked lyrics file and track
     void readlyrics_add_unassign();                     // DEL in the overlay: takes the manually added lyrics of the chosen track out of use
     fs::path readlyrics_add_target() const;             // the track chosen in the lower list
-    LyricsFileHit rd_add_lock_file_;                    // the lyrics file locked in with ENTER (path empty = none yet)
-    bool rd_add_lock_auto_ = false;                     // the locked lyrics file is the manually added copy of the locked track (not picked by hand)
-    bool rd_add_lock_cur_ = true;                       // the locked track is the current track (the default)
-    fs::path rd_add_lock_track_;                        // else the track locked in from the library list
-    std::string rd_add_lock_title_;
-    std::string rd_add_lock_info_;                      // what lyrics the locked track has now ("" = none)
-    void readlyrics_add_lock_refresh();                 // re-reads rd_add_lock_info_ / rd_add_manual_ of the locked track
+    void readlyrics_add_lock_refresh();                 // re-reads rd_->add_lock_info / rd_->add_manual of the locked track
     // The search of both lists: the strings that are compared are made once, and a query that only adds letters to the one before
     // looks through the matches of the one before, not through the whole library again (a keystroke costs the size of the result).
-    std::vector<std::string> rd_add_thay_;              // per library track: the lowercase text that is searched (artist - title, or the file name)
-    bool rd_add_thay_names_ = false;                    // ... which of the two it is
-    bool rd_add_tprev_ok_ = false, rd_add_fprev_ok_ = false;   // the lists below hold the result of rd_add_*prev_q_ (for the flags in rd_add_tprev_flags_)
-    std::string rd_add_tprev_q_, rd_add_fprev_q_;
-    int rd_add_tprev_flags_ = 0;
-    bool rd_add_nolyr_ = false;                         // CTRL+f: the track list holds only tracks without saved lyrics
-    std::vector<char> rd_add_has_lyr_;                  // per library track: it has a saved lyrics copy (read when the filter is switched on)
     int readlyrics_add_list_rows() const;               // rows of the result lists (the same for both)
     static std::string readlyrics_add_track_text(const LocalTrack& t);   // "folder - title" (just the title when the folder says nothing)
-    bool rd_add_names_ = false;                         // the track list shows (and searches) file names instead of "folder - title"
-    bool rd_add_show_orig_ = true;                      // the locked-in pane names a manually added file by the file it came from (CTRL+o: by its copy)
-    std::string rd_add_orig_name_;                      // ... that file's name, when the copy knows it
-    bool rd_add_manual_ = false;                        // the chosen track has lyrics that were added manually
-    bool rd_add_confirm_ = false;                       // "unassign?" is asked: DEL again confirms
     std::string readlyrics_add_track_label(int idx) const;
     std::vector<std::string> build_readlyrics_add_panel(int W) const;
     std::vector<std::string> build_readlyrics_add_legend(int W) const;   // the key legend under the panel: a small tree table, as in READ LYRICS
     static constexpr int kAddLegendRows = 4;
     // --- READ LYRICS, [SHIFT+e]: edit a translation by hand / write a new one from scratch ("Manual Translation")
-    bool rd_te_open_ = false;
-    std::vector<std::string> rd_te_lines_;              // the translation being written: exactly one entry per lyrics line
-    mutable int rd_te_first_ = 0;                               // (kept for the drawing: the first line shown)
-    int rd_te_row_ = 0;                                 // the line with the caret (never a line that is empty in the original)
-    std::string rd_te_to_, rd_te_svc_;                  // language it is in and the id it is saved under ("manual", "manual2" ...)
-    std::string rd_te_orig_to_;                         // when a manual translation is edited: its language when opened (a changed language moves the file)
-    bool rd_te_editing_ = false;                        // an existing manual translation is changed (else a new "Manual Translation" is made)
-    int rd_te_focus_ = 0;                               // 0 the lines, 1 the language
-    bool rd_te_dirty_ = false, rd_te_ask_ = false, rd_te_new_ask_ = false, rd_te_warn_ = false;
-    std::string rd_te_msg_;
-    int rd_te_mark_ = -1;                               // SHIFT+up/down: the line where the marking began (-1: no lines marked)
-    std::vector<std::string> rd_te_undo_;               // the lines before the last whole-line change (CTRL+z)
     void readlyrics_te_open();
+    void readlyrics_create_translation();   // SHIFT+c: an empty translation file for the chosen lyrics file
     void readlyrics_te_key(int key);
     bool readlyrics_te_save();
     void readlyrics_te_step(int dir);                   // to the next / previous line that has an original text
     int readlyrics_te_body_rows() const;
-    bool readlyrics_te_blank(size_t i) const { return i >= rd_lines_.size() || rd_lines_[i].find_first_not_of(" \t\r") == std::string::npos; }
+    bool readlyrics_te_blank(size_t i) const;
     std::vector<std::string> build_readlyrics_te_panel(int W) const;
     std::vector<std::string> build_readlyrics_te_legend(int W) const;
     static constexpr int kTeLegendRows = 5;
@@ -2315,22 +2061,41 @@ private:
     void clamp_queue_selected();
     void queue_reveal(int idx);   // scroll the queue so that this entry is visible (after adding tracks)
     void handle_key(int key);
+    void handle_browse_key(int key);
+    bool browse_open_key(const std::string& action, int key, int lookup_key, size_t list_len);
+    bool browse_nav_queue_key(const std::string& action, int key, int lookup_key, size_t list_len);
+    bool browse_playback_key(const std::string& action, int key, int lookup_key, size_t list_len);
+    bool browse_queue_misc_key(const std::string& action, int key, int lookup_key, size_t list_len);
+    bool browse_rest_key(const std::string& action, int key, int lookup_key, size_t list_len);
+    void handle_console_key(int key);
+    void handle_update_notice_key(int key);
+    void handle_qtp_key(int key);
+    void handle_clear_queue_key(int key);
+    void handle_spectro_menu_key(int key);
+    void handle_osci_menu_key(int key);
+    void handle_bars_menu_key(int key);
+    void handle_norm_menu_key(int key);
+    void handle_lyrics_edit_key(int key);
+    void handle_sleep_timer_key(int key);
+    void handle_equalizer_key(int key);
+    void handle_karaoke_key(int key);
+    void handle_cheatsheet_key(int key);
+    void handle_wizard_key(int key);
+    void handle_bulk_add_key(int key);
+    void handle_retry_lyrics_key(int key);
+    void handle_search_key(int key);
     // Actions shared by the hotkeys and the remote control (`mousiki --cmd ...`, src/remote_control.h).
     void act_play_pause();
     void act_volume_change(int delta);
     void act_mute(int how);          // -1 toggle, 0 unmute, 1 mute
     void act_next();
     void act_prev();
-    void act_cycle_play_mode();      // m: list -> repeat -> shuffle -> stop -> queue then stop
+    void act_cycle_play_mode(int dir = 1);      // m: list -> repeat -> shuffle -> stop -> queue then stop
     void act_wizard_toggle();        // SHIFT+w from the remote control: open / close the help wizard
     // --- audio book player (app_audiobook.cpp) ---
     struct BookChapter { fs::path path; std::string title; };
-    std::string book_dir_;                    // the folder of the open book ("" = none)
     std::vector<BookChapter> chapters_;       // its chapters, in natural file name order (shown in the chapter pane)
-    std::chrono::steady_clock::time_point book_seek_last_{}, book_seek_start_{};
-    int book_seek_dir_ = 0, book_seek_run_ = 0;
-    std::string book_nav_;                    // the folder the books pane shows the content of ("" = the AUDIO BOOK PATH itself)
-    void book_build_view();                   // folder_view_ for book_nav_ (a flat list while a search is typed)
+    void book_build_view();                   // folder_view_ for book_->nav (a flat list while a search is typed)
     void book_refresh_view();                 // the books list (left pane) from the scanned library
     void book_load_chapters(const std::string& dir);
     void book_open(int row);                  // ENTER on a book: its chapters fill the chapter pane
@@ -2360,79 +2125,23 @@ private:
     // colours (or in the wave's), else the standard picture; cols x rows cells. Empty while the cover is still being read.
     std::vector<std::string> book_phone_picture(int& cols, int& rows) const;
     const std::string* book_phone_png(std::string& key) const;   // the same picture as a PNG for the remote app (nullptr: not ready)
-    double book_anim_t_ = 0.0;                // seconds of the book animation (advances while a chapter plays)
-    double book_idle_t_ = 0.0;                // seconds of the stack animation (advances while no book is loaded)
-    // --- audio book tags (SHIFT+m): an editor only, nothing is fetched. One chapter at a time; every row is written with ffmpeg -c copy ---
-    static constexpr int kBookTagCount = 7;   // file name, book title, author, narrator, chapter, publisher + year, genre
-    using BookTagVals = std::array<std::string, kBookTagCount>;
     static const char* book_tag_label(int i);
     static BookTagVals book_read_tags(const fs::path& file);
     static constexpr int kBookOverlayWidth = 96;   // at most (a narrow terminal gets less)
-    std::string book_meta_path_;              // the loaded chapter's tags below belong to this file
-    BookTagVals book_meta_vals_{};
-    int book_ov_chapter_ = 0;                 // the chapter the tag editor shows
-    BookTagVals book_ov_val_{}, book_ov_orig_{};
-    int book_ov_row_ = 0;
-    bool book_ov_editing_ = false;
-    bool book_ov_confirm_ = false;            // ESC with unsaved changes: Y save / N discard
-    std::string book_ov_status_;
-    struct BookTagJob {
-        bool active = false;
-        std::vector<std::pair<fs::path, std::array<std::pair<bool, std::string>, 7>>> todo;   // file, per row: (changed, new value)
-        size_t next = 0;
-        int ok = 0;
-        std::string error;
-        std::vector<std::pair<fs::path, fs::path>> renames;   // file name changes (old, new), done last in two phases
-        fs::path cue_file;                // <book folder>/<folder>.cue
-        std::vector<std::pair<std::string, std::string>> cue_set;   // header lines to write into it (narrator, publisher, year, ...)
-        bool cue_written = false;
-        int renamed = 0;
-    };
-    BookTagJob book_job_;
     void book_tags_open();
-    void book_ov_load(int chapter);           // fills book_ov_val_ / book_ov_orig_ from the file
+    void book_ov_load(int chapter);           // fills book_->ov_val / book_->ov_orig from the file
     bool book_ov_dirty() const;
     void book_ov_save(bool whole_book);       // queues the job: this chapter only, or the book-wide rows for every chapter
     std::vector<std::pair<fs::path, fs::path>> book_rename_plan(bool whole_book) const;   // the renames a save would do (book-wide: numbered)
     void book_finish_job(BookTagJob& job);    // the .cue and the renames, after the last tag write
-    bool book_ov_rename_whole_ = true;        // the question is about the whole book ([a]) or about this chapter and the numbers moving to the front ([s])
     std::string book_cover_report() const;    // what the book cover needs / why it is not shown (for the status line)
     int book_numbering() const;               // 0 the file names carry no chapter number, 1 it is in front, 2 it is at the end
-    bool book_ov_rename_ask_ = false;         // SHIFT-free [a] with a changed file name: asks first, the chapter numbers are added
     bool book_overlay_key(int key);
     bool book_tags_key(int key);
     std::vector<std::string> build_book_overlay_panel(int panel_w) const;
     std::vector<std::string> build_book_tags_panel(int panel_w) const;
-    // --- bookmark and notes (app_audiobook_notes.cpp) ---
-    // The overlay of the book mode is one Mode (BookOverlay) with several faces.
-    enum class BookOv { Tags, Ask, Resume, Notes, Marks, Chapters, DelMark, Continue, Pick };
-    BookOv book_ov_kind_ = BookOv::Tags;
-    using BookBookmark = BookMark;            // file, second, when it was set (REM BOOKMARK lines in the .cue)
-    BookBookmark book_bookmark_;              // the newest bookmark of the open book (the one the resume choices are about)
-    std::vector<BookMark> book_marks_;        // all bookmarks of the open book (file order)
-    BookMark book_resume_mark_;               // the bookmark the resume choices are about
-    int book_mark_in_chapter(int idx) const;  // index in book_marks_ of the newest bookmark in chapter idx, -1 when none
-    // the bookmark list (SHIFT+k: the bookmark of every book; app_audiobook_marks.cpp)
-    // A time stamp of a book. Three kinds: the auto-mark (kind 0; the program writes it as REM AUTOMARK while one listens), a regular
-    // bookmark (1; REM BOOKMARK, as many as one likes) and a note (2; a bookmark with a text, in <folder>_notes.txt).
-    struct BookStamp {
-        int kind = 1;                         // 0 auto-mark, 1 bookmark, 2 note
-        std::string dir, book, file, title;   // book folder, its name, the chapter's file name, the note's title ("" = none)
-        double sec = 0.0;
-        long long when = 0;                   // seconds since 1970 (0 = unknown; notes have none)
-        int num = 0;                          // position among its kind in the book's file (1 based): "Bookmark 2", "Note 3"
-        BookNote note;                        // kind 2: the whole note (for the undo; carries the dates it was set and last changed)
-    };
-    std::vector<BookStamp> book_mrows_;
-    std::vector<BookStamp> book_undo_;        // recent deletions, newest last (CTRL+SHIFT+u brings them back)
-    BookMark book_automark_;                  // the auto-mark of the open book
+    int book_mark_in_chapter(int idx) const;  // index in book_->marks of the newest bookmark in chapter idx, -1 when none
     // the auto-mark: written every few seconds while a chapter plays; "leave, but keep the time stamp" holds it back
-    std::chrono::steady_clock::time_point book_am_last_{};
-    std::string book_am_last_file_;
-    double book_am_last_sec_ = -100.0;
-    bool book_am_hold_ = false;
-    std::string book_am_hold_file_;
-    double book_am_hold_sec_ = 0.0;
     void book_automark_tick(bool force);      // writes the auto-mark of the chapter that plays (force: now, whatever the interval)
     std::vector<BookStamp> book_chapter_stamps(int idx, bool with_auto) const;   // auto-mark, bookmarks and notes of chapter idx
     static std::string book_stamp_name(const BookStamp& s);   // "Auto-mark", "Bookmark 2", the note's title or "Note 3"
@@ -2448,44 +2157,13 @@ private:
     void book_pick_open(int idx, std::vector<BookStamp> rows);   // the time stamps of the chapter to choose from
     bool book_pick_key(int key);
     std::vector<std::string> build_book_pick_panel(int panel_w) const;
-    std::vector<BookStamp> book_pick_rows_;
-    int book_pick_sel_ = 0, book_pick_idx_ = -1;
-    BookMark book_cont_mark_;                 // the auto-mark that the continue question is about
-    int book_cont_idx_ = -1;
-    std::string book_resume_label_ = "bookmark";   // what the resume choices are about (header text)
-    int book_msel_ = 0, book_mscroll_ = 0;
-    int book_notes_sort_ = 0;                 // SHIFT+t in the notes overlay: 0 chapter order (furthest on top), 1 recently edited first
-    int book_mfilter_ = 0;                    // SHIFT+t in the list: 0 all, 1 notes by the date they were set, 2 notes by the date of the last change
-    int book_mmode_ = 0;                      // 0 the list, 1 "discard this bookmark?"
     // --- chapter marks and cutting a file into chapters (Phase 3; app_audiobook_chapters.cpp) ---
-    std::string book_cm_file_;                // the file that is marked (its name in book_dir_)
-    double book_cm_dur_ = 0.0;                // its length in seconds (0 = unknown)
-    std::vector<ChapterMark> book_cm_;        // its chapter marks, by time (kept in the .cue as REM CHAPTER lines)
-    int book_cm_sel_ = 0;
-    int book_cm_mode_ = 0;                    // 0 the list, 1 title field, 2 time field, 3 time field of a new mark, 4 delete the mark?, 5 cut?, 6 delete the backups?
-    std::string book_cm_text_;                // the field
-    int book_cm_edit_ = -1;                   // index of the mark whose title / time is typed
     void book_cm_open();                      // ALT+L in the audio book player
     bool book_cm_key(int key);
     std::vector<std::string> build_book_cm_panel(int panel_w, int panel_h) const;
     void book_cm_save();                      // the marks into the .cue
     void book_cm_insert(double sec, const std::string& title, bool ask_title);
     std::vector<fs::path> book_backup_files() const;   // <name>.<ending>.mousiki-backup files in the open book's folder
-    struct BookCutJob {
-        bool active = false;
-        fs::path src;
-        std::string dir, file;
-        std::vector<SplitPart> parts;
-        size_t next = 0;
-        std::vector<fs::path> made;
-        std::string error;
-        bool trim = false;                    // trim the blank audio at the edges of the parts to 2 s
-        bool detecting = false;               // ffmpeg's silencedetect runs over the file (in `detect`)
-        std::future<std::string> detect;
-        bool waiting = false;                 // the original is being waited for (it is still in use)
-        std::chrono::steady_clock::time_point wait_start{}, last_try{};
-    };
-    BookCutJob book_cut_;
     void book_cut_start(bool trim);
     void book_cut_step();                     // one part per call (from book_poll)
     void book_cut_finish();
@@ -2495,22 +2173,13 @@ private:
     std::vector<std::string> build_book_marks_panel(int panel_w, int panel_h) const;
     bool book_open_dir(const std::string& dir);   // opens the book of that folder (false when it is not in the library)
     void book_marks_write(const std::string& dir, const std::vector<BookMark>& marks);
-    std::vector<BookNote> book_notes_;        // the open book's notes (<folder>_notes.txt)
-    void book_bookmark_load();                // book_dir_ -> book_bookmark_ and book_notes_
+    void book_bookmark_load();                // book_->dir -> book_->bookmark and book_->notes
     void book_bookmark_store(const std::string& file, double sec);
     int book_bookmark_chapter() const;        // index of the chapter that carries the bookmark, -1 when none
     void book_set_bookmark_now();             // SHIFT+b
     // the question "set a bookmark?" (it pauses the audio) and the resume choices
-    std::function<void()> book_then_;         // what happens after the answer
-    bool book_prompt_paused_ = false;         // the question paused a running chapter
-    std::string book_ask_file_;               // where the question is about
-    double book_ask_sec_ = 0.0;
-    int book_resume_idx_ = -1, book_resume_sel_ = 0;
     bool book_ask_due() const;
     void book_ask_then(const std::string& what, std::function<void()> then);   // asks when it is due (then runs `then` after the answer), else runs it at once
-    std::string book_ask_what_;               // the line under the question: what the user is about to do
-    std::string book_note_dir_;               // the folder of the book the note editor writes to
-    std::chrono::steady_clock::time_point book_seek_at_{};
     void book_go(int idx);                    // the user picks chapter idx: the question, the resume choices, then playing
     bool book_play_file(const std::string& path);   // reading history: opens the book of the file and goes to its chapter
     void book_play_at(int idx, double sec);   // starts chapter idx and goes to sec
@@ -2519,33 +2188,11 @@ private:
     void book_delmark_open(int idx);          // [d] in the chapter pane: the small question before the bookmark of chapter idx is deleted
     bool book_delmark_key(int key);
     std::vector<std::string> build_book_delmark_panel(int panel_w) const;
-    BookMark book_del_mark_;                  // the bookmark that the question is about
     bool book_resume_key(int key);
     std::vector<std::string> build_book_ask_panel(int panel_w) const;
     std::vector<std::string> build_book_resume_panel(int panel_w) const;
-    bool book_seek_pending_ = false;          // a chapter is loading and has to go to book_seek_sec_ when it is ready
-    std::string book_seek_file_;
-    double book_seek_sec_ = 0.0;
-    double book_prev_elapsed_ = 0.0;          // for noticing that playback passed a note
     // the note editor in the field (SHIFT+n; the viz / notes field shows it instead of the visualization)
-    bool book_note_edit_ = false;
-    bool book_note_typing_ = true;            // true: keys type; false: SHIFT+s saves, ENTER types again, ESC discards
-    bool book_note_discard_ask_ = false;
-    std::vector<std::string> book_note_lines_;   // [0] the title, then the text lines
-    std::string book_note_file_;
-    double book_note_sec_ = 0.0;
-    int book_note_row_ = 0;                   // the line with the caret (edit_caret_ = the byte in it)
-    int book_note_arow_ = 0;                  // the line with the other end of the marked text (edit_anchor_ = the byte in it)
-    mutable int book_note_vscroll_ = 0;       // the first visible row of the (soft-wrapped) text
-    mutable int book_note_wrap_w_ = 40;       // the width the text was wrapped to last (Up / Down move by those rows)
-    int book_note_replace_ = -1;              // index in book_notes_ when an existing note is edited
-    std::string book_note_status_;
-    bool book_note_shown_ = false;            // the field shows a note (not the visualization)
-    BookNote book_note_view_;
-    bool book_note_auto_ = false;             // shown by playback passing it (goes away by itself)
-    std::chrono::steady_clock::time_point book_note_auto_at_{};
     bool book_overlay_switch(int key);        // SHIFT+s / k / m / l inside one of those overlays: the other one opens without closing first
-    int book_viz_before_ = -1;                // the view of the field (0 sphere, 1 oscilloscope, 2 spectrogram, 3 lyrics) before a note took its place
     void book_viz_remember();                 // called when a note enters the field
     void book_viz_restore();                  // called when it leaves: that view is on again
     void book_note_new();
@@ -2556,14 +2203,11 @@ private:
     void book_note_save();
     void book_note_show(const BookNote& n, bool automatic);
     void book_notes_follow();                 // render loop: playback passed a note -> show it
-    bool book_field_has_note() const { return audiobook_ && (book_note_edit_ || book_note_shown_); }
+    bool book_field_has_note() const;
     std::vector<std::string> book_note_field_rows(int w, int h) const;   // what the field shows instead of the visualization
     // the notes overlay (SHIFT+l)
-    int book_notes_sel_ = 0, book_notes_scroll_ = 0;
-    int book_notes_mode_ = 0;                 // 0 the list, 1 export path, 2 import path, 3 delete question, 4 a note is written / changed in the right pane
     std::vector<LegendRow> book_overlay_legend(int panel_w, const std::vector<LegendGroup>& groups, int max_rows) const;   // the tree-table legend of the book overlays
-    std::string book_notes_path_;
-    std::vector<int> book_notes_order() const;   // entries of the list: -1 = the bookmark, else an index into book_notes_ (chapter, time)
+    std::vector<int> book_notes_order() const;   // entries of the list: -1 = the bookmark, else an index into book_->notes (chapter, time)
     void book_notes_open();
     bool book_notes_key(int key);
     std::vector<std::string> build_book_notes_panel(int panel_w, int panel_h) const;
@@ -2603,6 +2247,7 @@ private:
     void ensure_visible_row_meta();
     void recompute_waveform_for_current_track();
     std::string render_frame(TerminalIO& term);
+    std::optional<std::string> render_takeover_screen(int term_cols, int W, bool hard_clear);   // the full-screen modes of render_frame() (app_render.cpp)
 
     // --- box drawing helpers (use configured border chars) ---
     std::string box_top(const std::string& label, int total_width, const std::string& border_ansi = "") const;
@@ -2621,6 +2266,10 @@ private:
                                const std::string& text_ansi = "") const; // text_ansi: colours for prefix+field+fill
 
     // panel builders
+    struct MetaPanel;   // (app_panels.cpp) the layout + rows the parts of build_metadata_panel() share
+    void meta_panel_disk(MetaPanel& m) const;
+    void meta_panel_info(MetaPanel& m) const;
+    void meta_panel_field(MetaPanel& m) const;
     std::vector<std::string> build_metadata_panel(int width) const;   // (empty when the window is too small for it)
     bool show_metadata_panel(int width) const;
     std::vector<std::string> build_progress_panel(int width) const;

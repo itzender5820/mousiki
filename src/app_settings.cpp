@@ -746,6 +746,7 @@ std::string App::settings_get_value(int row, int col) const {
             case kSidLyricViz: return settings_.viz_default == 4 ? "last used" : settings_.viz_default == 5 ? "video" : viz_row_name(settings_.viz_default);
             case kSidVisualizer: v = settings_.element_visualizer; break;
             case kSidNoVideoViz: return settings_.novideo_viz == 0 ? "sphere" : settings_.novideo_viz == 1 ? "osci" : settings_.novideo_viz == 2 ? "spectro" : settings_.novideo_viz == 3 ? "none" : "lyrics";
+            case kSidVideoLyrics: return lyr_mode_name(settings_.video_lyrics);
             case kSidVideoSize: return settings_.video_size == 1 ? "cropped" : settings_.video_size == 2 ? "full" : settings_.video_size == 3 ? "framed" : "regular";
             case kSidVideoFx: return video_fx_name(settings_.video_fx);
             case kSidVideoContrast: return std::to_string(std::clamp(settings_.video_contrast, 0, 100)) + "%";
@@ -888,6 +889,7 @@ std::vector<std::string> App::settings_options_for(int tab, int row) const {
             case kSidLyricViz: return {"sphere", "osci", "spectro", viz_row_name(3), "video", "last used"};   // the view the field starts with, not a bool
             case kSidNoLyricsViz: return {"sphere", "osci", "spectro", "none"};
             case kSidNoVideoViz: return {"lyrics", "sphere", "osci", "spectro", "none"};
+            case kSidVideoLyrics: return {"none", "lyrics", "lyrics+transl.", "transl."};
             case kSidVideoSize: return {"regular", "cropped", "full", "framed"};
             case kSidVideoFx: { std::vector<std::string> o; for (int i = 0; i < kVideoFxShown; ++i) o.push_back(video_fx_name(kVideoFxOrder[i])); return o; }
             case kSidVideoContrast: case kSidVideoBrightness: case kSidVideoColors: { std::vector<std::string> o; for (int i = 0; i <= 100; i += 5) o.push_back(std::to_string(i) + "%"); return o; }
@@ -980,6 +982,7 @@ void App::settings_commit_edit_impl() {
         // "Lyrics/Viz Default" and "When No Lyrics Show" are picks among views (sphere / osci / spectro, plus lyrics or none), not
         // bools: they have to be handled BEFORE the true/false gate below, or their values would bounce off it and the row
         // would never change.
+        if (id == kSidVideoLyrics) { settings_.video_lyrics = v == "lyrics" ? 1 : v == "lyrics+transl." ? 2 : v == "transl." ? 3 : 0; video_pic_key_.clear(); return; }
         if (id == kSidVideoSize) { settings_.video_size = v == "cropped" ? 1 : v == "full" ? 2 : v == "framed" ? 3 : 0; video_pic_key_.clear(); return; }
         if (id == kSidVideoFx) { settings_.video_fx = video_fx_from(v); video_pic_key_.clear(); return; }
         if (id == kSidVideoContrast || id == kSidVideoBrightness || id == kSidVideoColors) {
@@ -1392,6 +1395,7 @@ void App::settings_cycle(int dir) {
         static const char* const names[4] = {"sphere", "oscilloscope", "spectrogram", "nothing"};
         status_line_ = std::string("no lyrics: ") + names[std::clamp(settings_.nolyrics_viz, 0, 3)] + " is shown" + note;
     }
+    if (id == kSidVideoLyrics) status_line_ = std::string("include lyrics: ") + lyr_mode_name(settings_.video_lyrics) + " (under the video picture of the lyrics field; the last row under the picture is used for the translation first)";
     if (id == kSidVideoSize) status_line_ = std::string("video size: ") + (settings_.video_size == 1 ? "cropped -- two columns are cut off each side of the picture" : settings_.video_size == 2 ? "full -- the picture fills the field, cropped to fit, the lyric line as a small box over it" : settings_.video_size == 3 ? "framed -- like full, one row and two columns smaller on every side" : "regular -- the whole picture") + note;
     if (id == kSidVideoContrast) status_line_ = "video contrast: " + std::to_string(settings_.video_contrast) + "% -- more contrast for the video's picture (0 = as it is)" + note;
     if (id == kSidVideoBrightness) status_line_ = "video brightness: " + std::to_string(settings_.video_brightness) + "% -- 50 = as it is, lower = darker, higher = brighter" + note;
@@ -2163,6 +2167,463 @@ void App::build_theme_screen(std::ostringstream& frame, int W, int player_h) con
     if (editing && cursor_y > 0) frame << "\x1b[" << cursor_y << ";" << cursor_x << "H\x1b[?25h";
 }
 
+static std::string repeat(const std::string& s, int n) {
+    std::string r; r.reserve(s.size() * static_cast<size_t>(std::max(0, n)));
+    for (int i = 0; i < n; ++i) r += s;
+    return r;
+}
+
+static std::string pad(const std::string& s, int width, bool left_align = true) {
+    int ulen = display_width(s);
+    if (ulen >= width) return s;
+    std::string spaces(width - ulen, ' ');
+    return left_align ? (s + spaces) : (spaces + s);
+}
+
+// What the tab functions of the settings screen share with build_settings_screen(): the frame, the sizes and the painting helpers.
+struct App::SettingsPaint {
+    std::ostringstream& frame;
+    int W;
+    int player_h;
+    int MAX_Y;
+    std::string R, HI;
+    std::function<std::string(int)> B;                                   // the border colour of a row
+    std::function<void(int, int, const std::string&)> pos;               // draw at (row, column)
+    std::function<void(int, int, int)> scrollbar;
+    std::function<int()> edit_field_width;
+    std::function<EditPaint(int)> edit_paint;
+    int& clip_rows;
+    int& clip_top;
+    int& y;                  // the next content row
+    int& colors_visible;
+    int& colors_first;
+};
+
+void App::settings_tab_colors(SettingsPaint& c) const {
+    [[maybe_unused]] std::ostringstream& frame = c.frame; [[maybe_unused]] const int W = c.W; [[maybe_unused]] const int player_h = c.player_h; [[maybe_unused]] const int MAX_Y = c.MAX_Y;
+    [[maybe_unused]] const std::string& R = c.R; [[maybe_unused]] const std::string& HI = c.HI;
+    [[maybe_unused]] auto& B = c.B; [[maybe_unused]] auto& pos = c.pos; [[maybe_unused]] auto& scrollbar = c.scrollbar; [[maybe_unused]] auto& edit_field_width = c.edit_field_width; [[maybe_unused]] auto& edit_paint = c.edit_paint;
+    [[maybe_unused]] int& clip_rows = c.clip_rows; [[maybe_unused]] int& clip_top = c.clip_top; [[maybe_unused]] int& y = c.y; [[maybe_unused]] int& colors_visible = c.colors_visible; [[maybe_unused]] int& colors_first = c.colors_first;
+    clip_rows = MAX_Y;
+    colors_visible = std::max(1, MAX_Y - 3);
+    colors_first = colors_first_line(settings_row_, colors_visible);
+    y = 3 - colors_first;
+    clip_top = 3;
+    static const char* grp[21]  = {"BORDER_COLOR", "DISK", "METADATA", "VIZ", "PROGRESS_BAR",
+                                    "SEARCH", "", "LIST", "", "", "QUEUE", "", "", "LYRICS", "", "", "HEADER", "LEGEND", "TAB_NAMES", "CHANGE", "FOCUS"};
+    static const char* l1n[21]  = {"TOP", "TOP", "KEY", "LEFT", "PLAYED",
+                                    "FG", "INACTIVE  FG",
+                                    "INACTIVE  FG", "PLAYING   FG", "CURSOR    FG",
+                                    "INACTIVE  FG", "PLAYING   FG", "CURSOR    FG",
+                                    "INACTIVE  FG", "ACTIVE L  FG", "ACTIVE W  FG",
+                                    "TEXT", "KEY-CMD", "CURRENT", "TEXT", "TEXT"};
+    static const char* l2n[21]  = {"BOTTOM", "BOTTOM", "VAL", "RIGHT", "PENDING",
+                                    "BG", "BG", "BG", "BG", "BG", "BG", "BG", "BG", "BG", "BG", "BG",
+                                    "", "COMMAND", "OTHER", "BG", ""}; // HEADER, LEGEND and FOCUS are foreground-only fields: no background cell at all
+    // THEME | CREATE THEME (row 0): pick a ready-made colour scheme, or make one of your own.
+    {
+        pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
+        pos(y, 3, header_sgr(settings_) + pad("THEME", 15) + R); pos(y, 18, ":");
+        const int ci = theme_current_index();
+        const std::string tn = ci >= 0 ? theme_list_[static_cast<size_t>(ci)].name : std::string("(custom)");
+        const bool sel0 = (settings_row_ == 0 && settings_col_ == 0);
+        const bool sel1 = (settings_row_ == 0 && settings_col_ == 1);
+        pos(y, 20, (sel0 ? HI : "") + pad(truncate_str(tn, themes::kMaxNameLen), themes::kMaxNameLen + 1) + R);
+        pos(y, 50, (sel1 ? HI : "") + " CREATE THEME " + R);
+        y++;
+        pos(y, 1, B(y) + "\u251c" + repeat("\u2500", W - 2) + "\u2524" + R); y++;
+    }
+    for (int i = 0; i < 21; ++i) {
+        if (i == 1) { // SMOOTHNESS: how the frame's colour runs from BORDER_COLOR TOP to BOTTOM
+            pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
+            pos(y, 3, header_sgr(settings_) + pad("", 15) + R); pos(y, 18, ":");
+            pos(y, 20, pad("SMOOTHNESS", 14, false)); pos(y, 35, ":");
+            const bool sel = (settings_row_ == 2);
+            pos(y, 38, (sel ? HI : "") + pad(settings_get_value(2, 0), 7) + R);
+            if (sel) pos(y, 46, ansi_for(settings_.tab_current_color, false) + "< \u2194 >" + R);
+            pos(y, 72, legend_sgr(settings_) + (settings_.border_smooth ? "frame fades from TOP to BOTTOM" : "only the bottom border line = BOTTOM") + R);
+            y++;
+        }
+        if (i == 5) { pos(y, 1, B(y) + "\u251c" + repeat("\u2500", W - 2) + "\u2524" + R); y++; }
+        pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
+
+        pos(y, 3, header_sgr(settings_) + pad(grp[i], 15) + R); pos(y, 18, ":");
+
+        pos(y, 20, pad(l1n[i], 14, false)); pos(y, 35, ":");
+        {
+            bool sel = (tab_row_of_color(i) == settings_row_ && settings_col_ == 0 && mode_ != Mode::ColorEdit);
+            bool ed = (tab_row_of_color(i) == settings_row_ && settings_col_ == 0 && mode_ == Mode::ColorEdit);
+            std::string v = ed ? edit_paint(edit_field_width()).s : pad(settings_get_value(tab_row_of_color(i), 0), 7);
+            pos(y, 38, (sel ? HI : "") + (ed ? change_sgr(settings_) : "") + v + R);
+        }
+
+        // Second (background) column: the HEADER and LEGEND rows have no background
+        // cell at all, so it renders neither a label nor a ":" here --
+        // without this guard there'd be a dangling colon at col 56 with
+        // nothing between it and the preview.
+        // Colour swatches right behind the values (the radio settings do the same):
+        // foreground cells show "██" in the colour, background cells a block of it.
+        pos(y, 46, ansi_for(settings_get_value(tab_row_of_color(i), 0), false) + "\u2588\u2588" + R);
+        if (l2n[i][0]) {
+            pos(y, 50, pad(l2n[i], 7, false)); pos(y, 58, ":");
+            bool sel = (tab_row_of_color(i) == settings_row_ && settings_col_ == 1 && mode_ != Mode::ColorEdit);
+            bool ed = (tab_row_of_color(i) == settings_row_ && settings_col_ == 1 && mode_ == Mode::ColorEdit);
+            std::string v = ed ? edit_paint(edit_field_width()).s : pad(settings_get_value(tab_row_of_color(i), 1), 7);
+            pos(y, 61, (sel ? HI : "") + (ed ? change_sgr(settings_) : "") + v + R);
+            const bool is_bg = std::string(l2n[i]) == "BG";
+            pos(y, 69, is_bg ? bg_ansi_for(settings_get_value(tab_row_of_color(i), 1)) + "  " + R
+                             : ansi_for(settings_get_value(tab_row_of_color(i), 1), false) + "\u2588\u2588" + R);
+        }
+
+        std::string valA = settings_get_value(tab_row_of_color(i), 0), valB = settings_get_value(tab_row_of_color(i), 1);
+        std::string rt;
+        if (i == 0) rt = gradient_preview_bar(valA, valB, 23);
+        else if (i == 1) rt = gradient_preview_bar(valA, valB, 23);
+        else if (i == 2) rt = ansi_for(valA, false) + "NAME : " + R + ansi_for(valB, false) + "SONG.MP3" + R;
+        else if (i == 3) rt = gradient_preview_bar(valA, valB, 23);
+        else if (i == 4) rt = ansi_for(valA, false) + "[" + volume_bar_fill(settings_.volume_indicator, 11, volume_clock_angle()) + R + ansi_for(valB, false) + "----------]" + R;
+        else if (i == 5) rt = search_idle_sgr(settings_) + "/l:" + R + search_sgr(settings_) + "QUERY" + R;
+        else if (i == 6) rt = bg_ansi_for(valB) + ansi_for(valA, false) + "/l:" + std::string(15, ' ') + R;
+        else if (i >= 7 && i <= 14) rt = bg_ansi_for(valB) + ansi_for(valA, false) + "THIS IS AN EXAMPLE TEXT" + R;
+        else if (i == 15) {
+            std::string aL_F = ansi_for(settings_.active_line_color, false), aL_B = bg_ansi_for(settings_.active_line_bg_color);
+            std::string aW_F = ansi_for(valA, false), aW_B = bg_ansi_for(valB);
+            std::string iN_F = ansi_for(settings_.inactive_line_color, false), iN_B = bg_ansi_for(settings_.inactive_line_bg_color);
+            rt = aL_B + aL_F + "THIS IS " + R + aW_B + aW_F + "AN " + R + iN_B + iN_F + "EXAMPLE TEXT" + R;
+        } else if (i == 16) {
+            // Same bold + color construction header_sgr() draws the real
+            // section titles with, so the swatch shows the exact result.
+            std::string params = sgr_params_for(valA);
+            rt = (params.empty() ? std::string("\x1b[1m") : "\x1b[1;" + params + "m") + "SECTION HEADER" + R;
+        } else if (i == 17) {
+            // Same prefix legend_sgr() gives the real hint lines, so the
+            // swatch shows the exact result (an unset color is plain text).
+            rt = ansi_for(valA, false) + "[ESC]" + R + ansi_for(valB, false) + " Close" + R + "  " + ansi_for(valA, false) + "[ENTER]" + R + ansi_for(valB, false) + " OK" + R;
+        } else if (i == 18) {
+            rt = ansi_for(valA, false) + "[COLORS]" + R + "  " + ansi_for(valB, false) + "GENERAL  ANIMA/VIZ" + R;
+        } else if (i == 19) {
+            // Same construction change_sgr() gives the real activated
+            // field (a PATHS row, a meta editor tag, ...), so the swatch
+            // shows the exact result.
+            rt = ansi_for(valA, false) + bg_ansi_for(valB) + "EDITING..." + R;
+        } else if (i == 20) {
+            // Same construction focus_sgr() gives the real indicator after a pane title.
+            const std::string params = sgr_params_for(valA);
+            rt = ansi_for(settings_.list_color, false) + "LOCAL AUDIO FILES " + R + (params.empty() ? std::string("\x1b[1m") : "\x1b[1;" + params + "m") + "\u25c0" + R;
+        }
+        if (!rt.empty()) pos(y, 72, rt);
+        y++;
+    }
+    if (colors_first > 0) pos(3, W - 2, legend_sgr(settings_) + "\u25b2" + R);                              // more above
+    if (colors_first + colors_visible < kColorsLines) pos(MAX_Y - 1, W - 2, legend_sgr(settings_) + "\u25bc" + R);   // more below
+    clip_rows = 1 << 30;
+    clip_top = 0;
+    if (y > MAX_Y) y = MAX_Y;   // (a small window: the bottom border and the hint lines go where the panel ends)
+}
+
+void App::settings_tab_general(SettingsPaint& c) const {
+    [[maybe_unused]] std::ostringstream& frame = c.frame; [[maybe_unused]] const int W = c.W; [[maybe_unused]] const int player_h = c.player_h; [[maybe_unused]] const int MAX_Y = c.MAX_Y;
+    [[maybe_unused]] const std::string& R = c.R; [[maybe_unused]] const std::string& HI = c.HI;
+    [[maybe_unused]] auto& B = c.B; [[maybe_unused]] auto& pos = c.pos; [[maybe_unused]] auto& scrollbar = c.scrollbar; [[maybe_unused]] auto& edit_field_width = c.edit_field_width; [[maybe_unused]] auto& edit_paint = c.edit_paint;
+    [[maybe_unused]] int& clip_rows = c.clip_rows; [[maybe_unused]] int& clip_top = c.clip_top; [[maybe_unused]] int& y = c.y; [[maybe_unused]] int& colors_visible = c.colors_visible; [[maybe_unused]] int& colors_first = c.colors_first;
+    // GENERAL and ANIMA/VIZ: category headers and their rows (settings_layout()). The list scrolls with the
+    // selected row when the terminal is too short for it.
+    const auto& lay = settings_layout(settings_tab_);
+    const int visible = std::max(1, MAX_Y - 3);
+    const int total = static_cast<int>(lay.size());
+    const int first = settings_tab_first_line(W, visible);
+    int row_of_line = 0;   // selectable row number of the line being drawn
+    for (int i = 0; i < first; ++i) if (!lay[static_cast<size_t>(i)].header) ++row_of_line;
+    for (int i = first; i < total && y < 3 + visible; ++i) {
+        const SetLine& L = lay[static_cast<size_t>(i)];
+        pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
+        if (L.header) {
+            pos(y, 4, header_sgr(settings_) + L.text + R);
+        } else {
+            const int r = row_of_line++;
+            const bool sel = (r == settings_row_ && mode_ != Mode::ColorEdit);
+            const bool ed = (r == settings_row_ && mode_ == Mode::ColorEdit);
+            pos(y, 6, pad(L.text, 25)); pos(y, 32, ":");
+            const bool buf_row = settings_tab_ == 1 && settings_item_id(1, r) == kSidTrackBuffer;
+            const bool vol_row = (settings_tab_ == 1 || settings_tab_ == 2) && settings_item_id(settings_tab_, r) == kSidVolIndicator;   // two values: the look | gradient or not
+            const bool term_row = settings_tab_ == 1 && settings_item_id(1, r) == kSidTermSize;       // two typed numbers: columns x rows
+            std::string shown = settings_get_value(r, 0);
+            // the "disk" look of the Volume Indicator is shown as two braille blocks of the animation itself
+            if ((settings_tab_ == 1 || settings_tab_ == 2) && settings_item_id(settings_tab_, r) == kSidVolIndicator && settings_.volume_indicator == kVolStyleDisk)
+                shown = volume_disk_snippet(volume_clock_angle());
+            std::string v = ed ? edit_paint(edit_field_width()).s : pad(shown, 20);
+            if (term_row) {   // "[ 120 ] x [ 30 ]": the field that is lit is the one ENTER types into (LEFT / RIGHT switch)
+                const std::string c0 = settings_get_value(r, 0), c1 = settings_get_value(r, 1);
+                auto field = [&](int which, const std::string& val) {
+                    const bool mine = r == settings_row_ && settings_col_ == which;
+                    if (ed && mine) return change_sgr(settings_) + edit_paint(5).s + R;
+                    return std::string(mine && sel ? HI : "") + pad(val == "0" ? "off" : val, 5) + R;
+                };
+                pos(y, 35, field(0, c0));
+                pos(y, 41, "x");
+                pos(y, 43, field(1, c1));
+                pos(y, 57, ((sel && settings_col_ == 2) ? HI : legend_sgr(settings_)) + "[ Set back to default ]" + R);   // (right of the two numbers)
+            } else
+            pos(y, 35, ((sel && !(buf_row && settings_col_ == 1) && !(vol_row && settings_col_ == 1)) ? HI : "") + (ed ? change_sgr(settings_) : "") + (vol_row ? pad(shown, 9) : v) + R);
+            if (vol_row) {   // right of the look: "gradient" / "no gradient" (LEFT / RIGHT switch between the two, ENTER changes the one that is lit)
+                pos(y, 45, ((sel && settings_col_ == 1) ? HI : "") + (settings_.volume_gradient ? "gradient   " : "no gradient") + R);
+                if (sel) pos(y, 56, ansi_for(settings_.tab_current_color, false) + "[ENTER] change\x1b[0m");
+            } else
+            if (buf_row) {   // the button to the right of the number
+                pos(y, 57, ((sel && settings_col_ == 1) ? HI : legend_sgr(settings_)) + "[ Set back to default ]" + R);
+            } else
+            if (sel && !settings_options_for(settings_tab_, r).empty())
+                // Right behind the value, so long values such as "Cover behind Disk (Full Anima)" do not run into a fixed column.
+                pos(y, std::max(57, 35 + static_cast<int>(display_width(shown)) + 2), ansi_for(settings_.tab_current_color, false) + "< \u2194 >\x1b[0m");
+        }
+        y++;
+    }
+    scrollbar(first, visible, total);   // there is more above / below
+    settings_preview_draw(frame, W, MAX_Y, settings_tab_, B);   // the highlighted option, shown live on the right (wide terminals only)
+}
+
+void App::settings_tab_paths(SettingsPaint& c) const {
+    [[maybe_unused]] std::ostringstream& frame = c.frame; [[maybe_unused]] const int W = c.W; [[maybe_unused]] const int player_h = c.player_h; [[maybe_unused]] const int MAX_Y = c.MAX_Y;
+    [[maybe_unused]] const std::string& R = c.R; [[maybe_unused]] const std::string& HI = c.HI;
+    [[maybe_unused]] auto& B = c.B; [[maybe_unused]] auto& pos = c.pos; [[maybe_unused]] auto& scrollbar = c.scrollbar; [[maybe_unused]] auto& edit_field_width = c.edit_field_width; [[maybe_unused]] auto& edit_paint = c.edit_paint;
+    [[maybe_unused]] int& clip_rows = c.clip_rows; [[maybe_unused]] int& clip_top = c.clip_top; [[maybe_unused]] int& y = c.y; [[maybe_unused]] int& colors_visible = c.colors_visible; [[maybe_unused]] int& colors_first = c.colors_first;
+    // PATHS tab: the LOCAL PATH / DOWNLOAD PATH / PLAYLIST PATH
+    // sections (build_path_rows()) -- editable path rows, each list
+    // ending in a "+ new path" row except the single download folder.
+    // Scrolls as one list (viewport follows settings_row_, centered)
+    // so a long list never grows the panel past player_h; see
+    // path_display_row() for how a selectable row maps to the line it
+    // is drawn on.
+    int display_count = path_display_total();
+    int visible = std::max(1, MAX_Y - 3);
+    int cur_display = path_display_row(settings_row_);
+    int scroll = std::clamp(cur_display - visible / 2, 0, std::max(0, display_count - visible));
+
+    int disp = 0;
+    auto in_view = [&]() { return disp >= scroll && y < MAX_Y; };
+    auto draw_header = [&](const char* text, const char* note = "") {
+        // empty spacer row (just the side borders)
+        if (in_view()) {
+            pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
+            y++;
+        }
+        disp++;
+
+        // the header itself, in the configurable Header color (bold;
+        // palette index 10 by default, exactly what it always was)
+        if (in_view()) {
+            pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
+            pos(y, 6, header_sgr(settings_) + text + R);
+            if (*note) pos(y, 6 + static_cast<int>(std::strlen(text)) + 3, legend_sgr(settings_) + note + R);
+            y++;
+        }
+        disp++;
+    };
+    auto draw_path_row = [&](const PathRow& r) {
+        if (r.kind == PathRow::Kind::Path && (r.label && *r.label)) {   // blank spacer above DOWNLOAD / PLAYLIST / HISTORY PATH
+            if (in_view()) { pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R); y++; }
+            disp++;
+        }
+        if (in_view()) {
+            pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
+            const bool sel = (r.sel == settings_row_ && mode_ != Mode::ColorEdit);
+            const bool ed = (r.sel == settings_row_ && mode_ == Mode::ColorEdit);
+            if (r.kind == PathRow::Kind::Path) {
+                // DOWNLOAD / PLAYLIST / HISTORY PATH are single paths: the section header says what they are, so the value
+                // sits right under it (no second "Download Path :" label). Local paths are numbered.
+                const bool single = (r.label && *r.label);   // DOWNLOAD / PLAYLIST / HISTORY PATH: the header name is the row label
+                const int vx = 35;
+                if (single) pos(y, 6, header_sgr(settings_) + pad(r.label, 25) + R);
+                else pos(y, 6, pad("Local Path " + std::to_string(r.path_index + 1), 25));
+                pos(y, 32, ":");
+                // The value column runs from col 35 right up to the border --
+                // a folder path is far longer than a hotkey's 20 columns, and
+                // nothing may spill over the panel edge.
+                int val_w = std::max(10, W - (vx + 1));
+                std::string v;
+                if (ed) {
+                    // While editing the field is only as wide as what has
+                    // been typed (20 minimum, growing with the text, never
+                    // past the panel edge -- edit_field_width()), so an
+                    // empty "+ new path" line no longer draws a red bar all
+                    // the way to the right border. The window inside it
+                    // follows the caret, not the tail, so a selection
+                    // anywhere in a long path stays visible.
+                    v = edit_paint(edit_field_width()).s;
+                } else {
+                    // The cursor highlight covers the entry, not the whole
+                    // column: a path is highlighted exactly as wide as what
+                    // is typed into it, the way a hotkey field highlights
+                    // its own key. An empty row -- a not-yet-typed new path
+                    // -- keeps the full-width bar instead, so there is a
+                    // visible place to start typing.
+                    std::string raw = settings_get_value(r.sel, 0);
+                    int w = raw.empty()
+                            ? val_w
+                            : std::clamp(static_cast<int>(display_width(truncate_str(raw, val_w))), 1, val_w);
+                    v = pad(truncate_str(raw, w), w);
+                }
+                pos(y, vx, (sel ? HI : "") + (ed ? change_sgr(settings_) : "") + v + R);
+            } else { // AddPath
+                pos(y, 6, pad(r.label, 25)); pos(y, 32, ":");
+                pos(y, 35, (sel ? HI : "") + std::string(20, ' ') + R);
+                if (sel) pos(y, 57, legend_sgr(settings_) + "[ENTER] add a line\x1b[0m");
+            }
+            y++;
+        }
+        disp++;
+    };
+    for (const PathRow& r : build_path_rows()) {
+        if (y >= MAX_Y) break;
+        if (r.kind == PathRow::Kind::Header) {
+            const std::string lab = r.label;
+            draw_header(r.label); (void)lab;
+        }
+        else if (r.kind == PathRow::Kind::Note) {
+            if (in_view()) {
+                pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
+                pos(y, 6, legend_sgr(settings_) + truncate_str(r.label, W - 8) + R);
+                y++;
+            }
+            disp++;
+        }
+        else draw_path_row(r);
+    }
+    scrollbar(scroll, visible, display_count);
+}
+
+void App::settings_tab_reference(SettingsPaint& c) const {
+    [[maybe_unused]] std::ostringstream& frame = c.frame; [[maybe_unused]] const int W = c.W; [[maybe_unused]] const int player_h = c.player_h; [[maybe_unused]] const int MAX_Y = c.MAX_Y;
+    [[maybe_unused]] const std::string& R = c.R; [[maybe_unused]] const std::string& HI = c.HI;
+    [[maybe_unused]] auto& B = c.B; [[maybe_unused]] auto& pos = c.pos; [[maybe_unused]] auto& scrollbar = c.scrollbar; [[maybe_unused]] auto& edit_field_width = c.edit_field_width; [[maybe_unused]] auto& edit_paint = c.edit_paint;
+    [[maybe_unused]] int& clip_rows = c.clip_rows; [[maybe_unused]] int& clip_top = c.clip_top; [[maybe_unused]] int& y = c.y; [[maybe_unused]] int& colors_visible = c.colors_visible; [[maybe_unused]] int& colors_first = c.colors_first;
+    // Reference tab: a one-line read-only note pointing at the cheat
+    // sheet first, then the rebindable hotkeys grouped under
+    // category headers (kRefRows), then a read-only display of the font-mapping table (section 4 of the config, "A={A,a}" style)
+    // loaded from config.txt -- as "A = A, a" rows. Combined they're
+    // usually taller than the player view, so this scrolls as one list
+    // (viewport follows settings_row_, centered) rather than ever
+    // growing the panel past player_h. See ref_display_row() for how a
+    // selectable row maps to the row it's drawn on.
+    std::vector<char> letters;
+    for (char c = 'A'; c <= 'Z'; ++c) if (settings_.font_map.count(c)) letters.push_back(c);
+    int total_selectable = kRefEnd + static_cast<int>(letters.size());
+    int display_count = ref_display_row(total_selectable - 1) + 1;
+    int visible = std::max(1, MAX_Y - 3);
+    int cur_display = ref_display_row(settings_row_);
+    int scroll = std::clamp(cur_display - visible / 2, 0, std::max(0, display_count - visible));
+
+    // Walk every display line (headers + rows) in order, only
+    // actually drawing (and advancing y) once we're inside the
+    // visible scroll window -- same "disp/scroll/visible" shape the
+    // rest of this file's scrolling panels use.
+    int disp = 0;
+    auto in_view = [&]() { return disp >= scroll && y < MAX_Y; };
+    auto draw_header = [&](const char* text) {
+        // empty spacer row (just the side borders)
+        if (in_view()) {
+            pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
+            y++;
+        }
+        disp++;
+
+        // the header itself, in the configurable Header color (bold;
+        // palette index 10 by default, exactly what it always was)
+        if (in_view()) {
+            pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
+            pos(y, 6, header_sgr(settings_) + text + R);
+            y++;
+        }
+        disp++;
+    };
+    auto draw_hotkey_row = [&](int selectable_row) {
+        const RefHotkeyRow& row = kRefRows[selectable_row - kRefStart];
+        if (in_view()) {
+            pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
+            pos(y, 6, pad(row.label, 25)); pos(y, 32, ":");
+            bool sel = (selectable_row == settings_row_ && mode_ != Mode::ColorEdit);
+            bool ed = (selectable_row == settings_row_ && mode_ == Mode::ColorEdit);
+            std::string v = ed ? edit_paint(edit_field_width()).s : pad(pretty_key(settings_get_value(selectable_row, 0)), 20);
+            pos(y, 35, (sel ? HI : "") + (ed ? change_sgr(settings_) : "") + v + R);
+            y++;
+        }
+        disp++;
+    };
+    auto draw_note = [&](const char* text) {
+        // blank spacer line, then the read-only note in the legend color.
+        // Two display lines, matching the `headers += 2` that
+        // ref_display_row() adds just before the hotkeys.
+        if (in_view()) {
+            pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
+            y++;
+        }
+        disp++;
+        if (in_view()) {
+            pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
+            pos(y, 6, legend_sgr(settings_) + text + R);
+            y++;
+        }
+        disp++;
+    };
+    auto draw_reset_row = [&]() {
+        if (in_view()) {
+            pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
+            pos(y, 6, pad("Reset All Keys To Default", 25)); pos(y, 32, ":");
+            const bool sel = settings_row_ == 0 && mode_ != Mode::ColorEdit;
+            pos(y, 35, (sel ? HI : "") + pad("[ENTER] reset", 20) + R);
+            y++;
+        }
+        disp++;
+    };
+    auto draw_font_row = [&](char c, int selectable_row) {
+        if (in_view()) {
+            pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
+            const auto& pair = settings_.font_map.at(c);
+            bool sel = (selectable_row == settings_row_);
+            std::string line = std::string(1, c) + " = " + pair.first + ", " + pair.second;
+            pos(y, 6, (sel ? HI : "") + line + R);
+            y++;
+        }
+        disp++;
+    };
+
+    if (y < MAX_Y) draw_note(kRefNote);
+    if (y < MAX_Y) draw_reset_row();
+    for (int i = 0; i < kRefRowCount && y < MAX_Y; ++i) {
+        if (kRefRows[i].header) draw_header(kRefRows[i].header);
+        if (y < MAX_Y) draw_hotkey_row(kRefStart + i);
+    }
+    if (y < MAX_Y) draw_header("FONT / CHARACTER MAP");
+    for (size_t li = 0; li < letters.size() && y < MAX_Y; ++li)
+        draw_font_row(letters[li], kRefEnd + static_cast<int>(li));
+    scrollbar(scroll, visible, display_count);
+}
+
+void App::settings_tab_about(SettingsPaint& c) const {
+    [[maybe_unused]] std::ostringstream& frame = c.frame; [[maybe_unused]] const int W = c.W; [[maybe_unused]] const int player_h = c.player_h; [[maybe_unused]] const int MAX_Y = c.MAX_Y;
+    [[maybe_unused]] const std::string& R = c.R; [[maybe_unused]] const std::string& HI = c.HI;
+    [[maybe_unused]] auto& B = c.B; [[maybe_unused]] auto& pos = c.pos; [[maybe_unused]] auto& scrollbar = c.scrollbar; [[maybe_unused]] auto& edit_field_width = c.edit_field_width; [[maybe_unused]] auto& edit_paint = c.edit_paint;
+    [[maybe_unused]] int& clip_rows = c.clip_rows; [[maybe_unused]] int& clip_top = c.clip_top; [[maybe_unused]] int& y = c.y; [[maybe_unused]] int& colors_visible = c.colors_visible; [[maybe_unused]] int& colors_first = c.colors_first;
+    // About App: shows the hard coded about_app_text() (about_text.h),
+    // scrolled so it never exceeds player_h.
+    int visible = std::max(1, MAX_Y - 3);
+    int total = static_cast<int>(about_app_text().size());
+    int scroll = std::clamp(settings_row_, 0, std::max(0, total - visible));
+    // the text is centred: each line in the middle of the box (by the longest line) and the block sits vertically in the
+    // middle of the rows, moved two rows up; a longer text scrolls as before (then it starts at the top)
+    int bw = 0;
+    for (const std::string& s : about_app_text()) bw = std::max(bw, display_width(s));
+    const int x0 = 2 + std::max(0, (W - 2 - bw) / 2);
+    const int top = total >= visible ? 0 : std::max(0, (visible - total) / 2 - 2);
+    for (int r = 0; r < visible; ++r) {
+        pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
+        int idx = scroll + r - top;
+        if (r >= top && idx >= 0 && idx < total) pos(y, x0, about_app_text()[idx]);
+        y++;
+    }
+    scrollbar(scroll, visible, total);
+}
+
 void App::build_settings_screen(std::ostringstream& frame, int W, int player_h) const {
     g_settings_hifi_rows = settings_.bars_style == 1;   // (the Hi-Fi rows of SPECTRUM BARS are listed only with that style)
     // Literal port of the reference SettingsEngine::render() -- same
@@ -2201,21 +2662,10 @@ void App::build_settings_screen(std::ostringstream& frame, int W, int player_h) 
                                             visible > 1 ? static_cast<float>(r) / static_cast<float>(visible - 1) : 0.0f) + (on ? "\u2588" : "\u2591") + R);
         }
     };
-    auto repeat = [](const std::string& s, int n) {
-        std::string r; r.reserve(s.size() * static_cast<size_t>(std::max(0, n)));
-        for (int i = 0; i < n; ++i) r += s;
-        return r;
-    };
     // Matches pad(): no truncation if s is already >= width, just like
     // the reference -- a longer-than-expected value overflows into the
     // next column rather than getting cut off. Values here are always
     // short in practice (numbers, true/false, single-char hotkeys).
-    auto pad = [](const std::string& s, int width, bool left_align = true) {
-        int ulen = display_width(s);
-        if (ulen >= width) return s;
-        std::string spaces(width - ulen, ' ');
-        return left_align ? (s + spaces) : (spaces + s);
-    };
 
     // --- in-place value editing (mode_ == Mode::ColorEdit) -----------------
     // Width of the value field on the row currently being edited. The Colors
@@ -2295,402 +2745,12 @@ void App::build_settings_screen(std::ostringstream& frame, int W, int player_h) 
     // 2. Content.
     int y = 3;
     int colors_visible = 0, colors_first = 0;
-    if (settings_tab_ == 0) {
-        clip_rows = MAX_Y;
-        colors_visible = std::max(1, MAX_Y - 3);
-        colors_first = colors_first_line(settings_row_, colors_visible);
-        y = 3 - colors_first;
-        clip_top = 3;
-        static const char* grp[21]  = {"BORDER_COLOR", "DISK", "METADATA", "VIZ", "PROGRESS_BAR",
-                                        "SEARCH", "", "LIST", "", "", "QUEUE", "", "", "LYRICS", "", "", "HEADER", "LEGEND", "TAB_NAMES", "CHANGE", "FOCUS"};
-        static const char* l1n[21]  = {"TOP", "TOP", "KEY", "LEFT", "PLAYED",
-                                        "FG", "INACTIVE  FG",
-                                        "INACTIVE  FG", "PLAYING   FG", "CURSOR    FG",
-                                        "INACTIVE  FG", "PLAYING   FG", "CURSOR    FG",
-                                        "INACTIVE  FG", "ACTIVE L  FG", "ACTIVE W  FG",
-                                        "TEXT", "KEY-CMD", "CURRENT", "TEXT", "TEXT"};
-        static const char* l2n[21]  = {"BOTTOM", "BOTTOM", "VAL", "RIGHT", "PENDING",
-                                        "BG", "BG", "BG", "BG", "BG", "BG", "BG", "BG", "BG", "BG", "BG",
-                                        "", "COMMAND", "OTHER", "BG", ""}; // HEADER, LEGEND and FOCUS are foreground-only fields: no background cell at all
-        // THEME | CREATE THEME (row 0): pick a ready-made colour scheme, or make one of your own.
-        {
-            pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
-            pos(y, 3, header_sgr(settings_) + pad("THEME", 15) + R); pos(y, 18, ":");
-            const int ci = theme_current_index();
-            const std::string tn = ci >= 0 ? theme_list_[static_cast<size_t>(ci)].name : std::string("(custom)");
-            const bool sel0 = (settings_row_ == 0 && settings_col_ == 0);
-            const bool sel1 = (settings_row_ == 0 && settings_col_ == 1);
-            pos(y, 20, (sel0 ? HI : "") + pad(truncate_str(tn, themes::kMaxNameLen), themes::kMaxNameLen + 1) + R);
-            pos(y, 50, (sel1 ? HI : "") + " CREATE THEME " + R);
-            y++;
-            pos(y, 1, B(y) + "\u251c" + repeat("\u2500", W - 2) + "\u2524" + R); y++;
-        }
-        for (int i = 0; i < 21; ++i) {
-            if (i == 1) { // SMOOTHNESS: how the frame's colour runs from BORDER_COLOR TOP to BOTTOM
-                pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
-                pos(y, 3, header_sgr(settings_) + pad("", 15) + R); pos(y, 18, ":");
-                pos(y, 20, pad("SMOOTHNESS", 14, false)); pos(y, 35, ":");
-                const bool sel = (settings_row_ == 2);
-                pos(y, 38, (sel ? HI : "") + pad(settings_get_value(2, 0), 7) + R);
-                if (sel) pos(y, 46, ansi_for(settings_.tab_current_color, false) + "< \u2194 >" + R);
-                pos(y, 72, legend_sgr(settings_) + (settings_.border_smooth ? "frame fades from TOP to BOTTOM" : "only the bottom border line = BOTTOM") + R);
-                y++;
-            }
-            if (i == 5) { pos(y, 1, B(y) + "\u251c" + repeat("\u2500", W - 2) + "\u2524" + R); y++; }
-            pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
-
-            pos(y, 3, header_sgr(settings_) + pad(grp[i], 15) + R); pos(y, 18, ":");
-
-            pos(y, 20, pad(l1n[i], 14, false)); pos(y, 35, ":");
-            {
-                bool sel = (tab_row_of_color(i) == settings_row_ && settings_col_ == 0 && mode_ != Mode::ColorEdit);
-                bool ed = (tab_row_of_color(i) == settings_row_ && settings_col_ == 0 && mode_ == Mode::ColorEdit);
-                std::string v = ed ? edit_paint(edit_field_width()).s : pad(settings_get_value(tab_row_of_color(i), 0), 7);
-                pos(y, 38, (sel ? HI : "") + (ed ? change_sgr(settings_) : "") + v + R);
-            }
-
-            // Second (background) column: the HEADER and LEGEND rows have no background
-            // cell at all, so it renders neither a label nor a ":" here --
-            // without this guard there'd be a dangling colon at col 56 with
-            // nothing between it and the preview.
-            // Colour swatches right behind the values (the radio settings do the same):
-            // foreground cells show "██" in the colour, background cells a block of it.
-            pos(y, 46, ansi_for(settings_get_value(tab_row_of_color(i), 0), false) + "\u2588\u2588" + R);
-            if (l2n[i][0]) {
-                pos(y, 50, pad(l2n[i], 7, false)); pos(y, 58, ":");
-                bool sel = (tab_row_of_color(i) == settings_row_ && settings_col_ == 1 && mode_ != Mode::ColorEdit);
-                bool ed = (tab_row_of_color(i) == settings_row_ && settings_col_ == 1 && mode_ == Mode::ColorEdit);
-                std::string v = ed ? edit_paint(edit_field_width()).s : pad(settings_get_value(tab_row_of_color(i), 1), 7);
-                pos(y, 61, (sel ? HI : "") + (ed ? change_sgr(settings_) : "") + v + R);
-                const bool is_bg = std::string(l2n[i]) == "BG";
-                pos(y, 69, is_bg ? bg_ansi_for(settings_get_value(tab_row_of_color(i), 1)) + "  " + R
-                                 : ansi_for(settings_get_value(tab_row_of_color(i), 1), false) + "\u2588\u2588" + R);
-            }
-
-            std::string valA = settings_get_value(tab_row_of_color(i), 0), valB = settings_get_value(tab_row_of_color(i), 1);
-            std::string rt;
-            if (i == 0) rt = gradient_preview_bar(valA, valB, 23);
-            else if (i == 1) rt = gradient_preview_bar(valA, valB, 23);
-            else if (i == 2) rt = ansi_for(valA, false) + "NAME : " + R + ansi_for(valB, false) + "SONG.MP3" + R;
-            else if (i == 3) rt = gradient_preview_bar(valA, valB, 23);
-            else if (i == 4) rt = ansi_for(valA, false) + "[" + volume_bar_fill(settings_.volume_indicator, 11, volume_clock_angle()) + R + ansi_for(valB, false) + "----------]" + R;
-            else if (i == 5) rt = search_idle_sgr(settings_) + "/l:" + R + search_sgr(settings_) + "QUERY" + R;
-            else if (i == 6) rt = bg_ansi_for(valB) + ansi_for(valA, false) + "/l:" + std::string(15, ' ') + R;
-            else if (i >= 7 && i <= 14) rt = bg_ansi_for(valB) + ansi_for(valA, false) + "THIS IS AN EXAMPLE TEXT" + R;
-            else if (i == 15) {
-                std::string aL_F = ansi_for(settings_.active_line_color, false), aL_B = bg_ansi_for(settings_.active_line_bg_color);
-                std::string aW_F = ansi_for(valA, false), aW_B = bg_ansi_for(valB);
-                std::string iN_F = ansi_for(settings_.inactive_line_color, false), iN_B = bg_ansi_for(settings_.inactive_line_bg_color);
-                rt = aL_B + aL_F + "THIS IS " + R + aW_B + aW_F + "AN " + R + iN_B + iN_F + "EXAMPLE TEXT" + R;
-            } else if (i == 16) {
-                // Same bold + color construction header_sgr() draws the real
-                // section titles with, so the swatch shows the exact result.
-                std::string params = sgr_params_for(valA);
-                rt = (params.empty() ? std::string("\x1b[1m") : "\x1b[1;" + params + "m") + "SECTION HEADER" + R;
-            } else if (i == 17) {
-                // Same prefix legend_sgr() gives the real hint lines, so the
-                // swatch shows the exact result (an unset color is plain text).
-                rt = ansi_for(valA, false) + "[ESC]" + R + ansi_for(valB, false) + " Close" + R + "  " + ansi_for(valA, false) + "[ENTER]" + R + ansi_for(valB, false) + " OK" + R;
-            } else if (i == 18) {
-                rt = ansi_for(valA, false) + "[COLORS]" + R + "  " + ansi_for(valB, false) + "GENERAL  ANIMA/VIZ" + R;
-            } else if (i == 19) {
-                // Same construction change_sgr() gives the real activated
-                // field (a PATHS row, a meta editor tag, ...), so the swatch
-                // shows the exact result.
-                rt = ansi_for(valA, false) + bg_ansi_for(valB) + "EDITING..." + R;
-            } else if (i == 20) {
-                // Same construction focus_sgr() gives the real indicator after a pane title.
-                const std::string params = sgr_params_for(valA);
-                rt = ansi_for(settings_.list_color, false) + "LOCAL AUDIO FILES " + R + (params.empty() ? std::string("\x1b[1m") : "\x1b[1;" + params + "m") + "\u25c0" + R;
-            }
-            if (!rt.empty()) pos(y, 72, rt);
-            y++;
-        }
-        if (colors_first > 0) pos(3, W - 2, legend_sgr(settings_) + "\u25b2" + R);                              // more above
-        if (colors_first + colors_visible < kColorsLines) pos(MAX_Y - 1, W - 2, legend_sgr(settings_) + "\u25bc" + R);   // more below
-        clip_rows = 1 << 30;
-        clip_top = 0;
-        if (y > MAX_Y) y = MAX_Y;   // (a small window: the bottom border and the hint lines go where the panel ends)
-    } else if (settings_tab_ == 1 || settings_tab_ == 2) {
-        // GENERAL and ANIMA/VIZ: category headers and their rows (settings_layout()). The list scrolls with the
-        // selected row when the terminal is too short for it.
-        const auto& lay = settings_layout(settings_tab_);
-        const int visible = std::max(1, MAX_Y - 3);
-        const int total = static_cast<int>(lay.size());
-        const int first = settings_tab_first_line(W, visible);
-        int row_of_line = 0;   // selectable row number of the line being drawn
-        for (int i = 0; i < first; ++i) if (!lay[static_cast<size_t>(i)].header) ++row_of_line;
-        for (int i = first; i < total && y < 3 + visible; ++i) {
-            const SetLine& L = lay[static_cast<size_t>(i)];
-            pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
-            if (L.header) {
-                pos(y, 4, header_sgr(settings_) + L.text + R);
-            } else {
-                const int r = row_of_line++;
-                const bool sel = (r == settings_row_ && mode_ != Mode::ColorEdit);
-                const bool ed = (r == settings_row_ && mode_ == Mode::ColorEdit);
-                pos(y, 6, pad(L.text, 25)); pos(y, 32, ":");
-                const bool buf_row = settings_tab_ == 1 && settings_item_id(1, r) == kSidTrackBuffer;
-                const bool vol_row = (settings_tab_ == 1 || settings_tab_ == 2) && settings_item_id(settings_tab_, r) == kSidVolIndicator;   // two values: the look | gradient or not
-                const bool term_row = settings_tab_ == 1 && settings_item_id(1, r) == kSidTermSize;       // two typed numbers: columns x rows
-                std::string shown = settings_get_value(r, 0);
-                // the "disk" look of the Volume Indicator is shown as two braille blocks of the animation itself
-                if ((settings_tab_ == 1 || settings_tab_ == 2) && settings_item_id(settings_tab_, r) == kSidVolIndicator && settings_.volume_indicator == kVolStyleDisk)
-                    shown = volume_disk_snippet(volume_clock_angle());
-                std::string v = ed ? edit_paint(edit_field_width()).s : pad(shown, 20);
-                if (term_row) {   // "[ 120 ] x [ 30 ]": the field that is lit is the one ENTER types into (LEFT / RIGHT switch)
-                    const std::string c0 = settings_get_value(r, 0), c1 = settings_get_value(r, 1);
-                    auto field = [&](int which, const std::string& val) {
-                        const bool mine = r == settings_row_ && settings_col_ == which;
-                        if (ed && mine) return change_sgr(settings_) + edit_paint(5).s + R;
-                        return std::string(mine && sel ? HI : "") + pad(val == "0" ? "off" : val, 5) + R;
-                    };
-                    pos(y, 35, field(0, c0));
-                    pos(y, 41, "x");
-                    pos(y, 43, field(1, c1));
-                    pos(y, 57, ((sel && settings_col_ == 2) ? HI : legend_sgr(settings_)) + "[ Set back to default ]" + R);   // (right of the two numbers)
-                } else
-                pos(y, 35, ((sel && !(buf_row && settings_col_ == 1) && !(vol_row && settings_col_ == 1)) ? HI : "") + (ed ? change_sgr(settings_) : "") + (vol_row ? pad(shown, 9) : v) + R);
-                if (vol_row) {   // right of the look: "gradient" / "no gradient" (LEFT / RIGHT switch between the two, ENTER changes the one that is lit)
-                    pos(y, 45, ((sel && settings_col_ == 1) ? HI : "") + (settings_.volume_gradient ? "gradient   " : "no gradient") + R);
-                    if (sel) pos(y, 56, ansi_for(settings_.tab_current_color, false) + "[ENTER] change\x1b[0m");
-                } else
-                if (buf_row) {   // the button to the right of the number
-                    pos(y, 57, ((sel && settings_col_ == 1) ? HI : legend_sgr(settings_)) + "[ Set back to default ]" + R);
-                } else
-                if (sel && !settings_options_for(settings_tab_, r).empty())
-                    // Right behind the value, so long values such as "Cover behind Disk (Full Anima)" do not run into a fixed column.
-                    pos(y, std::max(57, 35 + static_cast<int>(display_width(shown)) + 2), ansi_for(settings_.tab_current_color, false) + "< \u2194 >\x1b[0m");
-            }
-            y++;
-        }
-        scrollbar(first, visible, total);   // there is more above / below
-        settings_preview_draw(frame, W, MAX_Y, settings_tab_, B);   // the highlighted option, shown live on the right (wide terminals only)
-    } else if (settings_tab_ == 3) {
-        // PATHS tab: the LOCAL PATH / DOWNLOAD PATH / PLAYLIST PATH
-        // sections (build_path_rows()) -- editable path rows, each list
-        // ending in a "+ new path" row except the single download folder.
-        // Scrolls as one list (viewport follows settings_row_, centered)
-        // so a long list never grows the panel past player_h; see
-        // path_display_row() for how a selectable row maps to the line it
-        // is drawn on.
-        int display_count = path_display_total();
-        int visible = std::max(1, MAX_Y - 3);
-        int cur_display = path_display_row(settings_row_);
-        int scroll = std::clamp(cur_display - visible / 2, 0, std::max(0, display_count - visible));
-
-        int disp = 0;
-        auto in_view = [&]() { return disp >= scroll && y < MAX_Y; };
-        auto draw_header = [&](const char* text, const char* note = "") {
-            // empty spacer row (just the side borders)
-            if (in_view()) {
-                pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
-                y++;
-            }
-            disp++;
-
-            // the header itself, in the configurable Header color (bold;
-            // palette index 10 by default, exactly what it always was)
-            if (in_view()) {
-                pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
-                pos(y, 6, header_sgr(settings_) + text + R);
-                if (*note) pos(y, 6 + static_cast<int>(std::strlen(text)) + 3, legend_sgr(settings_) + note + R);
-                y++;
-            }
-            disp++;
-        };
-        auto draw_path_row = [&](const PathRow& r) {
-            if (r.kind == PathRow::Kind::Path && (r.label && *r.label)) {   // blank spacer above DOWNLOAD / PLAYLIST / HISTORY PATH
-                if (in_view()) { pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R); y++; }
-                disp++;
-            }
-            if (in_view()) {
-                pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
-                const bool sel = (r.sel == settings_row_ && mode_ != Mode::ColorEdit);
-                const bool ed = (r.sel == settings_row_ && mode_ == Mode::ColorEdit);
-                if (r.kind == PathRow::Kind::Path) {
-                    // DOWNLOAD / PLAYLIST / HISTORY PATH are single paths: the section header says what they are, so the value
-                    // sits right under it (no second "Download Path :" label). Local paths are numbered.
-                    const bool single = (r.label && *r.label);   // DOWNLOAD / PLAYLIST / HISTORY PATH: the header name is the row label
-                    const int vx = 35;
-                    if (single) pos(y, 6, header_sgr(settings_) + pad(r.label, 25) + R);
-                    else pos(y, 6, pad("Local Path " + std::to_string(r.path_index + 1), 25));
-                    pos(y, 32, ":");
-                    // The value column runs from col 35 right up to the border --
-                    // a folder path is far longer than a hotkey's 20 columns, and
-                    // nothing may spill over the panel edge.
-                    int val_w = std::max(10, W - (vx + 1));
-                    std::string v;
-                    if (ed) {
-                        // While editing the field is only as wide as what has
-                        // been typed (20 minimum, growing with the text, never
-                        // past the panel edge -- edit_field_width()), so an
-                        // empty "+ new path" line no longer draws a red bar all
-                        // the way to the right border. The window inside it
-                        // follows the caret, not the tail, so a selection
-                        // anywhere in a long path stays visible.
-                        v = edit_paint(edit_field_width()).s;
-                    } else {
-                        // The cursor highlight covers the entry, not the whole
-                        // column: a path is highlighted exactly as wide as what
-                        // is typed into it, the way a hotkey field highlights
-                        // its own key. An empty row -- a not-yet-typed new path
-                        // -- keeps the full-width bar instead, so there is a
-                        // visible place to start typing.
-                        std::string raw = settings_get_value(r.sel, 0);
-                        int w = raw.empty()
-                                ? val_w
-                                : std::clamp(static_cast<int>(display_width(truncate_str(raw, val_w))), 1, val_w);
-                        v = pad(truncate_str(raw, w), w);
-                    }
-                    pos(y, vx, (sel ? HI : "") + (ed ? change_sgr(settings_) : "") + v + R);
-                } else { // AddPath
-                    pos(y, 6, pad(r.label, 25)); pos(y, 32, ":");
-                    pos(y, 35, (sel ? HI : "") + std::string(20, ' ') + R);
-                    if (sel) pos(y, 57, legend_sgr(settings_) + "[ENTER] add a line\x1b[0m");
-                }
-                y++;
-            }
-            disp++;
-        };
-        for (const PathRow& r : build_path_rows()) {
-            if (y >= MAX_Y) break;
-            if (r.kind == PathRow::Kind::Header) {
-                const std::string lab = r.label;
-                draw_header(r.label); (void)lab;
-            }
-            else if (r.kind == PathRow::Kind::Note) {
-                if (in_view()) {
-                    pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
-                    pos(y, 6, legend_sgr(settings_) + truncate_str(r.label, W - 8) + R);
-                    y++;
-                }
-                disp++;
-            }
-            else draw_path_row(r);
-        }
-        scrollbar(scroll, visible, display_count);
-    } else if (settings_tab_ == 4) {
-        // Reference tab: a one-line read-only note pointing at the cheat
-        // sheet first, then the rebindable hotkeys grouped under
-        // category headers (kRefRows), then a read-only display of the font-mapping table (section 4 of the config, "A={A,a}" style)
-        // loaded from config.txt -- as "A = A, a" rows. Combined they're
-        // usually taller than the player view, so this scrolls as one list
-        // (viewport follows settings_row_, centered) rather than ever
-        // growing the panel past player_h. See ref_display_row() for how a
-        // selectable row maps to the row it's drawn on.
-        std::vector<char> letters;
-        for (char c = 'A'; c <= 'Z'; ++c) if (settings_.font_map.count(c)) letters.push_back(c);
-        int total_selectable = kRefEnd + static_cast<int>(letters.size());
-        int display_count = ref_display_row(total_selectable - 1) + 1;
-        int visible = std::max(1, MAX_Y - 3);
-        int cur_display = ref_display_row(settings_row_);
-        int scroll = std::clamp(cur_display - visible / 2, 0, std::max(0, display_count - visible));
-
-        // Walk every display line (headers + rows) in order, only
-        // actually drawing (and advancing y) once we're inside the
-        // visible scroll window -- same "disp/scroll/visible" shape the
-        // rest of this file's scrolling panels use.
-        int disp = 0;
-        auto in_view = [&]() { return disp >= scroll && y < MAX_Y; };
-        auto draw_header = [&](const char* text) {
-            // empty spacer row (just the side borders)
-            if (in_view()) {
-                pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
-                y++;
-            }
-            disp++;
-
-            // the header itself, in the configurable Header color (bold;
-            // palette index 10 by default, exactly what it always was)
-            if (in_view()) {
-                pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
-                pos(y, 6, header_sgr(settings_) + text + R);
-                y++;
-            }
-            disp++;
-        };
-        auto draw_hotkey_row = [&](int selectable_row) {
-            const RefHotkeyRow& row = kRefRows[selectable_row - kRefStart];
-            if (in_view()) {
-                pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
-                pos(y, 6, pad(row.label, 25)); pos(y, 32, ":");
-                bool sel = (selectable_row == settings_row_ && mode_ != Mode::ColorEdit);
-                bool ed = (selectable_row == settings_row_ && mode_ == Mode::ColorEdit);
-                std::string v = ed ? edit_paint(edit_field_width()).s : pad(pretty_key(settings_get_value(selectable_row, 0)), 20);
-                pos(y, 35, (sel ? HI : "") + (ed ? change_sgr(settings_) : "") + v + R);
-                y++;
-            }
-            disp++;
-        };
-        auto draw_note = [&](const char* text) {
-            // blank spacer line, then the read-only note in the legend color.
-            // Two display lines, matching the `headers += 2` that
-            // ref_display_row() adds just before the hotkeys.
-            if (in_view()) {
-                pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
-                y++;
-            }
-            disp++;
-            if (in_view()) {
-                pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
-                pos(y, 6, legend_sgr(settings_) + text + R);
-                y++;
-            }
-            disp++;
-        };
-        auto draw_reset_row = [&]() {
-            if (in_view()) {
-                pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
-                pos(y, 6, pad("Reset All Keys To Default", 25)); pos(y, 32, ":");
-                const bool sel = settings_row_ == 0 && mode_ != Mode::ColorEdit;
-                pos(y, 35, (sel ? HI : "") + pad("[ENTER] reset", 20) + R);
-                y++;
-            }
-            disp++;
-        };
-        auto draw_font_row = [&](char c, int selectable_row) {
-            if (in_view()) {
-                pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
-                const auto& pair = settings_.font_map.at(c);
-                bool sel = (selectable_row == settings_row_);
-                std::string line = std::string(1, c) + " = " + pair.first + ", " + pair.second;
-                pos(y, 6, (sel ? HI : "") + line + R);
-                y++;
-            }
-            disp++;
-        };
-
-        if (y < MAX_Y) draw_note(kRefNote);
-        if (y < MAX_Y) draw_reset_row();
-        for (int i = 0; i < kRefRowCount && y < MAX_Y; ++i) {
-            if (kRefRows[i].header) draw_header(kRefRows[i].header);
-            if (y < MAX_Y) draw_hotkey_row(kRefStart + i);
-        }
-        if (y < MAX_Y) draw_header("FONT / CHARACTER MAP");
-        for (size_t li = 0; li < letters.size() && y < MAX_Y; ++li)
-            draw_font_row(letters[li], kRefEnd + static_cast<int>(li));
-        scrollbar(scroll, visible, display_count);
-    } else if (settings_tab_ == 5) {
-        // About App: shows the hard coded about_app_text() (about_text.h),
-        // scrolled so it never exceeds player_h.
-        int visible = std::max(1, MAX_Y - 3);
-        int total = static_cast<int>(about_app_text().size());
-        int scroll = std::clamp(settings_row_, 0, std::max(0, total - visible));
-        // the text is centred: each line in the middle of the box (by the longest line) and the block sits vertically in the
-        // middle of the rows, moved two rows up; a longer text scrolls as before (then it starts at the top)
-        int bw = 0;
-        for (const std::string& s : about_app_text()) bw = std::max(bw, display_width(s));
-        const int x0 = 2 + std::max(0, (W - 2 - bw) / 2);
-        const int top = total >= visible ? 0 : std::max(0, (visible - total) / 2 - 2);
-        for (int r = 0; r < visible; ++r) {
-            pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
-            int idx = scroll + r - top;
-            if (r >= top && idx >= 0 && idx < total) pos(y, x0, about_app_text()[idx]);
-            y++;
-        }
-        scrollbar(scroll, visible, total);
-    }
+    SettingsPaint c{frame, W, player_h, MAX_Y, R, HI, B, pos, scrollbar, edit_field_width, edit_paint, clip_rows, clip_top, y, colors_visible, colors_first};
+    if (settings_tab_ == 0) settings_tab_colors(c);
+    else if (settings_tab_ == 1 || settings_tab_ == 2) settings_tab_general(c);
+    else if (settings_tab_ == 3) settings_tab_paths(c);
+    else if (settings_tab_ == 4) settings_tab_reference(c);
+    else if (settings_tab_ == 5) settings_tab_about(c);
 
     while (y < MAX_Y) { pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R); y++; }
 

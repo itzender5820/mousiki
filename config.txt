@@ -119,8 +119,9 @@ LyricViz=osci
 ## (LyricViz and ElimentLyrics are where the "." key left the field; the next start begins with VizDefault, see below; VizDefault=last keeps them.)
 VizDefault=osci
 ## The view the field starts with when Mousiki opens: sphere | osci | spectro | lyrics | video | last (= the view it was left on, "last used" in Settings -> ANIMA/VIZ -> Lyrics/Viz Default)
-VideoLyrics=true
-## true = the current lyric line is shown under the video's picture (the & overlay: Include Lyrics)
+VideoLyrics=lyrics
+## Include Lyrics (the & overlay): none | lyrics | both (lyrics + translation) | translation = what is shown under the video's picture (true / false of older versions still work)
+## (with a translation shown, the last row under the picture is used first, then the lyric block grows upwards: the picture gets smaller)
 VideoAuto=true
 ## true = a track that has a video switches the field to the video view, a track without one to the Lyrics/Viz Default view
 VideoCover=cover
@@ -147,10 +148,6 @@ VideoBuffer=32
 ## megabytes of decoded video frames kept ahead of the picture: 8 | 16 | 32 | 64 | 128 | 256 (a wider picture holds fewer seconds in it)
 VideoMp3=true
 ## yt-dlp mp3 from mp4: SEARCH YT also saves the sound of a downloaded video as an mp3 song in the download folder when no song is the target (CTRL+o in SEARCH YT changes it per download): true | false
-VideoFullLyrics=true
-## true = the big video overlay (HKeyVideoFull, "v") shows the current lyric line in a small black box over the picture
-VideoFullTranslation=false
-## Big video overlay: show the saved translation of the lyrics under the lyric line (TAB cycles lyrics off / on / with translation).
 VideoLayout=0
 ## the layout of the big video overlay (SHIFT+UP / SHIFT+DOWN there): 0 video | 1 video + oscilloscope | 2 video + spectrogram | 3 video + oscilloscope + spectrogram
 VideoLayoutOsciStyle=default
@@ -627,6 +624,7 @@ HKeyPlayNextSong="n"
 HKeyPlayPreviousSong="b"
 HKeyTogglePlayPause="p"
 HKeyCyclePlayMode="m"
+HKeyCyclePlayModeBack="j"
 HKeySearch="/"
 HKeySeekForward="ARROW_KEY_RIGHT"
 HKeySeekBackward="ARROW_KEY_LEFT"

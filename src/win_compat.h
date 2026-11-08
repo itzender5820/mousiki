@@ -93,6 +93,8 @@ bool win_last_key_was_ctrl();   // Up / Down with CTRL held
 // re-derives the mode from this flag on every poll, so the state survives the
 // per-frame raw-mode reassert.
 void win_set_text_entry(bool on);
+void win_set_paste_aware(bool on);   // a burst of typed characters (a paste into a text field) is returned as kKeyPaste
+std::string win_take_paste();
 
 // The Windows clipboard as UTF-8 (CF_UNICODETEXT -- never CP_ACP, which would
 // mangle exactly the paths/titles this UI is full of). get() returns "" when

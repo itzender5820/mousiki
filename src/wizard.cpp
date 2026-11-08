@@ -30,19 +30,7 @@ namespace {
 // small helpers
 // ---------------------------------------------------------------------------------------------------
 
-// One UTF-8 character per element (a wide character gets a second, empty cell in parse_cells(): a cell is a column).
-std::vector<std::string> utf8_chars(const std::string& s) {
-    std::vector<std::string> out;
-    for (size_t i = 0; i < s.size();) {
-        const unsigned char c = static_cast<unsigned char>(s[i]);
-        size_t n = 1;
-        if (c >= 0xF0) n = 4; else if (c >= 0xE0) n = 3; else if (c >= 0xC0) n = 2;
-        if (i + n > s.size()) n = s.size() - i;
-        out.push_back(s.substr(i, n));
-        i += n;
-    }
-    return out;
-}
+using muisc::utf8_chars;   // one UTF-8 character per element (a wide character gets a second, empty cell in parse_cells(): a cell is a column)
 
 // Is this UTF-8 character two columns wide (Chinese / Japanese / Korean letters, full-width forms)?
 bool wide_char(const std::string& ch) {

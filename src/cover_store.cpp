@@ -304,7 +304,7 @@ VideoTrackOpts cover_track_video_opts(const std::string& track_path) {
     o.chroma = v[5] >= 0 && v[5] < kChromaLevels ? v[5] : -1;
     o.res = v[6] >= 0 && v[6] <= 2 ? v[6] : -1;
     o.round = v[7] == 0 || v[7] == 1 ? v[7] : -1;
-    o.lyrics = v[8] == 0 || v[8] == 1 ? v[8] : -1;
+    o.lyrics = v[8] >= 0 && v[8] <= 3 ? v[8] : -1;   // 0 none, 1 lyrics, 2 lyrics + translation, 3 translation only
     o.brightness = v[9] >= 0 && v[9] <= 100 ? v[9] : -1;
     o.mp4audio = v[10] == 1 ? 1 : -1;   // (only "true" is kept: false is the default)
     return o;

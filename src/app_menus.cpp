@@ -2,6 +2,7 @@
 // Part of class App (src/app.h): Small menus and floating panels: retry lyrics, oscilloscope / normalization options, lyrics timing, sleep timer, MENUS index, ...
 // Split out of app.cpp; the includes are the same as there.
 #include "app.h"
+#include "readlyrics_state.h"
 #include "text_edit.h"
 #include "overlay_common.h"
 #include "remote_server.h"
@@ -143,11 +144,11 @@ void App::rl_open_from_current_track() {
 // Over READ LYRICS and over the karaoke screen: the same overlay, for the track that plays (the lyrics engine belongs to it).
 // Closing returns to the screen it came from; the reader loads the new lyrics when the fetch is done (readlyrics_poll()).
 void App::rl_open_over_reader() {
-    if (!readlyrics_track_plays()) { rd_status_ = "re-fetch: only for the track that plays -- start it with [p]"; rd_status_warn_ = true; return; }
+    if (!readlyrics_track_plays()) { rd_->status = "re-fetch: only for the track that plays -- start it with [p]"; rd_->status_warn = true; return; }
     rl_open_from_current_track();
     rl_from_reader_ = true;
     rl_from_karaoke_ = false;
-    rd_watch_epoch_ = lyrics_epoch_.load();
+    rd_->watch_epoch = lyrics_epoch_.load();
     mode_ = Mode::RetryLyrics;
 }
 
@@ -430,12 +431,12 @@ void App::lyrics_edit_open() {
 // Over READ LYRICS: the same overlay, for the lyrics of the track that plays (the reader's lines light up with the new offset while it is
 // open). The lyrics engine is started for the track like the karaoke screen does, so the main screen's lyrics field may be off.
 void App::lyrics_edit_open_over_reader() {
-    if (!readlyrics_track_plays()) { rd_status_ = "lyrics timing: only for the track that plays -- start it with [p]"; rd_status_warn_ = true; return; }
+    if (!readlyrics_track_plays()) { rd_->status = "lyrics timing: only for the track that plays -- start it with [p]"; rd_->status_warn = true; return; }
     karaoke_ensure_lyrics();
     std::lock_guard<std::mutex> lk(lyrics_mutex_);
     if (!lyrics_ready_ || lyrics_path_ != current_path_ || lyrics_result_.lines.empty()) {
-        rd_status_ = "lyrics timing: no synced lyrics are loaded for this track (yet)";
-        rd_status_warn_ = true;
+        rd_->status = "lyrics timing: no synced lyrics are loaded for this track (yet)";
+        rd_->status_warn = true;
         return;
     }
     lyrics_edit_orig_delay_ = lyrics_result_.delay;
@@ -661,6 +662,9 @@ org::Theme App::menu_index_theme() const {
     th.line = ansi_for(settings_.border_color, false);
     th.path = header_sgr(settings_);
     th.key = legend_sgr(settings_);
+    // the branches on the path are in the header colour like its boxes (th.walked stays empty = `path`); everything off the path
+    // is the progress bar's "remaining" colour
+    th.pending = ansi_for(settings_.progress_remaining_color, false);
     th.key_text = [this](const org::Node& n) -> std::string {
         if (!n.action) return "";
         return n.action[0] == '#' ? std::string(n.fallback) : hotkey_text(n.action, n.fallback);

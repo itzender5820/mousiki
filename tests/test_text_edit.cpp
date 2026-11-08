@@ -70,6 +70,16 @@ TEST(text_edit_selection_and_delete) {
     CHECK_EQ(f.caret, f.anchor);
 }
 
+TEST(text_edit_paste_replaces_the_marked_text) {
+    Field f;
+    f.type("abcdef");
+    f.key(kKeyShiftLeft);
+    f.key(kKeyShiftLeft);                  // "ef" marked
+    le_paste(f.s, f.caret, f.anchor, "XY", 100);
+    CHECK_EQ(f.s, std::string("abcdXY"));
+    CHECK_EQ(f.caret, f.anchor);
+}
+
 TEST(text_edit_limit_is_enforced) {
     Field f;
     f.type("abcdefgh", 5);

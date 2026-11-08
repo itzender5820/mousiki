@@ -346,6 +346,7 @@ void apply_default_hotkeys(Settings& s) {
             {"HKeySwitchBetweenCards",          "TAB"},
             {"HKeyTogglePlayPause",             "p"},
             {"HKeyCyclePlayMode",               "m"},
+            {"HKeyCyclePlayModeBack",           "j"},   // the other way round (the audio book and the radio only have two or three modes)
             {"HKeyFilterForFolder",             "f"},
             {"HKeyClearFilter",                 "c"},
             {"HKeyQuit",                        "q"},
@@ -1136,7 +1137,7 @@ static Settings load_from_config(const fs::path& path) {
         if (key == "Eliment_vizfield") { s.element_vizfield = parse_bool(value); continue; }
         if (key == "video_mode") { s.video_mode = parse_bool(value); continue; }
         if (key == "video_view") { s.video_view = parse_bool(value); continue; }
-        if (key == "video_lyrics") { s.video_lyrics = parse_bool(value); continue; }
+        if (key == "video_lyrics") { s.video_lyrics = lyr_mode_parse(trim_ws(unquote(value))); continue; }
         if (key == "video_auto") { s.video_auto = parse_bool(value); continue; }
         if (key == "video_cover") { std::string v = ascii_lower_str(trim_ws(unquote(value))); s.video_cover = (v == "snapshot" || v == "thumbnail" || v == "1" || v == "true") ? 1 : (v == "disk" || v == "2") ? 2 : 0; continue; }
         if (key == "video_size") { std::string v = ascii_lower_str(trim_ws(unquote(value))); s.video_size = (v == "cropped" || v == "crop" || v == "1") ? 1 : (v == "full" || v == "2") ? 2 : (v == "framed" || v == "3") ? 3 : 0; continue; }
@@ -1155,8 +1156,8 @@ static Settings load_from_config(const fs::path& path) {
         if (key == "video_resolution") { s.video_res = video_res_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
         if (key == "video_buffer") { int mb = std::atoi(trim_ws(unquote(value)).c_str()); int best = 32; for (int c : kVideoBufferChoices) if (mb >= c) best = c; if (mb < kVideoBufferChoices[0]) best = kVideoBufferChoices[0]; s.video_buffer = best; continue; }
         if (key == "video_fx") { std::string v = ascii_lower_str(trim_ws(unquote(value))); s.video_fx = video_fx_from(v); continue; }
-        if (key == "video_full_lyrics") { s.video_full_lyrics = parse_bool(value); continue; }
-        if (key == "VideoFullTranslation") { s.video_full_translation = parse_bool(value); continue; }
+        if (key == "video_full_lyrics") continue;   // (older versions: the lyrics of the big video overlay are the track's "Use Lyrics on Video" now)
+        if (key == "VideoFullTranslation") continue;   // (older versions: see above)
         if (key == "VideoLayout") { try { s.video_layout = std::clamp(std::stoi(value), 0, 3); } catch (...) {} continue; }
         if (key == "VideoLayoutOsciStyle" || key == "VideoLayoutSpectroStyle" || key == "VideoLayoutOsciMode" || key == "VideoLayoutSpectroView") {
             const std::string v = ascii_lower_str(trim_ws(unquote(value)));
@@ -1993,9 +1994,9 @@ static void write_settings(std::ostream& out, const Settings& s) {
     out << "## (LyricViz and ElimentLyrics are where the \".\" key left the field; the next start begins with VizDefault, see below; VizDefault=last keeps them.)\n";
     out << "VizDefault=" << viz_default_name(s.viz_default) << "\n";
     out << "## The view the field starts with when Mousiki opens: sphere | osci | spectro | lyrics | last (= the view it was left on, \"last used\" in Settings -> ANIMA/VIZ -> Lyrics/Viz Default)\n";
-    out << "VideoLyrics=" << tf(s.video_lyrics) << "\n";
-    out << "## true = the current lyric line is shown under the video's picture (the & overlay: Include Lyrics)\n";
-    out << "## true = the saved translation of the current lyric line is shown under the video (the second reserved row, when the line does not need it)\n";
+    out << "VideoLyrics=" << (s.video_lyrics == 1 ? "lyrics" : s.video_lyrics == 2 ? "both" : s.video_lyrics == 3 ? "translation" : "none") << "\n";
+    out << "## Include Lyrics (the & overlay): none | lyrics | both (lyrics + translation) | translation = what is shown under the video's picture (true / false of older versions still work)\n";
+    out << "## (with a translation shown, the last row under the picture is used first, then the lyric block grows upwards: the picture gets smaller)\n";
     out << "VideoAuto=" << tf(s.video_auto) << "\n";
     out << "## true = a track that has a video switches the field to the video view, a track without one to the Lyrics/Viz Default view\n";
     out << "VideoCover=" << (s.video_cover == 1 ? "thumbnail" : s.video_cover == 2 ? "disk" : "cover") << "\n";
@@ -2015,10 +2016,6 @@ static void write_settings(std::ostream& out, const Settings& s) {
     out << "VideoBuffer=" << s.video_buffer << "\n";
     out << "## megabytes of decoded video frames kept ahead of the picture: 8 | 16 | 32 | 64 | 128 | 256 (a wider picture holds fewer seconds in it)\n";
     out << "VideoMp3=" << tf(s.video_mp3) << "\n## yt-dlp mp3 from mp4: SEARCH YT also saves the sound of a downloaded video as an mp3 song in the download folder when no song is the target (CTRL+o in SEARCH YT changes it per download): true | false\n";
-    out << "VideoFullLyrics=" << tf(s.video_full_lyrics) << "\n";
-    out << "## true = the full screen video (HKeyVideoFull, \"v\") shows the current lyric line in a small black box over the picture\n";
-    out << "VideoFullTranslation=" << (s.video_full_translation ? "true" : "false") << "\n";
-out << "## Full screen video: show the saved translation of the lyrics under the lyric line (TAB cycles lyrics off / on / with translation).\n";
 out << "VideoLayout=" << s.video_layout << "\n";
     out << "## the layout of the full screen video (SHIFT+UP / SHIFT+DOWN there): 0 video | 1 video + oscilloscope | 2 video + spectrogram | 3 video + oscilloscope + spectrogram\n";
     out << "VideoLayoutOsciStyle=" << (s.vl_osci_style < 0 ? "default" : s.vl_osci_style == 1 ? "image" : "braille") << "\n";
@@ -2287,7 +2284,7 @@ out << "VideoLayout=" << s.video_layout << "\n";
     // Write every mapped hotkey, stable order, whatever the key is named.
     static const char* hkey_order[] = {
         "HKeyNavigateUp", "HKeyNavigateDown", "HKeyPlay", "HKeyPlayNextSong", "HKeyPlayPreviousSong",
-        "HKeyTogglePlayPause", "HKeyCyclePlayMode", "HKeySearch",
+        "HKeyTogglePlayPause", "HKeyCyclePlayMode", "HKeyCyclePlayModeBack", "HKeySearch",
         "HKeySeekForward", "HKeySeekBackward", "HKeyIncreaseVolume", "HKeyDecreaseVolume",
         "HKeyAddHoveringSongToQueue", "HKeyRemoveHoveringSongFromQueue", "HKeySwitchBetweenCards",
         "HKeyFilterForFolder", "HKeyClearFilter", "HKeyQuit", "HKeyDownloadStream",

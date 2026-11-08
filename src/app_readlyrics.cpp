@@ -1,6 +1,7 @@
 // READ LYRICS overlay (stored lyrics versions, translations, search). Split out of app.cpp.
 // Member functions of App (declared in app.h); the helpers shared with app.cpp are in app_internal.h.
 #include "app.h"
+#include "readlyrics_state.h"
 #include "text_edit.h"
 #include "overlay_common.h"
 #include "remote_server.h"
@@ -66,255 +67,255 @@ void App::readlyrics_open() {
         title = t.folder_artist.empty() ? t.title : t.folder_artist + " - " + t.title;
     }
     if (track.empty()) { status_line_ = "no track to read lyrics of -- play or hover a track first"; return; }
-    rd_track_ = track;
-    rd_opened_hit_ = LyricsFileHit();
-    rd_title_ = title.empty() ? path_utf8(track.stem()) : title;
-    rd_versions_ = list_lyrics_versions(track);
-    rd_sel_ = 0;
-    for (size_t i = 0; i < rd_versions_.size(); ++i) if (rd_versions_[i].active) { rd_sel_ = static_cast<int>(i); break; }
-    rd_first_ = 0;
-    rd_pane_ = 0;
-    rd_confirm_del_ = false;
-    rd_opts_open_ = false;
-    rd_exp_open_ = false;
-    rd_search_open_ = false;
-    rd_add_open_ = false;
-    rd_te_open_ = false;
-    rd_opts_warn_.clear();
-    rd_status_.clear();
-    rd_status_warn_ = false;
-    rd_follow_ = true;
-    if (rd_busy_) { rd_status_ = "a translation is still running (" + language_name(rd_job_to_) + " with " + translate_service_name(rd_job_svc_) + ")"; }
+    rd_->track = track;
+    rd_->opened_hit = LyricsFileHit();
+    rd_->title = title.empty() ? path_utf8(track.stem()) : title;
+    rd_->versions = list_lyrics_versions(track);
+    rd_->sel = 0;
+    for (size_t i = 0; i < rd_->versions.size(); ++i) if (rd_->versions[i].active) { rd_->sel = static_cast<int>(i); break; }
+    rd_->first = 0;
+    rd_->pane = 0;
+    rd_->confirm_del = false;
+    rd_->opts_open = false;
+    rd_->exp_open = false;
+    rd_->search_open = false;
+    rd_->add_open = false;
+    rd_->te_open = false;
+    rd_->opts_warn.clear();
+    rd_->status.clear();
+    rd_->status_warn = false;
+    rd_->follow = true;
+    if (rd_->busy) { rd_->status = "a translation is still running (" + language_name(rd_->job_to) + " with " + translate_service_name(rd_->job_svc) + ")"; }
     readlyrics_load_version();
     mode_ = Mode::ReadLyrics;
     force_redraw_ = true;   // full-screen takeover
 }
 
 void App::readlyrics_close() {
-    if (rd_opts_dirty_) { save_settings(settings_); rd_opts_dirty_ = false; }
-    rd_opts_open_ = false;
-    rd_exp_open_ = false;
-    rd_search_open_ = false;
-    rd_add_open_ = false;
-    rd_te_open_ = false;
-    rd_confirm_del_ = false;
+    if (rd_->opts_dirty) { save_settings(settings_); rd_->opts_dirty = false; }
+    rd_->opts_open = false;
+    rd_->exp_open = false;
+    rd_->search_open = false;
+    rd_->add_open = false;
+    rd_->te_open = false;
+    rd_->confirm_del = false;
     // A translation that is still running is NOT stopped: it is saved when done (readlyrics_poll() tells).
     mode_ = Mode::Browse;
     force_redraw_ = true;
 }
 
 void App::readlyrics_load_version() {
-    rd_lines_.clear();
-    rd_timed_.clear();
-    rd_delay_ = 0.0;
-    rd_trans_.clear();
-    rd_tlist_.clear();
-    rd_from_.clear();
-    rd_show_ = rd_same_ = false;
-    rd_scroll_ = 0;
-    rd_tsel_ = rd_tfirst_ = 0;
-    rd_confirm_del_ = false;
-    if (rd_sel_ < 0 || rd_sel_ >= static_cast<int>(rd_versions_.size())) return;
-    const LyricsVersion& v = rd_versions_[static_cast<size_t>(rd_sel_)];
-    rd_timed_ = lyrics_read_lines(read_lyrics_version_text(rd_track_, v), &rd_delay_);
-    for (const LyricLine& l : rd_timed_) rd_lines_.push_back(l.full_text);
-    translit_kanji_waiting(rd_lines_);   // (asks the kanji reader for every line now: an export later does not have to wait for it)
+    rd_->lines.clear();
+    rd_->timed.clear();
+    rd_->delay = 0.0;
+    rd_->trans.clear();
+    rd_->tlist.clear();
+    rd_->from.clear();
+    rd_->show = rd_->same = false;
+    rd_->scroll = 0;
+    rd_->tsel = rd_->tfirst = 0;
+    rd_->confirm_del = false;
+    if (rd_->sel < 0 || rd_->sel >= static_cast<int>(rd_->versions.size())) return;
+    const LyricsVersion& v = rd_->versions[static_cast<size_t>(rd_->sel)];
+    rd_->timed = lyrics_read_lines(read_lyrics_version_text(rd_->track, v), &rd_->delay);
+    for (const LyricLine& l : rd_->timed) rd_->lines.push_back(l.full_text);
+    translit_kanji_waiting(rd_->lines);   // (asks the kanji reader for every line now: an export later does not have to wait for it)
     readlyrics_refresh_translations(settings_.translate_to);
-    rd_show_ = !rd_tlist_.empty();   // a translation that is there is shown at once
+    rd_->show = !rd_->tlist.empty();   // a translation that is there is shown at once
 }
 
 bool App::readlyrics_track_plays() const {
-    return has_track_ && !current_path_.empty() && current_path_ == rd_track_;
+    return has_track_ && !current_path_.empty() && current_path_ == rd_->track;
 }
 
 // [p]: the track of the reader starts (the library entry, or the file when it is not in the library); when it is the loaded one already
 // it pauses / resumes. The reader stays open and follows the song.
 void App::readlyrics_play() {
-    rd_status_warn_ = false;
+    rd_->status_warn = false;
     if (readlyrics_track_plays()) {
         act_play_pause();
-        rd_status_ = player_.is_paused() ? "paused" : "playing";
+        rd_->status = player_.is_paused() ? "paused" : "playing";
         return;
     }
     std::error_code ec;
-    if (rd_track_.empty() || !fs::exists(rd_track_, ec)) {
-        rd_status_ = "this lyrics file has no track to play (it came from the search) -- open the reader for a track with CTRL+L";
-        rd_status_warn_ = true;
+    if (rd_->track.empty() || !fs::exists(rd_->track, ec)) {
+        rd_->status = "this lyrics file has no track to play (it came from the search) -- open the reader for a track with CTRL+L";
+        rd_->status_warn = true;
         return;
     }
     LocalTrack t;
     bool found = false;
-    for (const auto& lt : all_local_tracks_) if (lt.path == rd_track_) { t = lt; found = true; break; }
+    for (const auto& lt : all_local_tracks_) if (lt.path == rd_->track) { t = lt; found = true; break; }
     if (!found) {
-        t.path = rd_track_;
-        t.title = path_utf8(rd_track_.stem());
-        t.folder_artist = path_utf8(rd_track_.parent_path().filename());
+        t.path = rd_->track;
+        t.title = path_utf8(rd_->track.stem());
+        t.folder_artist = path_utf8(rd_->track.parent_path().filename());
     }
     start_local_track(t);
-    rd_follow_ = true;
-    rd_status_ = "playing: " + t.title;
+    rd_->follow = true;
+    rd_->status = "playing: " + t.title;
 }
 
 // Reads the saved translations of the chosen file again; `prefer_to` is the language to select when it is there.
 void App::readlyrics_refresh_translations(const std::string& prefer_to, const std::string& prefer_svc) {
-    rd_tlist_.clear();
-    rd_same_ = false;
-    if (rd_lines_.empty() || rd_sel_ < 0 || rd_sel_ >= static_cast<int>(rd_versions_.size())) { readlyrics_select_translation(-1); return; }
-    const LyricsVersion& v = rd_versions_[static_cast<size_t>(rd_sel_)];
-    rd_tlist_ = list_lyrics_translations(rd_track_, v, rd_lines_);
-    int pick = rd_tlist_.empty() ? -1 : 0;
+    rd_->tlist.clear();
+    rd_->same = false;
+    if (rd_->lines.empty() || rd_->sel < 0 || rd_->sel >= static_cast<int>(rd_->versions.size())) { readlyrics_select_translation(-1); return; }
+    const LyricsVersion& v = rd_->versions[static_cast<size_t>(rd_->sel)];
+    rd_->tlist = list_lyrics_translations(rd_->track, v, rd_->lines);
+    int pick = rd_->tlist.empty() ? -1 : 0;
     // the preferred language; among several services the preferred one (the one just used, else the one chosen in the options)
     const std::string svc = prefer_svc.empty() ? settings_.translate_service : prefer_svc;
-    for (size_t i = 0; i < rd_tlist_.size(); ++i)
-        if (rd_tlist_[i].to == prefer_to && (rd_tlist_[static_cast<size_t>(pick)].to != prefer_to || rd_tlist_[i].service == svc)) pick = static_cast<int>(i);
+    for (size_t i = 0; i < rd_->tlist.size(); ++i)
+        if (rd_->tlist[i].to == prefer_to && (rd_->tlist[static_cast<size_t>(pick)].to != prefer_to || rd_->tlist[i].service == svc)) pick = static_cast<int>(i);
     readlyrics_select_translation(pick);
     LyricsTranslation note;   // "these lyrics are in <language> already", saved by an earlier try
-    if (load_lyrics_translation(rd_track_, v, settings_.translate_to, rd_lines_, note, settings_.translate_service) && note.same) rd_same_ = true;
+    if (load_lyrics_translation(rd_->track, v, settings_.translate_to, rd_->lines, note, settings_.translate_service) && note.same) rd_->same = true;
 }
 
 void App::readlyrics_select_translation(int index) {
-    rd_trans_.clear();
-    rd_from_.clear();
-    rd_to_.clear();
-    rd_svc_.clear();
-    if (index < 0 || index >= static_cast<int>(rd_tlist_.size()) || rd_sel_ < 0 || rd_sel_ >= static_cast<int>(rd_versions_.size())) {
-        rd_tsel_ = 0;
+    rd_->trans.clear();
+    rd_->from.clear();
+    rd_->to.clear();
+    rd_->svc.clear();
+    if (index < 0 || index >= static_cast<int>(rd_->tlist.size()) || rd_->sel < 0 || rd_->sel >= static_cast<int>(rd_->versions.size())) {
+        rd_->tsel = 0;
         return;
     }
-    rd_tsel_ = index;
-    const TranslationInfo& info = rd_tlist_[static_cast<size_t>(index)];
+    rd_->tsel = index;
+    const TranslationInfo& info = rd_->tlist[static_cast<size_t>(index)];
     LyricsTranslation t;
-    if (load_lyrics_translation(rd_track_, rd_versions_[static_cast<size_t>(rd_sel_)], info.to, rd_lines_, t, info.service) && !t.same) {
-        rd_trans_ = std::move(t.lines);
-        rd_from_ = t.from;
-        rd_svc_ = t.service;
-        rd_to_ = info.to;
+    if (load_lyrics_translation(rd_->track, rd_->versions[static_cast<size_t>(rd_->sel)], info.to, rd_->lines, t, info.service) && !t.same) {
+        rd_->trans = std::move(t.lines);
+        rd_->from = t.from;
+        rd_->svc = t.service;
+        rd_->to = info.to;
     }
 }
 
 // SHIFT+t: hidden -> the chosen translation -> the next one ... -> hidden. Never fetches anything.
 void App::readlyrics_toggle_translations() {
-    rd_status_warn_ = false;
-    if (rd_tlist_.empty()) {
-        rd_status_ = rd_busy_ ? "no translation yet -- the running one is not finished" : "no translation saved for this file -- [t] fetches one";
-        rd_status_warn_ = true;
+    rd_->status_warn = false;
+    if (rd_->tlist.empty()) {
+        rd_->status = rd_->busy ? "no translation yet -- the running one is not finished" : "no translation saved for this file -- [t] fetches one";
+        rd_->status_warn = true;
         return;
     }
-    const int n = static_cast<int>(rd_tlist_.size());
-    if (!rd_show_) {
-        rd_show_ = true;
-    } else if (rd_tsel_ < n - 1) {
-        readlyrics_select_translation(rd_tsel_ + 1);
+    const int n = static_cast<int>(rd_->tlist.size());
+    if (!rd_->show) {
+        rd_->show = true;
+    } else if (rd_->tsel < n - 1) {
+        readlyrics_select_translation(rd_->tsel + 1);
     } else {
-        rd_show_ = false;
+        rd_->show = false;
         readlyrics_select_translation(0);
     }
-    if (rd_show_) {
-        const TranslationInfo& t = rd_tlist_[static_cast<size_t>(rd_tsel_)];
-        rd_status_ = "showing the " + language_name(t.to) + " translation" + (n > 1 ? " (" + std::to_string(rd_tsel_ + 1) + "/" + std::to_string(n) + ", SHIFT+t for the next)" : std::string());
+    if (rd_->show) {
+        const TranslationInfo& t = rd_->tlist[static_cast<size_t>(rd_->tsel)];
+        rd_->status = "showing the " + language_name(t.to) + " translation" + (n > 1 ? " (" + std::to_string(rd_->tsel + 1) + "/" + std::to_string(n) + ", SHIFT+t for the next)" : std::string());
     } else {
-        rd_status_ = "translations hidden";
+        rd_->status = "translations hidden";
     }
 }
 
 void App::readlyrics_delete_translation() {
-    rd_confirm_del_ = false;
-    if (rd_tsel_ < 0 || rd_tsel_ >= static_cast<int>(rd_tlist_.size()) || rd_sel_ < 0 || rd_sel_ >= static_cast<int>(rd_versions_.size())) return;
-    const std::string to = rd_tlist_[static_cast<size_t>(rd_tsel_)].to, svc = rd_tlist_[static_cast<size_t>(rd_tsel_)].service;
-    const bool ok = delete_lyrics_translation(rd_track_, rd_versions_[static_cast<size_t>(rd_sel_)], to, svc);
-    const int keep = rd_tsel_;
+    rd_->confirm_del = false;
+    if (rd_->tsel < 0 || rd_->tsel >= static_cast<int>(rd_->tlist.size()) || rd_->sel < 0 || rd_->sel >= static_cast<int>(rd_->versions.size())) return;
+    const std::string to = rd_->tlist[static_cast<size_t>(rd_->tsel)].to, svc = rd_->tlist[static_cast<size_t>(rd_->tsel)].service;
+    const bool ok = delete_lyrics_translation(rd_->track, rd_->versions[static_cast<size_t>(rd_->sel)], to, svc);
+    const int keep = rd_->tsel;
     readlyrics_refresh_translations("");
-    readlyrics_select_translation(rd_tlist_.empty() ? -1 : std::min(keep, static_cast<int>(rd_tlist_.size()) - 1));
-    if (rd_tlist_.empty()) rd_show_ = false;
-    rd_status_warn_ = !ok;
-    rd_status_ = ok ? "deleted the " + language_name(to) + " translation (" + translate_service_name(svc) + ")" : "could not delete the " + language_name(to) + " translation";
+    readlyrics_select_translation(rd_->tlist.empty() ? -1 : std::min(keep, static_cast<int>(rd_->tlist.size()) - 1));
+    if (rd_->tlist.empty()) rd_->show = false;
+    rd_->status_warn = !ok;
+    rd_->status = ok ? "deleted the " + language_name(to) + " translation (" + translate_service_name(svc) + ")" : "could not delete the " + language_name(to) + " translation";
 }
 
 // ENTER in the translate overlay: fetch a translation with the service and languages set there.
 void App::readlyrics_translate() {
-    rd_opts_warn_.clear();
-    if (rd_busy_) {
-        rd_opts_warn_ = "WARNING: the last translation is not finished yet -- please wait";
+    rd_->opts_warn.clear();
+    if (rd_->busy) {
+        rd_->opts_warn = "WARNING: the last translation is not finished yet -- please wait";
         return;
     }
-    if (rd_lines_.empty() || rd_sel_ < 0 || rd_sel_ >= static_cast<int>(rd_versions_.size())) {
-        rd_opts_warn_ = "there are no lyrics to translate";
+    if (rd_->lines.empty() || rd_->sel < 0 || rd_->sel >= static_cast<int>(rd_->versions.size())) {
+        rd_->opts_warn = "there are no lyrics to translate";
         return;
     }
     TranslateRequest req;
     req.service = settings_.translate_service;
     req.from = settings_.translate_from;
     req.to = settings_.translate_to;
-    rd_opts_open_ = false;
-    if (rd_opts_dirty_) { save_settings(settings_); rd_opts_dirty_ = false; }
-    rd_busy_ = true;
-    rd_job_to_ = req.to;
-    rd_job_svc_ = req.service;
-    rd_job_track_ = rd_track_;
-    rd_job_version_ = rd_versions_[static_cast<size_t>(rd_sel_)];
-    rd_status_warn_ = false;
-    rd_status_ = "translating into " + language_name(req.to) + " with " + translate_service_name(req.service) +
+    rd_->opts_open = false;
+    if (rd_->opts_dirty) { save_settings(settings_); rd_->opts_dirty = false; }
+    rd_->busy = true;
+    rd_->job_to = req.to;
+    rd_->job_svc = req.service;
+    rd_->job_track = rd_->track;
+    rd_->job_version = rd_->versions[static_cast<size_t>(rd_->sel)];
+    rd_->status_warn = false;
+    rd_->status = "translating into " + language_name(req.to) + " with " + translate_service_name(req.service) +
                  " ... this takes a while (needs an internet connection); you can go on reading";
-    const std::vector<std::string> plain = rd_lines_;
-    const LyricsVersion v = rd_job_version_;
-    const fs::path track = rd_track_, script = translate_script_;
+    const std::vector<std::string> plain = rd_->lines;
+    const LyricsVersion v = rd_->job_version;
+    const fs::path track = rd_->track, script = translate_script_;
     spawn_bg("lyrics translation", [this, plain, v, track, script, req]() {
         LyricsTranslation t = translate_lyrics_lines(plain, req, script);
         if (t.ok) save_lyrics_translation(track, v, req.to, plain, t);
-        std::lock_guard<std::mutex> lk(rd_mutex_);
-        rd_result_ = std::move(t);
-        rd_result_ready_ = true;
+        std::lock_guard<std::mutex> lk(rd_->mutex);
+        rd_->result = std::move(t);
+        rd_->result_ready = true;
     });
 }
 
 void App::readlyrics_poll() {
     // The re-fetch overlay was used over the reader: when its fetch is done, the reader shows the lyrics now in use.
-    if (rd_watch_epoch_ >= 0 && mode_ == Mode::ReadLyrics && lyrics_epoch_.load() != rd_watch_epoch_) {
+    if (rd_->watch_epoch >= 0 && mode_ == Mode::ReadLyrics && lyrics_epoch_.load() != rd_->watch_epoch) {
         bool done = false;
         {
             std::lock_guard<std::mutex> lk(lyrics_mutex_);
-            done = lyrics_ready_ && lyrics_path_ == rd_track_;
+            done = lyrics_ready_ && lyrics_path_ == rd_->track;
         }
         if (done) {
-            rd_watch_epoch_ = -1;
-            rd_versions_ = list_lyrics_versions(rd_track_);
-            rd_sel_ = 0;
-            for (size_t i = 0; i < rd_versions_.size(); ++i) if (rd_versions_[i].active) { rd_sel_ = static_cast<int>(i); break; }
-            rd_first_ = 0;
+            rd_->watch_epoch = -1;
+            rd_->versions = list_lyrics_versions(rd_->track);
+            rd_->sel = 0;
+            for (size_t i = 0; i < rd_->versions.size(); ++i) if (rd_->versions[i].active) { rd_->sel = static_cast<int>(i); break; }
+            rd_->first = 0;
             readlyrics_load_version();
-            rd_status_ = rd_lines_.empty() ? "no lyrics found for this track" : "lyrics loaded: " + std::to_string(rd_lines_.size()) + " lines";
-            rd_status_warn_ = rd_lines_.empty();
+            rd_->status = rd_->lines.empty() ? "no lyrics found for this track" : "lyrics loaded: " + std::to_string(rd_->lines.size()) + " lines";
+            rd_->status_warn = rd_->lines.empty();
         }
     }
     LyricsTranslation t;
     {
-        std::lock_guard<std::mutex> lk(rd_mutex_);   // (the flag is written by the worker thread under this lock: never read it without)
-        if (!rd_result_ready_) return;
-        t = std::move(rd_result_);
-        rd_result_ = LyricsTranslation{};
-        rd_result_ready_ = false;
+        std::lock_guard<std::mutex> lk(rd_->mutex);   // (the flag is written by the worker thread under this lock: never read it without)
+        if (!rd_->result_ready) return;
+        t = std::move(rd_->result);
+        rd_->result = LyricsTranslation{};
+        rd_->result_ready = false;
     }
-    rd_busy_ = false;
-    const std::string what = language_name(rd_job_to_);
+    rd_->busy = false;
+    const std::string what = language_name(rd_->job_to);
     // Is the file the translation was made for the one on the screen?
-    const bool on_screen = mode_ == Mode::ReadLyrics && rd_sel_ >= 0 && rd_sel_ < static_cast<int>(rd_versions_.size()) &&
-        lyrics_translation_file(rd_track_, rd_versions_[static_cast<size_t>(rd_sel_)], "xx") == lyrics_translation_file(rd_job_track_, rd_job_version_, "xx");
+    const bool on_screen = mode_ == Mode::ReadLyrics && rd_->sel >= 0 && rd_->sel < static_cast<int>(rd_->versions.size()) &&
+        lyrics_translation_file(rd_->track, rd_->versions[static_cast<size_t>(rd_->sel)], "xx") == lyrics_translation_file(rd_->job_track, rd_->job_version, "xx");
     std::string msg;
     bool warn = false;
     if (!t.ok) { msg = "translation into " + what + " failed: " + t.error; warn = true; }
     else if (t.same) msg = "these lyrics are in " + what + " already -- nothing to translate ([t] changes the languages)";
-    else msg = "translated from " + language_name(t.from) + " to " + what + " with " + translate_service_name(rd_job_svc_) + " -- saved in the lyrics folder (translations)";
+    else msg = "translated from " + language_name(t.from) + " to " + what + " with " + translate_service_name(rd_->job_svc) + " -- saved in the lyrics folder (translations)";
     if (on_screen) {
         if (t.ok) {
-            readlyrics_refresh_translations(rd_job_to_, rd_job_svc_);
-            if (!t.same && !rd_tlist_.empty()) rd_show_ = true;
-            if (t.same) rd_same_ = true;
+            readlyrics_refresh_translations(rd_->job_to, rd_->job_svc);
+            if (!t.same && !rd_->tlist.empty()) rd_->show = true;
+            if (t.same) rd_->same = true;
         }
-        rd_status_ = msg;
-        rd_status_warn_ = warn;
+        rd_->status = msg;
+        rd_->status_warn = warn;
     } else {
         status_line_ = "lyrics: " + msg;      // READ LYRICS is closed (or shows another file): tell on the main screen
-        if (mode_ == Mode::ReadLyrics) { rd_status_ = msg; rd_status_warn_ = warn; }
+        if (mode_ == Mode::ReadLyrics) { rd_->status = msg; rd_->status_warn = warn; }
     }
 }
 
@@ -323,32 +324,32 @@ void App::readlyrics_poll() {
 void App::readlyrics_options_key(int key) {
     const bool arrow = last_key_was_arrow();
     auto close_panel = [&]() {
-        rd_opts_open_ = false;
-        rd_opts_warn_.clear();
-        if (rd_opts_dirty_) { save_settings(settings_); rd_opts_dirty_ = false; }
+        rd_->opts_open = false;
+        rd_->opts_warn.clear();
+        if (rd_->opts_dirty) { save_settings(settings_); rd_->opts_dirty = false; }
     };
     if (key == 27 || key_is("HKeyReadLyrics", key)) { close_panel(); return; }
     if (key == '\r' || key == '\n') { readlyrics_translate(); return; }
-    if (arrow && key == 'A') { rd_opts_row_ = std::max(0, rd_opts_row_ - 1); return; }
-    if (arrow && key == 'B') { rd_opts_row_ = std::min(2, rd_opts_row_ + 1); return; }
+    if (arrow && key == 'A') { rd_->opts_row = std::max(0, rd_->opts_row - 1); return; }
+    if (arrow && key == 'B') { rd_->opts_row = std::min(2, rd_->opts_row + 1); return; }
     // the value lists: 0 services, 1 target languages, 2 source languages ("auto" first)
     std::vector<std::string> ids;
     std::vector<std::string> names;
     std::string* cur = nullptr;
-    if (rd_opts_row_ == 0) {
+    if (rd_->opts_row == 0) {
         for (const auto& s : translate_services()) { ids.push_back(s.first); names.push_back(s.second); }
         cur = &settings_.translate_service;
     } else {
-        if (rd_opts_row_ == 2) { ids.push_back("auto"); names.push_back("Auto-detect"); }
+        if (rd_->opts_row == 2) { ids.push_back("auto"); names.push_back("Auto-detect"); }
         for (const auto& l : translate_languages()) { ids.push_back(l.first); names.push_back(l.second); }
-        cur = rd_opts_row_ == 1 ? &settings_.translate_to : &settings_.translate_from;
+        cur = rd_->opts_row == 1 ? &settings_.translate_to : &settings_.translate_from;
     }
     int idx = 0;
     for (size_t i = 0; i < ids.size(); ++i) if (ids[i] == *cur) { idx = static_cast<int>(i); break; }
     const int n = static_cast<int>(ids.size());
     int next = idx;
     if (arrow && (key == 'C' || key == 'D')) next = (idx + (key == 'C' ? 1 : n - 1)) % n;
-    else if (rd_opts_row_ > 0 && std::isalpha(key) && key < 128) {   // jump to the next language that starts with the letter
+    else if (rd_->opts_row > 0 && std::isalpha(key) && key < 128) {   // jump to the next language that starts with the letter
         const char want = static_cast<char>(std::tolower(key));
         for (int k = 1; k <= n; ++k) {
             const int i = (idx + k) % n;
@@ -357,89 +358,90 @@ void App::readlyrics_options_key(int key) {
     } else return;
     if (next == idx) return;
     *cur = ids[static_cast<size_t>(next)];
-    rd_opts_dirty_ = true;
-    rd_opts_warn_.clear();
-    rd_same_ = false;
+    rd_->opts_dirty = true;
+    rd_->opts_warn.clear();
+    rd_->same = false;
 }
 
 void App::handle_readlyrics_key(int key) {
     if (key == 0) return;
-    if (rd_opts_open_) { readlyrics_options_key(key); return; }
-    if (rd_exp_open_) { readlyrics_export_key(key); return; }
-    if (rd_search_open_) { readlyrics_search_key(key); return; }
-    if (rd_add_open_) { readlyrics_add_key(key); return; }
-    if (rd_te_open_) { readlyrics_te_key(key); return; }
+    if (rd_->opts_open) { readlyrics_options_key(key); return; }
+    if (rd_->exp_open) { readlyrics_export_key(key); return; }
+    if (rd_->search_open) { readlyrics_search_key(key); return; }
+    if (rd_->add_open) { readlyrics_add_key(key); return; }
+    if (rd_->te_open) { readlyrics_te_key(key); return; }
     const bool arrow = last_key_was_arrow();
     if (!arrow && key_is("HKeyTranslit", key)) { toggle_latin_letters(); return; }   // Latin letters on / off, also here
     if (!arrow && key_is("HKeyLyricsTiming", key)) { lyrics_edit_open_over_reader(); return; }   // the lyrics timing overlay, as on the main screen
-    if (!arrow && key_is("HKeyRetryLyrics", key) && !rd_confirm_del_) { rl_open_over_reader(); return; }   // the re-fetch / version control overlay
-    if (!arrow && key_is("HKeySearch", key) && !rd_confirm_del_) { readlyrics_search_open(); return; }   // "/" (SHIFT+7 on a German keyboard): search the lyrics files
-    if (!rd_confirm_del_ && (key == kKeyCtrlN || (!arrow && (key == 'a' || key == 'A')))) { readlyrics_add_open(); return; }   // add a lyrics file by hand
-    if (rd_confirm_del_) {   // "delete this translation?" -- only y confirms
+    if (!arrow && key_is("HKeyRetryLyrics", key) && !rd_->confirm_del) { rl_open_over_reader(); return; }   // the re-fetch / version control overlay
+    if (!arrow && key_is("HKeySearch", key) && !rd_->confirm_del) { readlyrics_search_open(); return; }   // "/" (SHIFT+7 on a German keyboard): search the lyrics files
+    if (!rd_->confirm_del && (key == kKeyCtrlN || (!arrow && (key == 'a' || key == 'A')))) { readlyrics_add_open(); return; }   // add a lyrics file by hand
+    if (rd_->confirm_del) {   // "delete this translation?" -- only y confirms
         if (!arrow && (key == 'y' || key == 'Y')) readlyrics_delete_translation();
-        else { rd_confirm_del_ = false; rd_status_ = "kept"; rd_status_warn_ = false; }
+        else { rd_->confirm_del = false; rd_->status = "kept"; rd_->status_warn = false; }
         return;
     }
     if (key == 27 || key_is("HKeyReadLyrics", key) || key == 'q' || key == 'Q') { readlyrics_close(); return; }
-    if (!arrow && key == '\t') { rd_pane_ = rd_pane_ == 0 ? 1 : 0; rd_status_.clear(); return; }
+    if (!arrow && key == '\t') { rd_->pane = rd_->pane == 0 ? 1 : 0; rd_->status.clear(); return; }
     if (!arrow && (key == 'p' || key == 'P')) { readlyrics_play(); return; }
     if (!arrow && (key == 'f' || key == 'F')) {
-        rd_follow_ = !rd_follow_;
-        rd_status_ = rd_follow_ ? "the view follows the song" : "the view stays where it is -- [f] follows the song again";
-        rd_status_warn_ = false;
+        rd_->follow = !rd_->follow;
+        rd_->status = rd_->follow ? "the view follows the song" : "the view stays where it is -- [f] follows the song again";
+        rd_->status_warn = false;
         return;
     }
     if (key == kKeyShiftLeft || key == kKeyShiftRight) {   // SHIFT+left / right: 5 s back / forward, to hear a line again
         if (readlyrics_track_plays()) player_.seek_relative(key == kKeyShiftLeft ? -5.0 : 5.0);
         return;
     }
-    if (!arrow && key == 'E' && !rd_confirm_del_) { readlyrics_te_open(); return; }   // SHIFT+e: edit / add a translation by hand
+    if (!arrow && key == 'C' && !rd_->confirm_del) { readlyrics_create_translation(); return; }   // SHIFT+c: an empty translation file to fill in by hand
+    if (!arrow && key == 'E' && !rd_->confirm_del) { readlyrics_te_open(); return; }   // SHIFT+e: edit / add a translation by hand
     if (!arrow && key == 'e') {   // [e]: export these lyrics
-        if (rd_lines_.empty()) { rd_status_ = "there are no lyrics to export"; rd_status_warn_ = true; return; }
+        if (rd_->lines.empty()) { rd_->status = "there are no lyrics to export"; rd_->status_warn = true; return; }
         std::vector<int> fl; std::vector<std::string> nm;
         readlyrics_export_choices(fl, nm);
-        if (std::find(fl.begin(), fl.end(), rd_exp_choice_) == fl.end()) rd_exp_choice_ = fl.back();   // (the most there is)
-        rd_exp_open_ = true;
-        rd_exp_wait_ = false;
-        translit_kanji_waiting(rd_lines_);
-        rd_exp_msg_.clear();
-        rd_status_.clear();
+        if (std::find(fl.begin(), fl.end(), rd_->exp_choice) == fl.end()) rd_->exp_choice = fl.back();   // (the most there is)
+        rd_->exp_open = true;
+        rd_->exp_wait = false;
+        translit_kanji_waiting(rd_->lines);
+        rd_->exp_msg.clear();
+        rd_->status.clear();
         return;
     }
-    if (!arrow && key == 't') { rd_opts_open_ = true; rd_opts_row_ = 0; rd_opts_warn_.clear(); return; }
+    if (!arrow && key == 't') { rd_->opts_open = true; rd_->opts_row = 0; rd_->opts_warn.clear(); return; }
     if (!arrow && key == 'T') { readlyrics_toggle_translations(); return; }
-    const int n = static_cast<int>(rd_versions_.size());
+    const int n = static_cast<int>(rd_->versions.size());
     // LEFT / RIGHT choose in the pane that has the keys ('D' is Left, 'C' is Right)
     if (arrow && (key == 'D' || key == 'C')) {
         const int dir = key == 'D' ? -1 : 1;
-        if (rd_pane_ == 0) {
-            const int ns = std::clamp(rd_sel_ + dir, 0, std::max(0, n - 1));
-            if (ns != rd_sel_) { rd_sel_ = ns; rd_status_.clear(); readlyrics_load_version(); }
-        } else if (!rd_tlist_.empty()) {
-            const int nt = static_cast<int>(rd_tlist_.size());
-            const int ns = std::clamp(rd_tsel_ + dir, 0, nt - 1);
-            if (ns != rd_tsel_ || !rd_show_) { readlyrics_select_translation(ns); rd_show_ = true; rd_status_.clear(); }
+        if (rd_->pane == 0) {
+            const int ns = n > 1 ? (rd_->sel + dir + n) % n : 0;   // (round the ends: with several files LEFT / RIGHT toggle through them)
+            if (ns != rd_->sel) { rd_->sel = ns; rd_->status.clear(); readlyrics_load_version(); }
+        } else if (!rd_->tlist.empty()) {
+            const int nt = static_cast<int>(rd_->tlist.size());
+            const int ns = (rd_->tsel + dir + nt) % nt;
+            if (ns != rd_->tsel || !rd_->show) { readlyrics_select_translation(ns); rd_->show = true; rd_->status.clear(); }
         }
         return;
     }
-    if (rd_pane_ == 1 && (key == kKeyDelete || (!arrow && (key == 'd' || key == 'D')))) {
-        if (rd_tlist_.empty()) { rd_status_ = "there is no translation to delete"; rd_status_warn_ = true; }
-        else rd_confirm_del_ = true;
+    if (rd_->pane == 1 && (key == kKeyDelete || (!arrow && (key == 'd' || key == 'D')))) {
+        if (rd_->tlist.empty()) { rd_->status = "there is no translation to delete"; rd_->status_warn = true; }
+        else rd_->confirm_del = true;
         return;
     }
     const bool scrolls = (arrow && (key == 'A' || key == 'B')) || key == ' ' || key == 'b' || key == 'B' || key == kKeyHome || key == kKeyEnd;
-    if (scrolls && rd_follow_ && readlyrics_track_plays()) { rd_follow_ = false; rd_status_ = "the view stays where it is -- [f] follows the song again"; rd_status_warn_ = false; }
+    if (scrolls && rd_->follow && readlyrics_track_plays()) { rd_->follow = false; rd_->status = "the view stays where it is -- [f] follows the song again"; rd_->status_warn = false; }
     if (arrow && last_key_was_shifted() && (key == 'A' || key == 'B')) {   // SHIFT+up / down: a page
         const int page = std::max(1, term_rows_ - 14);
-        rd_scroll_ = key == 'A' ? std::max(0, rd_scroll_ - page) : rd_scroll_ + page;
+        rd_->scroll = key == 'A' ? std::max(0, rd_->scroll - page) : rd_->scroll + page;
         return;
     }
-    if (arrow && key == 'A') { if (rd_scroll_ > 0) --rd_scroll_; return; }
-    if (arrow && key == 'B') { ++rd_scroll_; return; }          // clamped against the real content while drawing
-    if (key == ' ') { rd_scroll_ += std::max(1, term_rows_ - 14); return; }
-    if (key == 'b' || key == 'B') { rd_scroll_ = std::max(0, rd_scroll_ - std::max(1, term_rows_ - 14)); return; }
-    if (key == kKeyHome) { rd_scroll_ = 0; return; }
-    if (key == kKeyEnd) { rd_scroll_ = 1 << 20; return; }       // clamped to the last page while drawing
+    if (arrow && key == 'A') { if (rd_->scroll > 0) --rd_->scroll; return; }
+    if (arrow && key == 'B') { ++rd_->scroll; return; }          // clamped against the real content while drawing
+    if (key == ' ') { rd_->scroll += std::max(1, term_rows_ - 14); return; }
+    if (key == 'b' || key == 'B') { rd_->scroll = std::max(0, rd_->scroll - std::max(1, term_rows_ - 14)); return; }
+    if (key == kKeyHome) { rd_->scroll = 0; return; }
+    if (key == kKeyEnd) { rd_->scroll = 1 << 20; return; }       // clamped to the last page while drawing
 }
 
 // --- CTRL+s: search the lyrics files ------------------------------------------------------------------------------
@@ -450,14 +452,14 @@ void App::readlyrics_search_open() {
     auto add_dir = [&](const fs::path& folder) { if (!folder.empty()) dirs.insert(path_utf8(folder / "lyrics")); };
     for (const auto& t : all_local_tracks_) add_dir(t.path.parent_path());
     for (const auto& p : settings_.local_music_paths) add_dir(path_from_utf8(p));
-    add_dir(rd_track_.parent_path());
-    rd_search_all_.clear();
-    rd_search_dirs_ = 0;
+    add_dir(rd_->track.parent_path());
+    rd_->search_all.clear();
+    rd_->search_dirs = 0;
     for (const auto& d : dirs) {
         std::error_code ec;
         const fs::path dir = path_from_utf8(d);
         if (!fs::is_directory(dir, ec)) continue;
-        ++rd_search_dirs_;
+        ++rd_->search_dirs;
         const std::string folder = path_utf8(dir.parent_path().filename());
         for (fs::directory_iterator it(dir, fs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec)) {
             std::error_code e2;
@@ -469,37 +471,37 @@ void App::readlyrics_search_open() {
             h.name = path_utf8(it->path().stem());
             h.lname = ascii_lower_str(h.name);
             h.folder = folder;
-            rd_search_all_.push_back(std::move(h));
-            if (rd_search_all_.size() >= 200000) break;
+            rd_->search_all.push_back(std::move(h));
+            if (rd_->search_all.size() >= 200000) break;
         }
     }
-    std::sort(rd_search_all_.begin(), rd_search_all_.end(), [](const LyricsFileHit& a, const LyricsFileHit& b) {
+    std::sort(rd_->search_all.begin(), rd_->search_all.end(), [](const LyricsFileHit& a, const LyricsFileHit& b) {
         return a.lname != b.lname ? a.lname < b.lname : a.folder < b.folder;
     });
-    rd_search_q_.clear();
-    rd_search_sel_ = rd_search_first_ = 0;
+    rd_->search_q.clear();
+    rd_->search_sel = rd_->search_first = 0;
     readlyrics_search_rebuild();
-    rd_search_open_ = true;
-    rd_status_.clear();
+    rd_->search_open = true;
+    rd_->status.clear();
 }
 
 // Every word of the query has to be somewhere in the file name (any order, case-insensitive for ASCII letters).
 void App::readlyrics_search_rebuild() {
     std::vector<std::string> words;
     {
-        std::istringstream iss(ascii_lower_str(rd_search_q_));
+        std::istringstream iss(ascii_lower_str(rd_->search_q));
         std::string w;
         while (iss >> w) words.push_back(w);
     }
-    rd_search_view_.clear();
-    for (size_t i = 0; i < rd_search_all_.size(); ++i) {
+    rd_->search_view.clear();
+    for (size_t i = 0; i < rd_->search_all.size(); ++i) {
         bool ok = true;
-        for (const auto& w : words) if (rd_search_all_[i].lname.find(w) == std::string::npos) { ok = false; break; }
-        if (ok) rd_search_view_.push_back(static_cast<int>(i));
+        for (const auto& w : words) if (rd_->search_all[i].lname.find(w) == std::string::npos) { ok = false; break; }
+        if (ok) rd_->search_view.push_back(static_cast<int>(i));
     }
-    const int n = static_cast<int>(rd_search_view_.size());
-    rd_search_sel_ = std::clamp(rd_search_sel_, 0, std::max(0, n - 1));
-    rd_search_first_ = std::clamp(rd_search_first_, 0, std::max(0, n - 1));
+    const int n = static_cast<int>(rd_->search_view.size());
+    rd_->search_sel = std::clamp(rd_->search_sel, 0, std::max(0, n - 1));
+    rd_->search_first = std::clamp(rd_->search_first, 0, std::max(0, n - 1));
 }
 
 // Makes the reader show one lyrics file. It is handed over as the only "version" of a track that sits in the folder
@@ -512,38 +514,38 @@ void App::readlyrics_show_file(const LyricsFileHit& hit) {
     v.label = path_utf8(hit.path.filename());
     v.detail = hit.folder;
     v.active = true;
-    rd_track_ = hit.path.parent_path().parent_path() / path_from_utf8(hit.name + ".audio");
-    rd_title_ = hit.name;
-    rd_opened_hit_ = hit;
-    rd_versions_.assign(1, v);
-    rd_sel_ = 0;
-    rd_first_ = 0;
-    rd_pane_ = 0;
+    rd_->track = hit.path.parent_path().parent_path() / path_from_utf8(hit.name + ".audio");
+    rd_->title = hit.name;
+    rd_->opened_hit = hit;
+    rd_->versions.assign(1, v);
+    rd_->sel = 0;
+    rd_->first = 0;
+    rd_->pane = 0;
     readlyrics_load_version();
-    rd_status_ = "showing a lyrics file from the search -- CTRL+L closes the reader, open it again for the playing track";
-    rd_status_warn_ = false;
+    rd_->status = "showing a lyrics file from the search -- CTRL+L closes the reader, open it again for the playing track";
+    rd_->status_warn = false;
 }
 
 void App::readlyrics_search_key(int key) {
     const bool arrow = last_key_was_arrow();
-    const int n = static_cast<int>(rd_search_view_.size());
-    if (key == 27) { rd_search_open_ = false; return; }
+    const int n = static_cast<int>(rd_->search_view.size());
+    if (key == 27) { rd_->search_open = false; return; }
     if (key == '\r' || key == '\n') {
         if (n == 0) return;
-        const LyricsFileHit hit = rd_search_all_[static_cast<size_t>(rd_search_view_[static_cast<size_t>(rd_search_sel_)])];
-        rd_search_open_ = false;
+        const LyricsFileHit hit = rd_->search_all[static_cast<size_t>(rd_->search_view[static_cast<size_t>(rd_->search_sel)])];
+        rd_->search_open = false;
         readlyrics_show_file(hit);
         return;
     }
-    if (arrow && key == 'A') { rd_search_sel_ = std::max(0, rd_search_sel_ - 1); return; }
-    if (arrow && key == 'B') { rd_search_sel_ = std::min(std::max(0, n - 1), rd_search_sel_ + 1); return; }
+    if (arrow && key == 'A') { rd_->search_sel = std::max(0, rd_->search_sel - 1); return; }
+    if (arrow && key == 'B') { rd_->search_sel = std::min(std::max(0, n - 1), rd_->search_sel + 1); return; }
     if (arrow) return;
-    if (key == kKeyHome) { rd_search_sel_ = 0; return; }
-    if (key == kKeyEnd) { rd_search_sel_ = std::max(0, n - 1); return; }
-    if (key == 127 || key == 8) { pop_utf8_char(rd_search_q_); rd_search_sel_ = rd_search_first_ = 0; readlyrics_search_rebuild(); return; }
-    if (is_text_key(key) && rd_search_q_.size() < 100) {
-        rd_search_q_ += static_cast<char>(key);
-        rd_search_sel_ = rd_search_first_ = 0;
+    if (key == kKeyHome) { rd_->search_sel = 0; return; }
+    if (key == kKeyEnd) { rd_->search_sel = std::max(0, n - 1); return; }
+    if (key == 127 || key == 8) { pop_utf8_char(rd_->search_q); rd_->search_sel = rd_->search_first = 0; readlyrics_search_rebuild(); return; }
+    if (is_text_key(key) && rd_->search_q.size() < 100) {
+        rd_->search_q += static_cast<char>(key);
+        rd_->search_sel = rd_->search_first = 0;
         readlyrics_search_rebuild();
     }
 }
@@ -560,7 +562,7 @@ std::vector<std::string> App::build_readlyrics_search_panel() const {
     {
         const std::string pre = "Search: ";
         const int room = std::max(1, inner - display_width(pre) - 1);
-        std::string shown = rd_search_q_;   // a long query keeps its END visible: cut from the front
+        std::string shown = rd_->search_q;   // a long query keeps its END visible: cut from the front
         while (display_width(shown) > room && !shown.empty()) {
             size_t i = 1;
             while (i < shown.size() && (static_cast<unsigned char>(shown[i]) & 0xC0) == 0x80) ++i;
@@ -571,30 +573,30 @@ std::vector<std::string> App::build_readlyrics_search_panel() const {
     }
     out.push_back(bar + " " + std::string(static_cast<size_t>(inner), ' ') + " " + bar);
     const int list_rows = std::clamp(term_rows_ - 12, 3, 14);
-    const int n = static_cast<int>(rd_search_view_.size());
-    int first = std::clamp(rd_search_first_, 0, std::max(0, n - 1));
-    const int sel = std::clamp(rd_search_sel_, 0, std::max(0, n - 1));
+    const int n = static_cast<int>(rd_->search_view.size());
+    int first = std::clamp(rd_->search_first, 0, std::max(0, n - 1));
+    const int sel = std::clamp(rd_->search_sel, 0, std::max(0, n - 1));
     if (sel < first) first = sel;
     if (sel >= first + list_rows) first = sel - list_rows + 1;
     for (int r = 0; r < list_rows; ++r) {
         const int i = first + r;
         std::string painted;
         if (i < n) {
-            const LyricsFileHit& h = rd_search_all_[static_cast<size_t>(rd_search_view_[static_cast<size_t>(i)])];
+            const LyricsFileHit& h = rd_->search_all[static_cast<size_t>(rd_->search_view[static_cast<size_t>(i)])];
             const std::string tail = h.folder.empty() ? std::string() : "  (" + h.folder + ")";
             const int tail_w = std::min(display_width(tail), inner / 3);
             std::string left = truncate_str(h.name, std::max(5, inner - tail_w));
             std::string line = pad_right(left, inner - tail_w) + pad_right(truncate_str(tail, tail_w), tail_w);
             painted = i == sel ? cursor_sgr(settings_.list_cursor_color, settings_.list_cursor_bg_color) + line + R : line;
         } else if (r == 0 && n == 0) {
-            painted = pad_right(rd_search_all_.empty() ? "no lyrics files found in the lyrics folders of the library" : "no lyrics file matches", inner);
+            painted = pad_right(rd_->search_all.empty() ? "no lyrics files found in the lyrics folders of the library" : "no lyrics file matches", inner);
         } else {
             painted = std::string(static_cast<size_t>(inner), ' ');
         }
         out.push_back(bar + " " + painted + " " + bar);
     }
     out.push_back(bar + " " + std::string(static_cast<size_t>(inner), ' ') + " " + bar);
-    const std::string info = std::to_string(n) + " of " + std::to_string(rd_search_all_.size()) + " files  in " + std::to_string(rd_search_dirs_) + (rd_search_dirs_ == 1 ? " folder" : " folders");
+    const std::string info = std::to_string(n) + " of " + std::to_string(rd_->search_all.size()) + " files  in " + std::to_string(rd_->search_dirs) + (rd_->search_dirs == 1 ? " folder" : " folders");
     out.push_back(bar + " " + legend_sgr(settings_) + pad_right(truncate_str(info, inner), inner) + R + " " + bar);
     out.push_back(box_bottom(PW, "[↑↓] Pick  [ENTER] Open  [ESC] Close", border_bottom));
     return out;
@@ -603,11 +605,11 @@ std::vector<std::string> App::build_readlyrics_search_panel() const {
 // --- [a] / CTRL+n: add a lyrics file to a track by hand ---------------------------------------------------------
 std::string App::readlyrics_add_track_label(int idx) const {
     if (idx < 0) {
-        if (rd_add_cur_.empty()) return rd_opened_hit_.path.empty() ? "Current track:  (none -- play or open a track first)" : "Current track:  (none -- no track is named like the opened lyrics)";
-        return "Current track:  " + (rd_add_names_ ? path_utf8(rd_add_cur_.filename()) : rd_add_cur_title_);
+        if (rd_->add_cur.empty()) return rd_->opened_hit.path.empty() ? "Current track:  (none -- play or open a track first)" : "Current track:  (none -- no track is named like the opened lyrics)";
+        return "Current track:  " + (rd_->add_names ? path_utf8(rd_->add_cur.filename()) : rd_->add_cur_title);
     }
     const LocalTrack& t = all_local_tracks_[static_cast<size_t>(idx)];
-    if (rd_add_names_) {
+    if (rd_->add_names) {
         const std::string folder = path_utf8(t.path.parent_path().filename());
         return path_utf8(t.path.filename()) + (folder.empty() ? std::string() : "  (" + folder + ")");
     }
@@ -625,38 +627,38 @@ int App::readlyrics_add_list_rows() const {
 void App::readlyrics_add_open() {
     // The current track: the one the reader shows (when it is a real track), else the one that plays.
     std::error_code ec;
-    rd_add_cur_.clear();
-    rd_add_cur_title_.clear();
-    if (!rd_opened_hit_.path.empty()) {
+    rd_->add_cur.clear();
+    rd_->add_cur_title.clear();
+    if (!rd_->opened_hit.path.empty()) {
         // A lyrics file was opened from the search: the song it belongs to (the track named like it, preferably in the folder
         // above its lyrics folder) is the current one. Nothing else stands in for it: the playing song is only the current one
         // when no lyrics file was opened.
-        const fs::path home = rd_opened_hit_.path.parent_path().parent_path();
+        const fs::path home = rd_->opened_hit.path.parent_path().parent_path();
         const LocalTrack* found = nullptr;
         for (const LocalTrack& t : all_local_tracks_) {
-            if (ascii_lower_str(path_utf8(t.path.stem())) != rd_opened_hit_.lname) continue;
+            if (ascii_lower_str(path_utf8(t.path.stem())) != rd_->opened_hit.lname) continue;
             if (!found) found = &t;
             if (t.path.parent_path() == home) { found = &t; break; }
         }
-        if (found) { rd_add_cur_ = found->path; rd_add_cur_title_ = readlyrics_add_track_text(*found); }
+        if (found) { rd_->add_cur = found->path; rd_->add_cur_title = readlyrics_add_track_text(*found); }
     }
-    else if (!rd_track_.empty() && fs::exists(rd_track_, ec)) { rd_add_cur_ = rd_track_; rd_add_cur_title_ = rd_title_; }
+    else if (!rd_->track.empty() && fs::exists(rd_->track, ec)) { rd_->add_cur = rd_->track; rd_->add_cur_title = rd_->title; }
     else if (has_track_ && !current_path_.empty()) {
-        rd_add_cur_ = current_path_;
-        rd_add_cur_title_ = (metadata_.artist == "-" || metadata_.artist.empty()) ? metadata_.name : metadata_.artist + " - " + metadata_.name;
+        rd_->add_cur = current_path_;
+        rd_->add_cur_title = (metadata_.artist == "-" || metadata_.artist.empty()) ? metadata_.name : metadata_.artist + " - " + metadata_.name;
     }
     // Every lyrics file below the "lyrics" folders of the library (subfolders too; the translations and exports are not lyrics).
     std::set<std::string> dirs;
     auto add_dir = [&](const fs::path& folder) { if (!folder.empty()) dirs.insert(path_utf8(folder / "lyrics")); };
     for (const auto& t : all_local_tracks_) add_dir(t.path.parent_path());
     for (const auto& p : settings_.local_music_paths) add_dir(path_from_utf8(p));
-    if (!rd_add_cur_.empty()) add_dir(rd_add_cur_.parent_path());
-    rd_add_files_.clear();
-    rd_add_dirs_ = 0;
+    if (!rd_->add_cur.empty()) add_dir(rd_->add_cur.parent_path());
+    rd_->add_files.clear();
+    rd_->add_dirs = 0;
     for (const auto& d : dirs) {
         const fs::path dir = path_from_utf8(d);
         if (!fs::is_directory(dir, ec)) continue;
-        ++rd_add_dirs_;
+        ++rd_->add_dirs;
         for (fs::recursive_directory_iterator it(dir, fs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec)) {
             std::error_code e2;
             if (it->is_directory(e2)) {
@@ -676,30 +678,30 @@ void App::readlyrics_add_open() {
             std::error_code e3;
             const fs::path rel = fs::relative(it->path().parent_path(), dir.parent_path(), e3);
             h.folder = e3 ? path_utf8(dir.parent_path().filename()) : path_utf8(rel);
-            rd_add_files_.push_back(std::move(h));
-            if (rd_add_files_.size() >= 200000) break;
+            rd_->add_files.push_back(std::move(h));
+            if (rd_->add_files.size() >= 200000) break;
         }
     }
-    std::sort(rd_add_files_.begin(), rd_add_files_.end(), [](const LyricsFileHit& a, const LyricsFileHit& b) {
+    std::sort(rd_->add_files.begin(), rd_->add_files.end(), [](const LyricsFileHit& a, const LyricsFileHit& b) {
         return a.lname != b.lname ? a.lname < b.lname : a.folder < b.folder;
     });
-    rd_add_fq_.clear();
-    rd_add_tq_.clear();
-    rd_add_fsel_ = rd_add_tsel_ = 0;
-    rd_add_pane_ = 0;
-    rd_add_msg_.clear();
-    rd_add_warn_ = false;
-    rd_add_confirm_ = false;
-    rd_add_tprev_ok_ = rd_add_fprev_ok_ = false;   // (a fresh search; the texts below are made again for the library as it is now)
-    rd_add_thay_.clear();
-    rd_add_lock_file_ = LyricsFileHit();
-    rd_add_lock_auto_ = false;
-    rd_add_lock_cur_ = true;
-    rd_add_lock_track_.clear();
-    if (!rd_opened_hit_.path.empty()) rd_add_lock_file_ = rd_opened_hit_;   // the lyrics that are open are the ones to add
+    rd_->add_fq.clear();
+    rd_->add_tq.clear();
+    rd_->add_fsel = rd_->add_tsel = 0;
+    rd_->add_pane = 0;
+    rd_->add_msg.clear();
+    rd_->add_warn = false;
+    rd_->add_confirm = false;
+    rd_->add_tprev_ok = rd_->add_fprev_ok = false;   // (a fresh search; the texts below are made again for the library as it is now)
+    rd_->add_thay.clear();
+    rd_->add_lock_file = LyricsFileHit();
+    rd_->add_lock_auto = false;
+    rd_->add_lock_cur = true;
+    rd_->add_lock_track.clear();
+    if (!rd_->opened_hit.path.empty()) rd_->add_lock_file = rd_->opened_hit;   // the lyrics that are open are the ones to add
     readlyrics_add_rebuild();
     readlyrics_add_lock_refresh();
-    rd_add_open_ = true;
+    rd_->add_open = true;
     force_redraw_ = true;
 }
 
@@ -721,9 +723,9 @@ void App::readlyrics_add_rebuild() {
         return w;
     };
     // files
-    rd_add_typed_ = LyricsFileHit();
+    rd_->add_typed = LyricsFileHit();
     {
-        std::string q = rd_add_fq_;
+        std::string q = rd_->add_fq;
         while (!q.empty() && (q.back() == ' ' || q.back() == '"' || q.back() == '\'')) q.pop_back();
         while (!q.empty() && (q.front() == ' ' || q.front() == '"' || q.front() == '\'')) q.erase(0, 1);
         if (!q.empty() && (q.find('/') != std::string::npos || q.find('\\') != std::string::npos)) {
@@ -731,155 +733,155 @@ void App::readlyrics_add_rebuild() {
             const fs::path p = path_from_utf8(q);
             const std::string ext = ascii_lower_str(path_utf8(p.extension()));
             if ((ext == ".lrc" || ext == ".txt") && fs::is_regular_file(p, ec)) {
-                rd_add_typed_.path = p;
-                rd_add_typed_.name = path_utf8(p.stem());
-                rd_add_typed_.lname = ascii_lower_str(rd_add_typed_.name);
-                rd_add_typed_.folder = "typed path";
+                rd_->add_typed.path = p;
+                rd_->add_typed.name = path_utf8(p.stem());
+                rd_->add_typed.lname = ascii_lower_str(rd_->add_typed.name);
+                rd_->add_typed.folder = "typed path";
             }
         }
     }
     // files: a query that continues the one before is looked for among the matches of the one before
-    const auto fw = words_of(rd_add_fq_);
+    const auto fw = words_of(rd_->add_fq);
     std::vector<int> fcand;
-    const bool f_narrow = rd_add_fprev_ok_ && rd_add_fq_.compare(0, rd_add_fprev_q_.size(), rd_add_fprev_q_) == 0;
-    if (f_narrow) { for (int v : rd_add_fview_) if (v >= 0) fcand.push_back(v); }
-    else { fcand.resize(rd_add_files_.size()); for (size_t i = 0; i < fcand.size(); ++i) fcand[i] = static_cast<int>(i); }
-    rd_add_fview_.clear();
-    if (!rd_add_typed_.path.empty()) rd_add_fview_.push_back(-1);
+    const bool f_narrow = rd_->add_fprev_ok && rd_->add_fq.compare(0, rd_->add_fprev_q.size(), rd_->add_fprev_q) == 0;
+    if (f_narrow) { for (int v : rd_->add_fview) if (v >= 0) fcand.push_back(v); }
+    else { fcand.resize(rd_->add_files.size()); for (size_t i = 0; i < fcand.size(); ++i) fcand[i] = static_cast<int>(i); }
+    rd_->add_fview.clear();
+    if (!rd_->add_typed.path.empty()) rd_->add_fview.push_back(-1);
     for (int i : fcand) {
         bool ok = true;
-        for (const auto& w : fw) if (rd_add_files_[static_cast<size_t>(i)].lname.find(w) == std::string::npos) { ok = false; break; }
-        if (ok) rd_add_fview_.push_back(i);
+        for (const auto& w : fw) if (rd_->add_files[static_cast<size_t>(i)].lname.find(w) == std::string::npos) { ok = false; break; }
+        if (ok) rd_->add_fview.push_back(i);
     }
-    rd_add_fprev_q_ = rd_add_fq_;
-    rd_add_fprev_ok_ = true;
-    rd_add_fsel_ = std::clamp(rd_add_fsel_, 0, std::max(0, static_cast<int>(rd_add_fview_.size()) - 1));
+    rd_->add_fprev_q = rd_->add_fq;
+    rd_->add_fprev_ok = true;
+    rd_->add_fsel = std::clamp(rd_->add_fsel, 0, std::max(0, static_cast<int>(rd_->add_fview.size()) - 1));
     // tracks: the current track is always the first entry
-    const auto tw = words_of(rd_add_tq_);
-    if (rd_add_nolyr_ && rd_add_has_lyr_.size() != all_local_tracks_.size()) {   // which tracks have saved lyrics (one look at each lyrics folder entry)
-        rd_add_has_lyr_.assign(all_local_tracks_.size(), 0);
-        for (size_t i = 0; i < all_local_tracks_.size(); ++i) rd_add_has_lyr_[i] = lyrics_copy_in_use(all_local_tracks_[i].path).empty() ? 0 : 1;
+    const auto tw = words_of(rd_->add_tq);
+    if (rd_->add_nolyr && rd_->add_has_lyr.size() != all_local_tracks_.size()) {   // which tracks have saved lyrics (one look at each lyrics folder entry)
+        rd_->add_has_lyr.assign(all_local_tracks_.size(), 0);
+        for (size_t i = 0; i < all_local_tracks_.size(); ++i) rd_->add_has_lyr[i] = lyrics_copy_in_use(all_local_tracks_[i].path).empty() ? 0 : 1;
     }
-    if (rd_add_thay_.size() != all_local_tracks_.size() || rd_add_thay_names_ != rd_add_names_) {   // the searched texts, made once
-        rd_add_thay_.resize(all_local_tracks_.size());
+    if (rd_->add_thay.size() != all_local_tracks_.size() || rd_->add_thay_names != rd_->add_names) {   // the searched texts, made once
+        rd_->add_thay.resize(all_local_tracks_.size());
         for (size_t i = 0; i < all_local_tracks_.size(); ++i) {
             const LocalTrack& t = all_local_tracks_[i];
-            rd_add_thay_[i] = ascii_lower_str(rd_add_names_ ? path_utf8(t.path.filename()) : t.folder_artist + " " + t.title);
+            rd_->add_thay[i] = ascii_lower_str(rd_->add_names ? path_utf8(t.path.filename()) : t.folder_artist + " " + t.title);
         }
-        rd_add_thay_names_ = rd_add_names_;
-        rd_add_tprev_ok_ = false;
+        rd_->add_thay_names = rd_->add_names;
+        rd_->add_tprev_ok = false;
     }
-    const int flags = (rd_add_names_ ? 2 : 0) | (rd_add_nolyr_ ? 1 : 0);
+    const int flags = (rd_->add_names ? 2 : 0) | (rd_->add_nolyr ? 1 : 0);
     std::vector<int> tcand;
-    const bool t_narrow = rd_add_tprev_ok_ && flags == rd_add_tprev_flags_ && rd_add_tq_.compare(0, rd_add_tprev_q_.size(), rd_add_tprev_q_) == 0;
-    if (t_narrow) { for (int v : rd_add_tview_) if (v >= 0) tcand.push_back(v); }
+    const bool t_narrow = rd_->add_tprev_ok && flags == rd_->add_tprev_flags && rd_->add_tq.compare(0, rd_->add_tprev_q.size(), rd_->add_tprev_q) == 0;
+    if (t_narrow) { for (int v : rd_->add_tview) if (v >= 0) tcand.push_back(v); }
     else { tcand.resize(all_local_tracks_.size()); for (size_t i = 0; i < tcand.size(); ++i) tcand[i] = static_cast<int>(i); }
-    rd_add_tview_.assign(1, -1);
+    rd_->add_tview.assign(1, -1);
     for (int i : tcand) {
-        if (rd_add_nolyr_ && rd_add_has_lyr_[static_cast<size_t>(i)]) continue;
-        const std::string& hay = rd_add_thay_[static_cast<size_t>(i)];
+        if (rd_->add_nolyr && rd_->add_has_lyr[static_cast<size_t>(i)]) continue;
+        const std::string& hay = rd_->add_thay[static_cast<size_t>(i)];
         bool ok = true;
         for (const auto& w : tw) if (hay.find(w) == std::string::npos) { ok = false; break; }
-        if (ok) rd_add_tview_.push_back(i);
+        if (ok) rd_->add_tview.push_back(i);
     }
-    rd_add_tprev_q_ = rd_add_tq_;
-    rd_add_tprev_flags_ = flags;
-    rd_add_tprev_ok_ = true;
-    rd_add_tsel_ = std::clamp(rd_add_tsel_, 0, static_cast<int>(rd_add_tview_.size()) - 1);
+    rd_->add_tprev_q = rd_->add_tq;
+    rd_->add_tprev_flags = flags;
+    rd_->add_tprev_ok = true;
+    rd_->add_tsel = std::clamp(rd_->add_tsel, 0, static_cast<int>(rd_->add_tview.size()) - 1);
 }
 
 fs::path App::readlyrics_add_target() const {   // the locked track
-    return rd_add_lock_cur_ ? rd_add_cur_ : rd_add_lock_track_;
+    return rd_->add_lock_cur ? rd_->add_cur : rd_->add_lock_track;
 }
 
 void App::readlyrics_add_lock_refresh() {
     const fs::path t = readlyrics_add_target();
-    rd_add_lock_info_ = t.empty() ? std::string() : lyrics_in_use_summary(t);
-    rd_add_manual_ = !t.empty() && lyrics_added_manually(t);
+    rd_->add_lock_info = t.empty() ? std::string() : lyrics_in_use_summary(t);
+    rd_->add_manual = !t.empty() && lyrics_added_manually(t);
     // A lyrics file that was given to the track by hand shows as locked in (until another one is locked by hand).
-    if (rd_add_manual_ && (rd_add_lock_file_.path.empty() || rd_add_lock_auto_)) {
+    if (rd_->add_manual && (rd_->add_lock_file.path.empty() || rd_->add_lock_auto)) {
         LyricsFileHit h;
         h.path = lyrics_copy_in_use(t);
-        rd_add_orig_name_ = lyrics_manual_origin_name(t);
-        h.name = (rd_add_show_orig_ && !rd_add_orig_name_.empty()) ? rd_add_orig_name_ : path_utf8(h.path.filename());
+        rd_->add_orig_name = lyrics_manual_origin_name(t);
+        h.name = (rd_->add_show_orig && !rd_->add_orig_name.empty()) ? rd_->add_orig_name : path_utf8(h.path.filename());
         h.lname = ascii_lower_str(h.name);
         h.folder = "lyrics";
-        rd_add_lock_file_ = h;
-        rd_add_lock_auto_ = true;
-    } else if (rd_add_lock_auto_) {
-        rd_add_orig_name_.clear();
-        rd_add_lock_file_ = LyricsFileHit();
-        rd_add_lock_auto_ = false;
+        rd_->add_lock_file = h;
+        rd_->add_lock_auto = true;
+    } else if (rd_->add_lock_auto) {
+        rd_->add_orig_name.clear();
+        rd_->add_lock_file = LyricsFileHit();
+        rd_->add_lock_auto = false;
     }
 }
 
 void App::readlyrics_add_clear() {   // forgets the locked lyrics file and the locked track (the current track is locked in again)
-    rd_add_lock_file_ = LyricsFileHit();
-    rd_add_lock_auto_ = false;
-    rd_add_lock_cur_ = true;
-    rd_add_lock_track_.clear();
-    rd_add_lock_title_.clear();
-    rd_add_warn_ = false;
-    rd_add_msg_ = "choice cleared -- the current track is locked in again, lock a lyrics file";
+    rd_->add_lock_file = LyricsFileHit();
+    rd_->add_lock_auto = false;
+    rd_->add_lock_cur = true;
+    rd_->add_lock_track.clear();
+    rd_->add_lock_title.clear();
+    rd_->add_warn = false;
+    rd_->add_msg = "choice cleared -- the current track is locked in again, lock a lyrics file";
     readlyrics_add_lock_refresh();
 }
 
 void App::readlyrics_add_unassign() {
     const fs::path target = readlyrics_add_target();
-    rd_add_warn_ = true;
-    rd_add_confirm_ = false;
-    if (target.empty()) { rd_add_msg_ = "there is no track chosen"; return; }
+    rd_->add_warn = true;
+    rd_->add_confirm = false;
+    if (target.empty()) { rd_->add_msg = "there is no track chosen"; return; }
     std::string err;
-    if (!unassign_lyrics_file(target, &err)) { rd_add_msg_ = err; return; }
+    if (!unassign_lyrics_file(target, &err)) { rd_->add_msg = err; return; }
     log_event("lyrics: unassigned the manually added lyrics of " + path_utf8(target.filename()));
     if (has_track_ && target == current_path_) {
         std::string artist = (metadata_.artist == "-") ? "" : metadata_.artist;
         launch_lyrics_fetch(metadata_.name, artist, current_path_);   // loads whatever is in use now (no network)
     }
-    if (target == rd_track_) {
-        rd_versions_ = list_lyrics_versions(rd_track_);
-        rd_sel_ = 0;
-        for (size_t i = 0; i < rd_versions_.size(); ++i) if (rd_versions_[i].active) { rd_sel_ = static_cast<int>(i); break; }
-        rd_first_ = 0;
+    if (target == rd_->track) {
+        rd_->versions = list_lyrics_versions(rd_->track);
+        rd_->sel = 0;
+        for (size_t i = 0; i < rd_->versions.size(); ++i) if (rd_->versions[i].active) { rd_->sel = static_cast<int>(i); break; }
+        rd_->first = 0;
         readlyrics_load_version();
     }
-    rd_add_has_lyr_.clear();   // (the track has no lyrics copy of its own now, perhaps)
+    rd_->add_has_lyr.clear();   // (the track has no lyrics copy of its own now, perhaps)
     readlyrics_add_rebuild();
     readlyrics_add_lock_refresh();
-    rd_add_warn_ = false;
-    rd_add_msg_ = "unassigned -- the lyrics file itself is untouched";
+    rd_->add_warn = false;
+    rd_->add_msg = "unassigned -- the lyrics file itself is untouched";
 }
 
 void App::readlyrics_add_key(int key) {
     const bool arrow = last_key_was_arrow();
-    struct Refresh { App* a; ~Refresh() { if (a->rd_add_open_) a->readlyrics_add_lock_refresh(); } } refresh{this};
+    struct Refresh { App* a; ~Refresh() { if (a->rd_->add_open) a->readlyrics_add_lock_refresh(); } } refresh{this};
     if (key == kKeyDelete) {   // DEL: unassign (twice, the second one confirms)
-        if (!lyrics_added_manually(readlyrics_add_target())) { rd_add_warn_ = true; rd_add_confirm_ = false; rd_add_msg_ = "the lyrics of the locked track were not added manually -- nothing to unassign"; return; }
-        if (!rd_add_confirm_) { rd_add_confirm_ = true; rd_add_warn_ = true; rd_add_msg_ = "unassign the manually added lyrics of this track? [DEL] again confirms, anything else cancels"; return; }
+        if (!lyrics_added_manually(readlyrics_add_target())) { rd_->add_warn = true; rd_->add_confirm = false; rd_->add_msg = "the lyrics of the locked track were not added manually -- nothing to unassign"; return; }
+        if (!rd_->add_confirm) { rd_->add_confirm = true; rd_->add_warn = true; rd_->add_msg = "unassign the manually added lyrics of this track? [DEL] again confirms, anything else cancels"; return; }
         readlyrics_add_unassign();
         return;
     }
-    rd_add_confirm_ = false;
-    if (key == 27) { rd_add_open_ = false; force_redraw_ = true; return; }
-    if (!arrow && key == '\t') { rd_add_pane_ = (rd_add_pane_ + 1) % 4; rd_add_msg_.clear(); return; }   // file list, track list, the two buttons
+    rd_->add_confirm = false;
+    if (key == 27) { rd_->add_open = false; force_redraw_ = true; return; }
+    if (!arrow && key == '\t') { rd_->add_pane = (rd_->add_pane + 1) % 4; rd_->add_msg.clear(); return; }   // file list, track list, the two buttons
     if (key == '\r' || key == '\n') {   // ENTER locks the highlighted lyrics file / track in; on the button it adds
-        rd_add_warn_ = false;
-        if (rd_add_pane_ == 2) { readlyrics_add_do(); return; }
-        if (rd_add_pane_ == 3) { readlyrics_add_clear(); return; }
-        if (rd_add_pane_ == 0) {
-            if (rd_add_fview_.empty()) return;
-            const int fi = rd_add_fview_[static_cast<size_t>(rd_add_fsel_)];
-            rd_add_lock_file_ = fi < 0 ? rd_add_typed_ : rd_add_files_[static_cast<size_t>(fi)];
-            rd_add_lock_auto_ = false;
-            rd_add_msg_ = "locked lyrics file: " + rd_add_lock_file_.name;
+        rd_->add_warn = false;
+        if (rd_->add_pane == 2) { readlyrics_add_do(); return; }
+        if (rd_->add_pane == 3) { readlyrics_add_clear(); return; }
+        if (rd_->add_pane == 0) {
+            if (rd_->add_fview.empty()) return;
+            const int fi = rd_->add_fview[static_cast<size_t>(rd_->add_fsel)];
+            rd_->add_lock_file = fi < 0 ? rd_->add_typed : rd_->add_files[static_cast<size_t>(fi)];
+            rd_->add_lock_auto = false;
+            rd_->add_msg = "locked lyrics file: " + rd_->add_lock_file.name;
         } else {
-            const int ti = rd_add_tview_[static_cast<size_t>(rd_add_tsel_)];
-            if (ti < 0) { rd_add_lock_cur_ = true; rd_add_msg_ = "locked track: the current track"; }
+            const int ti = rd_->add_tview[static_cast<size_t>(rd_->add_tsel)];
+            if (ti < 0) { rd_->add_lock_cur = true; rd_->add_msg = "locked track: the current track"; }
             else {
-                rd_add_lock_cur_ = false;
-                rd_add_lock_track_ = all_local_tracks_[static_cast<size_t>(ti)].path;
-                rd_add_lock_title_ = readlyrics_add_track_text(all_local_tracks_[static_cast<size_t>(ti)]);
-                rd_add_msg_ = "locked track: " + rd_add_lock_title_;
+                rd_->add_lock_cur = false;
+                rd_->add_lock_track = all_local_tracks_[static_cast<size_t>(ti)].path;
+                rd_->add_lock_title = readlyrics_add_track_text(all_local_tracks_[static_cast<size_t>(ti)]);
+                rd_->add_msg = "locked track: " + rd_->add_lock_title;
             }
         }
         return;
@@ -888,75 +890,75 @@ void App::readlyrics_add_key(int key) {
     if (key == kKeyCtrlC) { readlyrics_add_clear(); return; }
     // CTRL+t: the track list shows file names / "folder - title"; CTRL+f: only the tracks without saved lyrics (both work in the search fields)
     if (key == kKeyCtrlF) {
-        rd_add_nolyr_ = !rd_add_nolyr_;
-        rd_add_has_lyr_.clear();
-        rd_add_warn_ = false;
-        rd_add_tsel_ = 0;
-        rd_add_msg_ = rd_add_nolyr_ ? "the track list shows only the tracks without saved lyrics" : "the track list shows all tracks";
+        rd_->add_nolyr = !rd_->add_nolyr;
+        rd_->add_has_lyr.clear();
+        rd_->add_warn = false;
+        rd_->add_tsel = 0;
+        rd_->add_msg = rd_->add_nolyr ? "the track list shows only the tracks without saved lyrics" : "the track list shows all tracks";
         readlyrics_add_rebuild();
         return;
     }
     if (key == kKeyCtrlO) {   // the locked-in lyrics file: the name it was picked with / the name of the copy in the lyrics folder
-        rd_add_show_orig_ = !rd_add_show_orig_;
+        rd_->add_show_orig = !rd_->add_show_orig;
         readlyrics_add_lock_refresh();
-        rd_add_warn_ = false;
-        rd_add_msg_ = rd_add_show_orig_ ? "locked-in lyrics file: shown by the name of the file it came from" : "locked-in lyrics file: shown by the name of the copy in the lyrics folder";
+        rd_->add_warn = false;
+        rd_->add_msg = rd_->add_show_orig ? "locked-in lyrics file: shown by the name of the file it came from" : "locked-in lyrics file: shown by the name of the copy in the lyrics folder";
         return;
     }
     if (key == kKeyCtrlT) {
-        rd_add_names_ = !rd_add_names_;
-        rd_add_warn_ = false;
-        rd_add_msg_ = rd_add_names_ ? "the track list shows file names" : "the track list shows artist - title";
+        rd_->add_names = !rd_->add_names;
+        rd_->add_warn = false;
+        rd_->add_msg = rd_->add_names ? "the track list shows file names" : "the track list shows artist - title";
         readlyrics_add_rebuild();
         return;
     }
-    if (arrow && key == 'D' && rd_add_pane_ == 1) { rd_add_pane_ = 0; return; }
-    if (arrow && key == 'C' && rd_add_pane_ == 0) { rd_add_pane_ = 1; return; }
-    if (rd_add_pane_ >= 2) return;   // (nothing else to do on a button)
-    int& sel = rd_add_pane_ == 0 ? rd_add_fsel_ : rd_add_tsel_;
-    std::string& q = rd_add_pane_ == 0 ? rd_add_fq_ : rd_add_tq_;
-    const int n = rd_add_pane_ == 0 ? static_cast<int>(rd_add_fview_.size()) : static_cast<int>(rd_add_tview_.size());
+    if (arrow && key == 'D' && rd_->add_pane == 1) { rd_->add_pane = 0; return; }
+    if (arrow && key == 'C' && rd_->add_pane == 0) { rd_->add_pane = 1; return; }
+    if (rd_->add_pane >= 2) return;   // (nothing else to do on a button)
+    int& sel = rd_->add_pane == 0 ? rd_->add_fsel : rd_->add_tsel;
+    std::string& q = rd_->add_pane == 0 ? rd_->add_fq : rd_->add_tq;
+    const int n = rd_->add_pane == 0 ? static_cast<int>(rd_->add_fview.size()) : static_cast<int>(rd_->add_tview.size());
     const int page = readlyrics_add_list_rows();   // SHIFT+up / down and PgUp / PgDn (reported alike) turn a page
     if (arrow && key == 'A') { sel = std::max(0, sel - (last_key_was_shifted() ? page : 1)); return; }
     if (arrow && key == 'B') { sel = std::min(std::max(0, n - 1), sel + (last_key_was_shifted() ? page : 1)); return; }
     if (arrow) return;
     if (key == kKeyHome) { sel = 0; return; }
     if (key == kKeyEnd) { sel = std::max(0, n - 1); return; }
-    if (key == 127 || key == 8) { pop_utf8_char(q); sel = 0; rd_add_msg_.clear(); readlyrics_add_rebuild(); return; }
+    if (key == 127 || key == 8) { pop_utf8_char(q); sel = 0; rd_->add_msg.clear(); readlyrics_add_rebuild(); return; }
     if (is_text_key(key) && q.size() < 300) {
         q += static_cast<char>(key);
         sel = 0;
-        rd_add_msg_.clear();
+        rd_->add_msg.clear();
         readlyrics_add_rebuild();
     }
 }
 
 void App::readlyrics_add_do() {
-    rd_add_warn_ = true;
-    if (rd_add_lock_file_.path.empty()) { rd_add_msg_ = "lock a lyrics file first: highlight it in the left list and press [ENTER]"; return; }
-    const LyricsFileHit file = rd_add_lock_file_;
+    rd_->add_warn = true;
+    if (rd_->add_lock_file.path.empty()) { rd_->add_msg = "lock a lyrics file first: highlight it in the left list and press [ENTER]"; return; }
+    const LyricsFileHit file = rd_->add_lock_file;
     const fs::path target = readlyrics_add_target();
-    const std::string target_title = rd_add_lock_cur_ ? rd_add_cur_title_ : rd_add_lock_title_;
-    if (target.empty()) { rd_add_msg_ = "there is no current track -- lock a track from the right list"; return; }
+    const std::string target_title = rd_->add_lock_cur ? rd_->add_cur_title : rd_->add_lock_title;
+    if (target.empty()) { rd_->add_msg = "there is no current track -- lock a track from the right list"; return; }
     std::string err;
-    if (!assign_lyrics_file(target, file.path, &err)) { rd_add_msg_ = err; return; }
+    if (!assign_lyrics_file(target, file.path, &err)) { rd_->add_msg = err; return; }
     log_event("lyrics: assigned " + path_utf8(file.path.filename()) + " to " + target_title);
-    rd_add_open_ = false;
+    rd_->add_open = false;
     force_redraw_ = true;
     if (has_track_ && target == current_path_) {   // the playing track: its lyrics load now
         std::string artist = (metadata_.artist == "-") ? "" : metadata_.artist;
         launch_lyrics_fetch(metadata_.name, artist, current_path_);   // loads whatever is in use now (no network)
     }
-    if (target == rd_track_) {   // the reader shows this track: the new copy is the one to see
-        rd_versions_ = list_lyrics_versions(rd_track_);
-        rd_sel_ = 0;
-        for (size_t i = 0; i < rd_versions_.size(); ++i) if (rd_versions_[i].active) { rd_sel_ = static_cast<int>(i); break; }
-        rd_first_ = 0;
-        rd_pane_ = 0;
+    if (target == rd_->track) {   // the reader shows this track: the new copy is the one to see
+        rd_->versions = list_lyrics_versions(rd_->track);
+        rd_->sel = 0;
+        for (size_t i = 0; i < rd_->versions.size(); ++i) if (rd_->versions[i].active) { rd_->sel = static_cast<int>(i); break; }
+        rd_->first = 0;
+        rd_->pane = 0;
         readlyrics_load_version();
     }
-    rd_status_ = "assigned \"" + path_utf8(file.path.filename()) + "\" to " + target_title + (target == rd_track_ ? "" : " -- open READ LYRICS on that track to read it");
-    rd_status_warn_ = false;
+    rd_->status = "assigned \"" + path_utf8(file.path.filename()) + "\" to " + target_title + (target == rd_->track ? "" : " -- open READ LYRICS on that track to read it");
+    rd_->status_warn = false;
 }
 
 // The panel is a full-window screen: W columns wide and term_rows_ - 1 rows high (what a full-screen frame may use). Inside, every
@@ -981,10 +983,10 @@ std::vector<std::string> App::build_readlyrics_add_panel(int W) const {
         const std::string c = truncate_str(t, w - 4);
         return std::make_pair(sgr.empty() ? c : sgr + c + R, display_width(c));
     };
-    auto title = [&](int which, const std::string& t) { return t + (rd_add_pane_ == which ? focus_indicator(settings_, border) : std::string()); };
+    auto title = [&](int which, const std::string& t) { return t + (rd_->add_pane == which ? focus_indicator(settings_, border) : std::string()); };
     // --- the two search fields
     auto search_line = [&](int which, const std::string& q, int w) {
-        const bool focus = rd_add_pane_ == which;
+        const bool focus = rd_->add_pane == which;
         const int room = std::max(1, w - 4 - 1);
         std::string shown = q;
         while (display_width(shown) > room && !shown.empty()) {   // a long query keeps its END visible
@@ -995,14 +997,14 @@ std::vector<std::string> App::build_readlyrics_add_panel(int W) const {
         return pline(shown + (focus ? "\x1b[7m \x1b[0m" : " "), display_width(shown) + 1, w);
     };
     both(box_top(title(0, "SEARCH LYRICS FILES"), pw_l, border), box_top(title(1, "SEARCH TRACKS"), pw_r, border));
-    both(search_line(0, rd_add_fq_, pw_l), search_line(1, rd_add_tq_, pw_r));
+    both(search_line(0, rd_->add_fq, pw_l), search_line(1, rd_->add_tq, pw_r));
     both(box_bottom(pw_l, "", border), box_bottom(pw_r, "", border));
     // --- the two result lists: whatever height is left
     const int list_rows = readlyrics_add_list_rows();
-    const int nf = static_cast<int>(rd_add_fview_.size());
-    const int nt = static_cast<int>(rd_add_tview_.size());
+    const int nf = static_cast<int>(rd_->add_fview.size());
+    const int nt = static_cast<int>(rd_->add_tview.size());
     auto cell = [&](int which, int w, int r, int sel, int n, const std::function<std::string(int)>& text, const std::function<bool(int)>& locked, const std::string& empty_text) {
-        const bool focus = rd_add_pane_ == which;
+        const bool focus = rd_->add_pane == which;
         const int cw = w - 4;
         int first = 0;
         if (sel >= list_rows) first = sel - list_rows + 1;
@@ -1019,44 +1021,44 @@ std::vector<std::string> App::build_readlyrics_add_panel(int W) const {
         if (r == 0 && n == 0) return pline(pad_right(truncate_str(empty_text, cw), cw), cw, w);
         return pline(std::string(), 0, w);
     };
-    both(box_top(title(0, "LYRICS FILES"), pw_l, border), box_top(title(1, std::string("TRACKS (") + (rd_add_names_ ? "file names" : "artist - title") + (rd_add_nolyr_ ? ", no lyrics" : "") + ")"), pw_r, border));
-    const std::string fempty = rd_add_files_.empty() ? "no lyrics files found -- type a path" : "no match -- or type a full path";
+    both(box_top(title(0, "LYRICS FILES"), pw_l, border), box_top(title(1, std::string("TRACKS (") + (rd_->add_names ? "file names" : "artist - title") + (rd_->add_nolyr ? ", no lyrics" : "") + ")"), pw_r, border));
+    const std::string fempty = rd_->add_files.empty() ? "no lyrics files found -- type a path" : "no match -- or type a full path";
     for (int r = 0; r < list_rows; ++r) {
-        const std::string l = cell(0, pw_l, r, rd_add_fsel_, nf, [&](int i) {
-            const int fi = rd_add_fview_[static_cast<size_t>(i)];
-            const LyricsFileHit& h = fi < 0 ? rd_add_typed_ : rd_add_files_[static_cast<size_t>(fi)];
+        const std::string l = cell(0, pw_l, r, rd_->add_fsel, nf, [&](int i) {
+            const int fi = rd_->add_fview[static_cast<size_t>(i)];
+            const LyricsFileHit& h = fi < 0 ? rd_->add_typed : rd_->add_files[static_cast<size_t>(fi)];
             return h.name + "  (" + h.folder + ")";
         }, [&](int i) {
-            const int fi = rd_add_fview_[static_cast<size_t>(i)];
-            const LyricsFileHit& h = fi < 0 ? rd_add_typed_ : rd_add_files_[static_cast<size_t>(fi)];
-            return !rd_add_lock_file_.path.empty() && h.path == rd_add_lock_file_.path;
+            const int fi = rd_->add_fview[static_cast<size_t>(i)];
+            const LyricsFileHit& h = fi < 0 ? rd_->add_typed : rd_->add_files[static_cast<size_t>(fi)];
+            return !rd_->add_lock_file.path.empty() && h.path == rd_->add_lock_file.path;
         }, fempty);
-        const std::string rr = cell(1, pw_r, r, rd_add_tsel_, nt, [&](int i) { return readlyrics_add_track_label(rd_add_tview_[static_cast<size_t>(i)]); }, [&](int i) {
-            const int ti = rd_add_tview_[static_cast<size_t>(i)];
-            return rd_add_lock_cur_ ? ti < 0 : (ti >= 0 && all_local_tracks_[static_cast<size_t>(ti)].path == rd_add_lock_track_);
+        const std::string rr = cell(1, pw_r, r, rd_->add_tsel, nt, [&](int i) { return readlyrics_add_track_label(rd_->add_tview[static_cast<size_t>(i)]); }, [&](int i) {
+            const int ti = rd_->add_tview[static_cast<size_t>(i)];
+            return rd_->add_lock_cur ? ti < 0 : (ti >= 0 && all_local_tracks_[static_cast<size_t>(ti)].path == rd_->add_lock_track);
         }, "");
         both(l, rr);
     }
     {   // the count lines, under each list
-        const auto l = cut(std::to_string(nf) + " of " + std::to_string(rd_add_files_.size()) + " files in " + std::to_string(rd_add_dirs_) +
-                           (rd_add_dirs_ == 1 ? " lyrics folder" : " lyrics folders"), pw_l, leg);
+        const auto l = cut(std::to_string(nf) + " of " + std::to_string(rd_->add_files.size()) + " files in " + std::to_string(rd_->add_dirs) +
+                           (rd_->add_dirs == 1 ? " lyrics folder" : " lyrics folders"), pw_l, leg);
         const auto r = cut(std::to_string(nt - 1) + " of " + std::to_string(all_local_tracks_.size()) + " tracks  (+ the current track)", pw_r, leg);
         both(pline(l.first, l.second, pw_l), pline(r.first, r.second, pw_r));
     }
     both(box_bottom(pw_l, "", border), box_bottom(pw_r, "", border));
     // --- the locked-in fields
-    both(box_top(std::string("LOCKED IN: LYRICS FILE") + (rd_add_lock_auto_ && !rd_add_orig_name_.empty() ? (rd_add_show_orig_ ? " (original)" : " (copy)") : ""), pw_l, border), box_top("LOCKED IN: TRACK", pw_r, border));
+    both(box_top(std::string("LOCKED IN: LYRICS FILE") + (rd_->add_lock_auto && !rd_->add_orig_name.empty() ? (rd_->add_show_orig ? " (original)" : " (copy)") : ""), pw_l, border), box_top("LOCKED IN: TRACK", pw_r, border));
     {
-        const bool has_f = !rd_add_lock_file_.path.empty();
-        const auto l1 = cut(has_f ? rd_add_lock_file_.name : "(none yet -- highlight a file, press [ENTER])", pw_l, has_f ? hdr : std::string());
-        const std::string tt = rd_add_lock_cur_ ? (rd_add_cur_.empty() ? std::string(rd_opened_hit_.path.empty() ? "(no current track -- lock one from the list)" : "(no track is named like the opened lyrics -- lock one from the list)") : "Current track:  " + rd_add_cur_title_) : rd_add_lock_title_;
+        const bool has_f = !rd_->add_lock_file.path.empty();
+        const auto l1 = cut(has_f ? rd_->add_lock_file.name : "(none yet -- highlight a file, press [ENTER])", pw_l, has_f ? hdr : std::string());
+        const std::string tt = rd_->add_lock_cur ? (rd_->add_cur.empty() ? std::string(rd_->opened_hit.path.empty() ? "(no current track -- lock one from the list)" : "(no track is named like the opened lyrics -- lock one from the list)") : "Current track:  " + rd_->add_cur_title) : rd_->add_lock_title;
         const auto r1 = cut(tt, pw_r, hdr);
         both(pline(l1.first, l1.second, pw_l), pline(r1.first, r1.second, pw_r));
         // the path of the file, then the note for lyrics that were added by hand; on a narrow pane the note wraps over both rows
         const std::string note = "Added manually; hit DEL to unassign";
-        std::string row2 = has_f ? (rd_add_lock_auto_ ? "In the lyrics folder: " : std::string()) + path_utf8(rd_add_lock_file_.path) : std::string(), row3;
+        std::string row2 = has_f ? (rd_->add_lock_auto ? "In the lyrics folder: " : std::string()) + path_utf8(rd_->add_lock_file.path) : std::string(), row3;
         std::string sgr2 = leg, sgr3 = hdr;
-        if (rd_add_manual_) {
+        if (rd_->add_manual) {
             if (display_width(note) <= pw_l - 4) row3 = note;
             else {
                 const std::vector<std::string> parts = wrap_lines(note, pw_l - 4, 2);
@@ -1067,7 +1069,7 @@ std::vector<std::string> App::build_readlyrics_add_panel(int W) const {
         }
         const auto l2 = cut(row2, pw_l, sgr2);
         const auto l3 = cut(row3, pw_l, sgr3);
-        std::string info = rd_add_lock_info_.empty() ? std::string("no lyrics saved for this track yet") : "has lyrics: " + rd_add_lock_info_;
+        std::string info = rd_->add_lock_info.empty() ? std::string("no lyrics saved for this track yet") : "has lyrics: " + rd_->add_lock_info;
         const auto r2 = cut(info, pw_r, leg);
         both(pline(l2.first, l2.second, pw_l), pline(r2.first, r2.second, pw_r));
         both(pline(l3.first, l3.second, pw_l), pline(std::string(), 0, pw_r));
@@ -1080,12 +1082,12 @@ std::vector<std::string> App::build_readlyrics_add_panel(int W) const {
         if (display_width(b1) + gap + display_width(b2) > inner) { b1 = "[ Add chosen lyrics ]"; b2 = "[CTRL+c] Clear choice"; }   // narrow window
         const int w1 = display_width(b1), w2 = display_width(b2);
         const int lead = std::max(0, (inner - w1 - gap - w2) / 2);
-        const std::string p1 = rd_add_pane_ == 2 ? "\x1b[7m" + b1 + R : hdr + b1 + R;
-        const std::string p2 = rd_add_pane_ == 3 ? "\x1b[7m" + b2 + R : hdr + b2 + R;
+        const std::string p1 = rd_->add_pane == 2 ? "\x1b[7m" + b1 + R : hdr + b1 + R;
+        const std::string p2 = rd_->add_pane == 3 ? "\x1b[7m" + b2 + R : hdr + b2 + R;
         out.push_back(bar + " " + std::string(static_cast<size_t>(lead), ' ') + p1 + std::string(static_cast<size_t>(gap), ' ') + p2 +
                       std::string(static_cast<size_t>(std::max(0, inner - lead - w1 - gap - w2)), ' ') + " " + bar);
     }
-    out.push_back(bar + " " + (rd_add_warn_ && !rd_add_msg_.empty() ? std::string("\x1b[31m") : leg) + pad_right(truncate_str(rd_add_msg_, PW - 4), PW - 4) + R + " " + bar);
+    out.push_back(bar + " " + (rd_->add_warn && !rd_->add_msg.empty() ? std::string("\x1b[31m") : leg) + pad_right(truncate_str(rd_->add_msg, PW - 4), PW - 4) + R + " " + bar);
     out.push_back(box_bottom(PW, "", border_bottom));
     return out;
 }
@@ -1124,16 +1126,16 @@ std::vector<std::string> App::build_readlyrics_options_panel() const {
         out.push_back(bar + " " + (sgr ? std::string(sgr) : legend ? legend_sgr(settings_) : std::string()) + pad_right(truncate_str(s, inner), inner) + R + " " + bar);
     };
     std::string from_name = settings_.translate_from == "auto" ? "Auto-detect" : language_name(settings_.translate_from);
-    row("SERVICE", translate_service_name(settings_.translate_service), rd_opts_row_ == 0);
-    row("TRANSLATE INTO", language_name(settings_.translate_to), rd_opts_row_ == 1);
-    row("LYRICS ARE IN", from_name, rd_opts_row_ == 2);
+    row("SERVICE", translate_service_name(settings_.translate_service), rd_->opts_row == 0);
+    row("TRANSLATE INTO", language_name(settings_.translate_to), rd_->opts_row == 1);
+    row("LYRICS ARE IN", from_name, rd_->opts_row == 2);
     plain("", false);
     const std::string& svc = settings_.translate_service;
     plain(svc == "google" ? "Google Translate's key-less web endpoint (unofficial)."
                           : "MyMemory: free, about 5000 characters a day per address.", true);
     plain(settings_.translate_from == "auto" ? "If detection is wrong, set LYRICS ARE IN by hand." : "The language of the lyrics is set by hand.", true);
-    if (!rd_opts_warn_.empty()) plain(rd_opts_warn_, false, "\x1b[31m");
-    else if (rd_busy_) plain("Running: " + language_name(rd_job_to_) + " with " + translate_service_name(rd_job_svc_) + " (goes on in the background)", true);
+    if (!rd_->opts_warn.empty()) plain(rd_->opts_warn, false, "\x1b[31m");
+    else if (rd_->busy) plain("Running: " + language_name(rd_->job_to) + " with " + translate_service_name(rd_->job_svc) + " (goes on in the background)", true);
     else plain("", false);
     out.push_back(box_bottom(PW, "[↑↓] Row  [←→] Change  [ENTER] Translate  [ESC] Close", border_bottom));
     return out;
@@ -1144,9 +1146,9 @@ std::vector<std::string> App::build_readlyrics_options_panel() const {
 // translation and / or the Latin spelling under each line.
 // ---------------------------------------------------------------------
 int App::readlyrics_export_choices(std::vector<int>& flags, std::vector<std::string>& names) const {
-    const bool has_tr = !rd_tlist_.empty() && rd_tsel_ >= 0 && rd_tsel_ < static_cast<int>(rd_tlist_.size()) && rd_trans_.size() == rd_lines_.size();
-    const bool has_tl = lyrics_export_translit_differs(rd_lines_);
-    const std::string tr_name = has_tr ? language_name(rd_tlist_[static_cast<size_t>(rd_tsel_)].to) : std::string();
+    const bool has_tr = !rd_->tlist.empty() && rd_->tsel >= 0 && rd_->tsel < static_cast<int>(rd_->tlist.size()) && rd_->trans.size() == rd_->lines.size();
+    const bool has_tl = lyrics_export_translit_differs(rd_->lines);
+    const std::string tr_name = has_tr ? language_name(rd_->tlist[static_cast<size_t>(rd_->tsel)].to) : std::string();
     flags.clear();
     names.clear();
     flags.push_back(0); names.push_back("Original only");
@@ -1158,22 +1160,22 @@ int App::readlyrics_export_choices(std::vector<int>& flags, std::vector<std::str
 
 fs::path App::readlyrics_export_dir() const {
     fs::path folder;
-    if (rd_sel_ >= 0 && rd_sel_ < static_cast<int>(rd_versions_.size()) && !rd_versions_[static_cast<size_t>(rd_sel_)].file.empty()) {
-        const fs::path f = rd_versions_[static_cast<size_t>(rd_sel_)].file;   // a fetched / older copy: its own lyrics folder
+    if (rd_->sel >= 0 && rd_->sel < static_cast<int>(rd_->versions.size()) && !rd_->versions[static_cast<size_t>(rd_->sel)].file.empty()) {
+        const fs::path f = rd_->versions[static_cast<size_t>(rd_->sel)].file;   // a fetched / older copy: its own lyrics folder
         folder = f.parent_path();
-        if (folder.filename() != "lyrics") folder = lyrics_folder_of(rd_track_);
+        if (folder.filename() != "lyrics") folder = lyrics_folder_of(rd_->track);
     }
-    if (folder.empty()) folder = lyrics_folder_of(rd_track_);
-    if (folder.empty() && !rd_track_.empty()) folder = rd_track_.parent_path() / "lyrics";
+    if (folder.empty()) folder = lyrics_folder_of(rd_->track);
+    if (folder.empty() && !rd_->track.empty()) folder = rd_->track.parent_path() / "lyrics";
     return folder / "export";
 }
 
 fs::path App::readlyrics_export_file(int flags) const {
-    std::string stem = path_utf8(rd_track_.stem());
-    if (stem.empty() && rd_sel_ >= 0 && rd_sel_ < static_cast<int>(rd_versions_.size())) stem = path_utf8(rd_versions_[static_cast<size_t>(rd_sel_)].file.stem());
-    if (stem.empty()) stem = rd_title_;
+    std::string stem = path_utf8(rd_->track.stem());
+    if (stem.empty() && rd_->sel >= 0 && rd_->sel < static_cast<int>(rd_->versions.size())) stem = path_utf8(rd_->versions[static_cast<size_t>(rd_->sel)].file.stem());
+    if (stem.empty()) stem = rd_->title;
     std::string tag;
-    const std::string to = (flags & 1) && rd_tsel_ >= 0 && rd_tsel_ < static_cast<int>(rd_tlist_.size()) ? rd_tlist_[static_cast<size_t>(rd_tsel_)].to : std::string();
+    const std::string to = (flags & 1) && rd_->tsel >= 0 && rd_->tsel < static_cast<int>(rd_->tlist.size()) ? rd_->tlist[static_cast<size_t>(rd_->tsel)].to : std::string();
     if ((flags & 1) && (flags & 2)) tag = " (transliteration, translation " + to + ")";
     else if (flags & 1) tag = " (translation " + to + ")";
     else if (flags & 2) tag = " (transliteration)";
@@ -1189,47 +1191,47 @@ bool App::readlyrics_reader_working() const {
 void App::readlyrics_export_do() {
     std::vector<int> fl; std::vector<std::string> nm;
     readlyrics_export_choices(fl, nm);
-    const int flags = std::find(fl.begin(), fl.end(), rd_exp_choice_) != fl.end() ? rd_exp_choice_ : 0;
-    if ((flags & 2) && readlyrics_reader_working() && !rd_exp_wait_) {   // the Latin spelling of kanji is not there yet: say so once
-        const size_t left = translit_kanji_waiting(rd_lines_);
+    const int flags = std::find(fl.begin(), fl.end(), rd_->exp_choice) != fl.end() ? rd_->exp_choice : 0;
+    if ((flags & 2) && readlyrics_reader_working() && !rd_->exp_wait) {   // the Latin spelling of kanji is not there yet: say so once
+        const size_t left = translit_kanji_waiting(rd_->lines);
         if (left > 0) {
-            rd_exp_wait_ = true;
-            rd_exp_msg_ = "Still reading the kanji (" + std::to_string(left) + " lines left): wait a moment, or ENTER again to export as it is";
-            rd_exp_warn_ = true;
+            rd_->exp_wait = true;
+            rd_->exp_msg = "Still reading the kanji (" + std::to_string(left) + " lines left): wait a moment, or ENTER again to export as it is";
+            rd_->exp_warn = true;
             return;
         }
     }
-    rd_exp_wait_ = false;
-    const std::string text = lyrics_export_text(rd_lines_, (flags & 1) ? &rd_trans_ : nullptr, (flags & 2) != 0);
+    rd_->exp_wait = false;
+    const std::string text = lyrics_export_text(rd_->lines, (flags & 1) ? &rd_->trans : nullptr, (flags & 2) != 0);
     const fs::path file = readlyrics_export_file(flags);
     std::error_code ec;
     fs::create_directories(file.parent_path(), ec);
     if (text.empty() || ec || !write_text_atomic(file, text)) {
-        rd_status_ = ec ? "could not create the export folder: " + path_utf8(file.parent_path()) : text.empty() ? "nothing to export" : "could not write " + path_utf8(file);
-        rd_status_warn_ = true;
+        rd_->status = ec ? "could not create the export folder: " + path_utf8(file.parent_path()) : text.empty() ? "nothing to export" : "could not write " + path_utf8(file);
+        rd_->status_warn = true;
     } else {
-        rd_status_ = "exported to " + path_utf8(file);
-        rd_status_warn_ = false;
+        rd_->status = "exported to " + path_utf8(file);
+        rd_->status_warn = false;
         log_event("lyrics exported: " + path_utf8(file));
     }
-    rd_exp_msg_ = rd_status_warn_ ? rd_status_ : "Exported: " + path_utf8(file.filename());   // the overlay stays open and says what happened
-    rd_exp_warn_ = rd_status_warn_;
+    rd_->exp_msg = rd_->status_warn ? rd_->status : "Exported: " + path_utf8(file.filename());   // the overlay stays open and says what happened
+    rd_->exp_warn = rd_->status_warn;
 }
 
 // The export overlay: LEFT / RIGHT choose what the file holds, ENTER writes it, ESC closes.
 void App::readlyrics_export_key(int key) {
     const bool arrow = last_key_was_arrow();
-    if (key == 27 || key_is("HKeyReadLyrics", key) || (!arrow && (key == 'q' || key == 'Q' || key == 'e' || key == 'E'))) { rd_exp_open_ = false; return; }
+    if (key == 27 || key_is("HKeyReadLyrics", key) || (!arrow && (key == 'q' || key == 'Q' || key == 'e' || key == 'E'))) { rd_->exp_open = false; return; }
     if (key == '\r' || key == '\n') { readlyrics_export_do(); return; }
     std::vector<int> fl; std::vector<std::string> nm;
     const int n = readlyrics_export_choices(fl, nm);
     int idx = 0;
-    for (int i = 0; i < n; ++i) if (fl[static_cast<size_t>(i)] == rd_exp_choice_) idx = i;
+    for (int i = 0; i < n; ++i) if (fl[static_cast<size_t>(i)] == rd_->exp_choice) idx = i;
     if (arrow && (key == 'C' || key == 'B')) idx = (idx + 1) % n;
     else if (arrow && (key == 'D' || key == 'A')) idx = (idx + n - 1) % n;
-    rd_exp_choice_ = fl[static_cast<size_t>(idx)];
-    rd_exp_msg_.clear();
-    rd_exp_wait_ = false;
+    rd_->exp_choice = fl[static_cast<size_t>(idx)];
+    rd_->exp_msg.clear();
+    rd_->exp_wait = false;
 }
 
 std::vector<std::string> App::build_readlyrics_export_panel() const {
@@ -1246,7 +1248,7 @@ std::vector<std::string> App::build_readlyrics_export_panel() const {
     std::vector<int> fl; std::vector<std::string> nm;
     const int n = readlyrics_export_choices(fl, nm);
     int idx = 0;
-    for (int i = 0; i < n; ++i) if (fl[static_cast<size_t>(i)] == rd_exp_choice_) idx = i;
+    for (int i = 0; i < n; ++i) if (fl[static_cast<size_t>(i)] == rd_->exp_choice) idx = i;
     plain("What the file holds:", true);
     for (int i = 0; i < n; ++i) {
         const std::string txt = pad_right(truncate_str(std::string(i == idx ? "  > " : "    ") + nm[static_cast<size_t>(i)], inner), inner);
@@ -1258,11 +1260,11 @@ std::vector<std::string> App::build_readlyrics_export_panel() const {
     plain("  " + path_utf8(file.parent_path()), false);
     plain("File:", true);
     plain("  " + path_utf8(file.filename()), false);
-    const size_t unread = (fl[static_cast<size_t>(idx)] & 2) && readlyrics_reader_working() ? translit_kanji_waiting(rd_lines_) : 0;
-    if (!rd_exp_msg_.empty()) { plain(rd_exp_msg_, !rd_exp_warn_); }
+    const size_t unread = (fl[static_cast<size_t>(idx)] & 2) && readlyrics_reader_working() ? translit_kanji_waiting(rd_->lines) : 0;
+    if (!rd_->exp_msg.empty()) { plain(rd_->exp_msg, !rd_->exp_warn); }
     else if (unread > 0) plain("Reading the kanji with pykakasi ... " + std::to_string(unread) + " lines left -- wait a moment", true);
-    else if (rd_tlist_.empty()) plain("[t] fetches a translation; then it can be exported too.", true);
-    else if (n < 3 && !lyrics_export_translit_differs(rd_lines_)) plain("These lyrics have no kana / Hangul / Chinese characters to spell in Latin letters.", true);
+    else if (rd_->tlist.empty()) plain("[t] fetches a translation; then it can be exported too.", true);
+    else if (n < 3 && !lyrics_export_translit_differs(rd_->lines)) plain("These lyrics have no kana / Hangul / Chinese characters to spell in Latin letters.", true);
     else plain("", false);
     out.push_back(box_bottom(PW, "[\u2190\u2192] Choose  [ENTER] Export  [ESC] Close", border_bottom));
     return out;
@@ -1278,9 +1280,9 @@ void App::build_readlyrics_screen(std::ostringstream& frame, int W, int target_h
     auto boxed = [&](const std::string& painted) { return bar + " " + painted + " " + bar; };
 
     // One line of choices that scrolls sideways: the lyrics files / the translations. `sel` is highlighted.
-    auto chooser = [&](const std::vector<std::string>& items, int& sel, int& first) {
+    auto chooser = [&](const std::vector<std::string>& items, int& sel, int& first, int pane_inner) {
         const int n = static_cast<int>(items.size());
-        const int avail = std::max(10, inner - 4);   // the two 2-cell scroll marks
+        const int avail = std::max(6, pane_inner - 4);   // the two 2-cell scroll marks
         const std::string sep_txt = " " + (settings_.list_separator.empty() ? std::string("|") : settings_.list_separator) + " ";
         const int sw = display_width(sep_txt);
         auto iw = [&](int i) { return std::min(avail, display_width(items[static_cast<size_t>(i)])); };
@@ -1310,73 +1312,80 @@ void App::build_readlyrics_screen(std::ostringstream& frame, int W, int target_h
         return border + (more_left ? "◀ " : "  ") + R + mid + border + (more_right ? " ▶" : "  ") + R;
     };
 
+    // The two top panes sit side by side: the lyrics files left, the translations right (each one line, scrolling sideways).
+    const int wL = W / 2, wR = W - wL;
+    const int inL = wL - 4, inR = wR - 4;
+    auto boxed_w = [&](const std::string& painted) { return bar + " " + painted + " " + bar; };
+    std::string top_l, top_r, mid_l, mid_r, bot_l, bot_r;
+
     // --- top pane 1: ONE line with the lyrics files of the track ---
-    frame << box_top("READ LYRICS" + (rd_pane_ == 0 ? focus_indicator(settings_, border) : std::string()), W, border) << "\n";
+    top_l = box_top("READ LYRICS" + (rd_->pane == 0 ? focus_indicator(settings_, border) : std::string()), wL, border);
     {
         std::string line;
-        if (rd_versions_.empty()) {
-            line = pad_right("no lyrics saved for this track yet -- they are fetched while it plays", inner);
+        if (rd_->versions.empty()) {
+            line = pad_right(truncate_str("no lyrics saved yet (fetched while the track plays)", inL), inL);
         } else {
             std::vector<std::string> items;
-            for (const auto& v : rd_versions_) {
+            for (const auto& v : rd_->versions) {
                 std::string t = (v.active ? "● " : "") + v.label;
                 if (!v.detail.empty()) t += " (" + v.detail + ")";
                 items.push_back(t);
             }
-            line = chooser(items, rd_sel_, rd_first_);
+            line = chooser(items, rd_->sel, rd_->first, inL);
         }
-        frame << boxed(line) << "\n";
+        mid_l = boxed_w(line);
     }
-    frame << box_bottom(W, n_files_label(rd_versions_.size()), border_bottom) << "\n";
+    bot_l = box_bottom(wL, n_files_label(rd_->versions.size()), border_bottom);
 
     // --- top pane 2: ONE line with the translations saved for the chosen file ---
-    const bool show = rd_show_ && !rd_tlist_.empty() && rd_trans_.size() == rd_lines_.size();
-    frame << box_top("TRANSLATION" + (rd_pane_ == 1 ? focus_indicator(settings_, border) : std::string()), W, border) << "\n";
+    const bool show = rd_->show && !rd_->tlist.empty() && rd_->trans.size() == rd_->lines.size();
+    top_r = box_top("TRANSLATION" + (rd_->pane == 1 ? focus_indicator(settings_, border) : std::string()), wR, border);
     {
         std::string line;
-        if (rd_tlist_.empty()) {
-            line = pad_right(rd_lines_.empty() ? "nothing to translate" : "no translation yet -- [t] opens the translate overlay", inner);
+        if (rd_->tlist.empty()) {
+            line = pad_right(truncate_str(rd_->lines.empty() ? "nothing to translate" : "no translation yet -- [t] translates, [SHIFT+c] creates one", inR), inR);
         } else {
             std::vector<std::string> items;
-            for (size_t i = 0; i < rd_tlist_.size(); ++i) {
-                const TranslationInfo& t = rd_tlist_[i];
-                items.push_back(std::string(show && static_cast<int>(i) == rd_tsel_ ? "● " : "") +
+            for (size_t i = 0; i < rd_->tlist.size(); ++i) {
+                const TranslationInfo& t = rd_->tlist[i];
+                items.push_back(std::string(show && static_cast<int>(i) == rd_->tsel ? "● " : "") +
                                 (translate_service_is_manual(t.service) ? translate_service_name(t.service)
                                  : language_name(t.to) + (t.service.empty() ? std::string() : " (" + translate_service_name(t.service) + ")")));
             }
-            line = chooser(items, rd_tsel_, rd_tfirst_);
+            line = chooser(items, rd_->tsel, rd_->tfirst, inR);
         }
-        frame << boxed(line) << "\n";
+        mid_r = boxed_w(line);
     }
     {
         std::string label;
-        if (rd_busy_) label = "translating into " + language_name(rd_job_to_) + " with " + translate_service_name(rd_job_svc_) + " ...";
-        else if (!rd_tlist_.empty()) label = std::to_string(rd_tlist_.size()) + (rd_tlist_.size() == 1 ? " translation" : " translations") + (show ? "" : " (hidden)");
-        frame << box_bottom(W, label, border_bottom) << "\n";
+        if (rd_->busy) label = "translating into " + language_name(rd_->job_to) + " with " + translate_service_name(rd_->job_svc) + " ...";
+        else if (!rd_->tlist.empty()) label = std::to_string(rd_->tlist.size()) + (rd_->tlist.size() == 1 ? " translation" : " translations") + (show ? "" : " (hidden)");
+        bot_r = box_bottom(wR, label, border_bottom);
     }
+    frame << top_l << top_r << "\n" << mid_l << mid_r << "\n" << bot_l << bot_r << "\n";
 
     // --- footer first (the lyrics pane takes the rows it leaves) ---
     // The legend is a small tree table (Move / Translate / Session), three rows whatever the width; the same in both panes
     // (TAB only moves the focus indicator): the keys that act on the focused pane say so in one entry.
     std::vector<std::string> hint_lines;
-    if (rd_confirm_del_ && rd_tsel_ >= 0 && rd_tsel_ < static_cast<int>(rd_tlist_.size())) {
-        hint_lines.push_back(legend_sgr(settings_) + truncate_str(" Delete the " + language_name(rd_tlist_[static_cast<size_t>(rd_tsel_)].to) + " translation (" + translate_service_name(rd_tlist_[static_cast<size_t>(rd_tsel_)].service) + ")?  [y] Yes | [any other key] No", W) + "\x1b[0m");
+    if (rd_->confirm_del && rd_->tsel >= 0 && rd_->tsel < static_cast<int>(rd_->tlist.size())) {
+        hint_lines.push_back(legend_sgr(settings_) + truncate_str(" Delete the " + language_name(rd_->tlist[static_cast<size_t>(rd_->tsel)].to) + " translation (" + translate_service_name(rd_->tlist[static_cast<size_t>(rd_->tsel)].service) + ")?  [y] Yes | [any other key] No", W) + "\x1b[0m");
         hint_lines.push_back(std::string());
         hint_lines.push_back(std::string());
     } else {
         std::vector<LegendGroup> groups = {
             {"Move", {"[\u2190\u2192] Choose file/Translation\001Choose", "[TAB] Focus", "[\u2191\u2193] Scroll", "[SHIFT+\u2191\u2193] Page up/down\001Page", "[HOME/END] Top/Bottom"}},
             {"Play", {"[p] Play/Pause", "[SHIFT+\u2190\u2192] Seek 5 s\001Seek", "[f] Follow the song\001Follow", "[" + hotkey_text("HKeyLyricsTiming", "ALT+L") + "] Lyrics timing\001Timing"}},
-            {"Translate", {"[t] Translate", "[SHIFT+t] Show/Hide translations\001Show/Hide", "[d/DEL] Delete translation\001Delete", "[SHIFT+e] Edit/Add translation\001Edit/Add", "[e] Export"}},
+            {"Translate", {"[t] Translate", "[SHIFT+t] Show/Hide translations\001Show/Hide", "[d/DEL] Delete translation\001Delete", "[SHIFT+c] Create","[SHIFT+e] Edit/Add translation\001Edit/Add", "[e] Export"}},
             {"Session", {"[" + hotkey_text("HKeySearch", "/") + "] Search", "[" + hotkey_text("HKeyRetryLyrics", "l") + "] Re-fetch lyrics\001Re-fetch", "[a] Add / Assign lyrics manually\001Add / Assign", "[ESC] Close"}},
         };
         const auto lrows = layout_legend_tree(groups, W - 1);
         for (size_t i = 0; i < lrows.size(); ++i) hint_lines.push_back(" " + paint_legend(settings_, lrows, i, border, 0, true));
     }
     const int legend_rows = static_cast<int>(hint_lines.size());
-    const int status_rows = 0;   // no status line here: the status message and the log overlay show rd_status_ (it used to change the size of the panes)
+    const int status_rows = 0;   // no status line here: the status message and the log overlay show rd_->status (it used to change the size of the panes)
     const int budget = std::min(target_height, term_rows_ - 1);
-    const int body = std::max(3, budget - 6 /*two top panes*/ - 2 /*lyrics pane borders*/ - legend_rows - status_rows);
+    const int body = std::max(3, budget - 3 /*the two top panes, side by side*/ - 2 /*lyrics pane borders*/ - legend_rows - status_rows);
     // two blank rows above and below the lyrics (none on a terminal too short for them)
     const int margin = body >= 10 ? 2 : 0;
     const int text_rows = body - 2 * margin;
@@ -1386,67 +1395,67 @@ void App::build_readlyrics_screen(std::ostringstream& frame, int W, int target_h
     // The track of the reader is the loaded one: its lyrics are drawn the way the lyrics engine draws them (the active line, the words that
     // are sung, the animation of Settings), the view follows the song, and the translation of the active line is lit with it.
     struct Row { std::string text; int style; bool pre = false; };   // 0 original, 1 translation, 2 blank, 3 translation of the active line; pre: painted already (wrap_w wide)
-    const bool plays = readlyrics_track_plays() && rd_timed_.size() == rd_lines_.size() && !rd_lines_.empty();
+    const bool plays = readlyrics_track_plays() && rd_->timed.size() == rd_->lines.size() && !rd_->lines.empty();
     const double elapsed = plays ? player_.poll_elapsed() : 0.0;
     bool synced = false;
-    for (const LyricLine& l : rd_timed_) if (l.start_time >= 0.0) { synced = true; break; }
-    double offset = rd_delay_;
+    for (const LyricLine& l : rd_->timed) if (l.start_time >= 0.0) { synced = true; break; }
+    double offset = rd_->delay;
     if (mode_ == Mode::LyricsEdit && lyrics_edit_from_reader_) { std::lock_guard<std::mutex> lk(lyrics_mutex_); offset = lyrics_result_.delay; }   // the timing overlay is open: live
     const double lt = elapsed - offset;
     int active = -1;
     if (plays) {
         if (synced) {
-            for (size_t i = 0; i < rd_timed_.size(); ++i) if (rd_timed_[i].start_time >= 0.0 && rd_timed_[i].start_time <= lt) active = static_cast<int>(i);
+            for (size_t i = 0; i < rd_->timed.size(); ++i) if (rd_->timed[i].start_time >= 0.0 && rd_->timed[i].start_time <= lt) active = static_cast<int>(i);
         } else if (total_sec_ > 0) {   // plain lyrics: spread over the track
-            active = std::clamp(static_cast<int>(elapsed / static_cast<double>(total_sec_) * static_cast<double>(rd_lines_.size())), 0, static_cast<int>(rd_lines_.size()) - 1);
+            active = std::clamp(static_cast<int>(elapsed / static_cast<double>(total_sec_) * static_cast<double>(rd_->lines.size())), 0, static_cast<int>(rd_->lines.size()) - 1);
         }
     }
     Settings ks = settings_;   // centred whole-line look, as in the karaoke view
     ks.lyrics_alignment = 0;
     std::vector<Row> rows;
     int active_row = -1;
-    for (size_t i = 0; i < rd_lines_.size(); ++i) {
-        if (rd_lines_[i].empty()) { rows.push_back({std::string(), 2}); continue; }
+    for (size_t i = 0; i < rd_->lines.size(); ++i) {
+        if (rd_->lines[i].empty()) { rows.push_back({std::string(), 2}); continue; }
         const bool is_active = plays && static_cast<int>(i) == active;
         if (is_active) active_row = static_cast<int>(rows.size());
         if (plays) {
-            LyricLine ll = rd_timed_[i];
+            LyricLine ll = rd_->timed[i];
             if (translit_enabled()) { ll.full_text = transliterate(ll.full_text); for (auto& w : ll.words) w.second = transliterate(w.second); }
             const bool timed = synced && ll.start_time >= 0.0;
             for (auto& w : render_lyric_line_wrapped(ll, timed ? lt : 1e12, wrap_w, is_active, ks)) rows.push_back({w, 0, true});
         } else {
-            for (auto& w : wrap_lines(shown_text(rd_lines_[i]), wrap_w, 8)) rows.push_back({w, 0});
+            for (auto& w : wrap_lines(shown_text(rd_->lines[i]), wrap_w, 8)) rows.push_back({w, 0});
         }
         if (show) {
-            const std::string& t = rd_trans_[i];
-            if (!t.empty() && ascii_lower_str(t) != ascii_lower_str(rd_lines_[i]))
+            const std::string& t = rd_->trans[i];
+            if (!t.empty() && ascii_lower_str(t) != ascii_lower_str(rd_->lines[i]))
                 for (auto& w : wrap_lines("(" + shown_text(t) + ")", wrap_w, 8)) rows.push_back({w, is_active ? 3 : 1});
         }
     }
-    if (rd_lines_.empty()) {
-        rows.push_back({rd_versions_.empty() ? "no lyrics saved for this track" : "this file has no readable lyrics", 2});
+    if (rd_->lines.empty()) {
+        rows.push_back({rd_->versions.empty() ? "no lyrics saved for this track" : "this file has no readable lyrics", 2});
     }
-    if (plays && rd_follow_ && active_row >= 0) rd_scroll_ = std::max(0, active_row - text_rows / 2 + 1);   // (clamped below)
+    if (plays && rd_->follow && active_row >= 0) rd_->scroll = std::max(0, active_row - text_rows / 2 + 1);   // (clamped below)
     const int max_scroll = std::max(0, static_cast<int>(rows.size()) - text_rows);
-    rd_scroll_ = std::clamp(rd_scroll_, 0, max_scroll);
+    rd_->scroll = std::clamp(rd_->scroll, 0, max_scroll);
 
     std::string info;
-    if (!rows.empty() && !rd_lines_.empty())
-        info = "row " + std::to_string(std::min<int>(rd_scroll_ + text_rows, static_cast<int>(rows.size()))) + "/" + std::to_string(rows.size());
+    if (!rows.empty() && !rd_->lines.empty())
+        info = "row " + std::to_string(std::min<int>(rd_->scroll + text_rows, static_cast<int>(rows.size()))) + "/" + std::to_string(rows.size());
     if (plays) info += std::string(info.empty() ? "" : "  ") + (player_.is_paused() ? "paused " : "playing ") + fmt_mmss(elapsed) + " / " + fmt_mmss(static_cast<double>(total_sec_)) +
-                       (rd_follow_ ? "" : "  (follow off: [f])");
+                       (rd_->follow ? "" : "  (follow off: [f])");
     const std::string sep2 = info.empty() ? "" : "  ";
-    if (show && translate_service_is_manual(rd_svc_)) info += sep2 + "translation: " + translate_service_name(rd_svc_) + " (" + language_name(rd_to_) + ")";
-    else if (show) info += sep2 + "translation: " + language_name(rd_from_) + " > " + language_name(rd_to_) +
-                      (rd_svc_.empty() ? std::string() : " (" + translate_service_name(rd_svc_) + ")");
-    else if (rd_same_ && rd_tlist_.empty()) info += sep2 + "already " + language_name(settings_.translate_to);
-    else if (!rd_tlist_.empty()) info += sep2 + "translation hidden -- [SHIFT+t] shows it";
+    if (show && translate_service_is_manual(rd_->svc)) info += sep2 + "translation: " + translate_service_name(rd_->svc) + " (" + language_name(rd_->to) + ")";
+    else if (show) info += sep2 + "translation: " + language_name(rd_->from) + " > " + language_name(rd_->to) +
+                      (rd_->svc.empty() ? std::string() : " (" + translate_service_name(rd_->svc) + ")");
+    else if (rd_->same && rd_->tlist.empty()) info += sep2 + "already " + language_name(settings_.translate_to);
+    else if (!rd_->tlist.empty()) info += sep2 + "translation hidden -- [SHIFT+t] shows it";
 
-    frame << box_top(truncate_str(rd_title_, std::max(10, W - 8)), W, border) << "\n";
+    frame << box_top(truncate_str(rd_->title, std::max(10, W - 8)), W, border) << "\n";
     const std::string orig_sgr = ansi_for(settings_.active_line_color, false);
     const std::string trans_sgr = ansi_for(settings_.inactive_line_color, false);
     for (int k = 0; k < body; ++k) {
-        const int idx = rd_scroll_ + k - margin;
+        const int idx = rd_->scroll + k - margin;
         std::string painted;
         if (k >= margin && k < body - margin && idx >= 0 && idx < static_cast<int>(rows.size())) {
             const Row& r = rows[static_cast<size_t>(idx)];
@@ -1479,77 +1488,101 @@ int App::readlyrics_te_body_rows() const {
 }
 
 void App::readlyrics_te_step(int dir) {
-    int i = rd_te_row_;
-    const int n = static_cast<int>(rd_te_lines_.size());
-    for (i += dir; i >= 0 && i < n; i += dir) if (!readlyrics_te_blank(static_cast<size_t>(i))) { rd_te_row_ = i; return; }
+    int i = rd_->te_row;
+    const int n = static_cast<int>(rd_->te_lines.size());
+    for (i += dir; i >= 0 && i < n; i += dir) if (!readlyrics_te_blank(static_cast<size_t>(i))) { rd_->te_row = i; return; }
+}
+
+// SHIFT+c: creates an EMPTY translation file for the chosen lyrics file (a "Manual Translation", into the Translate To language) and
+// selects it; [SHIFT+e] writes it.
+void App::readlyrics_create_translation() {
+    rd_->status_warn = true;
+    bool any = false;
+    for (size_t i = 0; i < rd_->lines.size(); ++i) if (!readlyrics_te_blank(i)) any = true;
+    if (!any) { rd_->status = "there are no lyrics to translate"; return; }
+    if (rd_->sel < 0 || rd_->sel >= static_cast<int>(rd_->versions.size())) { rd_->status = "no lyrics file is chosen"; return; }
+    const LyricsVersion& v = rd_->versions[static_cast<size_t>(rd_->sel)];
+    LyricsTranslation t;
+    t.ok = true;
+    t.service = translate_next_manual_service(rd_->tlist);
+    t.lines.assign(rd_->lines.size(), std::string());
+    const std::string to = settings_.translate_to;
+    if (!save_lyrics_translation(rd_->track, v, to, rd_->lines, t)) { rd_->status = "could not create the translation (is the lyrics folder writable?)"; return; }
+    readlyrics_refresh_translations(to, t.service);
+    rd_->show = !rd_->tlist.empty();
+    rd_->pane = 1;
+    rd_->status_warn = false;
+    rd_->status = "created an empty " + translate_service_name(t.service) + " (" + language_name(to) + ") -- [SHIFT+e] writes it";
+    log_event("empty translation created: " + translate_service_name(t.service) + " " + to);
+    force_redraw_ = true;
 }
 
 void App::readlyrics_te_open() {
-    rd_status_warn_ = true;
+    rd_->status_warn = true;
     bool any = false;
-    for (size_t i = 0; i < rd_lines_.size(); ++i) if (!readlyrics_te_blank(i)) any = true;
-    if (!any) { rd_status_ = "there are no lyrics to translate"; return; }
-    rd_status_warn_ = false;
-    rd_te_lines_.assign(rd_lines_.size(), std::string());
-    rd_te_editing_ = false;
-    rd_te_to_ = settings_.translate_to;
-    rd_te_orig_to_.clear();
-    rd_te_msg_.clear();
-    rd_te_warn_ = false;
-    const bool have = rd_tsel_ >= 0 && rd_tsel_ < static_cast<int>(rd_tlist_.size()) && rd_trans_.size() == rd_lines_.size();
+    for (size_t i = 0; i < rd_->lines.size(); ++i) if (!readlyrics_te_blank(i)) any = true;
+    if (!any) { rd_->status = "there are no lyrics to translate"; return; }
+    rd_->status_warn = false;
+    rd_->te_lines.assign(rd_->lines.size(), std::string());
+    rd_->te_editing = false;
+    rd_->te_to = settings_.translate_to;
+    rd_->te_orig_to.clear();
+    rd_->te_msg.clear();
+    rd_->te_warn = false;
+    const bool have = rd_->tsel >= 0 && rd_->tsel < static_cast<int>(rd_->tlist.size()) && rd_->trans.size() == rd_->lines.size();
     if (have) {
-        const TranslationInfo& t = rd_tlist_[static_cast<size_t>(rd_tsel_)];
-        rd_te_lines_ = rd_trans_;
-        rd_te_to_ = t.to;
+        const TranslationInfo& t = rd_->tlist[static_cast<size_t>(rd_->tsel)];
+        rd_->te_lines = rd_->trans;
+        rd_->te_to = t.to;
         if (translate_service_is_manual(t.service)) {
-            rd_te_editing_ = true;
-            rd_te_svc_ = t.service;
-            rd_te_orig_to_ = t.to;
-            rd_te_msg_ = "changing " + translate_service_name(t.service);
+            rd_->te_editing = true;
+            rd_->te_svc = t.service;
+            rd_->te_orig_to = t.to;
+            rd_->te_msg = "changing " + translate_service_name(t.service);
         } else {
-            rd_te_svc_ = translate_next_manual_service(rd_tlist_);
-            rd_te_msg_ = "a copy of the " + translate_service_name(t.service) + " text: it is saved as a new " + translate_service_name(rd_te_svc_);
+            rd_->te_svc = translate_next_manual_service(rd_->tlist);
+            rd_->te_msg = "a copy of the " + translate_service_name(t.service) + " text: it is saved as a new " + translate_service_name(rd_->te_svc);
         }
     } else {
-        rd_te_svc_ = translate_next_manual_service(rd_tlist_);
-        rd_te_msg_ = "a new translation from scratch: it is saved as " + translate_service_name(rd_te_svc_);
+        rd_->te_svc = translate_next_manual_service(rd_->tlist);
+        rd_->te_msg = "a new translation from scratch: it is saved as " + translate_service_name(rd_->te_svc);
     }
-    for (size_t i = 0; i < rd_te_lines_.size(); ++i) if (readlyrics_te_blank(i)) rd_te_lines_[i].clear();
-    rd_te_row_ = -1;
+    for (size_t i = 0; i < rd_->te_lines.size(); ++i) if (readlyrics_te_blank(i)) rd_->te_lines[i].clear();
+    rd_->te_row = -1;
     readlyrics_te_step(+1);
-    rd_te_mark_ = -1;
-    rd_te_undo_.clear();
-    rd_te_first_ = 0;
-    rd_te_focus_ = 0;
-    rd_te_dirty_ = rd_te_ask_ = rd_te_new_ask_ = false;
+    rd_->te_mark = -1;
+    rd_->te_hist.clear(); rd_->te_redo.clear(); rd_->te_kind = 0;
+    rd_->te_first = 0;
+    rd_->te_focus = 0;
+    rd_->te_dirty = rd_->te_ask = rd_->te_new_ask = false;
     edit_owner_.clear();
-    rd_te_open_ = true;
+    rd_->te_open = true;
     force_redraw_ = true;
 }
 
 bool App::readlyrics_te_save() {
-    rd_te_warn_ = true;
+    rd_->te_warn = true;
     bool filled = false;
-    for (const std::string& l : rd_te_lines_) if (l.find_first_not_of(" \t\r") != std::string::npos) filled = true;
-    if (!filled) { rd_te_msg_ = "nothing is written yet -- nothing to save"; return false; }
-    if (rd_sel_ < 0 || rd_sel_ >= static_cast<int>(rd_versions_.size())) { rd_te_msg_ = "no lyrics file is chosen"; return false; }
-    const LyricsVersion& v = rd_versions_[static_cast<size_t>(rd_sel_)];
+    for (const std::string& l : rd_->te_lines) if (l.find_first_not_of(" \t\r") != std::string::npos) filled = true;
+    if (!filled) { rd_->te_msg = "nothing is written yet -- nothing to save"; return false; }
+    if (rd_->sel < 0 || rd_->sel >= static_cast<int>(rd_->versions.size())) { rd_->te_msg = "no lyrics file is chosen"; return false; }
+    const LyricsVersion& v = rd_->versions[static_cast<size_t>(rd_->sel)];
     LyricsTranslation t;
     t.ok = true;
-    t.service = rd_te_svc_;
-    t.lines = rd_te_lines_;
+    t.service = rd_->te_svc;
+    t.lines = rd_->te_lines;
     for (size_t i = 0; i < t.lines.size(); ++i) if (readlyrics_te_blank(i)) t.lines[i].clear();
-    if (!save_lyrics_translation(rd_track_, v, rd_te_to_, rd_lines_, t)) { rd_te_msg_ = "could not save the translation (is the lyrics folder writable?)"; return false; }
-    if (rd_te_editing_ && !rd_te_orig_to_.empty() && rd_te_orig_to_ != rd_te_to_) delete_lyrics_translation(rd_track_, v, rd_te_orig_to_, rd_te_svc_);   // the language changed: the file moves
-    const std::string svc = rd_te_svc_, to = rd_te_to_;
-    rd_te_open_ = false;
-    rd_te_dirty_ = false;
+    if (!save_lyrics_translation(rd_->track, v, rd_->te_to, rd_->lines, t)) { rd_->te_msg = "could not save the translation (is the lyrics folder writable?)"; return false; }
+    if (rd_->te_editing && !rd_->te_orig_to.empty() && rd_->te_orig_to != rd_->te_to) delete_lyrics_translation(rd_->track, v, rd_->te_orig_to, rd_->te_svc);   // the language changed: the file moves
+    const std::string svc = rd_->te_svc, to = rd_->te_to;
+    rd_->te_open = false;
+    rd_->te_dirty = false;
     text_disengage();
     readlyrics_refresh_translations(to, svc);
-    rd_show_ = !rd_tlist_.empty();
-    rd_pane_ = 1;
-    rd_status_warn_ = false;
-    rd_status_ = "saved: " + translate_service_name(svc) + " (" + language_name(to) + ") -- in the lyrics folder (translations)";
+    rd_->show = !rd_->tlist.empty();
+    rd_->pane = 1;
+    rd_->status_warn = false;
+    rd_->status = "saved: " + translate_service_name(svc) + " (" + language_name(to) + ") -- in the lyrics folder (translations)";
     log_event("manual translation saved: " + translate_service_name(svc) + " " + to);
     force_redraw_ = true;
     return true;
@@ -1557,59 +1590,59 @@ bool App::readlyrics_te_save() {
 
 void App::readlyrics_te_key(int key) {
     const bool arrow = last_key_was_arrow();
-    auto close_editor = [&]() { rd_te_open_ = false; rd_te_ask_ = rd_te_new_ask_ = false; text_disengage(); force_redraw_ = true; };
-    if (rd_te_ask_) {   // "leave without saving?"
+    auto close_editor = [&]() { rd_->te_open = false; rd_->te_ask = rd_->te_new_ask = false; text_disengage(); force_redraw_ = true; };
+    if (rd_->te_ask) {   // "leave without saving?"
         if (!arrow && (key == 'y' || key == 'Y')) close_editor();
-        else rd_te_ask_ = false;
+        else rd_->te_ask = false;
         return;
     }
-    if (rd_te_new_ask_) {   // "start over with an empty translation?"
+    if (rd_->te_new_ask) {   // "start over with an empty translation?"
         if (!arrow && (key == 'y' || key == 'Y')) {
-            std::fill(rd_te_lines_.begin(), rd_te_lines_.end(), std::string());
-            rd_te_svc_ = translate_next_manual_service(rd_tlist_);
-            rd_te_editing_ = false;
-            rd_te_orig_to_.clear();
-            rd_te_dirty_ = false;
-            rd_te_row_ = -1;
+            std::fill(rd_->te_lines.begin(), rd_->te_lines.end(), std::string());
+            rd_->te_svc = translate_next_manual_service(rd_->tlist);
+            rd_->te_editing = false;
+            rd_->te_orig_to.clear();
+            rd_->te_dirty = false;
+            rd_->te_row = -1;
             readlyrics_te_step(+1);
-            rd_te_mark_ = -1;
-            rd_te_undo_.clear();
+            rd_->te_mark = -1;
+            rd_->te_hist.clear(); rd_->te_redo.clear(); rd_->te_kind = 0;
             edit_owner_.clear();
-            rd_te_warn_ = false;
-            rd_te_msg_ = "empty translation: it is saved as " + translate_service_name(rd_te_svc_);
+            rd_->te_warn = false;
+            rd_->te_msg = "empty translation: it is saved as " + translate_service_name(rd_->te_svc);
         }
-        rd_te_new_ask_ = false;
+        rd_->te_new_ask = false;
         return;
     }
     if (key == 27) {
-        if (rd_te_mark_ >= 0) { rd_te_mark_ = -1; rd_te_msg_.clear(); return; }   // first ESC: the marking goes
-        if (rd_te_focus_ == 1) { rd_te_focus_ = 0; return; }
-        if (rd_te_dirty_) { rd_te_ask_ = true; return; }
+        if (rd_->te_mark >= 0) { rd_->te_mark = -1; rd_->te_msg.clear(); return; }   // first ESC: the marking goes
+        if (rd_->te_focus == 1) { rd_->te_focus = 0; return; }
+        if (rd_->te_dirty) { rd_->te_ask = true; return; }
         close_editor();
         return;
     }
     if (key == kKeyCtrlS) { if (readlyrics_te_save()) text_disengage(); return; }
     if (key == kKeyCtrlN) {
         bool filled = false;
-        for (const std::string& l : rd_te_lines_) if (l.find_first_not_of(" \t\r") != std::string::npos) filled = true;
-        if (!filled && !rd_te_editing_) { rd_te_msg_ = "this translation is empty already"; rd_te_warn_ = false; return; }
-        rd_te_new_ask_ = true;
+        for (const std::string& l : rd_->te_lines) if (l.find_first_not_of(" \t\r") != std::string::npos) filled = true;
+        if (!filled && !rd_->te_editing) { rd_->te_msg = "this translation is empty already"; rd_->te_warn = false; return; }
+        rd_->te_new_ask = true;
         return;
     }
     // Latin letters on / off (the original column shows kana / Hangul / Chinese in Latin letters). CTRL+T works everywhere (T for transliteration; CTRL+2 is the same, but many terminals and keyboard layouts send nothing for it); the
     // " sign (the main key of it) only while the language is chosen, because in a line it is a character that can be typed.
-    if (key == kKeyCtrlT || key == kKeyCtrl2 || (!arrow && key == '"' && rd_te_focus_ == 1)) {
+    if (key == kKeyCtrlT || key == kKeyCtrl2 || (!arrow && key == '"' && rd_->te_focus == 1)) {
         toggle_latin_letters();
-        rd_te_msg_ = translit_enabled() ? "Latin letters: on -- the original is shown in Latin letters (your text is not changed)" : "Latin letters: off";
-        rd_te_warn_ = false;
+        rd_->te_msg = translit_enabled() ? "Latin letters: on -- the original is shown in Latin letters (your text is not changed)" : "Latin letters: off";
+        rd_->te_warn = false;
         return;
     }
-    if (!arrow && key == '\t') { rd_te_focus_ = rd_te_focus_ == 0 ? 1 : 0; return; }
-    if (rd_te_focus_ == 1) {   // the language: LEFT / RIGHT (or the first letter) choose, ENTER goes back to the lines
-        if (key == '\r' || key == '\n') { rd_te_focus_ = 0; return; }
+    if (!arrow && key == '\t') { rd_->te_focus = rd_->te_focus == 0 ? 1 : 0; return; }
+    if (rd_->te_focus == 1) {   // the language: LEFT / RIGHT (or the first letter) choose, ENTER goes back to the lines
+        if (key == '\r' || key == '\n') { rd_->te_focus = 0; return; }
         const auto& langs = translate_languages();
         int idx = 0;
-        for (size_t i = 0; i < langs.size(); ++i) if (langs[i].first == rd_te_to_) idx = static_cast<int>(i);
+        for (size_t i = 0; i < langs.size(); ++i) if (langs[i].first == rd_->te_to) idx = static_cast<int>(i);
         const int n = static_cast<int>(langs.size());
         int next = idx;
         if (arrow && (key == 'C' || key == 'B')) next = (idx + 1) % n;
@@ -1621,22 +1654,28 @@ void App::readlyrics_te_key(int key) {
                 if (!langs[static_cast<size_t>(i)].second.empty() && std::tolower(static_cast<unsigned char>(langs[static_cast<size_t>(i)].second[0])) == want) { next = i; break; }
             }
         }
-        if (next != idx) { rd_te_to_ = langs[static_cast<size_t>(next)].first; rd_te_dirty_ = true; rd_te_msg_.clear(); }
+        if (next != idx) { rd_->te_to = langs[static_cast<size_t>(next)].first; rd_->te_dirty = true; rd_->te_msg.clear(); }
         return;
     }
-    const int last = static_cast<int>(rd_te_lines_.size()) - 1;
-    rd_te_row_ = std::clamp(rd_te_row_, 0, last);
+    const int last = static_cast<int>(rd_->te_lines.size()) - 1;
+    rd_->te_row = std::clamp(rd_->te_row, 0, last);
     if (arrow && last_key_was_page() && (key == 'A' || key == 'B')) {
         for (int i = 0; i < 10; ++i) readlyrics_te_step(key == 'A' ? -1 : +1);
         return;
     }
     // ---- whole lines: SHIFT+up/down marks, CTRL+c / x / v copy, cut and paste them, DEL clears them, CTRL+z undoes ----
-    auto marked_from = [&]() { return rd_te_mark_ < 0 ? rd_te_row_ : std::min(rd_te_mark_, rd_te_row_); };
-    auto marked_to = [&]() { return rd_te_mark_ < 0 ? rd_te_row_ : std::max(rd_te_mark_, rd_te_row_); };
-    auto remember = [&]() { rd_te_undo_ = rd_te_lines_; };
+    auto marked_from = [&]() { return rd_->te_mark < 0 ? rd_->te_row : std::min(rd_->te_mark, rd_->te_row); };
+    auto marked_to = [&]() { return rd_->te_mark < 0 ? rd_->te_row : std::max(rd_->te_mark, rd_->te_row); };
+    // The undo history: up to 10 states. A typed run in one line is one step; a deletion, a paste, a cut, a clear is one step each.
+    auto push_snap = [&](const std::vector<std::string>& lines, int row) {
+        rd_->te_hist.push_back({lines, row});
+        if (rd_->te_hist.size() > 10) rd_->te_hist.erase(rd_->te_hist.begin());
+        rd_->te_redo.clear();
+    };
+    auto remember = [&]() { push_snap(rd_->te_lines, rd_->te_row); rd_->te_kind = 0; };
     auto lines_text = [&](int a, int b) {   // one clipboard line per row, so the rows keep their place (gaps between stanzas stay empty lines)
         std::string t;
-        for (int i = a; i <= b; ++i) { if (i > a) t += '\n'; if (!readlyrics_te_blank(static_cast<size_t>(i))) t += rd_te_lines_[static_cast<size_t>(i)]; }
+        for (int i = a; i <= b; ++i) { if (i > a) t += '\n'; if (!readlyrics_te_blank(static_cast<size_t>(i))) t += rd_->te_lines[static_cast<size_t>(i)]; }
         return t;
     };
     auto count_word = [](int n) { return std::to_string(n) + (n == 1 ? " line" : " lines"); };
@@ -1661,68 +1700,87 @@ void App::readlyrics_te_key(int key) {
             if (readlyrics_te_blank(i)) continue;
             std::string l = in[k];
             if (l.size() > 1000) l.resize(1000);
-            rd_te_lines_[i] = l;
+            rd_->te_lines[i] = l;
             ++put;
         }
-        rd_te_dirty_ = true;
-        rd_te_warn_ = false;
-        rd_te_msg_ = "pasted " + count_word(put) + " from line " + std::to_string(from + 1);
+        rd_->te_dirty = true;
+        rd_->te_warn = false;
+        rd_->te_msg = "pasted " + count_word(put) + " from line " + std::to_string(from + 1);
     };
-    if (key == kKeyCtrlZ) {
-        if (rd_te_undo_.empty()) { rd_te_msg_ = "nothing to undo"; rd_te_warn_ = false; return; }
-        std::swap(rd_te_lines_, rd_te_undo_);
-        rd_te_dirty_ = true;
+    if (key == kKeyCtrlZ || key == 25) {   // undo (CTRL+z; CTRL+y is the same key on a QWERTZ keyboard)
+        if (rd_->te_hist.empty()) { rd_->te_msg = "nothing to undo"; rd_->te_warn = false; return; }
+        rd_->te_redo.push_back({rd_->te_lines, rd_->te_row});
+        rd_->te_lines = rd_->te_hist.back().lines;
+        rd_->te_row = rd_->te_hist.back().row;
+        rd_->te_hist.pop_back();
+        rd_->te_mark = -1;
+        rd_->te_kind = 0;
+        rd_->te_dirty = true;
         edit_owner_.clear();
-        rd_te_msg_ = "the last whole-line change is undone (CTRL+z again: back)";
-        rd_te_warn_ = false;
+        rd_->te_msg = "undone (" + std::to_string(rd_->te_hist.size()) + " more step" + (rd_->te_hist.size() == 1 ? "" : "s") + " can be undone; CTRL+r brings the change back)";
+        rd_->te_warn = false;
+        return;
+    }
+    if (key == 18 || key == kKeyCtrlShiftZ) {   // redo (CTRL+r, or CTRL+SHIFT+z in a terminal that reports it)
+        if (rd_->te_redo.empty()) { rd_->te_msg = "nothing to redo"; rd_->te_warn = false; return; }
+        rd_->te_hist.push_back({rd_->te_lines, rd_->te_row});
+        rd_->te_lines = rd_->te_redo.back().lines;
+        rd_->te_row = rd_->te_redo.back().row;
+        rd_->te_redo.pop_back();
+        rd_->te_mark = -1;
+        rd_->te_kind = 0;
+        rd_->te_dirty = true;
+        edit_owner_.clear();
+        rd_->te_msg = "redone";
+        rd_->te_warn = false;
         return;
     }
     if (arrow && (key == 'A' || key == 'B') && last_key_was_shifted() && !last_key_was_page()) {   // SHIFT+up / down: mark lines
-        if (rd_te_mark_ < 0) rd_te_mark_ = rd_te_row_;
+        if (rd_->te_mark < 0) rd_->te_mark = rd_->te_row;
         readlyrics_te_step(key == 'A' ? -1 : +1);
         const int n = marked_to() - marked_from() + 1;
-        rd_te_msg_ = count_word(n) + " marked (CTRL+c copy, CTRL+x cut, CTRL+v paste, DEL clear)";
-        rd_te_warn_ = false;
+        rd_->te_msg = count_word(n) + " marked (CTRL+c copy, CTRL+x cut, CTRL+v paste, DEL clear)";
+        rd_->te_warn = false;
         edit_owner_.clear();
         return;
     }
-    if (rd_te_mark_ >= 0) {
+    if (rd_->te_mark >= 0) {
         const int a = marked_from(), b = marked_to();
         if (key == kKeyCtrlC || key == kKeyCtrlX) {
             clipboard_set(lines_text(a, b));
             if (key == kKeyCtrlX) {
                 remember();
-                for (int i = a; i <= b; ++i) rd_te_lines_[static_cast<size_t>(i)].clear();
-                rd_te_dirty_ = true;
+                for (int i = a; i <= b; ++i) rd_->te_lines[static_cast<size_t>(i)].clear();
+                rd_->te_dirty = true;
             }
-            rd_te_msg_ = std::string(key == kKeyCtrlX ? "cut " : "copied ") + count_word(b - a + 1);
-            rd_te_warn_ = false;
-            rd_te_mark_ = -1;
+            rd_->te_msg = std::string(key == kKeyCtrlX ? "cut " : "copied ") + count_word(b - a + 1);
+            rd_->te_warn = false;
+            rd_->te_mark = -1;
             return;
         }
-        if (key == kKeyCtrlV) { paste_lines(a, clipboard_get()); rd_te_mark_ = -1; rd_te_row_ = a; edit_owner_.clear(); return; }
+        if (key == kKeyCtrlV) { paste_lines(a, clipboard_get()); rd_->te_mark = -1; rd_->te_row = a; edit_owner_.clear(); return; }
         if (key == kKeyDelete || key == 127) {
             remember();
-            for (int i = a; i <= b; ++i) rd_te_lines_[static_cast<size_t>(i)].clear();
-            rd_te_dirty_ = true;
-            rd_te_msg_ = "cleared " + count_word(b - a + 1);
-            rd_te_warn_ = false;
-            rd_te_mark_ = -1;
+            for (int i = a; i <= b; ++i) rd_->te_lines[static_cast<size_t>(i)].clear();
+            rd_->te_dirty = true;
+            rd_->te_msg = "cleared " + count_word(b - a + 1);
+            rd_->te_warn = false;
+            rd_->te_mark = -1;
             edit_owner_.clear();
             return;
         }
         if (key == kKeyCtrlO) {
             remember();
             int put = 0;
-            for (int i = a; i <= b; ++i) if (!readlyrics_te_blank(static_cast<size_t>(i))) { rd_te_lines_[static_cast<size_t>(i)] = rd_lines_[static_cast<size_t>(i)]; ++put; }
-            rd_te_dirty_ = true;
-            rd_te_msg_ = "the original copied into " + count_word(put);
-            rd_te_warn_ = false;
-            rd_te_mark_ = -1;
+            for (int i = a; i <= b; ++i) if (!readlyrics_te_blank(static_cast<size_t>(i))) { rd_->te_lines[static_cast<size_t>(i)] = rd_->lines[static_cast<size_t>(i)]; ++put; }
+            rd_->te_dirty = true;
+            rd_->te_msg = "the original copied into " + count_word(put);
+            rd_->te_warn = false;
+            rd_->te_mark = -1;
             edit_owner_.clear();
             return;
         }
-        rd_te_mark_ = -1;   // anything else ends the marking and does what it normally does
+        rd_->te_mark = -1;   // anything else ends the marking and does what it normally does
         edit_owner_.clear();
     }
     if (arrow && key == 'A') { readlyrics_te_step(-1); return; }
@@ -1730,22 +1788,35 @@ void App::readlyrics_te_key(int key) {
     if (!arrow && (key == '\r' || key == '\n')) { readlyrics_te_step(+1); return; }
     if (key == kKeyCtrlV) {   // text with line breaks (a whole translation copied from somewhere): it goes into the lines from here on
         const std::string clip = clipboard_get();
-        if (clip.find('\n') != std::string::npos) { paste_lines(rd_te_row_, clip); edit_owner_.clear(); return; }
+        // (text marked inside the line: the paste replaces just that text, so the line-by-line fill is for an unmarked caret only)
+        const bool marked_here = edit_owner_ == "rd-te-" + std::to_string(rd_->te_row) && edit_caret_ != edit_anchor_;
+        if (!marked_here && clip.find('\n') != std::string::npos) { paste_lines(rd_->te_row, clip); edit_owner_.clear(); return; }
     }
-    std::string& cur = rd_te_lines_[static_cast<size_t>(rd_te_row_)];
-    const std::string owner = "rd-te-" + std::to_string(rd_te_row_);
+    std::string& cur = rd_->te_lines[static_cast<size_t>(rd_->te_row)];
+    const std::string owner = "rd-te-" + std::to_string(rd_->te_row);
     edit_focus(owner, cur);
     if (key == kKeyCtrlO) {   // the original line as the translation (names, "oh oh oh" ...)
-        cur = rd_lines_[static_cast<size_t>(rd_te_row_)];
+        remember();
+        cur = rd_->lines[static_cast<size_t>(rd_->te_row)];
         edit_caret_ = edit_anchor_ = cur.size();
-        rd_te_dirty_ = true;
-        rd_te_msg_ = "the original line copied";
-        rd_te_warn_ = false;
+        rd_->te_dirty = true;
+        rd_->te_msg = "the original line copied";
+        rd_->te_warn = false;
         return;
     }
     std::string st;
-    if (edit_text_key(cur, edit_caret_, edit_anchor_, key, 1000, &st)) { rd_te_dirty_ = true; rd_te_msg_.clear(); }
-    else if (!st.empty()) { rd_te_msg_ = st; rd_te_warn_ = false; }
+    const std::vector<std::string> before_lines = rd_->te_lines;
+    if (edit_text_key(cur, edit_caret_, edit_anchor_, key, 1000, &st)) {
+        const bool typed = is_text_key(key) && !arrow;
+        if (!(typed && rd_->te_kind == 1 && rd_->te_kind_row == rd_->te_row)) push_snap(before_lines, rd_->te_row);
+        rd_->te_redo.clear();
+        rd_->te_kind = typed ? 1 : 2;
+        rd_->te_kind_row = rd_->te_row;
+        rd_->te_dirty = true; rd_->te_msg.clear();
+    } else {
+        rd_->te_kind = 0;
+        if (!st.empty()) { rd_->te_msg = st; rd_->te_warn = false; }
+    }
 }
 
 std::vector<std::string> App::build_readlyrics_te_panel(int W) const {
@@ -1762,12 +1833,12 @@ std::vector<std::string> App::build_readlyrics_te_panel(int W) const {
     auto row = [&](const std::string& painted, int used) { out.push_back(bar + " " + painted + std::string(static_cast<size_t>(std::max(0, inner - used)), ' ') + " " + bar); };
     // header: the language (TAB chooses it) and the name the translation is saved under
     {
-        const std::string lang = language_name(rd_te_to_);
-        const std::string saved = "Saved as: " + translate_service_name(rd_te_svc_);
+        const std::string lang = language_name(rd_->te_to);
+        const std::string saved = "Saved as: " + translate_service_name(rd_->te_svc);
         const std::string lab = "Language: ";
         const std::string lang_txt = truncate_str(lang, std::max(4, inner / 2 - display_width(lab)));
         const std::string sh = truncate_str(saved, std::max(0, inner - display_width(lab) - display_width(lang_txt) - 3));
-        const std::string lpart = rd_te_focus_ == 1 ? cursor_sgr(settings_.list_cursor_color, settings_.list_cursor_bg_color) + lang_txt + R : ink + lang_txt + R;
+        const std::string lpart = rd_->te_focus == 1 ? cursor_sgr(settings_.list_cursor_color, settings_.list_cursor_bg_color) + lang_txt + R : ink + lang_txt + R;
         row(hdr + lab + R + lpart + "   " + leg + sh + R, display_width(lab) + display_width(lang_txt) + 3 + display_width(sh));
     }
     const int half = (inner - 3) / 2;                 // the original's column; the translation gets the rest
@@ -1777,8 +1848,8 @@ std::vector<std::string> App::build_readlyrics_te_panel(int W) const {
         row(hdr + pad_right(a, half) + R + "   " + hdr + b + R, half + 3 + display_width(b));
     }
     const int body = readlyrics_te_body_rows();
-    const int n = static_cast<int>(rd_te_lines_.size());
-    const int cur = std::clamp(rd_te_row_, 0, std::max(0, n - 1));
+    const int n = static_cast<int>(rd_->te_lines.size());
+    const int cur = std::clamp(rd_->te_row, 0, std::max(0, n - 1));
     // A line that does not fit its column is broken into several rows -- in both columns at once, so a translation always stays beside
     // its original line. (One column is kept free in the translation for the caret.)
     const int tw = std::max(1, rw - 1);
@@ -1812,12 +1883,12 @@ std::vector<std::string> App::build_readlyrics_te_panel(int W) const {
     std::vector<std::string> oshown(static_cast<size_t>(n));
     std::vector<int> hgt(static_cast<size_t>(n), 1);
     for (int i = 0; i < n; ++i) {
-        oshown[static_cast<size_t>(i)] = shown_text(rd_lines_[static_cast<size_t>(i)]);
+        oshown[static_cast<size_t>(i)] = shown_text(rd_->lines[static_cast<size_t>(i)]);
         orow[static_cast<size_t>(i)] = wrap_at(oshown[static_cast<size_t>(i)], half);
-        trow[static_cast<size_t>(i)] = wrap_at(rd_te_lines_[static_cast<size_t>(i)], tw);
+        trow[static_cast<size_t>(i)] = wrap_at(rd_->te_lines[static_cast<size_t>(i)], tw);
         hgt[static_cast<size_t>(i)] = static_cast<int>(std::max(orow[static_cast<size_t>(i)].size(), trow[static_cast<size_t>(i)].size()));
     }
-    int first = std::clamp(rd_te_first_, 0, std::max(0, n - 1));
+    int first = std::clamp(rd_->te_first, 0, std::max(0, n - 1));
     if (cur < first) first = cur;
     for (;;) {   // the caret's line (all its rows) has to be inside the window
         int used = 0;
@@ -1825,16 +1896,16 @@ std::vector<std::string> App::build_readlyrics_te_panel(int W) const {
         if (used <= body || first >= cur) break;
         ++first;
     }
-    rd_te_first_ = first;
-    const bool typing = rd_te_focus_ == 0 && !rd_te_ask_ && !rd_te_new_ask_;
-    const int mlo = rd_te_mark_ < 0 ? -1 : std::min(rd_te_mark_, cur), mhi = rd_te_mark_ < 0 ? -1 : std::max(rd_te_mark_, cur);
+    rd_->te_first = first;
+    const bool typing = rd_->te_focus == 0 && !rd_->te_ask && !rd_->te_new_ask;
+    const int mlo = rd_->te_mark < 0 ? -1 : std::min(rd_->te_mark, cur), mhi = rd_->te_mark < 0 ? -1 : std::max(rd_->te_mark, cur);
     const std::string sel = cursor_sgr(settings_.list_cursor_color, settings_.list_cursor_bg_color);
     int shown_rows = 0;
     for (int i = first; i < n && shown_rows < body; ++i) {
         const bool here = i == cur;
         const bool marked = i >= mlo && i <= mhi && mlo >= 0;
         const std::string& orig = oshown[static_cast<size_t>(i)];
-        const std::string& tr = rd_te_lines_[static_cast<size_t>(i)];
+        const std::string& tr = rd_->te_lines[static_cast<size_t>(i)];
         const bool edit_here = here && typing && !marked;
         const bool mine = edit_owner_ == "rd-te-" + std::to_string(i);
         size_t caret = mine ? std::min(edit_caret_, tr.size()) : tr.size();
@@ -1896,13 +1967,13 @@ std::vector<std::string> App::build_readlyrics_te_panel(int W) const {
     {
         std::string s;
         std::string sgr = leg;
-        if (rd_te_ask_) s = "Leave without saving?  [y] Yes | [any other key] No";
-        else if (rd_te_new_ask_) s = "Start over with an empty translation? What is written here is dropped.  [y] Yes | [any other key] No";
-        else if (!rd_te_msg_.empty()) { s = rd_te_msg_; if (rd_te_warn_) sgr = std::string("\x1b[31m"); }
+        if (rd_->te_ask) s = "Leave without saving?  [y] Yes | [any other key] No";
+        else if (rd_->te_new_ask) s = "Start over with an empty translation? What is written here is dropped.  [y] Yes | [any other key] No";
+        else if (!rd_->te_msg.empty()) { s = rd_->te_msg; if (rd_->te_warn) sgr = std::string("\x1b[31m"); }
         else {
             int filled = 0, total = 0;
-            for (int i = 0; i < n; ++i) if (!readlyrics_te_blank(static_cast<size_t>(i))) { ++total; if (rd_te_lines_[static_cast<size_t>(i)].find_first_not_of(" \t\r") != std::string::npos) ++filled; }
-            s = "line " + std::to_string(cur + 1) + "/" + std::to_string(n) + "   " + std::to_string(filled) + " of " + std::to_string(total) + " lines written" + (rd_te_dirty_ ? "   (not saved)" : "") +
+            for (int i = 0; i < n; ++i) if (!readlyrics_te_blank(static_cast<size_t>(i))) { ++total; if (rd_->te_lines[static_cast<size_t>(i)].find_first_not_of(" \t\r") != std::string::npos) ++filled; }
+            s = "line " + std::to_string(cur + 1) + "/" + std::to_string(n) + "   " + std::to_string(filled) + " of " + std::to_string(total) + " lines written" + (rd_->te_dirty ? "   (not saved)" : "") +
                 (translit_enabled() ? "   [Latin letters on]" : "");
         }
         s = truncate_str(s, inner);
@@ -1917,7 +1988,7 @@ std::vector<std::string> App::build_readlyrics_te_legend(int W) const {
     const std::vector<LegendGroup> groups = {
         {"Move", {"[↑↓/ENTER] Line", "[PgUp/PgDn] Page up/down\001Page", "[TAB] Language / Lines\001Language"}},
         {"Edit", {"[CTRL+o] Copy original line\001Copy line", "[CTRL+n] Start from scratch\001Scratch", "[CTRL+c/x/v] Copy/Cut/Paste\001Clipboard"}},
-        {"Lines", {"[SHIFT+↑↓] Mark lines\001Mark", "[CTRL+c/x/v] Copy/Cut/Paste lines\001Clipboard", "[DEL] Clear", "[CTRL+z] Undo"}},
+        {"Lines", {"[SHIFT+↑↓] Mark lines\001Mark", "[CTRL+c/x/v] Copy/Cut/Paste lines\001Clipboard", "[DEL] Clear", "[CTRL+z/y] Undo", "[CTRL+r] Redo"}},
         {"Session", {"[CTRL+t] Latin letters\001Latin", "[CTRL+s] Save", "[ESC] Close"}},
     };
     std::vector<std::string> out;
@@ -1926,5 +1997,7 @@ std::vector<std::string> App::build_readlyrics_te_legend(int W) const {
     return out;
 }
 
+
+bool App::readlyrics_te_blank(size_t i) const { return i >= rd_->lines.size() || rd_->lines[i].find_first_not_of(" \t\r") == std::string::npos; }
 
 } // namespace muisc

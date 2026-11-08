@@ -2,6 +2,9 @@
 // Part of class App (src/app.h): The panels of the main screen: metadata, progress bar, search bar, list and queue.
 // Split out of app.cpp; the includes are the same as there.
 #include "app.h"
+#include "playlist_state.h"
+#include "meta_state.h"
+#include "book_state.h"
 #include "hifi_bars.h"
 #include "text_edit.h"
 #include "overlay_common.h"
@@ -315,35 +318,66 @@ bool App::show_metadata_panel(int total_width) const {
     return term_rows_ - 1 - 2 - (panel_rows + chrome) >= kMinListRows;
 }
 
-std::vector<std::string> App::build_metadata_panel(int total_width) const {
-    if (!show_metadata_panel(total_width)) return {};
-    const int inner = total_width - 4;
-    // The audio book's picture sits in the disk's place; its field is one column wider on the left (the other fields move to the
-    // right, the meta data field is a column shorter).
-    const int book_extra = 0;   // (the field was a column wider for a while; the picture keeps its place, the field is the disk's width again)
-    std::string sep = "  " + settings_.meta_separator + "  ";
-    int sep_w = display_width(sep);
-    // too narrow for the disk beside a meta data column: the disk goes (then the oscilloscope / lyrics field, if even that does not fit)
-    const bool show_disk = settings_.element_disk && inner - disk_.width() - sep_w >= kMetaMinW;
-    const int disk_w = show_disk ? disk_.width() : 0;
-    const int panel_h = disk_.height();
-
-    const int fixed_extra = show_disk ? sep_w : 2;
-
-    int avail = std::max(10, inner - disk_w - fixed_extra + book_extra);   // (the extra column is taken from the meta data below)
-    // The oscilloscope / lyrics field goes by the width the window has WITH the disk in place (not by what is left after the disk went
-    // for lack of room), so that narrowing the window only ever takes things away: all three, no field, meta data alone.
-    const int setup_avail = settings_.element_disk ? inner - disk_.width() - sep_w : inner - 2;
-    const bool show_viz = settings_.element_vizfield && setup_avail >= kMetaMinW + kVizMinW;
-    int meta_w = std::min(42, std::max(kMetaMinW, avail - kVizMinW));
-    meta_w = std::min(meta_w, avail);
-    int lyrics_w = std::max(0, avail - meta_w);
-    if (!show_viz) { meta_w = avail; lyrics_w = 0; }   // "Viz/Lyrics Field" off, or no room: the meta data take the field's place
-    if (book_extra) meta_w = std::max(10, meta_w - book_extra);
-
+// What the parts of build_metadata_panel() share: the layout of the panel and the rows of its three columns (disk, meta data, field).
+struct App::MetaPanel {
+    int total_width = 0;
+    int inner = 0;
+    int book_extra = 0;
+    int sep_w = 0;
+    int panel_h = 0;
+    int fixed_extra = 0;
+    int avail = 0;
+    int setup_avail = 0;
+    int meta_w = 0;
+    int lyrics_w = 0;
+    int disk_w = 0;
+    bool show_disk = false;
+    bool show_viz = false;
+    bool cover_pic_img = false;
+    bool book_pic_img = false;
+    bool lyrics_wide = false;
+    bool lyrics_avail = false;
+    bool video_missing = false;
+    std::string sep;
+    std::string lyrics_status;
     std::vector<std::string> disk_frame;
-    bool cover_pic_img = false;  // the album cover is a pixel image this frame: the oscilloscope picture then goes into the second slot gfx2_
-    bool book_pic_img = false;   // the audio book picture is a real pixel image this frame (it uses the picture slot gfx_)
+    std::vector<std::string> meta_rows;
+    std::vector<std::string> lyric_rows;
+    std::vector<int> bars;
+    std::vector<LyricLine> lines_copy;
+    std::vector<LyricLine> lines_orig;   // (before the Latin letters: the translations are matched against these)
+    double elapsed = 0;
+    double lyrics_delay = 0;
+};
+
+void App::meta_panel_disk(MetaPanel& m) const {
+    [[maybe_unused]] const int total_width = m.total_width;
+    [[maybe_unused]] auto& inner = m.inner;
+    [[maybe_unused]] auto& book_extra = m.book_extra;
+    [[maybe_unused]] auto& sep_w = m.sep_w;
+    [[maybe_unused]] auto& panel_h = m.panel_h;
+    [[maybe_unused]] auto& fixed_extra = m.fixed_extra;
+    [[maybe_unused]] auto& avail = m.avail;
+    [[maybe_unused]] auto& setup_avail = m.setup_avail;
+    [[maybe_unused]] auto& meta_w = m.meta_w;
+    [[maybe_unused]] auto& lyrics_w = m.lyrics_w;
+    [[maybe_unused]] auto& disk_w = m.disk_w;
+    [[maybe_unused]] auto& show_disk = m.show_disk;
+    [[maybe_unused]] auto& show_viz = m.show_viz;
+    [[maybe_unused]] auto& cover_pic_img = m.cover_pic_img;
+    [[maybe_unused]] auto& book_pic_img = m.book_pic_img;
+    [[maybe_unused]] auto& lyrics_wide = m.lyrics_wide;
+    [[maybe_unused]] auto& lyrics_avail = m.lyrics_avail;
+    [[maybe_unused]] auto& video_missing = m.video_missing;
+    [[maybe_unused]] auto& sep = m.sep;
+    [[maybe_unused]] auto& lyrics_status = m.lyrics_status;
+    [[maybe_unused]] auto& disk_frame = m.disk_frame;
+    [[maybe_unused]] auto& meta_rows = m.meta_rows;
+    [[maybe_unused]] auto& lyric_rows = m.lyric_rows;
+    [[maybe_unused]] auto& bars = m.bars;
+    [[maybe_unused]] auto& lines_copy = m.lines_copy;
+    [[maybe_unused]] auto& elapsed = m.elapsed;
+    [[maybe_unused]] auto& lyrics_delay = m.lyrics_delay;
     if (show_disk && audiobook_ && book_picture_gfx(2, disk_w, panel_h)) {
         book_pic_img = true;
         // placeholder cells: the main loop writes them as spaces or (Sixel) skips them so the picture stays
@@ -352,7 +386,7 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
         // The opening book takes the disk's place: braille dots in the colour wave. It is smaller than the disk, so it sits
         // centred between the left border and the ':' of the separator (a column to the right of the exact middle when the
         // widths do not divide), and in the upper part of the field (centred vertically).
-        const std::vector<std::string> art = book_art_lines(0, book_anim_t_);
+        const std::vector<std::string> art = book_art_lines(0, book_->anim_t);
         const int art_w = BookArt::get(BookArt::Which::Book).cols();
         const int left = std::clamp((disk_w + 4 - art_w + 1) / 2 - 2 + 1 + 1, 0, std::max(0, disk_w - art_w));
         const int top = std::max(0, (panel_h - static_cast<int>(art.size())) / 2 - 2);   // two rows above the middle: the sparkles rise above the book
@@ -382,15 +416,39 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
             disk_frame[row_i] = row_ansi + disk_frame[row_i] + "\x1b[0m";
         }
     }
+}
 
-    double elapsed = has_track_ ? player_.poll_elapsed() : 0.0;
-    fft_.set_fluidity(settings_.visualizer_fluidity);
-    fft_.set_degradation_speed(settings_.visualizer_degradation_speed);
-    fft_.set_viscosity(settings_.visualizer_viscosity);
-
+void App::meta_panel_info(MetaPanel& m) const {
+    [[maybe_unused]] const int total_width = m.total_width;
+    [[maybe_unused]] auto& inner = m.inner;
+    [[maybe_unused]] auto& book_extra = m.book_extra;
+    [[maybe_unused]] auto& sep_w = m.sep_w;
+    [[maybe_unused]] auto& panel_h = m.panel_h;
+    [[maybe_unused]] auto& fixed_extra = m.fixed_extra;
+    [[maybe_unused]] auto& avail = m.avail;
+    [[maybe_unused]] auto& setup_avail = m.setup_avail;
+    [[maybe_unused]] auto& meta_w = m.meta_w;
+    [[maybe_unused]] auto& lyrics_w = m.lyrics_w;
+    [[maybe_unused]] auto& disk_w = m.disk_w;
+    [[maybe_unused]] auto& show_disk = m.show_disk;
+    [[maybe_unused]] auto& show_viz = m.show_viz;
+    [[maybe_unused]] auto& cover_pic_img = m.cover_pic_img;
+    [[maybe_unused]] auto& book_pic_img = m.book_pic_img;
+    [[maybe_unused]] auto& lyrics_wide = m.lyrics_wide;
+    [[maybe_unused]] auto& lyrics_avail = m.lyrics_avail;
+    [[maybe_unused]] auto& video_missing = m.video_missing;
+    [[maybe_unused]] auto& sep = m.sep;
+    [[maybe_unused]] auto& lyrics_status = m.lyrics_status;
+    [[maybe_unused]] auto& disk_frame = m.disk_frame;
+    [[maybe_unused]] auto& meta_rows = m.meta_rows;
+    [[maybe_unused]] auto& lyric_rows = m.lyric_rows;
+    [[maybe_unused]] auto& bars = m.bars;
+    [[maybe_unused]] auto& lines_copy = m.lines_copy;
+    [[maybe_unused]] auto& elapsed = m.elapsed;
+    [[maybe_unused]] auto& lyrics_delay = m.lyrics_delay;
     // meta content rows
-    std::vector<std::string> meta_rows(panel_h, std::string());
-    std::vector<int> bars; // computed once below, reused by the sphere visualizer fallback further down
+    meta_rows.assign(panel_h, std::string());
+    // (bars: see MetaPanel) // computed once below, reused by the sphere visualizer fallback further down
     if (has_track_) {
         int meta_row_cursor_ = 1; // row 0 stays blank: the metadata block starts below the panel's top edge (the idle message is centred in the column instead)
         std::string k_col = settings_.meta_key_color.empty() ? ansi_for(settings_.list_color) : ansi_for(settings_.meta_key_color);
@@ -467,10 +525,10 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
         }
         if (audiobook_) {
             // The audio book's block: everything that matters for a book (tags read by book_poll(), "-" while they load).
-            const bool tags_ready = book_meta_path_ == path_utf8(current_path_);
-            auto tag = [&](int i) { return tags_ready && !book_meta_vals_[static_cast<size_t>(i)].empty() ? book_meta_vals_[static_cast<size_t>(i)] : std::string("-"); };
+            const bool tags_ready = book_->meta_path == path_utf8(current_path_);
+            auto tag = [&](int i) { return tags_ready && !book_->meta_vals[static_cast<size_t>(i)].empty() ? book_->meta_vals[static_cast<size_t>(i)] : std::string("-"); };
             std::string book_name = tag(1);
-            if (book_name == "-" && !book_dir_.empty()) book_name = path_utf8(path_from_utf8(book_dir_).filename());
+            if (book_name == "-" && !book_->dir.empty()) book_name = path_utf8(path_from_utf8(book_->dir).filename());
             const int cur_ch = book_current_chapter();
             std::string chapter = tag(4);
             if (chapter == "-") chapter = path_utf8(current_path_.stem());
@@ -588,26 +646,57 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
         // by its own builder, and padding it again would miscount its ANSI
         // color escapes as visible columns, truncating it.
     }
+}
 
+void App::meta_panel_field(MetaPanel& m) const {
+    [[maybe_unused]] const int total_width = m.total_width;
+    [[maybe_unused]] auto& inner = m.inner;
+    [[maybe_unused]] auto& book_extra = m.book_extra;
+    [[maybe_unused]] auto& sep_w = m.sep_w;
+    [[maybe_unused]] auto& panel_h = m.panel_h;
+    [[maybe_unused]] auto& fixed_extra = m.fixed_extra;
+    [[maybe_unused]] auto& avail = m.avail;
+    [[maybe_unused]] auto& setup_avail = m.setup_avail;
+    [[maybe_unused]] auto& meta_w = m.meta_w;
+    [[maybe_unused]] auto& lyrics_w = m.lyrics_w;
+    [[maybe_unused]] auto& disk_w = m.disk_w;
+    [[maybe_unused]] auto& show_disk = m.show_disk;
+    [[maybe_unused]] auto& show_viz = m.show_viz;
+    [[maybe_unused]] auto& cover_pic_img = m.cover_pic_img;
+    [[maybe_unused]] auto& book_pic_img = m.book_pic_img;
+    [[maybe_unused]] auto& lyrics_wide = m.lyrics_wide;
+    [[maybe_unused]] auto& lyrics_avail = m.lyrics_avail;
+    [[maybe_unused]] auto& video_missing = m.video_missing;
+    [[maybe_unused]] auto& sep = m.sep;
+    [[maybe_unused]] auto& lyrics_status = m.lyrics_status;
+    [[maybe_unused]] auto& disk_frame = m.disk_frame;
+    [[maybe_unused]] auto& meta_rows = m.meta_rows;
+    [[maybe_unused]] auto& lyric_rows = m.lyric_rows;
+    [[maybe_unused]] auto& bars = m.bars;
+    [[maybe_unused]] auto& lines_copy = m.lines_copy;
+    [[maybe_unused]] auto& lines_orig = m.lines_orig;
+    [[maybe_unused]] auto& elapsed = m.elapsed;
+    [[maybe_unused]] auto& lyrics_delay = m.lyrics_delay;
     // lyrics window: word-wrapped, center-aligned, word-level highlight on
     // the active line — windowed so the active line's wrapped block is
     // always vertically centered, blank-padded at the edges.
-    std::vector<std::string> lyric_rows(panel_h, std::string(lyrics_w, ' '));
-    bool lyrics_wide = false;   // the full size picture also takes the column of padding at the right: the gap to the border is as small as at the top and bottom
-    bool lyrics_avail = false;
-    std::vector<LyricLine> lines_copy;
-    std::string lyrics_status;
-    double lyrics_delay = 0.0; // lyrics timing correction (ALT+L), seconds, + = lyrics later
+    lyric_rows.assign(panel_h, std::string(lyrics_w, ' '));
+    lyrics_wide = false;   // the full size picture also takes the column of padding at the right: the gap to the border is as small as at the top and bottom
+    lyrics_avail = false;
+    lyrics_delay = 0.0; // lyrics timing correction (ALT+L), seconds, + = lyrics later
     {
         std::lock_guard<std::mutex> lock(lyrics_mutex_);
         if (audiobook_) {
             // the audio book mode fetches no lyrics: its field shows the notes (or the visualization), never a "fetching" caption
         } else if (settings_.lyrics_on() && lyrics_ready_) {
             lines_copy = lyrics_result_.lines;
+            lines_orig = lines_copy;
             latinize_lyrics(lines_copy);
             lyrics_delay = lyrics_result_.delay;
             lyrics_status = lyrics_result_.message;
             lyrics_avail = !lines_copy.empty();
+            // the video view of a track without a video shows the "When No Video Shows" visual and nothing else: no "lyrics loaded (cached)" caption
+            if (settings_.video_mode && settings_.video_view && settings_.novideo_viz != 4 && video_shown_for(current_path_).empty()) lyrics_status.clear();
         } else if (settings_.lyrics_on() && has_track_ && !(settings_.video_mode && settings_.video_view && settings_.novideo_viz != 4 && video_shown_for(current_path_).empty())) {
             lyrics_status = "fetching lyrics ...";   // (not on the video view of a track without a video that shows a visual: nothing is fetched there)
         }
@@ -617,7 +706,7 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
         // misleading status line.
     }
 
-    bool video_missing = false;   // the video view is on but this track has no video (or no room for it)
+    video_missing = false;   // the video view is on but this track has no video (or no room for it)
     if (!(settings_.video_mode && settings_.video_view && has_track_ && !audiobook_) && video_.has_video()) {   // not on the video view: the decoder rests
         // Away from the video view for a moment (sphere, lyrics ...): the decoder just waits with a full queue and the last picture
         // stays, so coming back resynchronises at once (frame_for restarts at the sound's time when it has run away). Only a long
@@ -631,7 +720,7 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
     }
     if (!has_track_ && audiobook_) {
         // No book loaded: the stack of books builds itself up where the visualizations are.
-        const std::vector<std::string> st = book_art_lines(1, book_idle_t_);
+        const std::vector<std::string> st = book_art_lines(1, book_->idle_t);
         const int sw = BookArt::get(BookArt::Which::Stack).cols();
         const int start = std::max(0, (panel_h - static_cast<int>(st.size())) / 2);
         const int left = std::max(0, (lyrics_w - sw) / 2);
@@ -671,8 +760,26 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
                        int act = 0;
                        for (size_t i = 0; i < lines_copy.size(); ++i) { if (lines_copy[i].start_time <= lt) act = static_cast<int>(i); else break; }
                        const int ww = vsize == 3 ? std::max(12, (fw - 4) * 2 / 3) : vsize == 2 ? std::max(12, fw * 2 / 3) : fw;   // (the full / framed field: the line is a small box over the picture; the same widths as in video_field_rows)
-                       line_rows = render_lyric_line_wrapped(lines_copy[static_cast<size_t>(act)], lt, ww, true, settings_);
-                       video_ov_ref_ = render_lyric_line_wrapped(lines_copy[static_cast<size_t>(act)], 1e9, ww, false, settings_);   // (all words shown: the size of the box)
+                       // Include Lyrics: 1 the lyric line, 2 + its translation under it, 3 the translation only (the lyric line where a line has none)
+                       const int vmode = video_lyr_mode_for(current_path_);
+                       const std::vector<std::string>* trp = nullptr;
+                       if (vmode >= 2) { const auto& all = video_translations(lines_orig); if (!all.empty()) trp = &all[static_cast<size_t>(std::clamp(vfull_tr_idx_, 0, static_cast<int>(all.size()) - 1))].lines; }
+                       line_rows = lyric_translation_rows(lines_copy, trp, act, lt, ww, vmode, settings_);
+                       video_ov_ref_ = lyric_translation_rows(lines_copy, trp, act, 1e9, ww, vmode, settings_);   // (all words shown: the size of the box)
+                       // The rows the block needs at most on this track (so the picture keeps its size from line to line): 2 as ever, more only
+                       // with a translation shown.
+                       const std::string nkey = path_utf8(current_path_) + "|" + std::to_string(ww) + "|" + std::to_string(vmode) + "|" + std::to_string(lines_copy.size()) + (trp ? "t" : "-");
+                       if (nkey != video_need_key_) {
+                           video_need_key_ = nkey;
+                           int need = 2;
+                           if (trp) for (size_t li = 0; li < lines_copy.size(); ++li) {
+                               int n = 0;
+                               for (const std::string& r : lyric_translation_rows(lines_copy, trp, static_cast<int>(li), 1e9, ww, vmode, settings_))
+                                   if (strip_csi(r).find_first_not_of(' ') != std::string::npos) ++n;
+                               need = std::max(need, n);
+                           }
+                           video_need_rows_ = std::min(need, 5);
+                       }
                    }
                    std::vector<std::string> vrows;
                    if (!video_field_rows(vrows, fw, panel_h, 2 + disk_w + (show_disk ? sep_w : 2) + meta_w + lpad, cover_pic_img, elapsed, line_rows, wide)) { video_missing = true; return false; }
@@ -894,6 +1001,70 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
 
     // Audio book: the note that is typed or shown takes the field's place (oscilloscope / spectrogram come back when it is put away).
     if (audiobook_ && lyrics_w >= 12 && book_field_has_note()) lyric_rows = book_note_field_rows(lyrics_w, panel_h);
+}
+
+std::vector<std::string> App::build_metadata_panel(int total_width) const {
+    if (!show_metadata_panel(total_width)) return {};
+    MetaPanel mp; mp.total_width = total_width;
+    MetaPanel& m = mp;
+    [[maybe_unused]] auto& inner = m.inner;
+    [[maybe_unused]] auto& book_extra = m.book_extra;
+    [[maybe_unused]] auto& sep_w = m.sep_w;
+    [[maybe_unused]] auto& panel_h = m.panel_h;
+    [[maybe_unused]] auto& fixed_extra = m.fixed_extra;
+    [[maybe_unused]] auto& avail = m.avail;
+    [[maybe_unused]] auto& setup_avail = m.setup_avail;
+    [[maybe_unused]] auto& meta_w = m.meta_w;
+    [[maybe_unused]] auto& lyrics_w = m.lyrics_w;
+    [[maybe_unused]] auto& disk_w = m.disk_w;
+    [[maybe_unused]] auto& show_disk = m.show_disk;
+    [[maybe_unused]] auto& show_viz = m.show_viz;
+    [[maybe_unused]] auto& cover_pic_img = m.cover_pic_img;
+    [[maybe_unused]] auto& book_pic_img = m.book_pic_img;
+    [[maybe_unused]] auto& lyrics_wide = m.lyrics_wide;
+    [[maybe_unused]] auto& lyrics_avail = m.lyrics_avail;
+    [[maybe_unused]] auto& video_missing = m.video_missing;
+    [[maybe_unused]] auto& sep = m.sep;
+    [[maybe_unused]] auto& lyrics_status = m.lyrics_status;
+    [[maybe_unused]] auto& disk_frame = m.disk_frame;
+    [[maybe_unused]] auto& meta_rows = m.meta_rows;
+    [[maybe_unused]] auto& lyric_rows = m.lyric_rows;
+    [[maybe_unused]] auto& bars = m.bars;
+    [[maybe_unused]] auto& lines_copy = m.lines_copy;
+    [[maybe_unused]] auto& elapsed = m.elapsed;
+    [[maybe_unused]] auto& lyrics_delay = m.lyrics_delay;
+    inner = total_width - 4;
+    // The audio book's picture sits in the disk's place; its field is one column wider on the left (the other fields move to the
+    // right, the meta data field is a column shorter).
+    book_extra = 0;   // (the field was a column wider for a while; the picture keeps its place, the field is the disk's width again)
+    sep = "  " + settings_.meta_separator + "  ";
+    sep_w = display_width(sep);
+    // too narrow for the disk beside a meta data column: the disk goes (then the oscilloscope / lyrics field, if even that does not fit)
+    show_disk = settings_.element_disk && inner - disk_.width() - sep_w >= kMetaMinW;
+    disk_w = show_disk ? disk_.width() : 0;
+    panel_h = disk_.height();
+
+    fixed_extra = show_disk ? sep_w : 2;
+
+    avail = std::max(10, inner - disk_w - fixed_extra + book_extra);   // (the extra column is taken from the meta data below)
+    // The oscilloscope / lyrics field goes by the width the window has WITH the disk in place (not by what is left after the disk went
+    // for lack of room), so that narrowing the window only ever takes things away: all three, no field, meta data alone.
+    setup_avail = settings_.element_disk ? inner - disk_.width() - sep_w : inner - 2;
+    show_viz = settings_.element_vizfield && setup_avail >= kMetaMinW + kVizMinW;
+    meta_w = std::min(42, std::max(kMetaMinW, avail - kVizMinW));
+    meta_w = std::min(meta_w, avail);
+    lyrics_w = std::max(0, avail - meta_w);
+    if (!show_viz) { meta_w = avail; lyrics_w = 0; }   // "Viz/Lyrics Field" off, or no room: the meta data take the field's place
+    if (book_extra) meta_w = std::max(10, meta_w - book_extra);
+
+    meta_panel_disk(m);
+    elapsed = has_track_ ? player_.poll_elapsed() : 0.0;
+    fft_.set_fluidity(settings_.visualizer_fluidity);
+    fft_.set_degradation_speed(settings_.visualizer_degradation_speed);
+    fft_.set_viscosity(settings_.visualizer_viscosity);
+
+    meta_panel_info(m);
+    meta_panel_field(m);
 
     // --- assemble bordered block ---
     // NOTE: lyric_rows may contain ANSI color codes (word-highlighting),
@@ -1247,7 +1418,7 @@ std::vector<std::string> App::build_list_panel(int total_width, int height) cons
                        : playlists_mode ? "SAVED PLAYLISTS (Enter: queue all)"
                        : folders_mode ? (audiobook_ ? "AUDIO BOOKS (Enter: open the book)" : "LOCAL AUDIO FOLDERS (Enter: open folder)")
                        : local_pane_label(total_width - 2);   // 2 columns stay free for the focus indicator
-    size_t total = online ? online_view_.size() : playlists_mode ? playlist_view_.size()
+    size_t total = online ? online_view_.size() : playlists_mode ? playlist_->view.size()
                  : folders_mode ? folder_view_.size() : local_view_.size();
     int inner = total_width - 4;
     std::string border_ansi = ansi_for(settings_.border_color, false);
@@ -1274,7 +1445,7 @@ std::vector<std::string> App::build_list_panel(int total_width, int height) cons
                         + pad_right(truncate_str(t_title, title_w), title_w) + settings_.list_separator + " "
                         + pad_right(truncate_str(t_uploader, uploader_w), uploader_w);
             } else if (playlists_mode) {
-                const auto& p = playlist_view_[idx];
+                const auto& p = playlist_->view[idx];
                 const int count_w = 10;
                 int name_w = std::max(5, inner - idx_w - 2 - 2 - count_w);
                 std::string t_idx = apply_font_map(std::to_string(idx + 1), settings_.font_map);

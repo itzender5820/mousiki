@@ -2,6 +2,12 @@
 // text-field pieces the panels and overlays use. The rest of App lives in the app_*.cpp files next to
 // this one, grouped by topic.
 #include "app.h"
+#include "playlist_state.h"
+#include "meta_state.h"
+#include "book_state.h"
+#include "creator_state.h"
+#include "coverfetch_state.h"
+#include "readlyrics_state.h"
 #include "text_edit.h"
 #include "overlay_common.h"
 #include "remote_server.h"
@@ -598,6 +604,12 @@ static std::string kanji_rules_id() {
 }
 
 App::App(Settings* shared, bool audiobook) : audiobook_(audiobook), settings_(shared ? *shared : own_settings_) {
+    rd_ = std::make_unique<ReadLyricsState>();
+    cf_ = std::make_unique<CoverFetchState>();
+    creator_ = std::make_unique<CreatorState>();
+    book_ = std::make_unique<BookState>();
+    meta_ = std::make_unique<MetaState>();
+    playlist_ = std::make_unique<PlaylistState>();
     if (!shared) settings_ = load_settings();
     translit_set_learned_file(path_utf8(config_path().parent_path() / "kanji_readings_learned.txt"));   // what was learned before (tags, folders, MusicBrainz)
     translit_set_kanji_cache_file(path_utf8(config_path().parent_path() / "kanji_readings_cache.txt"),   // what pykakasi read before ...
@@ -628,8 +640,8 @@ App::App(Settings* shared, bool audiobook) : audiobook_(audiobook), settings_(sh
     eq_apply();
     lyrics_script_ = find_lyrics_script();
     fast_search_script_ = find_fast_search_script();
-    meta_script_ = find_scripts_file("fetch_meta.py"); // AcoustID helper for Mode::MetaEdit
-    cf_script_ = find_scripts_file("fetch_cover.py");  // MusicBrainz / Cover Art Archive helper for Mode::CoverFetch
+    meta_->script = find_scripts_file("fetch_meta.py"); // AcoustID helper for Mode::MetaEdit
+    cf_->script = find_scripts_file("fetch_cover.py");  // MusicBrainz / Cover Art Archive helper for Mode::CoverFetch
     name_lookup_script_ = find_scripts_file("lookup_artist_name.py");
     kanji_script_ = find_scripts_file("kanji_reading.py");
     translate_script_ = find_scripts_file("translate_lyrics.py"); // lyrics translation of Mode::ReadLyrics
@@ -952,11 +964,170 @@ std::string App::clamp_output_rows(const std::string& frame, int term_rows) cons
     return keep == frame.size() ? frame : frame.substr(0, keep); // already within budget, or cut to it
 }
 
+App::~App() = default;
+
 // ---------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------
 
+// One pass of the main loop, part 1: ask the terminal what it speaks (pictures) and hand every queued key to handle_key().
+void App::run_poll_terminal(TerminalIO& term, bool& gfx_shown) {
+    // the image styles (oscilloscope or spectrogram) need to know what the terminal speaks: ask once, and again when
+    // the protocol setting changes
+    // (the cover is a picture in the cover looks 0-4 -- the default is 2 -- so the terminal is asked at the start whatever the oscilloscope / spectrogram styles are: before, with braille styles the cover stayed braille until an image style was chosen once)
+    // (the Settings previews, the meta editor and the cover fetch show pictures too: with braille styles in use nothing had asked the terminal yet, so they fell back to braille)
+    const bool pictures_wanted = mode_ == Mode::Settings || mode_ == Mode::ColorEdit || mode_ == Mode::MetaEdit || mode_ == Mode::CoverFetch || mode_ == Mode::VideoFetch;
+    if ((settings_.osci_style == 1 || settings_.spectro.style == 1 || audiobook_ || pictures_wanted || settings_.cover_mode <= 4) && gfx_probed_pref_ != settings_.gfx_protocol) {
+        if (gfx_shown) { write_frame(gfx_clear(gfx_proto_)); gfx_shown = false; }
+        gfx_proto_ = gfx_probe(settings_.gfx_protocol);
+        gfx_probed_pref_ = settings_.gfx_protocol;
+    }
+    // Drain every key already queued before rendering, rather than
+    // one per frame. A single keystroke can arrive as more than one
+    // poll_key() call's worth of data -- any non-ASCII character (a
+    // German umlaut, most concretely) is a multi-byte UTF-8 sequence
+    // dispensed one byte per call, on both platforms (see
+    // TerminalIO::poll_key() / win_poll_key()). Rendering between
+    // those calls meant the frame in between showed a buffer ending
+    // in a lone, incomplete lead byte -- which decodes as a
+    // replacement glyph -- for one frame, before the next poll
+    // completed the sequence and it snapped to the real character.
+    // Draining first means the frame that actually renders always
+    // has a complete, valid buffer. This never blocks waiting for
+    // more input: poll_key() is non-blocking and returns 0 the
+    // moment nothing already-received is left to hand back.
+    // A single-line text field is being edited right now: hand Ctrl+C /
+    // Ctrl+X / Ctrl+V to the app as keystrokes instead of letting the
+    // console treat Ctrl+C as "kill this process" (Windows, where the
+    // ENABLE_PROCESSED_INPUT bit is what does that) or swallow it via
+    // ISIG (POSIX). Re-derived every frame rather than toggled on mode
+    // entry/exit: mode_ can change in ways that skip a hand-off (ESC out
+    // of an edit, a prompt), and leaving the flag stuck would mean
+    // Ctrl+C no longer quits the app. Same key set both platforms, see
+    // win_poll_key()/poll_key() for how it arrives as kKeyCtrlC/X/V.
+    const bool playlist_text_field =
+        mode_ == Mode::Playlist &&
+        ((playlist_->export_open && playlist_->export_field == 0) ||
+         (playlist_->import_open && playlist_->import_field == 0) ||
+         (!playlist_->export_open && !playlist_->import_open &&
+          ((playlist_->tab == 0 && playlist_->edit_focus <= 1) ||
+           (playlist_->tab == 1 && playlist_->manage_focus == 0))));
+    set_text_entry(mode_ == Mode::Search ||
+                   mode_ == Mode::ColorEdit ||
+                   (mode_ == Mode::BulkAdd && !bulk_add_results_ready_) ||
+                   (mode_ == Mode::QueueToPlaylist && qtp_stage_ >= 1) ||
+                   (mode_ == Mode::RetryLyrics && rl_text_ptr(rl_focus_) != nullptr) ||
+                   (mode_ == Mode::ReadLyrics && rd_->add_open) ||   // add lyrics manually: the search fields (and CTRL+c clears the choice)
+                   (mode_ == Mode::ReadLyrics && rd_->te_open && rd_->te_focus == 0 && !rd_->te_ask && !rd_->te_new_ask) ||   // the translation editor (CTRL+c copies)
+                   (audiobook_ && book_->note_edit && book_->note_typing && !book_->note_discard_ask) ||   // the note editor (CTRL+c copies)
+                   (audiobook_ && book_->note_shown && !book_->note_edit) ||                            // a note in the field: CTRL+c copies it
+                   (audiobook_ && mode_ == Mode::BookOverlay && book_->ov_kind == BookOv::Notes) ||     // the notes overlay (list, path fields, editor)
+                   (mode_ == Mode::Cheatsheet && cheat_searching_) ||
+                   (mode_ == Mode::Wizard && wizard_st_.searching) ||
+                   (mode_ == Mode::MetaEdit && meta_->tab == 0 &&
+                    (meta_->focus == 0 || meta_->focus == 2)) ||
+                   (mode_ == Mode::CoverFetch && cf_->tab == 0 && cf_->focus == 0) ||
+                   (mode_ == Mode::VideoFetch && (vf_focus_ == 0 || vf_.running)) ||   // (CTRL+c cancels a running download)
+                   mode_ == Mode::VideoLink ||                                          // (CTRL+c clears the choice; a search field is in use)
+                   mode_ == Mode::VideoSearch ||
+                   playlist_text_field);
+
+    for (int key = term.poll_key(); key != 0; key = term.poll_key()) {
+        const bool in_settings = mode_ == Mode::Settings || mode_ == Mode::ColorEdit;
+        if (in_settings) status_line_.clear();   // a message stays until the next key; then the "unsaved changes" note shows again
+        handle_key(key);
+        if (mode_ == Mode::Settings || mode_ == Mode::ColorEdit) settings_update_dirty();
+    }
+}
+
+// One pass of the main loop, part 2: the background jobs, the playback clock, the animations and the listening history.
+void App::run_tick() {
+    poll_pending_search();
+    poll_pending_load();
+    poll_pending_waveform();
+    // A file that gave no length plays in the windowed buffer; its length is known once the decoder or the analysis pass
+    // has been through it: from then on the time and the progress bar show it.
+    if (current_pcm_ && total_sec_ == 0 && current_pcm_->windowed) {
+        const size_t tf = current_pcm_->total_frames.load(std::memory_order_acquire);
+        if (tf > 0) total_sec_ = tf / static_cast<size_t>(std::max(1, current_pcm_->sample_rate));
+    }
+    // A length that is far too short: the buffer holds the length + 25 %; whatever is longer is cut off. Not silently:
+    if (current_pcm_ && current_pcm_.get() != pcm_cut_noted_ && current_pcm_->capacity_exceeded.load(std::memory_order_relaxed)) {
+        pcm_cut_noted_ = current_pcm_.get();
+        const int mins = static_cast<int>(current_pcm_->capacity_frames() / static_cast<size_t>(std::max(1, current_pcm_->sample_rate)) / 60);
+        status_line_ = "this track is longer than its file says: only its first " + std::to_string(std::max(1, mins)) +
+                       " minutes play -- converting it (e.g. ffmpeg -i in.ext out.mp3) fixes that";
+        ConsoleLog::instance().log_basic("audio: " + status_line_);
+    }
+    poll_pending_bulk_add();
+    poll_pending_atp();
+    borrow_video_tags();
+    poll_pending_row_meta_tags();
+    poll_pending_meta_fetch(); // AcoustID results -> pending edits
+    poll_cover_fetch();        // the cover fetch overlay: index, fetch list
+    capture_status();          // the status messages go to the history shown in the console overlay
+    poll_kanji_reader();       // kanji of Japanese texts read by pykakasi (when installed), in the background
+    poll_name_lookup();        // the Latin name of an artist in Chinese characters (MusicBrainz, in the background)
+    poll_meta_save();          // the next slice of a running save
+    video_search_poll();       // a finished video search / download
+    video_fetch_poll();        // FETCH VIDEOS: pairings made, the end of a batch
+    if (audiobook_) book_poll();   // the loaded chapter's tags, a running tag save
+    audio_device_apply();           // a changed sound output (overlay, Settings discard, the other mode) reaches the player
+    readlyrics_poll();         // a finished lyrics translation
+    maybe_autosave();
+    remote_poll();             // `mousiki --cmd ...` and the status file
+
+    auto now = std::chrono::steady_clock::now();
+    double dt = std::chrono::duration<double>(now - last_frame_time_).count();
+    last_frame_time_ = now;
+    viz_dt_ = dt;
+
+    if (has_track_) {
+        player_.poll_elapsed();
+        // No auto-advance while a device handoff is still in flight:
+        // finished_ belongs to the previous track until play() swaps the
+        // new one in (see device_play_pending_gen_).
+        if (!advancing_ && device_play_pending_gen_.load() == 0 && player_.finished()) {
+            if (creator_->show) creator_preview_loop(); else advance_track();
+        }
+    }
+    creator_preview_tick();
+    sleep_timer_tick();
+    creator_resume_tick();
+    player_.set_scope_raw(settings_.osci().music);   // oscilloscope music mode: the scopes get the unprocessed signal
+    scope_window_sync();
+    spectro_window_sync();
+    enforce_visual_switches();
+    // Disk only spins while something is actually playing — frozen
+    // when idle or paused, per instruction.
+    if (audiobook_) {   // the audio book's own animations: the book moves while a chapter plays, the stack while none is loaded
+        if (has_track_ && !player_.is_paused()) book_->anim_t += dt;
+        if (!has_track_) book_->idle_t += dt;
+    }
+    if (has_track_ && !player_.is_paused()) {
+        angle_ = std::fmod(angle_ + kAngularVelocity *settings_.disk_rotation_speed * dt,
+                           2.0 * 3.14159265358979323846);
+    }
+    // The wizard's welcome disk has an angle of its own: a fixed 0.10,
+    // turning whether or not anything is playing, so the first screen a
+    // new user sees is never a frozen picture.
+    if (mode_ == Mode::Wizard) {
+        wizard_angle_ = std::fmod(wizard_angle_ + kAngularVelocity * 0.10 * dt,
+                                  2.0 * 3.14159265358979323846);
+    }
+    // Listening history: accrue what was actually heard this frame.
+    // Paused time never counts (that's the is_paused() check), and neither
+    // does the handover gap between two tracks -- there advancing_ is set
+    // or a device handoff is in flight while nothing is really sounding.
+    // No-op when no play is live, so it can be called unconditionally.
+    if (has_track_ && !player_.is_paused() && !advancing_ &&
+        device_play_pending_gen_.load() == 0) {
+        history_.add_listened(dt);
+    }
+}
+
 int App::run() {
+    struct PasteAware { PasteAware() { set_paste_aware(true); } ~PasteAware() { set_paste_aware(false); } } paste_aware_guard;   // (the radio does not handle kKeyPaste: it gets the pasted text as keys)
     // Coming back from the radio the App is still alive (it was only suspended): nothing is initialised or restored again.
     const bool resuming = suspended_;
     suspended_ = false;
@@ -1033,155 +1204,8 @@ int App::run() {
 
     while (!quit_) {
         const auto frame_start = std::chrono::steady_clock::now();
-        // the image styles (oscilloscope or spectrogram) need to know what the terminal speaks: ask once, and again when
-        // the protocol setting changes
-        // (the cover is a picture in the cover looks 0-4 -- the default is 2 -- so the terminal is asked at the start whatever the oscilloscope / spectrogram styles are: before, with braille styles the cover stayed braille until an image style was chosen once)
-        // (the Settings previews, the meta editor and the cover fetch show pictures too: with braille styles in use nothing had asked the terminal yet, so they fell back to braille)
-        const bool pictures_wanted = mode_ == Mode::Settings || mode_ == Mode::ColorEdit || mode_ == Mode::MetaEdit || mode_ == Mode::CoverFetch || mode_ == Mode::VideoFetch;
-        if ((settings_.osci_style == 1 || settings_.spectro.style == 1 || audiobook_ || pictures_wanted || settings_.cover_mode <= 4) && gfx_probed_pref_ != settings_.gfx_protocol) {
-            if (gfx_shown) { write_frame(gfx_clear(gfx_proto_)); gfx_shown = false; }
-            gfx_proto_ = gfx_probe(settings_.gfx_protocol);
-            gfx_probed_pref_ = settings_.gfx_protocol;
-        }
-        // Drain every key already queued before rendering, rather than
-        // one per frame. A single keystroke can arrive as more than one
-        // poll_key() call's worth of data -- any non-ASCII character (a
-        // German umlaut, most concretely) is a multi-byte UTF-8 sequence
-        // dispensed one byte per call, on both platforms (see
-        // TerminalIO::poll_key() / win_poll_key()). Rendering between
-        // those calls meant the frame in between showed a buffer ending
-        // in a lone, incomplete lead byte -- which decodes as a
-        // replacement glyph -- for one frame, before the next poll
-        // completed the sequence and it snapped to the real character.
-        // Draining first means the frame that actually renders always
-        // has a complete, valid buffer. This never blocks waiting for
-        // more input: poll_key() is non-blocking and returns 0 the
-        // moment nothing already-received is left to hand back.
-        // A single-line text field is being edited right now: hand Ctrl+C /
-        // Ctrl+X / Ctrl+V to the app as keystrokes instead of letting the
-        // console treat Ctrl+C as "kill this process" (Windows, where the
-        // ENABLE_PROCESSED_INPUT bit is what does that) or swallow it via
-        // ISIG (POSIX). Re-derived every frame rather than toggled on mode
-        // entry/exit: mode_ can change in ways that skip a hand-off (ESC out
-        // of an edit, a prompt), and leaving the flag stuck would mean
-        // Ctrl+C no longer quits the app. Same key set both platforms, see
-        // win_poll_key()/poll_key() for how it arrives as kKeyCtrlC/X/V.
-        const bool playlist_text_field =
-            mode_ == Mode::Playlist &&
-            ((playlist_export_open_ && playlist_export_field_ == 0) ||
-             (playlist_import_open_ && playlist_import_field_ == 0) ||
-             (!playlist_export_open_ && !playlist_import_open_ &&
-              ((playlist_tab_ == 0 && playlist_edit_focus_ <= 1) ||
-               (playlist_tab_ == 1 && playlist_manage_focus_ == 0))));
-        set_text_entry(mode_ == Mode::Search ||
-                       mode_ == Mode::ColorEdit ||
-                       (mode_ == Mode::BulkAdd && !bulk_add_results_ready_) ||
-                       (mode_ == Mode::QueueToPlaylist && qtp_stage_ >= 1) ||
-                       (mode_ == Mode::RetryLyrics && rl_text_ptr(rl_focus_) != nullptr) ||
-                       (mode_ == Mode::ReadLyrics && rd_add_open_) ||   // add lyrics manually: the search fields (and CTRL+c clears the choice)
-                       (mode_ == Mode::ReadLyrics && rd_te_open_ && rd_te_focus_ == 0 && !rd_te_ask_ && !rd_te_new_ask_) ||   // the translation editor (CTRL+c copies)
-                       (audiobook_ && book_note_edit_ && book_note_typing_ && !book_note_discard_ask_) ||   // the note editor (CTRL+c copies)
-                       (audiobook_ && book_note_shown_ && !book_note_edit_) ||                            // a note in the field: CTRL+c copies it
-                       (audiobook_ && mode_ == Mode::BookOverlay && book_ov_kind_ == BookOv::Notes) ||     // the notes overlay (list, path fields, editor)
-                       (mode_ == Mode::Cheatsheet && cheat_searching_) ||
-                       (mode_ == Mode::Wizard && wizard_st_.searching) ||
-                       (mode_ == Mode::MetaEdit && meta_tab_ == 0 &&
-                        (meta_focus_ == 0 || meta_focus_ == 2)) ||
-                       (mode_ == Mode::CoverFetch && cf_tab_ == 0 && cf_focus_ == 0) ||
-                       (mode_ == Mode::VideoFetch && (vf_focus_ == 0 || vf_.running)) ||   // (CTRL+c cancels a running download)
-                       mode_ == Mode::VideoLink ||                                          // (CTRL+c clears the choice; a search field is in use)
-                       mode_ == Mode::VideoSearch ||
-                       playlist_text_field);
-
-        for (int key = term.poll_key(); key != 0; key = term.poll_key()) {
-            const bool in_settings = mode_ == Mode::Settings || mode_ == Mode::ColorEdit;
-            if (in_settings) status_line_.clear();   // a message stays until the next key; then the "unsaved changes" note shows again
-            handle_key(key);
-            if (mode_ == Mode::Settings || mode_ == Mode::ColorEdit) settings_update_dirty();
-        }
-
-        poll_pending_search();
-        poll_pending_load();
-        poll_pending_waveform();
-        // A file that gave no length plays in the windowed buffer; its length is known once the decoder or the analysis pass
-        // has been through it: from then on the time and the progress bar show it.
-        if (current_pcm_ && total_sec_ == 0 && current_pcm_->windowed) {
-            const size_t tf = current_pcm_->total_frames.load(std::memory_order_acquire);
-            if (tf > 0) total_sec_ = tf / static_cast<size_t>(std::max(1, current_pcm_->sample_rate));
-        }
-        // A length that is far too short: the buffer holds the length + 25 %; whatever is longer is cut off. Not silently:
-        if (current_pcm_ && current_pcm_.get() != pcm_cut_noted_ && current_pcm_->capacity_exceeded.load(std::memory_order_relaxed)) {
-            pcm_cut_noted_ = current_pcm_.get();
-            const int mins = static_cast<int>(current_pcm_->capacity_frames() / static_cast<size_t>(std::max(1, current_pcm_->sample_rate)) / 60);
-            status_line_ = "this track is longer than its file says: only its first " + std::to_string(std::max(1, mins)) +
-                           " minutes play -- converting it (e.g. ffmpeg -i in.ext out.mp3) fixes that";
-            ConsoleLog::instance().log_basic("audio: " + status_line_);
-        }
-        poll_pending_bulk_add();
-        poll_pending_atp();
-        borrow_video_tags();
-        poll_pending_row_meta_tags();
-        poll_pending_meta_fetch(); // AcoustID results -> pending edits
-        poll_cover_fetch();        // the cover fetch overlay: index, fetch list
-        capture_status();          // the status messages go to the history shown in the console overlay
-        poll_kanji_reader();       // kanji of Japanese texts read by pykakasi (when installed), in the background
-        poll_name_lookup();        // the Latin name of an artist in Chinese characters (MusicBrainz, in the background)
-        poll_meta_save();          // the next slice of a running save
-        video_search_poll();       // a finished video search / download
-        video_fetch_poll();        // FETCH VIDEOS: pairings made, the end of a batch
-        if (audiobook_) book_poll();   // the loaded chapter's tags, a running tag save
-        audio_device_apply();           // a changed sound output (overlay, Settings discard, the other mode) reaches the player
-        readlyrics_poll();         // a finished lyrics translation
-        maybe_autosave();
-        remote_poll();             // `mousiki --cmd ...` and the status file
-
-        auto now = std::chrono::steady_clock::now();
-        double dt = std::chrono::duration<double>(now - last_frame_time_).count();
-        last_frame_time_ = now;
-        viz_dt_ = dt;
-
-        if (has_track_) {
-            player_.poll_elapsed();
-            // No auto-advance while a device handoff is still in flight:
-            // finished_ belongs to the previous track until play() swaps the
-            // new one in (see device_play_pending_gen_).
-            if (!advancing_ && device_play_pending_gen_.load() == 0 && player_.finished()) {
-                if (creator_show_) creator_preview_loop(); else advance_track();
-            }
-        }
-        creator_preview_tick();
-        sleep_timer_tick();
-        creator_resume_tick();
-        player_.set_scope_raw(settings_.osci().music);   // oscilloscope music mode: the scopes get the unprocessed signal
-        scope_window_sync();
-        spectro_window_sync();
-        enforce_visual_switches();
-        // Disk only spins while something is actually playing — frozen
-        // when idle or paused, per instruction.
-        if (audiobook_) {   // the audio book's own animations: the book moves while a chapter plays, the stack while none is loaded
-            if (has_track_ && !player_.is_paused()) book_anim_t_ += dt;
-            if (!has_track_) book_idle_t_ += dt;
-        }
-        if (has_track_ && !player_.is_paused()) {
-            angle_ = std::fmod(angle_ + kAngularVelocity *settings_.disk_rotation_speed * dt,
-                               2.0 * 3.14159265358979323846);
-        }
-        // The wizard's welcome disk has an angle of its own: a fixed 0.10,
-        // turning whether or not anything is playing, so the first screen a
-        // new user sees is never a frozen picture.
-        if (mode_ == Mode::Wizard) {
-            wizard_angle_ = std::fmod(wizard_angle_ + kAngularVelocity * 0.10 * dt,
-                                      2.0 * 3.14159265358979323846);
-        }
-        // Listening history: accrue what was actually heard this frame.
-        // Paused time never counts (that's the is_paused() check), and neither
-        // does the handover gap between two tracks -- there advancing_ is set
-        // or a device handoff is in flight while nothing is really sounding.
-        // No-op when no play is live, so it can be called unconditionally.
-        if (has_track_ && !player_.is_paused() && !advancing_ &&
-            device_play_pending_gen_.load() == 0) {
-            history_.add_listened(dt);
-        }
+        run_poll_terminal(term, gfx_shown);
+        run_tick();
 
         // A layout bug on some odd terminal size (a negative width reaching a
         // std::string, a vector sized from a negative row count, ...) would
@@ -1208,7 +1232,7 @@ int App::run() {
         {
             static std::string frozen_body;
             static int frozen_cols = -1, frozen_rows = -1;
-            const bool freeze = ((mode_ == Mode::MetaEdit && meta_sty_from_main_) || (mode_ == Mode::VideoSearch && vs_pic_ != 0) || (mode_ == Mode::VideoLink && vl_pic_ != 0)) && frame_main_len_ != std::string::npos && frame_main_len_ <= frame_str.size();   // (SEARCH YT with a thumbnail picture freezes the main screen too: the line writes of the live screen next to a Sixel picture wipe it)
+            const bool freeze = ((mode_ == Mode::MetaEdit && meta_->sty_from_main) || (mode_ == Mode::VideoSearch && vs_pic_ != 0) || (mode_ == Mode::VideoLink && vl_pic_ != 0)) && frame_main_len_ != std::string::npos && frame_main_len_ <= frame_str.size();   // (SEARCH YT with a thumbnail picture freezes the main screen too: the line writes of the live screen next to a Sixel picture wipe it)
             // (the look chosen in the panel is shown behind it at once: the frozen screen is taken again when the look changes)
             const std::string look_sig = std::to_string(eff_cover_mode()) + "|" + std::to_string(eff_cover_contrast()) + "|" + std::to_string(eff_cover_brightness()) + "|" +
                                          std::to_string(eff_cover_colors()) + "|" + std::to_string(eff_cover_chroma()) + "|" + (settings_.album_cover ? "a" : "d");
@@ -1237,9 +1261,9 @@ int App::run() {
         const bool main_frame = frame_main_len_ != std::string::npos;
         // (the meta editor, the cover fetch and the video fetch lay out the main screen behind their own screen to know its height: the
         // spectrogram of that hidden screen must not be drawn -- it took the place of their pictures as soon as a track played)
-        const bool own_screen = mode_ == Mode::CoverFetch || mode_ == Mode::VideoFetch || (mode_ == Mode::MetaEdit && !meta_sty_from_main_);
+        const bool own_screen = mode_ == Mode::CoverFetch || mode_ == Mode::VideoFetch || (mode_ == Mode::MetaEdit && !meta_->sty_from_main);
         const bool sp_img = main_frame && !own_screen && spectro_area_[0] >= 0 && sp_proto != 0 && !list_overlay_active() && !queue_overlay_active();
-        const bool sp_creator = sp_img && creator_show_;   // the creator's preview has its own spectrogram, settings and picture
+        const bool sp_creator = sp_img && creator_->show;   // the creator's preview has its own spectrogram, settings and picture
         // The spectrogram's analysis keeps running while a track is loaded, shown or not (a menu or another view over it, a pause): it
         // is cheap, and the history is there when the picture is opened again -- before, the feed was switched off whenever a frame did not
         // draw it, so what was played meanwhile was missing (gaps after an overlay, an empty picture when opened during a pause).
@@ -1247,14 +1271,14 @@ int App::run() {
         else if (!spectro_used_ || !main_frame) spectro().set_visible(false);
         // the Settings preview box: its spectrogram is a picture too (settings_preview.cpp)
         const bool pv_img = (mode_ == Mode::Settings || mode_ == Mode::ColorEdit) && pv_spectro_area_[0] >= 0 && sp_proto != 0 && settings_preview_spectro();
-        if (frame_str.find("\x1b[2J") != std::string::npos) { spectro_gfx_.invalidate(); creator_spectro_gfx_.invalidate(); pv_spectro_gfx_.invalidate(); }
+        if (frame_str.find("\x1b[2J") != std::string::npos) { spectro_gfx_.invalidate(); creator_->spectro_gfx.invalidate(); pv_spectro_gfx_.invalidate(); }
         const bool sixel_on = (gfx_ok_ && gfx_proto_ == GfxProto::Sixel && gfx_.active && gfx_.crop < gfx_.cols) || (sp_img && sp_proto == 2) || (pv_img && sp_proto == 2);
         if (sixel_on && (!gfx_shown || frame_str.find("\x1b[2J") != std::string::npos)) { gfx_.fresh = true; gfx2_.fresh = true; }
         const auto frame_now = std::chrono::steady_clock::now();
         std::string wire;   // ONE write per frame (text + picture): two writes let the terminal paint in between = flicker
         // (no heal frame under the frozen Style Option overlay: the whole screen written again every two seconds makes the picture blink)
         // (Cover Options in the meta editor: its preview is a Sixel picture too -- a whole-frame write puts the editor's text into its cells)
-        const bool cov_pic = gfx_proto_ == GfxProto::Sixel && mode_ == Mode::MetaEdit && meta_cov_open_;
+        const bool cov_pic = gfx_proto_ == GfxProto::Sixel && mode_ == Mode::MetaEdit && meta_->cov_open;
         const bool heal = !sty_frozen && !cov_pic && frame_now - last_frame_written_at > std::chrono::seconds(2);
         if (frame_str != last_frame_str || heal) {
             // The main screen: only the lines that changed (at 120 / 165 fps the whole screen every frame would be
@@ -1296,7 +1320,7 @@ int App::run() {
             // to the text that was rewritten, and a tile that did not change (a paused track) would never be sent again.
             {
                 static int last_rect[4] = {0, 0, 0, 0};
-                if ((floating_changed && std::memcmp(last_rect, float_rect_, sizeof(last_rect)) != 0) || (heal && !floating.empty() && !sty_frozen)) { spectro_gfx_.invalidate(); creator_spectro_gfx_.invalidate(); }
+                if ((floating_changed && std::memcmp(last_rect, float_rect_, sizeof(last_rect)) != 0) || (heal && !floating.empty() && !sty_frozen)) { spectro_gfx_.invalidate(); creator_->spectro_gfx.invalidate(); }
                 std::memcpy(last_rect, float_rect_, sizeof(last_rect));
             }
             if (sixel_on && floating_changed && gfx_.active) { gfx_.fresh = true; if (gfx2_.active) gfx2_.fresh = true; }   // (the second picture's cells are blanked too: it goes out again in the same write)
@@ -1356,14 +1380,14 @@ int App::run() {
             gfx_cell_pixels(settings_.cell_pixels, cw, chh);
             const bool floating = float_rect_[2] > 0 && float_rect_[3] > 0;
             const bool caption = !floating && caption_rect_[2] > 0;   // the "fetching lyrics" box: a hole in the picture
-            SpectroGfx& sgfx = sp_creator ? creator_spectro_gfx_ : spectro_gfx_;
-            wire += sgfx.emit(sp_proto, sp_creator ? creator_spectro_set_ : layout_spectro_on_ ? layout_spectro_ : settings_.spectro, sp_creator ? creator_spectro_ : spectro(), spectro_area_[0], spectro_area_[1], spectro_area_[2], spectro_area_[3],
+            SpectroGfx& sgfx = sp_creator ? creator_->spectro_gfx : spectro_gfx_;
+            wire += sgfx.emit(sp_proto, sp_creator ? creator_->spectro_set : layout_spectro_on_ ? layout_spectro_ : settings_.spectro, sp_creator ? creator_->spectro : spectro(), spectro_area_[0], spectro_area_[1], spectro_area_[2], spectro_area_[3],
                                       cw, chh, true, floating ? float_rect_[1] : caption ? caption_rect_[0] : 0,
                                       floating ? float_rect_[0] : caption ? caption_rect_[1] : 0,
                                       floating ? float_rect_[3] : caption ? 1 : 0, floating ? float_rect_[2] : caption ? caption_rect_[2] : 0);
         } else {
             if (spectro_gfx_.shown()) wire = spectro_gfx_.clear(sp_proto) + wire;   // before the new screen's text
-            if (creator_spectro_gfx_.shown()) wire = creator_spectro_gfx_.clear(sp_proto) + wire;
+            if (creator_->spectro_gfx.shown()) wire = creator_->spectro_gfx.clear(sp_proto) + wire;
         }
         if (pv_img) {
             int cw = 10, chh = 20;
@@ -1394,7 +1418,7 @@ int App::run() {
     if (gfx_shown) { write_frame(gfx_clear(gfx_proto_)); gfx_shown = false; }   // the picture must not outlive the mode
     if (gfx2_shown_) { write_frame(gfx_clear(gfx_proto_, 1)); gfx2_shown_ = false; }
     if (spectro_gfx_.shown()) write_frame(spectro_gfx_.clear(gfx_proto_ == GfxProto::Kitty ? 1 : 2));
-    if (creator_spectro_gfx_.shown()) write_frame(creator_spectro_gfx_.clear(gfx_proto_ == GfxProto::Kitty ? 1 : 2));
+    if (creator_->spectro_gfx.shown()) write_frame(creator_->spectro_gfx.clear(gfx_proto_ == GfxProto::Kitty ? 1 : 2));
     if (pv_spectro_gfx_.shown()) write_frame(pv_spectro_gfx_.clear(gfx_proto_ == GfxProto::Kitty ? 1 : 2));
     if (switch_mode_) {
         // Switching to the radio: the player is only SUSPENDED (kept in memory, so coming back is instant and shows
@@ -1450,8 +1474,8 @@ void App::shutdown() {
     if (search_thread_.joinable()) search_thread_.join();
     if (device_worker_thread_.joinable()) device_worker_thread_.join();
     if (bulk_add_thread_.joinable()) bulk_add_thread_.join();
-    meta_fetch_cancel_.request();   // quitting must not wait for a long batch; what had arrived is kept below
-    if (meta_fetch_thread_.joinable()) meta_fetch_thread_.join();
+    meta_->fetch_cancel.request();   // quitting must not wait for a long batch; what had arrived is kept below
+    if (meta_->fetch_thread.joinable()) meta_->fetch_thread.join();
     poll_pending_meta_fetch();
     meta_persist();
     cf_close();

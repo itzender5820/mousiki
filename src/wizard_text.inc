@@ -279,8 +279,10 @@ Main at the top, below it the categories, below the open category its
 menus, and below a menu its lower menus. [LEFT/RIGHT] move between
 the boxes of a row, [DOWN] goes one level in, [UP] one level back, [ENTER]
 opens the menu of the box (on a box that only groups others it goes in),
-[ESC] or [<] closes it. A row that is too wide zigzags over two rows
-(keys stay in the boxes), or hangs in columns when narrower; the tree always starts on the same row.
+[ESC] or [<] closes it. A long row zigzags over two rows (keys stay in the
+boxes) where the rows below have the space, or hangs in columns when narrower; the tree always starts on the same row.
+The boxes on the path (Main too) and the branches on the path are in the header color, everything
+else in the remaining color of the progress bar.
 [SHIFT+t] switches to the classic view (a regular overlay with two columns: every
 category and all its entries; the categories are only headers) and back, the last view is kept. The keys
 are the ones you have bound.
@@ -340,10 +342,10 @@ menus of a mode that you have switched off are not there).
 └─────────────────────────────┘
 ┌─ [Bookmarks and Notes][[Header]] ───┐ ┌─ [Sound][[Header]] ──────────────────────────┐
 │ Bookmark List [SHIFT+k] │ │ Equalizer [SHIFT+e]              │
-│ New Note [SHIFT+n]      │ │ Loudness Normalization [SHIFT+v] │
-│ Set Bookmark [SHIFT+b]  │ │ Sleep Timer [SHIFT+z]            │
 )WIZ",
-R"WIZ(│ Notes Overlay [SHIFT+l] │ │ Audio Device [°]                 │
+R"WIZ(│ New Note [SHIFT+n]      │ │ Loudness Normalization [SHIFT+v] │
+│ Set Bookmark [SHIFT+b]  │ │ Sleep Timer [SHIFT+z]            │
+│ Notes Overlay [SHIFT+l] │ │ Audio Device [°]                 │
 └─────────────────────────┘ └──────────────────────────────────┘
 ┌─ [Visualizations][[Header]] ────────┐
 │ Spectrum Bars [SHIFT+y] │
@@ -474,9 +476,9 @@ Mousiki is currently running (restarting also triggers a new scan).
 TAGS ARE KEPT BETWEEN RUNS: [[Header]]
 The tags of the library (title, artist, album, year, length) are kept in ~/.cache/mousiki/tag_cache.txt.
 At the next start every file whose size and modification time did not change gets its tags from there
-at once, so search and sort work right away; only new and changed files are read again.
 )WIZ",
-R"WIZ(
+R"WIZ(at once, so search and sort work right away; only new and changed files are read again.
+
 IMPORTANT BEFORE LEAVING THE SETTINGS: [[Header]]
 Remember to leave the settings by hitting [s] to save changes (made in the config.txt). 
 Exiting via [ESC] or [q] exits the settings and discards changes that were made, but you
@@ -648,9 +650,9 @@ The order can be adjusted and queues can be saved as playlist.
 GENERAL: [[Header]]
 [SHIFT+k]       open the big queue overlay (full size queue list)
                 [/] there: search bar at the bottom, matches are marked ([UP/DOWN] jump);
-                it searches all tags of the files, also those no screen shows
 )WIZ",
-R"WIZ([SHIFT+l]       open the big list  overlay (full size list)
+R"WIZ(                it searches all tags of the files, also those no screen shows
+[SHIFT+l]       open the big list  overlay (full size list)
 [SHIFT+UP/DOWN] jump a whole page up/down  (or [PgUp] / [PgDn])
 
 With the LIST focused: [[Header]]
@@ -778,9 +780,9 @@ chromaprint, so meta data can be fetched even for files without any tags
 or usable file name. MusicBrainz is also involved — needed for album and year.
 
 DISCLAIMER FOR FETCHING META DATA:[[Header]]
-The fetched meta data is not always correct, so definitely check first, which
 )WIZ",
-R"WIZ(is why any fetching meta data comes with a disclaimer and needs a [YES/NO]
+R"WIZ(The fetched meta data is not always correct, so definitely check first, which
+is why any fetching meta data comes with a disclaimer and needs a [YES/NO]
 confirmation.
 For tracks without usable title, you can use [SHIFT+p] to play a track, so you
 can identify e.g. the artist / title etc. yourself to check if the fetched
@@ -923,9 +925,9 @@ ALBUM LIBRARY TAB:[[Header]] Left the ALBUM LIBRARY, right the ALBUM ART. The se
 the meta editor's: f: lists folders (e.g. f:abbey), everything else searches the whole meta
 data. Results are folders, [ENTER]/[SPACE] opens one; inside it only the album names (once each)
 with the number of covers. Albums WITHOUT any cover (none inside a file, none fetched, none in
-the folder, none chosen) are drawn in the legend colour. Tracks without album tag are not listed.
 )WIZ",
-R"WIZ([t]          the cover as ASCII (braille dots) / in full resolution (Kitty / Sixel)
+R"WIZ(the folder, none chosen) are drawn in the legend colour. Tracks without album tag are not listed.
+[t]          the cover as ASCII (braille dots) / in full resolution (Kitty / Sixel)
              (full resolution is the default; also [t] in the meta editor)
 Dark covers behind the disk: dark dots are lifted a little (locally; bright parts stay).
 [r]          RECENTLY FETCHED albums (last 14 days - check their covers in the picture pane!)
@@ -1042,9 +1044,9 @@ timing!), they can be fetched again under a different query.
                           are then kept for karaoke and reading.
 [Fields:][[Legend]]                   TITLE and ARTIST, FT (opt) = featured artist(s), added to the search as "ft.
                           ...". Normal text boxes: caret, [SHIFT+<-/->] marking, [CTRL+c/x/v].
-[Ticks:][[Legend]]                    For edits whose timing differs by concept from the original: slowed,
 )WIZ",
-R"WIZ(                          ultra-slowed, sped up (these three exclude each other), reverb, remix, other.
+R"WIZ([Ticks:][[Legend]]                    For edits whose timing differs by concept from the original: slowed,
+                          ultra-slowed, sped up (these three exclude each other), reverb, remix, other.
 [Keys:][[Legend]]                     [TAB]/[DOWN] next field, [UP] previous field, [SPACE] tick / untick, [ENTER]
                           fetch, [ESC] cancel. Both lead back to READ LYRICS, which shows the new lyrics as
                           soon as they are loaded.
@@ -1119,8 +1121,12 @@ FETCH CHECK:[[Header]]
 READING AND TRANSLATING LYRICS:[[Header]]
 [CTRL+L] opens READ LYRICS (playing track, else the hovered one): the lyrics fetched so far, the
 translations and the text itself.
-[TAB:][[Legend]]                      Switches between the two top panes.
-[<-/->:][[Legend]]                    Chooses the file or the translation.
+[TAB:][[Legend]]                      Switches between the two top panes (lyrics files left,
+                          translations right).
+[<-/->:][[Legend]]                    Chooses the file or the translation of the pane with the keys;
+                          with several, it goes on round the ends.
+[SHIFT+c:][[Legend]]                  Creates an EMPTY translation file (Manual Translation) for the
+                          chosen lyrics file; [SHIFT+e] writes it.
 [Scrolling:][[Legend]]                [UP]/[DOWN] a line, [SHIFT+UP/DOWN] (or [SPACE]/[b]) a page, [HOME] / [END] top /
                           bottom.
 [t:][[Legend]]                        Translate overlay (service Google / MyMemory, translate into, lyrics are in);
@@ -1139,12 +1145,12 @@ translations and the text itself.
                           the line, [TAB] chooses the language, [CTRL+o] copies the original line, [CTRL+n]
                           starts from scratch, [CTRL+s] saves, [ESC] closes.
 [Editor: marking:][[Legend]]          [SHIFT+UP/DOWN] marks whole lines: [CTRL+c/x/v] copy, cut and paste them, [DEL]
-                          clears them, [CTRL+z] undoes. [CTRL+t] switches the Latin letters ([CTRL+2] too,
+)WIZ",
+R"WIZ(                          clears them, [CTRL+z] or [CTRL+y] undoes (10 steps), [CTRL+r] redoes. [CTRL+t] switches the Latin letters ([CTRL+2] too,
                           but not every terminal sends it). Long lines are broken into rows.
 [Editor: result:][[Legend]]           A machine translation that is edited is kept as it was: your version is saved as
                           a new "Manual Translation" ("Manual Translation 2" ... for more), which the
-)WIZ",
-R"WIZ(                          TRANSLATION pane lists.
+                          TRANSLATION pane lists.
 [e:][[Legend]]                        Exports the lyrics into the folder "export" inside the lyrics folder: the
                           original only, or with the translation and / or the transliteration (Latin
                           letters) below each line. If the kanji reader is still working, the overlay says
@@ -1202,8 +1208,9 @@ ROW[[Header]]                           WHAT IT DOES[[Header]]
                               the track's video with the current lyric line under it. With "When
                               No Video Shows" set to none the cycle skips it for a track without a
                               video.
-[Include Lyrics][[Legend]]                The current lyric line under the picture. Off: the picture gets the
-                              whole field.
+[Include Lyrics][[Legend]]                What shows under the picture: none (the picture gets the whole
+                              field), lyrics, lyrics+transl. or transl. (the saved translation).
+                              The translation uses the last row first, then the picture shrinks.
 [Auto Video][[Legend]]                    A track with a video shows it. The next track without one follows
                               the Lyrics/Viz Default (a view / last used = the view before the
                               video / video = stays on the video view, then When No Video Shows
@@ -1253,7 +1260,8 @@ BUTTON[[Legend]]                            WHAT IT DOES[[Legend]]
                                   video_down (QUICK SEARCH below).
 [ General Fetch Videos Menu ]     Opens FETCH VIDEOS [ALT+v] (page 2.3.7).
 [ Delete Current Video ]          Two questions first.
-[ Refetch this Video ]            Searches again and takes the closest hit. The old file is
+)WIZ",
+R"WIZ([ Refetch this Video ]            Searches again and takes the closest hit. The old file is
                                   deleted only if Mousiki downloaded it.
 
 [NEXT VIDEO EFFECT [g]:][[Header]]
@@ -1265,9 +1273,9 @@ The video over the whole screen, the lyric line as a small black box over it. Op
 the audio book), independent of the Video mode. Seek and pause keys keep working.
 
 KEY[[Header]]                     ACTION[[Header]]
-)WIZ",
-R"WIZ([UP/DOWN]               effect of this track (as in its Style Option)
-[TAB]                   lyrics off / on / with translation (saved in READ LYRICS)
+[UP/DOWN]               effect of this track (as in its Style Option)
+[TAB]                   lyrics off / lyrics / with translation / translation only (through
+                        every saved translation of READ LYRICS)
 [SHIFT+UP/DOWN]         layout: video / + oscilloscope / + spectrogram / + both, in a column right
                         of the video
 [SHIFT+o] / [SHIFT+i]   open the options of the oscilloscope / spectrogram
@@ -1390,7 +1398,8 @@ View         spectrogram / WATERFALL: a stack of spectra (newest in front, older
              and to the right), every graph filled with the colors and outlined in black. Own rows: Graphs,
              Graph spacing, Slant, Peak height, Resolution (high = twice as fine, scaled down) (braille:
              lines of dots; full screen: frequencies on the top ruler)
-Scale        linear / logarithmic / mel / bark / erb / period
+)WIZ",
+R"WIZ(Scale        linear / logarithmic / mel / bark / erb / period
 Motion       sweep (a page at a time) / scroll (newest on the right)
 Window size  256 .. 8192: bigger = sharper frequency lines, smaller = crisper clicks and drum hits
 Time span    5 .. 60 s across the width
@@ -1401,8 +1410,7 @@ audio at once, so you see the difference immediately.
 THEIR OWN WINDOWS: [[Header]]
 Both visualizations can leave the terminal and open a real window, redrawn at your monitor's
 refresh rate (60, 120, 165 Hz ...):
-)WIZ",
-R"WIZ([)]   scope window            German keyboard SHIFT+9, English keyboard SHIFT+0
+[)]   scope window            German keyboard SHIFT+9, English keyboard SHIFT+0
 [(]   spectrogram window      German keyboard SHIFT+8, English keyboard SHIFT+9
 With the waterfall chosen ([SHIFT+i], View) the spectrogram window shows it too, at the refresh rate of the
 monitor, the graphs gliding back smoothly.
@@ -1540,7 +1548,8 @@ OPEN:[[Header]] [SHIFT+z] opens the sleep timer overlay (the playback keeps runn
 Stop after current song           player only
 Fade out                          a toggle, the overlay stays open
 Off                               cancel a running timer
-
+)WIZ",
+R"WIZ(
 [UP]/[DOWN] pick, [ENTER] set it and close, [ESC] or [SHIFT+z] close without changing anything.
 
 WHILE A TIMER RUNS: [[Header]]
@@ -1555,8 +1564,7 @@ The player pauses (the position is kept, [p] resumes), the radio stops the strea
 changes the play mode, and it is gone after a restart.
 
 [[New Page]]
-)WIZ",
-R"WIZ(2.6.5 AUDIO DEVICE [[Header]]
+2.6.5 AUDIO DEVICE [[Header]]
 
 OPEN:[[Header]] [°] (German keyboards: [SHIFT+^]; other keyboards: [&]) opens the CHOOSE AUDIO DEVICE
 overlay, in the music player, the radio and the audio books. Settings, GENERAL, AUDIO, Choose Audio
@@ -1654,6 +1662,7 @@ TEXT EDITING, IN EVERY FIELD: [[Header]]
 [<-/->] caret            [SHIFT+<-/->] mark          [HOME] [END] jump
 [DEL] [BACKSPACE] delete [CTRL+c] [CTRL+x] [CTRL+v]  copy, cut, paste
 [CTRL+z] or [CTRL+y]  undo the last change (a typed run, a deletion or a paste is one step)
+                      (a text pasted with the terminal, CTRL+SHIFT+V, goes in like [CTRL+v])
 [ENTER] confirm          [ESC] cancel the edit
 [TAB] and the arrows never leave a field that is being edited.
 
@@ -1697,18 +1706,18 @@ toggle other values. Some options demand input, such as terminal size.
 Note that on every Settings tab that scrolls, [SHIFT+UP] / [SHIFT+DOWN] moves a page.
 On a terminal at least 107 columns wide, GENERAL and ANIMA/VIZ show a PREVIEW BOX on the right
 of the rows - only for the option you are on, never several at once: the lyrics (alignment,
-animation), the disk and cover looks, the volume bar at 85%, the spectrum bars, the progress
+)WIZ",
+R"WIZ(animation), the disk and cover looks, the volume bar at 85%, the spectrum bars, the progress
 waveform, the oscilloscope, spectrogram (a picture in Kitty / Sixel terminals) and sphere (with the signal
 of the radio station "TEST Stereo Chords": no file, no internet - Mousiki makes the same signal itself),
 the transliteration examples, the emoji (note, radio, space invader, book, black cat) and the
 marquee.
 
 [MODES:][[Header]]
-[Playback:][[Legend]] the play mode (works like using [m] in the main player UI;
+[Playback:][[Legend]] the play mode (works like using [m] in the main player UI; [j] steps back;
                                                   all player modes have playback modes, but not all of the
                                                   the same).
-)WIZ",
-R"WIZ(
+
 [Start Mode:][[Legend]]                                       player / radio / audiobook set the mode Mousiki opens
                                                   with.
 
@@ -1802,7 +1811,8 @@ In the audio book mode some rows carry the book's own names (same meaning as in 
                                                  the spectrogram, the sphere). 
 [Use Book Notes] = Use Lyrics Engine: the notes view takes part in the cycle. 
 [Notes/Viz Default:] = Lyrics/Viz Default (what the field starts with) and ...
-[When No Notes Show:] = When No Lyrics Show (the book has no notes).
+)WIZ",
+R"WIZ([When No Notes Show:] = When No Lyrics Show (the book has no notes).
 [Viz Order 1 to 4] set the order of the views for [,/.], 
 [Mode Order 1 to 3] the order of the modes.
 [Book Gradient Wave:][[Legend]] with Book Cover on: true = the colour wave runs over the grey cover, false = the  
@@ -1813,8 +1823,7 @@ In the audio book mode some rows carry the book's own names (same meaning as in 
 [BOOKMARKS:][[Header]]  
 This category is only available in the audio book mode only... 
 [Ask for Bookmark:][[Legend]] on = leaving a chapter, the mode or the program asks first
-)WIZ",
-R"WIZ(                                                  whether to set a bookmark (the audio pauses meanwhile);
+                                                  whether to set a bookmark (the audio pauses meanwhile);
                                                   off = only [SHIFT+b] sets one. Turning it on can be
                                                   annoying and auto-marks are set anyways, but in case you
                                                   want to set several bookmarks in a chapter, this may help
@@ -1909,7 +1918,8 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
 [Video Resolution][[Legend]]                                  standard / high / full: how sharp the picture is.
 [Video Buffer][[Legend]]                                      MB of decoded frames kept ahead of the picture.
 [Show Clap Loading][[Legend]]                                  text note / clap (a small clapperboard in the border colours) / none: what shows while a video loads.
-[yt-dlp mp3 from mp4][[Legend]]                               true / false: SEARCH YT also saves a video's sound as an mp3 (no song as target).
+)WIZ",
+R"WIZ([yt-dlp mp3 from mp4][[Legend]]                               true / false: SEARCH YT also saves a video's sound as an mp3 (no song as target).
 
 [DISK:][[Header]]
 [Eliment Disk / Cover:][[Legend]]                             shows or hides the disk field in the player area: the
@@ -1919,8 +1929,7 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
 [Disk Speed:][[Legend]]                                       with range between 0.01 - 1.00.
 
 [Album Cover (music player):][[Legend]]                       Album Cover (false by default) shows the cover of the
-)WIZ",
-R"WIZ(                                                  playing track in the disk's place; a track without a
+                                                  playing track in the disk's place; a track without a
                                                   cover keeps the disk.
 
 [Cover Mode:][[Legend]]                                       chooses how it is shown (seven ways):
@@ -1999,7 +2008,8 @@ R"WIZ(                                                  playing track in the dis
                                                   jp2, ico, tga, ppm pgm pnm, pcx: every regular format
                                                   read by ffmpeg; avif, heic and jxl only if your ffmpeg
                                                   can decode them; no camera RAW or other very large
-                                                  formats. The name only has to be close.
+)WIZ",
+R"WIZ(                                                  formats. The name only has to be close.
 
 
 [SEEK AND VOLUME:][[Header]]
@@ -2010,8 +2020,7 @@ R"WIZ(                                                  playing track in the dis
 
 
 [Volume Indicator:][[Legend]]                                 what the VOLUME BAR is drawn with: # or ⠶ or ⣿ or ⡾⣽ (a
-)WIZ",
-R"WIZ(                                                  fixed row of braille characters that does not repeat) or
+                                                  fixed row of braille characters that does not repeat) or
                                                   two moving braille blocks = uses the braille effect of
                                                   the disk: the bar follows the disk animation, with the
                                                   centre of the circle two cells in from the left. Right of
@@ -2103,15 +2112,15 @@ R"WIZ(                                                  fixed row of braille cha
 =====[[Header]] PATHS TAB: =====[[Header]]
 
 [LOCAL PATH][[Header]] the folders scanned for music (several, plus "+ new path")
-[DOWNLOAD PATH][[Header]]                                     where [y] saves streams
+)WIZ",
+R"WIZ([DOWNLOAD PATH][[Header]]                                     where [y] saves streams
 [PLAYLIST PATH][[Header]]                                     one folder for all playlists
 [PLAYLIST EXPORT PATH][[Header]]                              where [e] writes M3U8 / M3U (default: playlists\export)
 [PLAYLIST IMPORT PATH][[Header]]                              where [i] reads M3U8 / M3U (default: playlists\import)
 [HISTORY PATH][[Header]]                                      holds history.json
 [CONVERSION EXPORT PATH][[Header]]                            where converted files go
 [AUDIO BOOK PATH][[Header]]                                   One folder only, since books are sorted by book folders
-)WIZ",
-R"WIZ(                                                  with the chapters themselves (doesn't happen inside
+                                                  with the chapters themselves (doesn't happen inside
                                                   Mousiki). Every book folder within it with audio files is
                                                   considered one book. A .cue file rests beside each book
                                                   and keeps its narrator, publisher and year and other meta
@@ -2238,7 +2247,8 @@ KEYS ON THE MAIN SCREEN: [[Header]]
 [n] / [b]    next / previous channel    [#]      a random channel
 [p]          mute / unmute              [x]      stop          [R]  reconnect
 [+] / [-]    volume                     [/]      search        [SHIFT+t]  sort list order <-> A-Z
-[SHIFT+p] presets   [SHIFT+s] radio browser   [SHIFT+k] station lists   [SHIFT+l] big stations overlay
+)WIZ",
+R"WIZ([SHIFT+p] presets   [SHIFT+s] radio browser   [SHIFT+k] station lists   [SHIFT+l] big stations overlay
 [h] history   [s] settings   [?] cheat sheet   [<] menus index   [SHIFT+w] this wizard   [q] quit
 [°] (German [SHIFT+^]; other keyboards [&])  choose the audio device (2.6.5)
 
@@ -2247,8 +2257,7 @@ THE BIG STATIONS OVERLAY: [[Header]]
 [a] adds a station by its stream URL ([TAB] switches URL <-> NAME; an empty name becomes the host name).
 [SHIFT+c] edits the hovered entry: name, preset name (a shorter second name shown in the PRESETS pane,
 which only has little space), URL, genre, country, codec and kbps. [TAB] or [UP]/[DOWN] switch the field,
-)WIZ",
-R"WIZ([ENTER] saves, [ESC] cancels.
+[ENTER] saves, [ESC] cancels.
 [DEL] deletes the hovered station after a warning ([Y] deletes, [N] keeps it); it leaves the stations file,
 the presets and the station lists, the stream that plays goes on.
 [SHIFT+u] undoes the last deletion or edit (up to 20 steps while the radio runs).
@@ -2402,7 +2411,8 @@ THE RADIO'S OWN HISTORY: [[Header]]
 move, [HOME]/[END] jump to the ends.
 [1] HISTORY        WHEN / CHANNEL / ARTIST / TITLE / HEARD
 [2] TOP CHANNELS   channels by time listened ([r] flips the order)
-[3] HABITS         sessions, time per day, channels, and listening by hour and by weekday
+)WIZ",
+R"WIZ([3] HABITS         sessions, time per day, channels, and listening by hour and by weekday
 A new HISTORY line starts whenever the channel, the artist or the title changes. Lines heard for less
 than 3 seconds are dropped. A session ends after a gap of 30 minutes. The newest 10 000 lines are
 kept one by one; older ones are folded into lifetime totals, so TOP CHANNELS and HABITS stay lifetime
@@ -2412,8 +2422,7 @@ HEARD A SONG ON THE RADIO? DOWNLOAD IT: [[Header]]
 The radio writes down the artist and title the stream sends. On the HISTORY tab [y] on a line opens an
 overlay that searches YouTube for "artist title". [ENTER] downloads the hovered result into the
 download folder (yt-dlp, opus), [TAB] edits the search query, [ESC] closes. A result is marked
-)WIZ",
-R"WIZ([ok] done, [..] downloading, [!!] failed.
+[ok] done, [..] downloading, [!!] failed.
 This is the online search of the music player reached from the radio, so a song you only heard once
 on air ends up in your local library (after a rescan with [SHIFT+r] in the player).
 
@@ -2533,7 +2542,8 @@ An image of a women rading a book (a grey version of a colour picture) takes the
 It is drawn as small braille dots (a 60 x 60 dot field) and stays still; the colour wave of the 
 radio's ON AIR sign runs over it diagonally, from the upper left to the lower right. In a terminal 
 with Kitty graphics or Sixel (Windows Terminal 1.22+, Kitty, WezTerm ...) it is a real transparent 
-image at full pixel resolution instead of braille dots (a terminal without them gets the braille 
+)WIZ",
+R"WIZ(image at full pixel resolution instead of braille dots (a terminal without them gets the braille 
 version, which does not look nice though, to be honest). The original of the beautiful default 
 image is done by Kamara Rahmat (iyaniyan; taken from Unsplash).
 
@@ -2543,8 +2553,7 @@ folder instead (a file named cover, folder, front or albumart, else the first pi
 jpg, png, webp ...; no picture file: the cover art inside the first audio file is used). The 
 gradient wave can also be toggled via [Book gradient]. With the wave on, [Cover Brightness]
 (50% = as it is) and [Cover Colors] (how much of the cover's own colours shines through the
-)WIZ",
-R"WIZ(gradient) work on the book's cover too (Settings, ANIMA/VIZ, BOOK COVER).
+gradient) work on the book's cover too (Settings, ANIMA/VIZ, BOOK COVER).
 
 A book without a cover image keeps the default picture. Switching Book Cover on shows in the 
 status line which protocol is used and the cover file found (or why there is none; the console log, t, 
@@ -2659,7 +2668,8 @@ book, chapter, time; the newest first, notes last.
 [ESC]      closes/clears sorting.
 
 BIG LIBRARY OVERLAY [SHIFT+s]: [[Header]] 
-It has a search pane on top ([/] types, the words narrow the list) and the audio book pane below it.
+)WIZ",
+R"WIZ(It has a search pane on top ([/] types, the words narrow the list) and the audio book pane below it.
 [ENTER] / [->] on a book opens it and inserts its chapters below it, [<-] or [ESC] closes it; 
                a diamond marks a bookmark.
 [ENTER]        on a chapter plays it (the bookmark question first), [CTRL+p] plays it from its start 
@@ -2671,8 +2681,7 @@ The listening history made for books, in its own file reading_history.json. Ever
 you listen to is recorded. Change tab via  [<-]/[->] or [1] to [4]. 
 Given tabs are HISTORY, TOP CHAPTERS, TOP BOOKS, HABITS.
 [ENTER] on a chapter opens its book and plays it. [ESC] closes.
-)WIZ",
-R"WIZ(
+
 [[New Page]]
 4.1.5 CHAPTER MARKS AND CUTTING [[Header]]
 

@@ -2807,7 +2807,7 @@ int radio_main(int argc, char** argv) {
                 case 'n': tune_relative(+1); break;       // always the next channel in the list
                 case 'b': tune_back(); break;              // previous channel; depends on the S/L mode
                 case '#': tune_shuffle(); break;           // always a random next channel
-                case 'm': ui.model.shuffle = !ui.model.shuffle; cfg.playback_shuffle = ui.model.shuffle; ui.model.settings.dirty = true; break;      // S (shuffle) <-> L (list)
+                case 'j': case 'm': ui.model.shuffle = !ui.model.shuffle; cfg.playback_shuffle = ui.model.shuffle; ui.model.settings.dirty = true; break;      // S (shuffle) <-> L (list)
                 case 'p':   // mute / unmute -- but with nothing loaded it tunes the hovered station, like ENTER
                     if (engine.status().state == StreamState::Idle) tune_visible(ui.model.cursor);
                     else engine.set_muted(!engine.status().muted);

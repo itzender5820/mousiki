@@ -7,6 +7,7 @@
 // VIDEO OPTION (Mode::VideoLink): two searchable lists (tracks / video files of the library), the track is locked in with ENTER, the video
 // with ENTER; the pair is stored in video_links.txt (video_links.h) and follows the files when they are renamed or moved.
 #include "app.h"
+#include "overlay_rows.h"
 #include "app_internal.h"
 #include "console_log.h"
 #include "overlay_common.h"
@@ -29,7 +30,7 @@ namespace muisc {
 
 void App::video_menu_open() {
     if (audiobook_) { status_line_ = "video: not available in the audio book player"; return; }
-    vmenu_sel_ = std::clamp(vmenu_sel_, 0, 19);
+    vmenu_sel_ = std::clamp(vmenu_sel_, 0, static_cast<int>(kVmRowCount) - 1);
     vdel_stage_ = 0;
     mode_ = Mode::VideoMenu;
     force_redraw_ = true;
@@ -42,22 +43,26 @@ void App::video_menu_close() {
 
 void App::video_menu_change(int row, int dir) {
     switch (row) {
-        case 0:
+        case kVmVideoMode:
             video_toggle();
             break;
-        case 1:
-            settings_.video_lyrics = !settings_.video_lyrics;
-            set_config_value("VideoLyrics", settings_.video_lyrics ? "true" : "false");
-            status_line_ = settings_.video_lyrics ? "video: the current lyric line is shown under the picture" : "video: no lyric line, the picture gets the whole field";
+        case kVmLyrics:
+            settings_.video_lyrics = (std::clamp(settings_.video_lyrics, 0, 3) + (dir < 0 ? 3 : 1)) % 4;
+            set_config_value("VideoLyrics", settings_.video_lyrics == 1 ? "lyrics" : settings_.video_lyrics == 2 ? "both" : settings_.video_lyrics == 3 ? "translation" : "none");
+            video_pic_key_.clear();
+            status_line_ = settings_.video_lyrics == 0 ? "video: no lyric line, the picture gets the whole field"
+                         : settings_.video_lyrics == 1 ? "video: the current lyric line is shown under the picture"
+                         : settings_.video_lyrics == 2 ? "video: the lyric line with its translation (the last row under the picture is used first, then the picture gets smaller)"
+                                                       : "video: the translation of the current lyric line is shown (the lyric line where there is none)";
             break;
-        case 2:
+        case kVmAutoVideo:
             settings_.video_auto = !settings_.video_auto;
             set_config_value("VideoAuto", settings_.video_auto ? "true" : "false");
             status_line_ = settings_.video_auto ? "video: a track with a video shows it by itself, a track without one the Lyrics/Viz Default" : "video: auto video off";
             if (settings_.video_auto) video_auto_apply();
             force_redraw_ = true;
             break;
-        case 3: {
+        case kVmCover: {
             settings_.video_cover = (settings_.video_cover + (dir < 0 ? 2 : 1)) % 3;   // cover -> thumbnail -> disk
             set_config_value("VideoCover", settings_.video_cover == 1 ? "thumbnail" : settings_.video_cover == 2 ? "disk" : "cover");
             std::string note;
@@ -75,36 +80,36 @@ void App::video_menu_change(int row, int dir) {
             force_redraw_ = true;
             break;
         }
-        case 4: video_set_size((settings_.video_size + (dir < 0 ? 3 : 1)) % 4); break;
-        case 5:   // Rounded Corners
+        case kVmSize: video_set_size((settings_.video_size + (dir < 0 ? 3 : 1)) % 4); break;
+        case kVmRounded:
             settings_.video_round = !settings_.video_round;
             set_config_value("VideoRound", settings_.video_round ? "true" : "false");
             status_line_ = settings_.video_round ? "video rounded corners: on -- the corners of the picture are cut round like the corners of the UI" : "video rounded corners: off";
             video_pic_key_.clear();
             break;
-        case 6: video_set_fx(video_fx_step(settings_.video_fx, dir)); break;
-        case 7: case 8: case 9: {   // Contrast / Brightness / Colors: 0 .. 100 % in steps of 5, round and round
-            int& v = row == 7 ? settings_.video_contrast : row == 8 ? settings_.video_brightness : settings_.video_colors;
+        case kVmEffect: video_set_fx(video_fx_step(settings_.video_fx, dir)); break;
+        case kVmContrast: case kVmBrightness: case kVmColors: {   // 0 .. 100 % in steps of 5, round and round
+            int& v = row == kVmContrast ? settings_.video_contrast : row == kVmBrightness ? settings_.video_brightness : settings_.video_colors;
             v = (((std::clamp(v, 0, 100) / 5) + (dir < 0 ? 20 : 1)) % 21) * 5;
-            set_config_value(row == 7 ? "VideoContrast" : row == 8 ? "VideoBrightness" : "VideoColors", std::to_string(v));
-            status_line_ = std::string(row == 7 ? "video contrast: " : row == 8 ? "video brightness: " : "video colors: ") + std::to_string(v) + " %" + (row == 8 ? " (50 = as it is)" : "");
+            set_config_value(row == kVmContrast ? "VideoContrast" : row == kVmBrightness ? "VideoBrightness" : "VideoColors", std::to_string(v));
+            status_line_ = std::string(row == kVmContrast ? "video contrast: " : row == kVmBrightness ? "video brightness: " : "video colors: ") + std::to_string(v) + " %" + (row == kVmBrightness ? " (50 = as it is)" : "");
             video_pic_key_.clear();
             break;
         }
-        case 10:
+        case kVmChroma:
             settings_.video_chroma = (std::clamp(settings_.video_chroma, 0, kChromaLevels - 1) + (dir < 0 ? kChromaLevels - 1 : 1)) % kChromaLevels;
             set_config_value("VideoChroma", chroma_name(settings_.video_chroma));
             status_line_ = std::string("video chromatic aberration: ") + chroma_name(settings_.video_chroma);
             video_pic_key_.clear();
             break;
-        case 11:
+        case kVmResolution:
             settings_.video_res = (std::clamp(settings_.video_res, 0, 2) + (dir < 0 ? 2 : 1)) % 3;
             set_config_value("VideoResolution", video_res_name(settings_.video_res));
             status_line_ = "video resolution: " + video_res_label(settings_.video_res, gfx_proto_ == GfxProto::Sixel);
             video_pic_key_.clear();
             force_redraw_ = true;
             break;
-        case 12: {
+        case kVmBuffer: {
             int at = 0;
             for (int i = 0; i < 6; ++i) if (settings_.video_buffer >= kVideoBufferChoices[i]) at = i;
             at = (at + (dir < 0 ? 5 : 1)) % 6;
@@ -114,7 +119,7 @@ void App::video_menu_change(int row, int dir) {
             force_redraw_ = true;
             break;
         }
-        case 13:   // Show Clap Loading: text note / clap / none
+        case kVmClap:   // text note / clap / none
             settings_.video_clap = (std::clamp(settings_.video_clap, 0, 2) + (dir < 0 ? 2 : 1)) % 3;
             set_config_value("VideoClap", settings_.video_clap == 2 ? "none" : settings_.video_clap == 0 ? "text note" : "clap");
             status_line_ = settings_.video_clap == 1 ? "show clap loading: clap -- a small clapperboard shows while a video loads" : settings_.video_clap == 0 ? "show clap loading: text note -- the text \"video: starting ...\" shows while a video loads" : "show clap loading: none -- nothing shows while a video loads";
@@ -173,22 +178,26 @@ int vopts_step(int cur, int dir, int max_value, int step) {   // -1 ("as in Sett
 
 void App::video_opts_change(int row, int dir, bool reset) {
     VideoTrackOpts o = cover_track_video_opts(path_utf8(current_path_));
-    if (row == 0) o.fx = reset ? -1 : video_fx_step(o.fx, dir, true);
-    else if (row == 1) o.contrast = reset ? -1 : vopts_step(o.contrast, dir, 100, 5);
-    else if (row == 2) o.brightness = reset ? -1 : vopts_step(o.brightness, dir, 100, 5);
-    else if (row == 3) o.colors = reset ? -1 : vopts_step(o.colors, dir, 100, 5);
-    else if (row == 4) o.chroma = reset ? -1 : vopts_step(o.chroma, dir, kChromaLevels - 1, 1);
-    else if (row == 5) o.res = reset ? -1 : vopts_step(o.res, dir, 2, 1);
-    else if (row == 6) o.round = reset ? -1 : vopts_step(o.round, dir, 1, 1);
-    else {   // 7: Use mp4 audio for this song (a song paired with a video); it applies when the song starts the next time
-        const int before = o.mp4audio;
-        o.mp4audio = reset ? -1 : (o.mp4audio == 1 ? -1 : 1);
-        set_cover_track_video_opts(path_utf8(current_path_), o);
-        if (o.mp4audio != before) { reload_current_audio(); status_line_ = o.mp4audio == 1 ? "mp4 audio for this song: true -- the audio is loaded again, at the same time" : "mp4 audio for this song: false -- the audio is loaded again, at the same time"; }
+    switch (row) {
+        case kVoEffect: o.fx = reset ? -1 : video_fx_step(o.fx, dir, true); break;
+        case kVoContrast: o.contrast = reset ? -1 : vopts_step(o.contrast, dir, 100, 5); break;
+        case kVoBrightness: o.brightness = reset ? -1 : vopts_step(o.brightness, dir, 100, 5); break;
+        case kVoColors: o.colors = reset ? -1 : vopts_step(o.colors, dir, 100, 5); break;
+        case kVoChroma: o.chroma = reset ? -1 : vopts_step(o.chroma, dir, kChromaLevels - 1, 1); break;
+        case kVoResolution: o.res = reset ? -1 : vopts_step(o.res, dir, 2, 1); break;
+        case kVoRounded: o.round = reset ? -1 : vopts_step(o.round, dir, 1, 1); break;
+        case kVoMp4Audio: {   // Use mp4 audio for this song (a song paired with a video): the audio is loaded again at the same time
+            const int before = o.mp4audio;
+            o.mp4audio = reset ? -1 : (o.mp4audio == 1 ? -1 : 1);
+            set_cover_track_video_opts(path_utf8(current_path_), o);
+            if (o.mp4audio != before) { reload_current_audio(); status_line_ = o.mp4audio == 1 ? "mp4 audio for this song: true -- the audio is loaded again, at the same time" : "mp4 audio for this song: false -- the audio is loaded again, at the same time"; }
+            break;
+        }
+        default: return;
     }
     set_cover_track_video_opts(path_utf8(current_path_), o);
     video_pic_key_.clear();
-    if (row == 5) { video_for_track_.clear(); ++video_rev_; force_redraw_ = true; }   // (the resolution: the video is read again; the other rows only change the picture)
+    if (row == kVoResolution) { video_for_track_.clear(); ++video_rev_; force_redraw_ = true; }   // (the resolution: the video is read again; the other rows only change the picture)
 }
 
 std::vector<std::string> App::build_video_opts_panel() const {
@@ -227,8 +236,8 @@ bool App::video_full_key(int key) {
     const bool arrow = last_key_was_arrow();
     if (video_opts_open_) {   // the options panel over the picture
         if (!arrow && (key == 27 || key == 's' || key == 'S')) { video_opts_open_ = false; video_pic_key_.clear(); force_redraw_ = true; return true; }   // (clearing the key sends the whole picture again: a paused video has no new frame, and the old pixels still have the panel's hole in them)
-        if (arrow && key == 'A') { video_opts_sel_ = (video_opts_sel_ + (video_opts_pair_ ? 7 : 6)) % (video_opts_pair_ ? 8 : 7); return true; }
-        if (arrow && key == 'B') { video_opts_sel_ = (video_opts_sel_ + 1) % (video_opts_pair_ ? 8 : 7); return true; }
+        if (arrow && key == 'A') { { const int n = vopts_row_count(video_opts_pair_); video_opts_sel_ = (video_opts_sel_ + n - 1) % n; } return true; }
+        if (arrow && key == 'B') { video_opts_sel_ = (video_opts_sel_ + 1) % vopts_row_count(video_opts_pair_); return true; }
         if (arrow && (key == 'C' || key == 'D')) { video_opts_change(video_opts_sel_, key == 'C' ? 1 : -1, false); return true; }
         if (!arrow && (key == '\r' || key == '\n' || key == ' ')) { video_opts_change(video_opts_sel_, 1, false); return true; }
         if (!arrow && (key == 'd' || key == 'r' || key == kKeyDelete || key == 127)) { video_opts_change(video_opts_sel_, 0, true); return true; }
@@ -259,19 +268,33 @@ bool App::video_full_key(int key) {
         video_track_fx_step(key == 'B' ? 1 : -1);
         return true;
     }
-    if (!arrow && key == 9) {   // TAB: the lyric line off -> on -> on with its translation
-        bool& on = settings_.video_full_lyrics;
-        bool& tr = settings_.video_full_translation;
-        if (!on) { on = true; tr = false; status_line_ = "full screen video: the lyric line is shown"; }
-        else if (!tr) {
-            tr = true;
-            vtr_key_.clear();   // (look again: a translation may have been saved since)
-            const bool has_tr = [&] { std::lock_guard<std::mutex> lk(lyrics_mutex_); return !video_translation_lines().empty(); }();
-            status_line_ = has_tr ? "full screen video: lyrics with their translation"
-                                  : "full screen video: lyrics with translation - none saved for these lyrics yet (READ LYRICS, then t, translates)";
-        } else { on = false; tr = false; status_line_ = "full screen video: no lyrics"; }
-        set_config_value("VideoFullLyrics", on ? "true" : "false");
-        set_config_value("VideoFullTranslation", tr ? "true" : "false");
+    if (!arrow && key == 9) {   // TAB: the lyrics of this track: none -> lyrics -> (for every saved translation:) lyrics + translation -> translation only -> none
+        // The choice is the track's own "Use Lyrics on Video" (Style Option), so the small lyrics field shows the same.
+        vtr_key_.clear();   // (look again: a translation may have been saved since)
+        std::vector<std::string> labels;
+        {
+            std::lock_guard<std::mutex> lk(lyrics_mutex_);
+            for (const VTr& t : video_translations(lyrics_result_.lines)) labels.push_back(t.label);
+        }
+        const int n = std::max<int>(1, static_cast<int>(labels.size()));
+        const int idx = std::clamp(vfull_tr_idx_, 0, n - 1);
+        const int cur = video_lyr_mode_for(current_path_);
+        // the steps: 0 none, 1 lyrics, then 2 + 2i lyrics + translation i, 3 + 2i translation i only
+        int step = cur == 0 ? 0 : cur == 1 ? 1 : 2 + 2 * idx + (cur == 3 ? 1 : 0);
+        step = (step + 1) % (labels.empty() ? 3 : 2 + 2 * n);   // (no translation saved: none, lyrics, lyrics + translation - "translation only" would show the lyrics anyway)
+        const int mode = step == 0 ? 0 : step == 1 ? 1 : (step % 2 == 0 ? 2 : 3);
+        vfull_tr_idx_ = step <= 1 ? idx : (step - 2) / 2;
+        VideoTrackOpts o = cover_track_video_opts(path_utf8(current_path_));
+        o.lyrics = mode;
+        set_cover_track_video_opts(path_utf8(current_path_), o);
+        const std::string lab = labels.empty() ? std::string() : " (" + labels[static_cast<size_t>(vfull_tr_idx_)] + (labels.size() > 1 ? ", " + std::to_string(vfull_tr_idx_ + 1) + " of " + std::to_string(labels.size()) : "") + ")";
+        if (mode == 0) status_line_ = "full screen video: no lyrics (Use Lyrics on Video of this track: none)";
+        else if (mode == 1) status_line_ = "full screen video: the lyric line is shown (Use Lyrics on Video of this track: lyrics)";
+        else {
+            const std::string what = mode == 2 ? "lyrics with their translation" : "the translation only";
+            status_line_ = labels.empty() ? "full screen video: " + what + " - none saved for these lyrics yet (READ LYRICS, then t, translates; the lyric line shows meanwhile)"
+                                          : "full screen video: " + what + lab;
+        }
         video_pic_key_.clear();
         force_redraw_ = true;
         return true;
@@ -281,7 +304,7 @@ bool App::video_full_key(int key) {
 
 void App::video_menu_key(int key) {
     const bool arrow = last_key_was_arrow();
-    constexpr int kRows = 20;
+    constexpr int kRows = kVmRowCount;
     if (vdel_stage_ > 0) {   // a question is open over the overlay
         const bool tab = !arrow && key == '\t';
         if ((arrow && (key == 'C' || key == 'D')) || tab) { vdel_sel_ = 1 - vdel_sel_; return; }
@@ -308,20 +331,20 @@ void App::video_menu_key(int key) {
     }
     if (arrow && key == 'A') { vmenu_sel_ = (vmenu_sel_ + kRows - 1) % kRows; return; }
     if (arrow && key == 'B') { vmenu_sel_ = (vmenu_sel_ + 1) % kRows; return; }
-    if (arrow && (key == 'C' || key == 'D')) { if (vmenu_sel_ <= 13) video_menu_change(vmenu_sel_, key == 'C' ? 1 : -1); return; }
+    if (arrow && (key == 'C' || key == 'D')) { if (vmenu_sel_ <= kVmLastSetting) video_menu_change(vmenu_sel_, key == 'C' ? 1 : -1); return; }
     if (!arrow && (key == '\r' || key == '\n' || key == ' ')) {
-        if (vmenu_sel_ <= 13) { video_menu_change(vmenu_sel_, 1); return; }
-        if (vmenu_sel_ == 14) { video_menu_close(); video_full_toggle(); return; }
-        if (vmenu_sel_ == 15) { video_menu_close(); video_link_open(has_track_ ? current_path_ : fs::path(), Mode::Browse); return; }
-        if (vmenu_sel_ == 16) { video_menu_close(); video_search_open(); return; }
-        if (vmenu_sel_ == 17) { video_menu_close(); video_fetch_open(); return; }
-        if (vmenu_sel_ == 18 || vmenu_sel_ == 19) {   // Delete Current Video / Refetch this Video: a question first
+        if (vmenu_sel_ <= kVmLastSetting) { video_menu_change(vmenu_sel_, 1); return; }
+        if (vmenu_sel_ == kVmFullScreen) { video_menu_close(); video_full_toggle(); return; }
+        if (vmenu_sel_ == kVmCouple) { video_menu_close(); video_link_open(has_track_ ? current_path_ : fs::path(), Mode::Browse); return; }
+        if (vmenu_sel_ == kVmQuickSearch) { video_menu_close(); video_search_open(); return; }
+        if (vmenu_sel_ == kVmFetchMenu) { video_menu_close(); video_fetch_open(); return; }
+        if (vmenu_sel_ == kVmDeleteVideo || vmenu_sel_ == kVmRefetchVideo) {   // Delete Current Video / Refetch this Video: a question first
             if (!has_track_ || current_path_.empty() || !current_is_local_) { status_line_ = "video: play a track from your library first"; return; }
             if (LocalSource::is_video_file(current_path_)) { status_line_ = "this track is a video file itself -- delete it in FETCH VIDEOS -> VIDEO FILES"; return; }
             const std::string v = video_source_for(current_path_);
             if (v.empty()) { status_line_ = "this track has no video"; return; }
             vdel_video_ = v;
-            vdel_stage_ = vmenu_sel_ == 18 ? 1 : 3;
+            vdel_stage_ = vmenu_sel_ == kVmDeleteVideo ? 1 : 3;
             vdel_sel_ = 0;
             return;
         }
@@ -361,32 +384,32 @@ std::vector<std::string> App::build_video_menu_panel() const {
     std::vector<std::string> lines;
     lines.push_back(box_top("VIDEO SETTINGS", W, border));
     lines.push_back(section("Switches"));
-    lines.push_back(row(entry(vmenu_sel_ == 0, "Use Video in Lyrics Field", toggle(settings_.video_mode)), vmenu_sel_ == 0));
-    lines.push_back(row(entry(vmenu_sel_ == 1, "Include Lyrics", toggle(settings_.video_lyrics)), vmenu_sel_ == 1));
-    lines.push_back(row(entry(vmenu_sel_ == 2, "Auto Video (else Lyrics/Viz Default)", toggle(settings_.video_auto)), vmenu_sel_ == 2));
-    lines.push_back(row(entry(vmenu_sel_ == 3, "Cover, Disk or Thumbnail", std::string("< ") + (settings_.video_cover == 1 ? "thumbnail" : settings_.video_cover == 2 ? "disk" : "cover") + " >"), vmenu_sel_ == 3));
+    lines.push_back(row(entry(vmenu_sel_ == kVmVideoMode, "Use Video in Lyrics Field", toggle(settings_.video_mode)), vmenu_sel_ == kVmVideoMode));
+    lines.push_back(row(entry(vmenu_sel_ == kVmLyrics, "Include Lyrics", std::string("< ") + lyr_mode_name(settings_.video_lyrics) + " >"), vmenu_sel_ == kVmLyrics));
+    lines.push_back(row(entry(vmenu_sel_ == kVmAutoVideo, "Auto Video (else Lyrics/Viz Default)", toggle(settings_.video_auto)), vmenu_sel_ == kVmAutoVideo));
+    lines.push_back(row(entry(vmenu_sel_ == kVmCover, "Cover, Disk or Thumbnail", std::string("< ") + (settings_.video_cover == 1 ? "thumbnail" : settings_.video_cover == 2 ? "disk" : "cover") + " >"), vmenu_sel_ == kVmCover));
     lines.push_back(section("Picture"));
-    lines.push_back(row(entry(vmenu_sel_ == 4, "Picture Size", std::string("< ") + (settings_.video_size == 1 ? "cropped" : settings_.video_size == 2 ? "full" : settings_.video_size == 3 ? "framed" : "regular") + " >"), vmenu_sel_ == 4));
-    lines.push_back(row(entry(vmenu_sel_ == 5, "Rounded Corners", toggle(settings_.video_round)), vmenu_sel_ == 5));
-    lines.push_back(row(entry(vmenu_sel_ == 6, "Effect", std::string("< ") + video_fx_name(settings_.video_fx) + " >"), vmenu_sel_ == 6));
+    lines.push_back(row(entry(vmenu_sel_ == kVmSize, "Picture Size", std::string("< ") + (settings_.video_size == 1 ? "cropped" : settings_.video_size == 2 ? "full" : settings_.video_size == 3 ? "framed" : "regular") + " >"), vmenu_sel_ == kVmSize));
+    lines.push_back(row(entry(vmenu_sel_ == kVmRounded, "Rounded Corners", toggle(settings_.video_round)), vmenu_sel_ == kVmRounded));
+    lines.push_back(row(entry(vmenu_sel_ == kVmEffect, "Effect", std::string("< ") + video_fx_name(settings_.video_fx) + " >"), vmenu_sel_ == kVmEffect));
     {
         auto pct = [&](int v) { return std::string("< ") + std::to_string(std::clamp(v, 0, 100)) + " % >"; };
-        lines.push_back(row(entry(vmenu_sel_ == 7, "Contrast", pct(settings_.video_contrast)), vmenu_sel_ == 7));
-        lines.push_back(row(entry(vmenu_sel_ == 8, "Brightness", pct(settings_.video_brightness)), vmenu_sel_ == 8));
-        lines.push_back(row(entry(vmenu_sel_ == 9, "Colors", pct(settings_.video_colors)), vmenu_sel_ == 9));
-        lines.push_back(row(entry(vmenu_sel_ == 10, "Chromatic Aberration", std::string("< ") + chroma_name(settings_.video_chroma) + " >"), vmenu_sel_ == 10));
-        lines.push_back(row(entry(vmenu_sel_ == 11, "Resolution", std::string("< ") + video_res_label(settings_.video_res, gfx_proto_ == GfxProto::Sixel) + " >"), vmenu_sel_ == 11));
-        lines.push_back(row(entry(vmenu_sel_ == 12, "Buffer", "< " + std::to_string(settings_.video_buffer) + " MB >"), vmenu_sel_ == 12));
+        lines.push_back(row(entry(vmenu_sel_ == kVmContrast, "Contrast", pct(settings_.video_contrast)), vmenu_sel_ == kVmContrast));
+        lines.push_back(row(entry(vmenu_sel_ == kVmBrightness, "Brightness", pct(settings_.video_brightness)), vmenu_sel_ == kVmBrightness));
+        lines.push_back(row(entry(vmenu_sel_ == kVmColors, "Colors", pct(settings_.video_colors)), vmenu_sel_ == kVmColors));
+        lines.push_back(row(entry(vmenu_sel_ == kVmChroma, "Chromatic Aberration", std::string("< ") + chroma_name(settings_.video_chroma) + " >"), vmenu_sel_ == kVmChroma));
+        lines.push_back(row(entry(vmenu_sel_ == kVmResolution, "Resolution", std::string("< ") + video_res_label(settings_.video_res, gfx_proto_ == GfxProto::Sixel) + " >"), vmenu_sel_ == kVmResolution));
+        lines.push_back(row(entry(vmenu_sel_ == kVmBuffer, "Buffer", "< " + std::to_string(settings_.video_buffer) + " MB >"), vmenu_sel_ == kVmBuffer));
     }
-    lines.push_back(row(entry(vmenu_sel_ == 13, "Show Clap Loading", std::string("< ") + (settings_.video_clap == 2 ? "none" : settings_.video_clap == 0 ? "text note" : "clap") + " >"), vmenu_sel_ == 13));
-    lines.push_back(button(14, "Full Screen Video"));
+    lines.push_back(row(entry(vmenu_sel_ == kVmClap, "Show Clap Loading", std::string("< ") + (settings_.video_clap == 2 ? "none" : settings_.video_clap == 0 ? "text note" : "clap") + " >"), vmenu_sel_ == kVmClap));
+    lines.push_back(button(kVmFullScreen, "Full Screen Video"));
     lines.push_back(section("Videos for songs"));
-    lines.push_back(button(15, "Manually Couple Local Files"));
-    lines.push_back(button(16, "Quick Search/Down. YT"));
-    lines.push_back(button(17, "General Fetch Videos Menu"));
+    lines.push_back(button(kVmCouple, "Manually Couple Local Files"));
+    lines.push_back(button(kVmQuickSearch, "Quick Search/Down. YT"));
+    lines.push_back(button(kVmFetchMenu, "General Fetch Videos Menu"));
     lines.push_back(section("This track's video"));
-    lines.push_back(button(18, "Delete Current Video"));
-    lines.push_back(button(19, "Refetch this Video"));
+    lines.push_back(button(kVmDeleteVideo, "Delete Current Video"));
+    lines.push_back(button(kVmRefetchVideo, "Refetch this Video"));
     lines.push_back(centred_bottom(settings_, W, "[UP/DOWN] [ENTER] [←→] change  [ESC] close", border_bottom));
     return lines;
 }

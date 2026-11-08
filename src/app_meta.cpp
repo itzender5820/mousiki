@@ -1,6 +1,7 @@
 // Meta data editor (the META overlay): key handling and the screen. Split out of app.cpp.
 // Member functions of App (declared in app.h); the helpers shared with app.cpp are in app_internal.h.
 #include "app.h"
+#include "meta_state.h"
 #include "text_edit.h"
 #include "overlay_common.h"
 #include "remote_server.h"
@@ -57,7 +58,7 @@ int App::meta_nav(int selected, int total, bool up) const {
     if (total <= 0) return 0;
     int to = selected;
     if (last_key_was_ctrl()) to = up ? 0 : total - 1;
-    else if (last_key_was_shifted()) to = selected + (up ? -1 : 1) * std::max(1, meta_page_rows_);
+    else if (last_key_was_shifted()) to = selected + (up ? -1 : 1) * std::max(1, meta_->page_rows);
     else to = selected + (up ? -1 : 1);
     return std::clamp(to, 0, total - 1);
 }
@@ -66,8 +67,8 @@ int App::meta_nav(int selected, int total, bool up) const {
 std::vector<App::MetaFolderRow> App::meta_folder_rows() const {
     std::vector<std::string> order;
     std::unordered_map<std::string, std::vector<int>> members;
-    for (size_t i = 0; i < meta_lib_view_.size(); ++i) {
-        const std::string dir = path_utf8(meta_lib_view_[i].path.parent_path());
+    for (size_t i = 0; i < meta_->lib_view.size(); ++i) {
+        const std::string dir = path_utf8(meta_->lib_view[i].path.parent_path());
         auto it = members.find(dir);
         if (it == members.end()) { order.push_back(dir); it = members.emplace(dir, std::vector<int>()).first; }
         it->second.push_back(static_cast<int>(i));
@@ -82,7 +83,7 @@ std::vector<App::MetaFolderRow> App::meta_folder_rows() const {
         h.name = path_utf8(path_from_utf8(dir).filename());
         if (h.name.empty()) h.name = dir;
         h.count = static_cast<int>(m.size());
-        h.closed = meta_folder_closed_.count(dir) > 0;
+        h.closed = meta_->folder_closed.count(dir) > 0;
         rows.push_back(h);
         if (h.closed) continue;
         int n = 0;
@@ -99,11 +100,11 @@ std::vector<App::MetaFolderRow> App::meta_folder_rows() const {
 
 // The row of the cursor: the hovered folder header, else the row of the selected file (a file in a closed folder: its header).
 int App::meta_folder_cursor(const std::vector<MetaFolderRow>& rows) const {
-    if (!meta_folder_hover_.empty())
-        for (size_t i = 0; i < rows.size(); ++i) if (rows[i].header && rows[i].folder == meta_folder_hover_) return static_cast<int>(i);
-    for (size_t i = 0; i < rows.size(); ++i) if (!rows[i].header && rows[i].lib == meta_lib_selected_) return static_cast<int>(i);
-    if (meta_lib_selected_ >= 0 && meta_lib_selected_ < static_cast<int>(meta_lib_view_.size())) {
-        const std::string dir = path_utf8(meta_lib_view_[static_cast<size_t>(meta_lib_selected_)].path.parent_path());
+    if (!meta_->folder_hover.empty())
+        for (size_t i = 0; i < rows.size(); ++i) if (rows[i].header && rows[i].folder == meta_->folder_hover) return static_cast<int>(i);
+    for (size_t i = 0; i < rows.size(); ++i) if (!rows[i].header && rows[i].lib == meta_->lib_selected) return static_cast<int>(i);
+    if (meta_->lib_selected >= 0 && meta_->lib_selected < static_cast<int>(meta_->lib_view.size())) {
+        const std::string dir = path_utf8(meta_->lib_view[static_cast<size_t>(meta_->lib_selected)].path.parent_path());
         for (size_t i = 0; i < rows.size(); ++i) if (rows[i].header && rows[i].folder == dir) return static_cast<int>(i);
     }
     return 0;
@@ -111,30 +112,30 @@ int App::meta_folder_cursor(const std::vector<MetaFolderRow>& rows) const {
 
 // Up / Down in the library pane: file to file, or (folder view) row to row, headers included.
 void App::meta_lib_move(bool up) {
-    if (!meta_folder_view_) { meta_lib_selected_ = meta_nav(meta_lib_selected_, static_cast<int>(meta_lib_view_.size()), up); return; }
+    if (!meta_->folder_view) { meta_->lib_selected = meta_nav(meta_->lib_selected, static_cast<int>(meta_->lib_view.size()), up); return; }
     const std::vector<MetaFolderRow> rows = meta_folder_rows();
     if (rows.empty()) return;
     const int to = meta_nav(meta_folder_cursor(rows), static_cast<int>(rows.size()), up);
     const MetaFolderRow& r = rows[static_cast<size_t>(to)];
-    meta_folder_hover_ = r.header ? r.folder : std::string();
-    meta_lib_selected_ = r.lib;   // (on a header: the folder's first file, so the panels beside show something)
+    meta_->folder_hover = r.header ? r.folder : std::string();
+    meta_->lib_selected = r.lib;   // (on a header: the folder's first file, so the panels beside show something)
 }
 
 void App::meta_add_folder_to_fetch(const std::string& folder) {
     meta_ensure_session_loaded();
-    std::unordered_set<std::string> queued(meta_fetch_list_.begin(), meta_fetch_list_.end());
+    std::unordered_set<std::string> queued(meta_->fetch_list.begin(), meta_->fetch_list.end());
     size_t total = 0, added = 0;
-    for (const auto& t : meta_lib_view_) {
+    for (const auto& t : meta_->lib_view) {
         if (path_utf8(t.path.parent_path()) != folder) continue;
         ++total;
         std::string path = path_utf8(t.path);
-        if (queued.insert(path).second) { meta_fetch_list_.push_back(std::move(path)); ++added; }
+        if (queued.insert(path).second) { meta_->fetch_list.push_back(std::move(path)); ++added; }
     }
-    if (total == 0) { meta_status_ = "nothing to add -- no titles in this folder"; return; }
-    if (added == 0) { meta_status_ = "all " + std::to_string(total) + " titles of the folder are on the fetch list already (" + std::to_string(meta_fetch_list_.size()) + " queued)"; return; }
+    if (total == 0) { meta_->status = "nothing to add -- no titles in this folder"; return; }
+    if (added == 0) { meta_->status = "all " + std::to_string(total) + " titles of the folder are on the fetch list already (" + std::to_string(meta_->fetch_list.size()) + " queued)"; return; }
     meta_persist();
-    meta_status_ = "added " + std::to_string(added) + (added == 1 ? " title" : " titles") + " of the folder to the fetch list"
-                 + (added < total ? " (" + std::to_string(total - added) + " already on it)" : std::string()) + " -- " + std::to_string(meta_fetch_list_.size()) + " queued";
+    meta_->status = "added " + std::to_string(added) + (added == 1 ? " title" : " titles") + " of the folder to the fetch list"
+                 + (added < total ? " (" + std::to_string(total - added) + " already on it)" : std::string()) + " -- " + std::to_string(meta_->fetch_list.size()) + " queued";
 }
 
 void App::handle_meta_key(int key) {
@@ -148,19 +149,19 @@ void App::handle_meta_key(int key) {
         // back to the library (like ENTER), a search box that was typed into
         // hands Left/Right back to the tab switch. Only an ESC outside a box
         // leaves the editor -- which always just keeps the autosave backup.
-        if (meta_tab_ == 0 && meta_focus_ == 2 && meta_field_editing_) {
+        if (meta_->tab == 0 && meta_->focus == 2 && meta_->field_editing) {
             // Actively typing into a field: ESC first just puts the caret
             // away again (back to "highlighted, not editing" -- see
-            // meta_field_editing_), same step ENTER takes. A second ESC,
+            // meta_->field_editing), same step ENTER takes. A second ESC,
             // below, is what leaves the field for the library.
-            meta_field_editing_ = false;
+            meta_->field_editing = false;
             text_disengage();
             return;
         }
-        if (meta_tab_ == 0 && meta_focus_ == 2) {
-            meta_focus_ = 1;
+        if (meta_->tab == 0 && meta_->focus == 2) {
+            meta_->focus = 1;
             text_disengage();
-            if (meta_resort_edited_ && !meta_lib_view_.empty()) meta_refresh_lib_view();
+            if (meta_->resort_edited && !meta_->lib_view.empty()) meta_refresh_lib_view();
             return;
         }
         // One more step back from the library picker: the search bar,
@@ -168,62 +169,62 @@ void App::handle_meta_key(int key) {
         // (below, since the box isn't engaged any more) is what actually
         // exits now.
         // With a missing-tag filter (x / T / A / L / Y) on, the first ESC only takes the filter off ...
-        if (meta_tab_ == 0 && meta_focus_ == 1 && meta_filter_ != 0) { meta_toggle_filter(meta_filter_); return; }
+        if (meta_->tab == 0 && meta_->focus == 1 && meta_->filter != 0) { meta_toggle_filter(meta_->filter); return; }
         // ... the next ESC takes the sorts off ('r' edited first, 'n' added first), one step per ESC like the filter.
-        if (meta_tab_ == 0 && meta_focus_ == 1 && (meta_resort_edited_ || meta_sort_added_)) {
-            meta_resort_edited_ = false;
-            meta_sort_added_ = false;
+        if (meta_->tab == 0 && meta_->focus == 1 && (meta_->resort_edited || meta_->sort_added)) {
+            meta_->resort_edited = false;
+            meta_->sort_added = false;
             meta_refresh_lib_view();
-            meta_status_ = "library order: alphabetical again";
+            meta_->status = "library order: alphabetical again";
             return;
         }
-        if (meta_tab_ == 0 && meta_focus_ == 1) { meta_focus_ = 0; return; }
-        if (meta_tab_ == 0 && meta_focus_ == 0 && !meta_query_.empty()) {   // the first ESC in the search field clears the query ...
-            meta_query_.clear();
+        if (meta_->tab == 0 && meta_->focus == 1) { meta_->focus = 0; return; }
+        if (meta_->tab == 0 && meta_->focus == 0 && !meta_->query.empty()) {   // the first ESC in the search field clears the query ...
+            meta_->query.clear();
             edit_caret_ = edit_anchor_ = 0;
             text_disengage();
-            meta_lib_selected_ = 0;
+            meta_->lib_selected = 0;
             meta_refresh_lib_view();
             return;
         }
-        if (meta_tab_ == 0 && meta_focus_ == 0 && text_engaged("meta-search")) { text_disengage(); return; }   // ... the next one closes the editor
+        if (meta_->tab == 0 && meta_->focus == 0 && text_engaged("meta-search")) { text_disengage(); return; }   // ... the next one closes the editor
         mode_ = Mode::Browse;
         return;
     }
     if (key == kKeyCtrlS) {
-        if (meta_session_.empty()) { meta_status_ = "nothing to save -- no pending edits"; return; }
-        meta_prompt_ = MetaPrompt::Save;
+        if (meta_->session.empty()) { meta_->status = "nothing to save -- no pending edits"; return; }
+        meta_->prompt = MetaPrompt::Save;
         return;
     }
     if (key == kKeyCtrlShiftX) {
-        if (meta_session_.empty() && meta_fetch_list_.empty()) { meta_status_ = "nothing to discard"; return; }
-        meta_prompt_ = MetaPrompt::Discard;
+        if (meta_->session.empty() && meta_->fetch_list.empty()) { meta_->status = "nothing to discard"; return; }
+        meta_->prompt = MetaPrompt::Discard;
         return;
     }
     // SHIFT+b (HKeyFetchTags) for the hovered title -- raw 'B' with no arrow behind it. Only while the focus has no caret of its own to
     // type into: the library picker (focus 1) and the whole of tab 1's fetch list. In the search box and the field editor a capital B
     // must stay typable.
-    if (key_is("HKeyFetchTags", key) && (key > 255 || meta_tab_ == 1 || meta_focus_ == 1)) {
+    if (key_is("HKeyFetchTags", key) && (key > 255 || meta_->tab == 1 || meta_->focus == 1)) {
         std::string path = meta_hovering_path();
-        if (path.empty()) meta_status_ = "no title selected";
+        if (path.empty()) meta_->status = "no title selected";
         else meta_prompt_single_fetch(path, false);
         return;
     }
     // SHIFT+c on the EDIT tab (library list): jump to the song that plays now, whatever was typed or filtered (all removed).
-    if (key == 'C' && !last_key_was_arrow() && meta_tab_ == 0 && meta_focus_ == 1) { meta_jump_to_current(); return; }
+    if (key == 'C' && !last_key_was_arrow() && meta_->tab == 0 && meta_->focus == 1) { meta_jump_to_current(); return; }
     // SHIFT+c on the Fetch List tab: stop the running fetch.
-    if (key == 'C' && !last_key_was_arrow() && meta_tab_ == 1) { meta_cancel_fetch(); return; }
+    if (key == 'C' && !last_key_was_arrow() && meta_->tab == 1) { meta_cancel_fetch(); return; }
 
     // SHIFT+n: the same for ALL tags (overwrites the existing ones); same focus rule as SHIFT+b.
-    if (key == 'N' && !last_key_was_arrow() && (meta_tab_ == 1 || meta_focus_ == 1)) {
+    if (key == 'N' && !last_key_was_arrow() && (meta_->tab == 1 || meta_->focus == 1)) {
         std::string path = meta_hovering_path();
-        if (path.empty()) meta_status_ = "no title selected";
+        if (path.empty()) meta_->status = "no title selected";
         else meta_prompt_single_fetch(path, true);
         return;
     }
 
     // SHIFT+r: rescan the library (same rule as SHIFT+b: not while a text field has the caret).
-    if (key_is("HKeyRescan", key) && (key > 255 || meta_tab_ == 1 || meta_focus_ == 1)) { rescan_now(); return; }
+    if (key_is("HKeyRescan", key) && (key > 255 || meta_->tab == 1 || meta_->focus == 1)) { rescan_now(); return; }
 
     // Arrows collapse to 'A'..'D' app-wide; last_key_was_arrow() is what
     // tells a real arrow from a typed capital. Unlike the playlist editor
@@ -246,102 +247,102 @@ void App::handle_meta_key(int key) {
     // a merely-highlighted field still uses Left/Right to move the caret
     // once ENTER activates it, so bouncing to the other tab on a stray
     // arrow there would be surprising either way.
-    const bool block_tab_switch = (meta_tab_ == 0 && (meta_focus_ == 2 || (meta_focus_ == 0 && text_engaged("meta-search"))))
-                               || (meta_tab_ == 1 && meta_fetch_focus_ == 1);   // the option line uses left/right itself
+    const bool block_tab_switch = (meta_->tab == 0 && (meta_->focus == 2 || (meta_->focus == 0 && text_engaged("meta-search"))))
+                               || (meta_->tab == 1 && meta_->fetch_focus == 1);   // the option line uses left/right itself
     if (key == kKeyAltLeft || key == kKeyAltRight || (arrow && (key == 'C' || key == 'D') && !block_tab_switch)) { // the only 2 tabs
-        meta_tab_ = (meta_tab_ + 1) % 2;
-        meta_focus_ = 0;
-        meta_fetch_focus_ = 0;
-        meta_field_editing_ = false;
+        meta_->tab = (meta_->tab + 1) % 2;
+        meta_->focus = 0;
+        meta_->fetch_focus = 0;
+        meta_->field_editing = false;
         text_disengage();
         meta_refresh_lib_view();
         return;
     }
     if (key == 9) { // Tab: search field -> library picker -> field editor -> ...
-        if (meta_tab_ == 0) meta_focus_ = (meta_focus_ + 1) % 3;
-        else meta_fetch_focus_ = 1 - meta_fetch_focus_;   // FETCH LIST: the list <-> the option line in the header
-        meta_field_editing_ = false;
+        if (meta_->tab == 0) meta_->focus = (meta_->focus + 1) % 3;
+        else meta_->fetch_focus = 1 - meta_->fetch_focus;   // FETCH LIST: the list <-> the option line in the header
+        meta_->field_editing = false;
         text_disengage();
         return;
     }
 
-    if (meta_tab_ == 1) { // --- fetch list ---
-        int total = static_cast<int>(meta_fetch_list_.size());
-        if (arrow && (key == 'A' || key == 'B')) { meta_fetch_selected_ = meta_nav(meta_fetch_selected_, total, key == 'A'); return; }
-        if (meta_fetch_focus_ == 1) {   // the option line: left / right move the cursor, SPACE ticks the box under it
-            if (arrow && key == 'C') { meta_opt_cursor_ = (meta_opt_cursor_ + 1) % kMetaFetchOptCount; return; }
-            if (arrow && key == 'D') { meta_opt_cursor_ = (meta_opt_cursor_ + kMetaFetchOptCount - 1) % kMetaFetchOptCount; return; }
-            if (key == ' ') { meta_toggle_fetch_opt(meta_opt_cursor_); return; }
+    if (meta_->tab == 1) { // --- fetch list ---
+        int total = static_cast<int>(meta_->fetch_list.size());
+        if (arrow && (key == 'A' || key == 'B')) { meta_->fetch_selected = meta_nav(meta_->fetch_selected, total, key == 'A'); return; }
+        if (meta_->fetch_focus == 1) {   // the option line: left / right move the cursor, SPACE ticks the box under it
+            if (arrow && key == 'C') { meta_->opt_cursor = (meta_->opt_cursor + 1) % kMetaFetchOptCount; return; }
+            if (arrow && key == 'D') { meta_->opt_cursor = (meta_->opt_cursor + kMetaFetchOptCount - 1) % kMetaFetchOptCount; return; }
+            if (key == ' ') { meta_toggle_fetch_opt(meta_->opt_cursor); return; }
         }
         if (key == '\r' || key == '\n') { meta_prompt_list_fetch(); return; } // "fetch metadata" over the whole list
         if (key == 'P' && !arrow) { meta_play_hovering(); return; } // SHIFT+p: start the hovered track
         // SHIFT+d / SHIFT+DEL: empty the whole list (asks first); DEL / d: only the hovered title
         if ((key == kKeyDelete && last_key_was_shifted()) || (key == 'D' && !arrow)) {
-            if (meta_fetch_list_.empty()) { meta_status_ = "the fetch list is empty"; return; }
-            if (meta_fetch_running_.load()) { meta_status_ = "a fetch is running: stop it first with SHIFT+c"; return; }
-            meta_prompt_ = MetaPrompt::ClearFetch;
+            if (meta_->fetch_list.empty()) { meta_->status = "the fetch list is empty"; return; }
+            if (meta_->fetch_running.load()) { meta_->status = "a fetch is running: stop it first with SHIFT+c"; return; }
+            meta_->prompt = MetaPrompt::ClearFetch;
             return;
         }
         if (key == kKeyDelete || key == 127 || key == 'd') { meta_remove_hovering(); return; }
         return;
     }
 
-    if (meta_focus_ == 0) { // --- search field ---
+    if (meta_->focus == 0) { // --- search field ---
         // Up/Down still walk the library while the box has focus (same
         // convention as the main UI's "/" search); Left/Right are the caret
         // now, which is what makes marking -- and therefore copy/paste --
         // possible in here at all.
         if (arrow && (key == 'A' || key == 'B')) { meta_lib_move(key == 'A'); return; }
         if (key == '\r' || key == '\n') {
-            // The hovered track (Up/Down already moved meta_lib_selected_
+            // The hovered track (Up/Down already moved meta_->lib_selected
             // while this box had focus) goes straight to its fields --
             // no need to land on the library picker first just to press
             // ENTER a second time.
             text_disengage();
-            if (meta_lib_view_.empty()) { meta_status_ = "no track selected"; meta_focus_ = 1; return; }
-            meta_focus_ = 2;
-            meta_field_editing_ = false; // lands highlighted, not yet armed for typing
+            if (meta_->lib_view.empty()) { meta_->status = "no track selected"; meta_->focus = 1; return; }
+            meta_->focus = 2;
+            meta_->field_editing = false; // lands highlighted, not yet armed for typing
             return;
         }
-        edit_focus("meta-search", meta_query_);
+        edit_focus("meta-search", meta_->query);
         text_engage("meta-search");
-        if (edit_text_key(meta_query_, edit_caret_, edit_anchor_, key, 120, &meta_status_))
+        if (edit_text_key(meta_->query, edit_caret_, edit_anchor_, key, 120, &meta_->status))
             meta_refresh_lib_view();
         return;
     }
 
-    if (meta_focus_ == 1) { // --- library picker ---
-        int total = static_cast<int>(meta_lib_view_.size());
+    if (meta_->focus == 1) { // --- library picker ---
+        int total = static_cast<int>(meta_->lib_view.size());
         if (arrow && (key == 'A' || key == 'B')) { meta_lib_move(key == 'A'); return; }
-        if (meta_folder_view_ && !meta_folder_hover_.empty() && !arrow) {   // a folder header is hovered
+        if (meta_->folder_view && !meta_->folder_hover.empty() && !arrow) {   // a folder header is hovered
             if (key == '\r' || key == '\n') {   // open / close the folder
-                if (!meta_folder_closed_.erase(meta_folder_hover_)) meta_folder_closed_.insert(meta_folder_hover_);
+                if (!meta_->folder_closed.erase(meta_->folder_hover)) meta_->folder_closed.insert(meta_->folder_hover);
                 return;
             }
-            if (key == 'a') { meta_add_folder_to_fetch(meta_folder_hover_); return; }
-            if (key == kKeyDelete || key == 127 || key == 'd' || key == 'P') { meta_status_ = "a folder is hovered -- move onto a title first"; return; }
+            if (key == 'a') { meta_add_folder_to_fetch(meta_->folder_hover); return; }
+            if (key == kKeyDelete || key == 127 || key == 'd' || key == 'P') { meta_->status = "a folder is hovered -- move onto a title first"; return; }
         }
         if (key == 'f' && !arrow) {   // folder view on / off
-            meta_folder_view_ = !meta_folder_view_;
-            meta_folder_hover_.clear();
-            meta_lib_selected_ = 0;   // the view starts at the top again
-            meta_status_ = meta_folder_view_ ? "folder view: on -- [a] on a folder queues all its titles, [ENTER] opens / closes it" : "folder view: off";
+            meta_->folder_view = !meta_->folder_view;
+            meta_->folder_hover.clear();
+            meta_->lib_selected = 0;   // the view starts at the top again
+            meta_->status = meta_->folder_view ? "folder view: on -- [a] on a folder queues all its titles, [ENTER] opens / closes it" : "folder view: off";
             return;
         }
         if (key == '\r' || key == '\n') {
-            if (total == 0) { meta_status_ = "no track selected"; return; }
-            meta_focus_ = 2; // land on the hovered title's fields, highlighted
-            meta_field_editing_ = false; // not yet armed for typing -- ENTER arms it
+            if (total == 0) { meta_->status = "no track selected"; return; }
+            meta_->focus = 2; // land on the hovered title's fields, highlighted
+            meta_->field_editing = false; // not yet armed for typing -- ENTER arms it
             return;
         }
         if (key == 'a') { meta_add_hovering_to_fetch(); return; } // queue it for AcoustID, like the main queue's 'a'
         if (key == 'F' && !arrow) { meta_add_view_to_fetch(); return; } // SHIFT+f: the whole (filtered) pane
         if (key == 'V' && !arrow) {   // SHIFT+v: the pane lists audio / video + audio / video
-            meta_media_ = (meta_media_ < 0 ? (settings_.video_mode ? 1 : 0) : meta_media_) + 1;
-            if (meta_media_ > 2) meta_media_ = 0;
-            meta_lib_selected_ = 0;
+            meta_->media = (meta_->media < 0 ? (settings_.video_mode ? 1 : 0) : meta_->media) + 1;
+            if (meta_->media > 2) meta_->media = 0;
+            meta_->lib_selected = 0;
             meta_refresh_lib_view();
-            meta_status_ = std::string("library pane: ") + media_view_name(meta_media_) + " -- " + std::to_string(meta_lib_view_.size()) + " files";
+            meta_->status = std::string("library pane: ") + media_view_name(meta_->media) + " -- " + std::to_string(meta_->lib_view.size()) + " files";
             return;
         }
         if (key == 'r') { meta_toggle_resort(); return; } // toggle: edited files on top vs. alphabetical order
@@ -363,7 +364,7 @@ void App::handle_meta_key(int key) {
 
     // --- field editor: highlight first, ENTER arms the caret to type ---
     // Same two-stage model the PATHS tab uses for its folder fields
-    // (mode_ == Mode::ColorEdit there; meta_field_editing_ here, since the
+    // (mode_ == Mode::ColorEdit there; meta_->field_editing here, since the
     // meta editor isn't a Settings mode): a hovered tag is merely
     // highlighted -- Up/Down move between tags -- until ENTER shows the
     // caret, at which point Up/Down stop navigating (so they don't get
@@ -371,16 +372,16 @@ void App::handle_meta_key(int key) {
     // away again without leaving the field.
     {
         std::string path = meta_hovering_path();
-        if (path.empty()) { meta_focus_ = 1; meta_field_editing_ = false; return; }
-        if (meta_field_ >= kMetaFieldCount) {   // the "Cover Options" button below the fields
-            meta_field_editing_ = false;
-            if (arrow && (key == 'A' || key == 'B')) { meta_field_ = meta_nav(meta_field_, kMetaFieldCount + 3, key == 'A'); return; }
-            if (arrow && (key == 'C' || key == 'D')) { meta_field_ = kMetaFieldCount + ((meta_field_ - kMetaFieldCount) + (key == 'C' ? 1 : 2)) % 3; return; }   // the three buttons side by side   // the two buttons side by side
-            if (key == '\r' || key == '\n') { if (meta_field_ == kMetaFieldCount) meta_cov_open(); else if (meta_field_ == kMetaFieldCount + 1) meta_sty_open(); else video_link_open(path_from_utf8(path), Mode::MetaEdit); }
+        if (path.empty()) { meta_->focus = 1; meta_->field_editing = false; return; }
+        if (meta_->field >= kMetaFieldCount) {   // the "Cover Options" button below the fields
+            meta_->field_editing = false;
+            if (arrow && (key == 'A' || key == 'B')) { meta_->field = meta_nav(meta_->field, kMetaFieldCount + 3, key == 'A'); return; }
+            if (arrow && (key == 'C' || key == 'D')) { meta_->field = kMetaFieldCount + ((meta_->field - kMetaFieldCount) + (key == 'C' ? 1 : 2)) % 3; return; }   // the three buttons side by side   // the two buttons side by side
+            if (key == '\r' || key == '\n') { if (meta_->field == kMetaFieldCount) meta_cov_open(); else if (meta_->field == kMetaFieldCount + 1) meta_sty_open(); else video_link_open(path_from_utf8(path), Mode::MetaEdit); }
             return;
         }
 
-        if (key == 't' && !arrow && !meta_field_editing_) { meta_toggle_cover_res(); return; }   // (a field only takes letters once ENTER armed it)
+        if (key == 't' && !arrow && !meta_->field_editing) { meta_toggle_cover_res(); return; }   // (a field only takes letters once ENTER armed it)
 
         // The caret belongs to one specific (file, field) pair. If either
         // changed since the last keypress -- a field move, another row, the
@@ -388,8 +389,8 @@ void App::handle_meta_key(int key) {
         // different string, so retarget them to the end of this one instead
         // of letting them be clamped against the wrong text.
         const MetaEditEntry* e = meta_entry(path);
-        std::string cur = meta_display_value(path, meta_field_, e);
-        const std::string owner = path + "#" + std::to_string(meta_field_);
+        std::string cur = meta_display_value(path, meta_->field, e);
+        const std::string owner = path + "#" + std::to_string(meta_->field);
         if (edit_owner_ != owner) {
             edit_owner_ = owner;
             edit_caret_ = edit_anchor_ = cur.size();
@@ -400,18 +401,18 @@ void App::handle_meta_key(int key) {
         // bytes really changed -- moving the caret must not make a file
         // count as edited.
         const std::string orig = cur;
-        auto commit = [&]() { if (cur != orig) meta_set_field(path, meta_field_, cur); };
-        const size_t limit = (meta_field_ == static_cast<int>(MetaField::FileName)) ? 200 : 160;
+        auto commit = [&]() { if (cur != orig) meta_set_field(path, meta_->field, cur); };
+        const size_t limit = (meta_->field == static_cast<int>(MetaField::FileName)) ? 200 : 160;
 
-        if (!meta_field_editing_) {
+        if (!meta_->field_editing) {
             // Highlighted, not yet armed: Up/Down move between tags, ENTER
             // arms this one (caret starts at the end, same as a fresh
             // PATHS-row edit). Everything else is a no-op -- typing on a
             // merely-highlighted field would be surprising.
-            if (arrow && (key == 'A' || key == 'B')) { meta_field_ = meta_nav(meta_field_, kMetaFieldCount + 3, key == 'A'); return; }
+            if (arrow && (key == 'A' || key == 'B')) { meta_->field = meta_nav(meta_->field, kMetaFieldCount + 3, key == 'A'); return; }
             if (key == '\r' || key == '\n') {
-                if (e && e->needs_choice(meta_field_)) { meta_choice_open(); return; }   // several candidates: pick one first
-                meta_field_editing_ = true;
+                if (e && e->needs_choice(meta_->field)) { meta_choice_open(); return; }   // several candidates: pick one first
+                meta_->field_editing = true;
                 edit_owner_ = owner;
                 edit_caret_ = edit_anchor_ = cur.size();
             }
@@ -425,11 +426,11 @@ void App::handle_meta_key(int key) {
         // typed as a literal 'A'/'B' -- the same guard Mode::ColorEdit uses.
         if (arrow && (key == 'A' || key == 'B')) return;
         if (key == '\r' || key == '\n') {
-            meta_field_editing_ = false; // done typing -- back to highlighted, same tag
+            meta_->field_editing = false; // done typing -- back to highlighted, same tag
             // With the 'r' resort on, the file just edited has (re)joined the
             // edited block: move it up now, while the cursor is still on it --
             // meta_refresh_lib_view() follows the row by path.
-            if (meta_resort_edited_ && !meta_lib_view_.empty()) meta_refresh_lib_view();
+            if (meta_->resort_edited && !meta_->lib_view.empty()) meta_refresh_lib_view();
             return;
         }
         // --- caret, selection, clipboard ---------------------------------
@@ -440,7 +441,7 @@ void App::handle_meta_key(int key) {
         // typed 'c' inside a word.
         {   // CTRL+z / CTRL+y: undo (the history follows the field that is being edited)
             bool undone = false;
-            if (le_undo_key(&edit_owner_, cur, edit_caret_, edit_anchor_, key, &meta_status_, &undone)) { if (undone) commit(); return; }
+            if (le_undo_key(&edit_owner_, cur, edit_caret_, edit_anchor_, key, &meta_->status, &undone)) { if (undone) commit(); return; }
         }
         LeUndoScope undo_scope(&edit_owner_, cur, edit_caret_, key);
         if (key == kKeyHome) { edit_caret_ = edit_anchor_ = 0; return; }
@@ -452,7 +453,7 @@ void App::handle_meta_key(int key) {
             le_range(edit_caret_, edit_anchor_, a, b);
             std::string t = (a == b) ? cur : cur.substr(a, b - a);
             clipboard_set(t);
-            meta_status_ = t.empty() ? "nothing selected" : "COPIED";
+            meta_->status = t.empty() ? "nothing selected" : "COPIED";
             return;
         }
         if (key == kKeyCtrlX) {
@@ -462,13 +463,13 @@ void App::handle_meta_key(int key) {
             clipboard_set(cur.substr(a, b - a));
             le_erase_selection(cur, edit_caret_, edit_anchor_);
             commit();
-            meta_status_ = "CUT";
+            meta_->status = "CUT";
             return;
         }
         if (key == kKeyCtrlV) {
             le_paste(cur, edit_caret_, edit_anchor_, clipboard_get(), limit);
             commit();
-            meta_status_ = "PASTED";
+            meta_->status = "PASTED";
             return;
         }
         if (key == kKeyDelete) { le_delete_forward(cur, edit_caret_, edit_anchor_); commit(); return; }
@@ -499,25 +500,25 @@ std::vector<std::string> App::build_meta_library_panel(int total_width, int heig
     {   // what is active: the sorts ('r' edited first, 'n' added first) and the filter, joined with " + "
         std::string active;
         auto add = [&](const std::string& part) { active += (active.empty() ? "" : " + ") + part; };
-        if (meta_resort_edited_) add("EDITED FIRST");
-        if (meta_sort_added_) add("ADDED FIRST");
-        if (meta_filter_ != 0) add(meta_filter_label());
-        if (meta_folder_view_) add("FOLDERS");
+        if (meta_->resort_edited) add("EDITED FIRST");
+        if (meta_->sort_added) add("ADDED FIRST");
+        if (meta_->filter != 0) add(meta_filter_label());
+        if (meta_->folder_view) add("FOLDERS");
         // the filters are cut with "..." so that title, filters and the focus indicator always fit the border (" ◀" is 2 columns)
         const int room = total_width - 5 - display_width(lib_label) - 2;
         if (!active.empty() && room >= 4) lib_label += truncate_str(" [" + active + "]", room);
     }
-    if (meta_focus_ == 1) lib_label += focus_indicator(settings_, border_ansi);
+    if (meta_->focus == 1) lib_label += focus_indicator(settings_, border_ansi);
     out.push_back(box_top(lib_label, total_width, border_ansi));
 
-    int total = static_cast<int>(meta_lib_view_.size());
+    int total = static_cast<int>(meta_->lib_view.size());
     if (total == 0) {
         int mid = height / 2;
         for (int row = 0; row < height; ++row) {
             std::string content;
             if (row == mid) {
-                std::string plain = (meta_filter_ != 0) ? "NO TRACKS MATCH THE FILTER"
-                                    : meta_query_.empty() ? "NO TRACKS FOUND"
+                std::string plain = (meta_->filter != 0) ? "NO TRACKS MATCH THE FILTER"
+                                    : meta_->query.empty() ? "NO TRACKS FOUND"
                                     : "NO MATCHING TRACK";
                 std::string text = apply_font_map(plain, settings_.font_map);
                 int left = std::max(0, (inner - display_width(text)) / 2);
@@ -531,7 +532,7 @@ std::vector<std::string> App::build_meta_library_panel(int total_width, int heig
         return out;
     }
 
-    if (meta_folder_view_) {   // the same list grouped by folder: header rows, files numbered per folder
+    if (meta_->folder_view) {   // the same list grouped by folder: header rows, files numbered per folder
         const std::vector<MetaFolderRow> rows = meta_folder_rows();
         const int rtotal = static_cast<int>(rows.size());
         const int cur = meta_folder_cursor(rows);
@@ -548,7 +549,7 @@ std::vector<std::string> App::build_meta_library_panel(int total_width, int heig
                 if (r.header) {
                     content = std::string(r.closed ? "\xe2\x96\xb8 " : "\xe2\x96\xbe ") + apply_font_map(r.name, settings_.font_map) + "  (" + std::to_string(r.count) + ")";
                 } else {
-                    const auto& t = meta_lib_view_[static_cast<size_t>(r.lib)];
+                    const auto& t = meta_->lib_view[static_cast<size_t>(r.lib)];
                     const int title_w = std::max(5, inner - 2 - fidx_w - 2);
                     content = "  " + pad_right(apply_font_map(std::to_string(r.num), settings_.font_map), fidx_w) + settings_.list_separator + " "
                             + pad_right(truncate_str(apply_font_map(list_row_title(t.path, t.title), settings_.font_map), title_w), title_w);
@@ -567,15 +568,15 @@ std::vector<std::string> App::build_meta_library_panel(int total_width, int heig
         std::string footer;
         const int remaining = rtotal - (rscroll + height);
         if (remaining > 0) footer = "( " + std::to_string(remaining) + " more )";
-        if (!meta_session_.empty()) {
-            const std::string tag = "[ " + std::to_string(meta_session_.size()) + " edited ]";
+        if (!meta_->session.empty()) {
+            const std::string tag = "[ " + std::to_string(meta_->session.size()) + " edited ]";
             footer += footer.empty() ? tag : "  " + tag;
         }
         out.push_back(box_bottom(total_width, footer, border_ansi_bottom));
         return out;
     }
 
-    int scroll = std::clamp(meta_lib_selected_ - height / 2, 0, std::max(0, total - height));
+    int scroll = std::clamp(meta_->lib_selected - height / 2, 0, std::max(0, total - height));
     const int idx_w = 3;
     for (int row = 0; row < height; ++row) {
         int idx = scroll + row;
@@ -583,7 +584,7 @@ std::vector<std::string> App::build_meta_library_panel(int total_width, int heig
         bool edited = false;
         bool needs_choice = false;
         if (idx < total) {
-            const auto& t = meta_lib_view_[idx];
+            const auto& t = meta_->lib_view[idx];
             int title_w = std::max(5, inner - idx_w - 2);
             std::string t_idx = apply_font_map(std::to_string(idx + 1), settings_.font_map);
             std::string t_title = apply_font_map(list_row_title(t.path, t.title), settings_.font_map);
@@ -604,7 +605,7 @@ std::vector<std::string> App::build_meta_library_panel(int total_width, int heig
         // were moving. Matches build_list_panel() in Browse, which never gates
         // its cursor on focus either -- the LIBRARY box's "◀" stays the focus
         // marker, so there is still exactly one thing naming the focused pane.
-        bool sel = (idx == meta_lib_selected_);
+        bool sel = (idx == meta_->lib_selected);
         std::string padded = pad_right(truncate_str(content, inner), inner);
         std::string base;
         if (sel) {
@@ -625,9 +626,9 @@ std::vector<std::string> App::build_meta_library_panel(int total_width, int heig
     int remaining = total - (scroll + height);
     if (remaining > 0) footer = "( " + std::to_string(remaining) + " more )";
     // One number for the highlight above: how many files in the session have
-    // pending edits (meta_session_ only ever holds those).
-    if (!meta_session_.empty()) {
-        std::string tag = "[ " + std::to_string(meta_session_.size()) + " edited ]";
+    // pending edits (meta_->session only ever holds those).
+    if (!meta_->session.empty()) {
+        std::string tag = "[ " + std::to_string(meta_->session.size()) + " edited ]";
         footer += footer.empty() ? tag : "  " + tag;
     }
     out.push_back(box_bottom(total_width, footer, border_ansi_bottom));
@@ -649,11 +650,11 @@ std::vector<std::string> App::build_meta_fields_panel(int total_width, int heigh
     std::string path = meta_hovering_path();
     std::string name = path.empty() ? std::string() : path_utf8(path_from_utf8(path).filename());
     std::string sel_pos;
-    if (!meta_lib_view_.empty()) {
-        sel_pos = "  " + std::to_string(meta_lib_selected_ + 1) + "/" + std::to_string(meta_lib_view_.size());
+    if (!meta_->lib_view.empty()) {
+        sel_pos = "  " + std::to_string(meta_->lib_selected + 1) + "/" + std::to_string(meta_->lib_view.size());
     }
-    std::string label = "EDIT" + sel_pos + (name.empty() ? std::string() : " " + truncate_str(name, 40))
-                      + (meta_focus_ == 2 ? focus_indicator(settings_, border_ansi) : std::string());
+    std::string label = "EDIT" + sel_pos + (name.empty() ? std::string() : " " + truncate_str(apply_font_map(name, settings_.font_map), 40))   // (shown in Latin letters when that is switched on, like the lists)
+                      + (meta_->focus == 2 ? focus_indicator(settings_, border_ansi) : std::string());
     out.push_back(box_top(label, total_width, border_ansi));
 
     if (path.empty()) {
@@ -681,16 +682,16 @@ std::vector<std::string> App::build_meta_fields_panel(int total_width, int heigh
             const int pic_first = btn_row + 2;
             const int pic_rows = height - pic_first;
             if (row == btn_row) {
-                const bool hov = (meta_focus_ == 2) && meta_field_ >= kMetaFieldCount;
+                const bool hov = (meta_->focus == 2) && meta_->field >= kMetaFieldCount;
                 std::string b1 = "[ Cover Options ]", b2 = "[ Style Option ]", b3 = "[ Video Option ]";
                 if (display_width(b1) + display_width(b2) + display_width(b3) + 4 > inner) { b1 = "[ Cover ]"; b2 = "[ Style ]"; b3 = "[ Video ]"; }   // a narrow pane: short labels, still one line
                 const int total = display_width(b1) + 2 + display_width(b2) + 2 + display_width(b3);
                 const int left = std::max(0, (inner - total) / 2);
                 const std::string lit = cursor_sgr(settings_.list_cursor_color, settings_.list_cursor_bg_color), plain = header_sgr(settings_);
                 const std::string base = ansi_for(settings_.list_color, false);
-                padded = std::string(static_cast<size_t>(left), ' ') + (hov && meta_field_ == kMetaFieldCount ? lit : plain) + b1 + "\x1b[0m" + base + "  "
-                       + (hov && meta_field_ == kMetaFieldCount + 1 ? lit : plain) + b2 + "\x1b[0m" + base + "  "
-                       + (hov && meta_field_ == kMetaFieldCount + 2 ? lit : plain) + b3 + "\x1b[0m" + base;
+                padded = std::string(static_cast<size_t>(left), ' ') + (hov && meta_->field == kMetaFieldCount ? lit : plain) + b1 + "\x1b[0m" + base + "  "
+                       + (hov && meta_->field == kMetaFieldCount + 1 ? lit : plain) + b2 + "\x1b[0m" + base + "  "
+                       + (hov && meta_->field == kMetaFieldCount + 2 ? lit : plain) + b3 + "\x1b[0m" + base;
                 padded += std::string(static_cast<size_t>(std::max(0, inner - left - total)), ' ');
             } else if (row >= pic_first && pic_rows >= 3) {
                 if (row == pic_first) cover_pane_cache = meta_cover_pane(inner, pic_rows);
@@ -704,19 +705,19 @@ std::vector<std::string> App::build_meta_fields_panel(int total_width, int heigh
         }
         int i = row;
         std::string lab = pad_right(meta_field_label(i), label_w);
-        std::string val_raw = meta_hover_values_[i];
+        std::string val_raw = meta_->hover_values[i];
         if (val_raw.empty()) {
             val_raw = (i == 0) ? std::string("-")
-                    : (meta_hover_resolved_ ? "(untagged)" : "(reading ...)");
+                    : (meta_->hover_resolved ? "(untagged)" : "(reading ...)");
         }
         // Two states share the "hovered" row, matching the PATHS tab's
         // highlighted-vs-activated folder field: hovered alone just
         // highlights the tag (no caret, Up/Down move between tags);
-        // meta_field_editing_ additionally arms the caret and swaps in the
+        // meta_->field_editing additionally arms the caret and swaps in the
         // CHANGE colours (change_sgr()) -- the same ones an activated PATHS
         // row uses -- so it's visually obvious typing is live.
-        bool hovered = (meta_focus_ == 2) && (i == meta_field_);
-        bool editing = hovered && meta_field_editing_;
+        bool hovered = (meta_->focus == 2) && (i == meta_->field);
+        bool editing = hovered && meta_->field_editing;
         bool edited = entry && entry->edited[i];
         const int val_w = std::max(4, inner - label_w);
 
@@ -749,7 +750,7 @@ std::vector<std::string> App::build_meta_fields_panel(int total_width, int heigh
             val = restore + p.s;
             used = display_width(lab) + p.cols; // p.cols already ignores the ANSI codes
         } else {
-            val = truncate_str(val_raw, val_w);
+            val = truncate_str(apply_font_map(val_raw, settings_.font_map), val_w);   // (Latin letters / font map like the lists; the text being edited is shown as it is)
             used = display_width(lab) + display_width(val);
         }
         std::string fill(std::max(0, inner - used), ' ');
@@ -782,10 +783,10 @@ std::vector<std::string> App::build_meta_fetch_panel(int total_width, int height
     std::string bar = border_ansi + settings_.box_vertical + "\x1b[0m";
     std::vector<std::string> out;
 
-    out.push_back(box_top("FETCH LIST (" + std::to_string(meta_fetch_list_.size()) + ")" + focus_indicator(settings_, border_ansi),
+    out.push_back(box_top("FETCH LIST (" + std::to_string(meta_->fetch_list.size()) + ")" + focus_indicator(settings_, border_ansi),
                           total_width, border_ansi));
 
-    int total = static_cast<int>(meta_fetch_list_.size());
+    int total = static_cast<int>(meta_->fetch_list.size());
     if (total == 0) {
         int mid = height / 2;
         for (int row = 0; row < height; ++row) {
@@ -803,13 +804,13 @@ std::vector<std::string> App::build_meta_fetch_panel(int total_width, int height
         return out;
     }
 
-    int scroll = std::clamp(meta_fetch_selected_ - height / 2, 0, std::max(0, total - height));
+    int scroll = std::clamp(meta_->fetch_selected - height / 2, 0, std::max(0, total - height));
     const int idx_w = 3;
     for (int row = 0; row < height; ++row) {
         int idx = scroll + row;
         std::string content;
         if (idx < total) {
-            const std::string& p = meta_fetch_list_[idx];
+            const std::string& p = meta_->fetch_list[idx];
             int title_w = std::max(5, inner - idx_w - 2);
             const MetaEditEntry* e = meta_entry(p);
             std::string base = list_row_title(path_from_utf8(p), path_utf8(path_from_utf8(p).stem()));
@@ -819,7 +820,7 @@ std::vector<std::string> App::build_meta_fetch_panel(int total_width, int height
             content = pad_right(t_idx, idx_w) + settings_.list_separator + " "
                     + pad_right(truncate_str(t_title, title_w), title_w);
         }
-        bool sel = (idx == meta_fetch_selected_);
+        bool sel = (idx == meta_->fetch_selected);
         std::string padded = pad_right(truncate_str(content, inner), inner);
         if (sel) {
             std::string cursor_ansi = cursor_sgr(settings_.list_cursor_color, settings_.list_cursor_bg_color);
@@ -852,39 +853,39 @@ void App::build_meta_screen(std::ostringstream& frame, int W, int target_height)
         const int search_max = 25;
         const std::string prefix = " Search: ";
         const int field_w = search_max + 1;                                    // 25 characters + the caret block
-        const int inner_w = meta_tab_ == 1 ? 82   // the FETCH LIST option line (" Fetch: " + six check boxes + focus mark)
+        const int inner_w = meta_->tab == 1 ? 82   // the FETCH LIST option line (" Fetch: " + six check boxes + focus mark)
                           : static_cast<int>(prefix.size()) + field_w + 2 + 1; // + room for the focus mark
         std::string line2;
         int line2_cols = 0;
-        if (meta_tab_ == 0) {
+        if (meta_->tab == 0) {
             std::string field;
             int field_cols = 0;
-            if (meta_focus_ == 0) { // focus is in the box: caret + block cursor
-                EditPaint p = paint_edit_field(meta_query_, edit_caret_, edit_anchor_, field_w,
-                                               meta_query_.empty() ? search_idle_sgr(settings_) : search_sgr(settings_), true);
-                field = search_run(settings_, p.s, !meta_query_.empty());
+            if (meta_->focus == 0) { // focus is in the box: caret + block cursor
+                EditPaint p = paint_edit_field(meta_->query, edit_caret_, edit_anchor_, field_w,
+                                               meta_->query.empty() ? search_idle_sgr(settings_) : search_sgr(settings_), true);
+                field = search_run(settings_, p.s, !meta_->query.empty());
                 field_cols = p.cols;
             } else { // focus elsewhere: plain text, with the placeholder hint
-                const std::string plain = truncate_str(meta_query_.empty() ? std::string("(type to filter)") : meta_query_, field_w);
-                field = search_run(settings_, plain, !meta_query_.empty());
+                const std::string plain = truncate_str(meta_->query.empty() ? std::string("(type to filter)") : meta_->query, field_w);
+                field = search_run(settings_, plain, !meta_->query.empty());
                 field_cols = static_cast<int>(display_width(plain));
             }
             std::string focus_mark;
             int focus_w = 0;
-            if (meta_focus_ == 0) { focus_mark = " " + focus_sgr(settings_) + "\xe2\x97\x80" + "\x1b[0m"; focus_w = 2; }
+            if (meta_->focus == 0) { focus_mark = " " + focus_sgr(settings_) + "\xe2\x97\x80" + "\x1b[0m"; focus_w = 2; }
             line2 = search_idle_sgr(settings_) + prefix + field + "\x1b[0m" + focus_mark;
             line2_cols = static_cast<int>(prefix.size()) + field_cols + focus_w;
         }
-        if (meta_tab_ == 1) {
+        if (meta_->tab == 1) {
             // FETCH LIST: the fetch options as check boxes, where the EDIT tab has its search. Only the ticked tags are
             // fetched, for every title of the list (ENTER). Missing only / all untick everything else and vice versa.
             const std::string prefix = " Fetch: ";
             std::string opts;
             int opts_cols = 0;
             for (int m = 0; m < kMetaFetchOptCount; ++m) {
-                const bool on = (meta_fetch_opts_ & (1u << m)) != 0;
+                const bool on = (meta_->fetch_opts & (1u << m)) != 0;
                 const std::string word = std::string(on ? "[x] " : "[ ] ") + meta_fetch_opt_label(m);
-                const bool cursor = (meta_fetch_focus_ == 1 && m == meta_opt_cursor_);
+                const bool cursor = (meta_->fetch_focus == 1 && m == meta_->opt_cursor);
                 std::string shown = word;
                 if (cursor) shown = "\x1b[7m" + word + "\x1b[0m" + search_idle_sgr(settings_);
                 else if (on) shown = header_sgr(settings_) + word + "\x1b[0m" + search_idle_sgr(settings_);
@@ -894,11 +895,11 @@ void App::build_meta_screen(std::ostringstream& frame, int W, int target_height)
             }
             std::string focus_mark;
             int focus_w = 0;
-            if (meta_fetch_focus_ == 1) { focus_mark = " " + focus_sgr(settings_) + "\xe2\x97\x80" + "\x1b[0m"; focus_w = 2; }
+            if (meta_->fetch_focus == 1) { focus_mark = " " + focus_sgr(settings_) + "\xe2\x97\x80" + "\x1b[0m"; focus_w = 2; }
             line2 = search_idle_sgr(settings_) + prefix + opts + "\x1b[0m" + focus_mark;
             line2_cols = static_cast<int>(prefix.size()) + opts_cols + focus_w;
         }
-        const auto strip = menu_tab_strip(W, "META EDITOR", {"EDIT", "FETCH LIST"}, meta_tab_, border, border,
+        const auto strip = menu_tab_strip(W, "META EDITOR", {"EDIT", "FETCH LIST"}, meta_->tab, border, border,
                                           settings_.box_upper_left, settings_.box_upper_right, settings_.box_vertical,
                                           inner_w, line2, line2_cols,
                                           ansi_for(settings_.tab_current_color, false), ansi_for(settings_.tab_other_color, false));
@@ -919,17 +920,17 @@ void App::build_meta_screen(std::ostringstream& frame, int W, int target_height)
     // Left/Right and ESC say what they do RIGHT NOW: inside a text box
     // that is in use they move the caret / leave the box, otherwise they
     // switch the tab / close the editor (see handle_meta_key()).
-    const bool in_text = meta_tab_ == 0 && ((meta_focus_ == 2 && meta_field_editing_) || (meta_focus_ == 0 && text_engaged("meta-search")));
+    const bool in_text = meta_->tab == 0 && ((meta_->focus == 2 && meta_->field_editing) || (meta_->focus == 0 && text_engaged("meta-search")));
     const std::string lr = in_text ? "[\u2190\u2192] Cursor" : "[\u2190\u2192] Tab";
-    const bool in_search = meta_tab_ == 0 && meta_focus_ == 0;
+    const bool in_search = meta_->tab == 0 && meta_->focus == 0;
     const std::string esc = in_search ? "[ESC] Clear/Exit\001Exit" : in_text ? "[ESC] Leave field" : "[ESC] Exit";
     std::string enter_hint = "[ENTER] Edit";
-    if (meta_tab_ == 0 && meta_focus_ == 2) {
+    if (meta_->tab == 0 && meta_->focus == 2) {
         const MetaEditEntry* he = meta_entry(meta_hovering_path());
-        if (meta_field_ == kMetaFieldCount) enter_hint = "[ENTER] Cover Options\001Cover";
-        else if (meta_field_ == kMetaFieldCount + 1) enter_hint = "[ENTER] Style Option\001Style";
-        else if (meta_field_ == kMetaFieldCount + 2) enter_hint = "[ENTER] Video Option\001Video";
-        else if (he && meta_field_ >= 0 && he->needs_choice(meta_field_)) enter_hint = "[ENTER] Choose";
+        if (meta_->field == kMetaFieldCount) enter_hint = "[ENTER] Cover Options\001Cover";
+        else if (meta_->field == kMetaFieldCount + 1) enter_hint = "[ENTER] Style Option\001Style";
+        else if (meta_->field == kMetaFieldCount + 2) enter_hint = "[ENTER] Video Option\001Video";
+        else if (he && meta_->field >= 0 && he->needs_choice(meta_->field)) enter_hint = "[ENTER] Choose";
     }
     // The legend is a small tree table: one row per group of commands (label | commands), joined by tree lines. Four rows
     // on both tabs, so the footer always has the same height -- 4 legend rows + the status row -- and switching tabs or a
@@ -943,15 +944,15 @@ void App::build_meta_screen(std::ostringstream& frame, int W, int target_height)
     std::vector<LegendGroup> groups;
     const std::string rescan = "[" + hotkey_text("HKeyRescan", "R") + "] Rescan paths\001Rescan";
     const std::string fetch_missing = "[" + hotkey_text("HKeyFetchTags", "B") + "] Fetch missing\001Missing";
-    if (meta_tab_ == 0) {
+    if (meta_->tab == 0) {
         groups.push_back({"Move", {lr, "[TAB] Focus", "[\u2191\u2193] Navi.", "[SHIFT+\u2191\u2193] Page\001Page", "[CTRL+\u2191\u2193] Top/bottom\001Top/bot.", enter_hint, "[SHIFT+p] Play", "[SHIFT+c] Current song\001Current"}});
         groups.back().max_lines = 2;   // Move: a second row when SHIFT+c and the others do not fit one (120 columns)
         groups.push_back({"Fetch", {"[a] To list", "[SHIFT+f] All searched to fetch list\001Searched to list", "\002Single track\003", fetch_missing, "[SHIFT+n] (Re-)fetch all\001(Re-)fetch all"}});
         groups.push_back({"Filter", {"[SHIFT+v] Video only\001Video", "[f] Folder view\001Folders", "[r] Recently edited first\001Edited", "[n] Recently added first\001Added", "[x/T/A/L/Y] Specific missing tags\001Missing", rescan, "[t] ASCII / Full Resolution\001ASCII/Full"}});
         groups.back().max_lines = 2;   // Filter: two rows too, broken between two commands
     } else {
-        LegendGroup mv{"Move", {meta_fetch_focus_ == 1 ? std::string("[\u2190\u2192] Option") : lr, "[TAB] Focus"}};
-        if (meta_fetch_focus_ == 1) mv.cmds.push_back("[SPACE] Tick");
+        LegendGroup mv{"Move", {meta_->fetch_focus == 1 ? std::string("[\u2190\u2192] Option") : lr, "[TAB] Focus"}};
+        if (meta_->fetch_focus == 1) mv.cmds.push_back("[SPACE] Tick");
         mv.cmds.push_back("[\u2191\u2193] Navi.");
         mv.cmds.push_back("[SHIFT+\u2191\u2193] Page\001Page");
         mv.cmds.push_back("[CTRL+\u2191\u2193] Top/bottom\001Top/bot.");
@@ -968,11 +969,11 @@ void App::build_meta_screen(std::ostringstream& frame, int W, int target_height)
         { for (auto& g : groups) g.max_lines = 1; lrows = layout_legend_tree(groups, W - 1); }
     const int footer_rows = std::max(5, static_cast<int>(lrows.size()) + 1);   // the legend + the status row
     int panel_h = std::max(6, budget - fixed_rows - (2 + footer_rows));
-    meta_page_rows_ = std::max(1, panel_h - 3); // no upper cap: fills a maximised window (7 = 2 border rows + the 5-row footer)
-    if (meta_tab_ == 0) {
+    meta_->page_rows = std::max(1, panel_h - 3); // no upper cap: fills a maximised window (7 = 2 border rows + the 5-row footer)
+    if (meta_->tab == 0) {
         int left_w = W / 2;
         int right_w = W - left_w;
-        meta_pane_col_ = left_w;
+        meta_->pane_col = left_w;
         auto left_lines = build_meta_library_panel(left_w, panel_h);
         auto right_lines = build_meta_fields_panel(right_w, panel_h);
         size_t rows = std::max(left_lines.size(), right_lines.size());
@@ -985,25 +986,25 @@ void App::build_meta_screen(std::ostringstream& frame, int W, int target_height)
         for (auto& l : build_meta_fetch_panel(W, panel_h)) frame << l << "\n";
     }
 
-    if (meta_prompt_ != MetaPrompt::None) {
+    if (meta_->prompt != MetaPrompt::None) {
         // Wrapped to at most 2 lines: the AcoustID disclaimer is longer
         // than a narrow terminal, and an unwrapped bar would wrap into a
         // third line and push the whole overlay past its own height.
         std::string text;
         std::string colors;
-        if (meta_prompt_ == MetaPrompt::Fetch) {
+        if (meta_->prompt == MetaPrompt::Fetch) {
             text = meta_fetch_disclaimer() + "   [Y]es   [N]o   [ESC] cancel";
             colors = "\x1b[43;30m"; // yellow, same as the playlist editor's save prompt
-        } else if (meta_prompt_ == MetaPrompt::Save) {
+        } else if (meta_->prompt == MetaPrompt::Save) {
             int open_choices = 0;
-            for (const auto& en : meta_session_) for (int i = 0; i < kMetaFieldCount; ++i) if (en.needs_choice(i)) ++open_choices;
+            for (const auto& en : meta_->session) for (int i = 0; i < kMetaFieldCount; ++i) if (en.needs_choice(i)) ++open_choices;
             text = "Want to save? Applies every pending edit to the files."
                  + (open_choices ? " " + std::to_string(open_choices) + " fetched tag" + (open_choices == 1 ? "" : "s")
                                        + " still ha" + (open_choices == 1 ? "s" : "ve") + " several options -- the first one is saved." : std::string())
                  + "   [Y]es   [N]o   [ESC] cancel";
             colors = "\x1b[43;30m";
-        } else if (meta_prompt_ == MetaPrompt::ClearFetch) {
-            text = "Empty the fetch list (" + std::to_string(meta_fetch_list_.size()) + " titles)? Pending edits, fetched tags included, are kept.   [Y]es   [N]o   [ESC] cancel";
+        } else if (meta_->prompt == MetaPrompt::ClearFetch) {
+            text = "Empty the fetch list (" + std::to_string(meta_->fetch_list.size()) + " titles)? Pending edits, fetched tags included, are kept.   [Y]es   [N]o   [ESC] cancel";
             colors = "\x1b[43;30m";
         } else {
             text = "Want to discard changes? The files themselves were never touched.   [Y]es   [N]o   [ESC] cancel";
@@ -1026,7 +1027,7 @@ void App::build_meta_screen(std::ostringstream& frame, int W, int target_height)
         {
             for (size_t i = 0; i < lrows.size(); ++i) frame << " " << paint_legend(settings_, lrows, i, border, 0, true) << "\n";
         }
-        if (!meta_status_.empty()) frame << "\x1b[38;5;246m" << truncate_str(meta_status_, W) << "\x1b[0m\n";
+        if (!meta_->status.empty()) frame << "\x1b[38;5;246m" << truncate_str(meta_->status, W) << "\x1b[0m\n";
         else frame << "\n";
     }
 }

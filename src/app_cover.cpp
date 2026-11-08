@@ -9,6 +9,7 @@
 // Without Kitty / Sixel the same three looks are drawn with braille dots (the cover dithered; behind the disk: the turning disk
 // with every cell lit by the cover under it).
 #include "app.h"
+#include "meta_state.h"
 #include "cover_colour.h"
 
 #include <algorithm>
@@ -165,7 +166,7 @@ bool App::album_cover_gfx(int col, int cols, int rows) const {
     // The meta editor, the cover fetch and the video fetch build the main screen's panel behind their own screen (to know its height) and
     // draw their own pictures into the same slot: the playing track's cover must not be written there too, or the two pictures take the slot
     // from each other every frame (the cover of the editor flickers and goes away when another track starts to play).
-    if (mode_ == Mode::CoverFetch || mode_ == Mode::VideoFetch || (mode_ == Mode::MetaEdit && !meta_sty_from_main_)) return false;
+    if (mode_ == Mode::CoverFetch || mode_ == Mode::VideoFetch || (mode_ == Mode::MetaEdit && !meta_->sty_from_main)) return false;
     if (gfx_proto_ == GfxProto::None || cols < 8 || rows < 4 || eff_cover_mode() >= 5) return false;   // (5, 6: the ASCII looks are braille dots)
     const CoverImage* cover = player_cover();
     if (!cover) return false;
@@ -193,7 +194,7 @@ bool App::album_cover_gfx(int col, int cols, int rows) const {
     const auto gap = std::chrono::milliseconds(gfx_proto_ == GfxProto::Sixel ? 110 : 40);
     // (the gradient wave of mode 1 moves too). Under the Style Option overlay (SHIFT+s on the main screen) the picture of the main screen
     // stands still: the preview in the panel is the one that moves, and two pictures re-sent all the time flicker in a Sixel / Kitty terminal.
-    const bool turning = mode >= 1 && !(mode_ == Mode::MetaEdit && meta_sty_from_main_);
+    const bool turning = mode >= 1 && !(mode_ == Mode::MetaEdit && meta_->sty_from_main);
     const bool due = resized || (turning && now - cover_pic_at_ >= gap);
     g.plain = true; g.truecolor = false;
     g.direct = mode == 0 || cover_sixel_colours(mode);

@@ -2,6 +2,7 @@
 // Part of class App (src/app.h): Tags of the rows on screen, read in the background (and the waveform of the current track).
 // Split out of app.cpp; the includes are the same as there.
 #include "app.h"
+#include "playlist_state.h"
 #include "tag_cache.h"
 #include "text_edit.h"
 #include "overlay_common.h"
@@ -180,7 +181,7 @@ void App::resolve_playlist_tracks_async() {
     auto paths = std::make_shared<std::vector<fs::path>>();
     {
         std::lock_guard<std::mutex> lk(row_meta_mutex_);
-        for (const auto& t : playlist_edit_tracks_) {
+        for (const auto& t : playlist_->edit_tracks) {
             if (t.missing) continue;
             auto it = row_meta_cache_.find(path_utf8(t.path));
             if (it == row_meta_cache_.end() || !it->second.tags_resolved) paths->push_back(t.path);

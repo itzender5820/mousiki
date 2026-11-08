@@ -2,6 +2,7 @@
 // Part of class App (src/app.h): The library: row titles, the search, sort and filter of the local list, folders, playlists on disk, rescan.
 // Split out of app.cpp; the includes are the same as there.
 #include "app.h"
+#include "playlist_state.h"
 #include "video_links.h"
 #include "text_edit.h"
 #include "overlay_common.h"
@@ -543,12 +544,12 @@ void App::refresh_playlists_after_rescan() {
             keys.push_back(path_utf8(it.local_path));
         }
     }
-    if (!playlist_edit_tracks_.empty()) {
+    if (!playlist_->edit_tracks.empty()) {
         Playlist open;
-        open.tracks = playlist_edit_tracks_;
+        open.tracks = playlist_->edit_tracks;
         relocate_missing_tracks(open);
-        playlist_edit_tracks_ = open.tracks;   // not marked as changed: the saved file was already updated above
-        for (const auto& t : playlist_edit_tracks_) keys.push_back(path_utf8(t.path));
+        playlist_->edit_tracks = open.tracks;   // not marked as changed: the saved file was already updated above
+        for (const auto& t : playlist_->edit_tracks) keys.push_back(path_utf8(t.path));
     }
     {
         std::lock_guard<std::mutex> lk(row_meta_mutex_);
@@ -659,7 +660,7 @@ void App::update_live_search_preview() {
         std::string q = buf.substr(2);
         while (!q.empty() && q.front() == ' ') q.erase(q.begin());
         list_source_ = ListSource::Playlist;
-        playlist_view_ = filter_playlists(q);
+        playlist_->view = filter_playlists(q);
         selected_ = 0;
         scroll_ = 0;
         return;
@@ -723,7 +724,7 @@ void App::submit_search() {
         last_playlist_query_ = query;
         list_source_ = ListSource::Playlist;
         queue_focus_ = false;   // the saved playlists pane takes the focus, also when the queue had it before
-        playlist_view_ = filter_playlists(query);
+        playlist_->view = filter_playlists(query);
         selected_ = 0;
         scroll_ = 0;
     } else if (buf.size() >= 2 && ascii_lower_str(buf.substr(0, 2)) == "f:") {

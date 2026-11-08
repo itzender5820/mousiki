@@ -230,16 +230,6 @@ std::string field_row(const std::string& base, const std::string& prefix, const 
 }
 
 // --- small glyph helpers ----------------------------------------------------------------------
-const char* fft_glyph(int level) {
-    switch (std::clamp(level, 0, 4)) {
-        case 0: return " ";
-        case 1: return "\u28C0";
-        case 2: return "\u28E4";
-        case 3: return "\u28F6";
-        default: return "\u28FF";
-    }
-}
-
 std::string dim_ansi(const std::string& ansi, float k) {
     int r, g, b;
     if (std::sscanf(ansi.c_str(), "\x1b[38;2;%d;%d;%dm", &r, &g, &b) != 3) return ansi; // palette colour: cannot scale
@@ -295,17 +285,6 @@ constexpr int kLeftW = kSignW + 1;  // 1 column margin + the sign
 constexpr int kSepW = 5;
 constexpr int kMetaW = 42;
 // (the oscilloscope takes whatever width is left; see render_radio_frame)
-
-std::vector<std::string> utf8_chars(const std::string& str) {
-    std::vector<std::string> out;
-    for (size_t i = 0; i < str.size();) {
-        const unsigned char c = static_cast<unsigned char>(str[i]);
-        const size_t n = c < 0x80 ? 1 : (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : 4;
-        out.push_back(str.substr(i, n));
-        i += n;
-    }
-    return out;
-}
 
 // ---------------------------------------------------------------------------------------------
 // Circle-burst animation behind the ON AIR sign (from "Circle bust animation.json", 29 frames).

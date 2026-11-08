@@ -336,6 +336,9 @@ TerminalIO::TerminalIO() {
     } else {
         std::cout << "\x1b[?1049h" << "\x1b[?25l" << std::flush; // enter alt-screen, hide cursor
     }
+#if !defined(_WIN32)
+    std::cout << "\x1b[?2004h" << std::flush;   // bracketed paste: a pasted text is wrapped in ESC [ 200 ~ ... ESC [ 201 ~
+#endif
 }
 
 TerminalIO::~TerminalIO() { restore(); }
@@ -345,6 +348,7 @@ void TerminalIO::restore() {
 #if defined(_WIN32)
         win_raw_mode_exit();
 #else
+        std::cout << "\x1b[?2004l" << std::flush;   // (the next mode switches it on again)
         remove_fatal_signal_handlers();
         tcsetattr(STDIN_FILENO, TCSANOW, &g_orig_termios);
 #endif
@@ -495,7 +499,22 @@ Args clip_copy_command(ClipTool t) {
 } // namespace
 #endif
 
+static bool g_paste_aware = false;
+static std::string g_paste_text;       // the text of the paste that was just returned as kKeyPaste
+static std::string g_paste_queue;      // a paste that the program does not handle as one: replayed key by key
+static size_t g_paste_queue_pos = 0;
+static std::string g_paste_override;
+#if defined(_WIN32)
+void set_paste_aware(bool on) { g_paste_aware = on; win_set_paste_aware(on); }
+std::string take_paste_text() { return win_take_paste(); }
+#else
+void set_paste_aware(bool on) { g_paste_aware = on; }
+std::string take_paste_text() { std::string t; t.swap(g_paste_text); return t; }
+#endif
+void set_paste_override(const std::string& text) { g_paste_override = text; }
+
 std::string clipboard_get() {
+    if (!g_paste_override.empty()) return g_paste_override;
 #if defined(_WIN32)
     return win_clipboard_get();
 #else
@@ -581,6 +600,12 @@ int TerminalIO::poll_key_raw() {
     return key;
 #else
     unsigned char c = 0;
+    if (g_paste_queue_pos < g_paste_queue.size()) {   // a paste that is replayed as typed keys
+        g_last_key_was_arrow = false;
+        const unsigned char q = static_cast<unsigned char>(g_paste_queue[g_paste_queue_pos++]);
+        if (g_paste_queue_pos >= g_paste_queue.size()) { g_paste_queue.clear(); g_paste_queue_pos = 0; }
+        return q == '\n' ? '\r' : q;
+    }
     if (read(STDIN_FILENO, &c, 1) != 1) { g_last_key_was_arrow = false; return 0; }
 
     if (c == '\x1b') {
@@ -638,6 +663,30 @@ int TerminalIO::poll_key_raw() {
                     if (read(STDIN_FILENO, &tail, 1) != 1) break;
                     if (tail >= 0x40 && tail <= 0x7E) break; // final byte of the sequence
                     body.push_back(static_cast<char>(tail));
+                }
+                if (tail == '~' && body == "200") {   // bracketed paste: everything up to ESC [ 201 ~ is one text
+                    std::string text;
+                    int idle = 0;
+                    const std::string end = "\x1b[201~";
+                    while (idle < 2000) {   // (2 s without a byte: the end marker is lost, take what came)
+                        unsigned char b = 0;
+                        if (read(STDIN_FILENO, &b, 1) != 1) { ++idle; std::this_thread::sleep_for(std::chrono::milliseconds(1)); continue; }
+                        idle = 0;
+                        text.push_back(static_cast<char>(b));
+                        if (text.size() >= end.size() && text.compare(text.size() - end.size(), end.size(), end) == 0) { text.resize(text.size() - end.size()); break; }
+                    }
+                    std::string norm;   // line breaks of any kind -> '\n'
+                    for (size_t i = 0; i < text.size(); ++i) {
+                        if (text[i] == '\r') { norm.push_back('\n'); if (i + 1 < text.size() && text[i + 1] == '\n') ++i; }
+                        else norm.push_back(text[i]);
+                    }
+                    g_last_key_was_arrow = false;
+                    if (g_paste_aware) { g_paste_text = norm; return kKeyPaste; }
+                    g_paste_queue = norm; g_paste_queue_pos = 0;
+                    if (g_paste_queue.empty()) return 0;
+                    const unsigned char q = static_cast<unsigned char>(g_paste_queue[g_paste_queue_pos++]);
+                    if (g_paste_queue_pos >= g_paste_queue.size()) { g_paste_queue.clear(); g_paste_queue_pos = 0; }
+                    return q == '\n' ? '\r' : q;
                 }
                 // PgUp / PgDn ("ESC [ 5 ~" / "ESC [ 6 ~", with a modifier "ESC [ 5 ; <mod> ~"): reported exactly like SHIFT+Up /
                 // SHIFT+Down (a plain 'A' / 'B' arrow with the shift flag), so every page that turns a page on SHIFT+arrow

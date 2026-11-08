@@ -2,6 +2,8 @@
 // Part of class App (src/app.h): The big list overlay and the big folder overlay.
 // Split out of app.cpp; the includes are the same as there.
 #include "app.h"
+#include "playlist_state.h"
+#include "book_state.h"
 #include "text_edit.h"
 #include "overlay_common.h"
 #include "remote_server.h"
@@ -213,7 +215,7 @@ void App::list_overlay_geometry(int W, int& panel_w, int& list_rows) const {
 // list (no empty rows after the last entry when the list is long enough).
 void App::list_overlay_fit_scroll(int rows) {
     rows = std::max(1, rows);
-    const int total = list_total_for(list_source_, local_view_.size(), online_view_.size(), playlist_view_.size(), folder_view_.size());
+    const int total = list_total_for(list_source_, local_view_.size(), online_view_.size(), playlist_->view.size(), folder_view_.size());
     if (total <= 0) { selected_ = 0; scroll_ = 0; return; }
     selected_ = std::clamp(selected_, 0, total - 1);
     scroll_ = std::clamp(scroll_, 0, std::max(0, total - rows));
@@ -241,7 +243,7 @@ void App::list_overlay_close() {
 // stays in the same place while the list flips underneath it. At either end
 // (window can't move any further) the cursor jumps to the first/last entry.
 void App::list_overlay_page(int dir) {
-    const int total = list_total_for(list_source_, local_view_.size(), online_view_.size(), playlist_view_.size(), folder_view_.size());
+    const int total = list_total_for(list_source_, local_view_.size(), online_view_.size(), playlist_->view.size(), folder_view_.size());
     if (total <= 0) return;
     const int rows = std::max(1, overlay_list_rows_);
     const int max_scroll = std::max(0, total - rows);
@@ -266,7 +268,7 @@ std::vector<std::string> App::build_list_overlay_panel(int panel_w, int list_row
     std::vector<std::string> out = build_search_bar(panel_w);
     std::vector<std::string> list = build_list_panel(panel_w, list_rows);
     if (!list.empty()) {
-        const int total = list_total_for(list_source_, local_view_.size(), online_view_.size(), playlist_view_.size(), folder_view_.size());
+        const int total = list_total_for(list_source_, local_view_.size(), online_view_.size(), playlist_->view.size(), folder_view_.size());
         const int rows = std::max(1, list_rows);
         const int pages = std::max(1, (total + rows - 1) / rows);
         const int page = std::clamp((scroll_ + rows / 2) / rows + 1, 1, pages);
@@ -467,7 +469,7 @@ void App::folder_overlay_open() {
     std::string target;
     fo_marked_.clear();
     if (audiobook_) {   // the audio book player: the open book (else the book under the cursor), with its chapters shown
-        if (!book_dir_.empty()) { target = book_dir_; fo_expanded_.insert(book_dir_); }
+        if (!book_->dir.empty()) { target = book_->dir; fo_expanded_.insert(book_->dir); }
         else if (selected_ >= 0 && selected_ < static_cast<int>(folder_view_.size())) target = folder_view_[static_cast<size_t>(selected_)].path;
         for (const auto& kv : fo_files_) {   // chapters with a bookmark get a mark
             BookCue cue;
@@ -560,7 +562,7 @@ bool App::folder_overlay_key(int key) {
         if (audiobook_) {   // plays from its start at once (no questions), the overlay stays
             if (!book_open_dir(path_utf8(path_from_utf8(cur->path).parent_path()))) return true;
             for (size_t i = 0; i < chapters_.size(); ++i)
-                if (path_utf8(chapters_[i].path) == cur->path) { book_prompt_paused_ = false; book_play_chapter(static_cast<int>(i)); break; }
+                if (path_utf8(chapters_[i].path) == cur->path) { book_->prompt_paused = false; book_play_chapter(static_cast<int>(i)); break; }
             return true;
         }
         for (const auto& t : all_local_tracks_)
@@ -634,7 +636,7 @@ bool App::folder_overlay_key(int key) {
     if (action == "HKeyQueueOverlay") { folder_overlay_close(); queue_overlay_open(); return true; }
     if (action == "HKeyFilterForFolder") { folder_overlay_filter(); return true; }
     static const char* const kPass[] = {
-        "HKeyTogglePlayPause", "HKeyPlayNextSong", "HKeyPlayPreviousSong", "HKeyShuffleNext", "HKeyCyclePlayMode",
+        "HKeyTogglePlayPause", "HKeyPlayNextSong", "HKeyPlayPreviousSong", "HKeyShuffleNext", "HKeyCyclePlayMode", "HKeyCyclePlayModeBack",
         "HKeySeekForward", "HKeySeekBackward", "HKeyIncreaseVolume", "HKeyDecreaseVolume", "HKeyToggleMute",
         "HKeyToggleNormalize", "HKeyQuit"};
     for (const char* a : kPass) if (action == a) return false;

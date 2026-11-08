@@ -254,3 +254,24 @@ TEST(organigram_visualizations_are_grouped) {
     CHECK(p.find("Options") != std::string::npos && p.find("Overlay") != std::string::npos && p.find("Extra Window") != std::string::npos);
     CHECK(p.find("Spectrogram") != std::string::npos && p.find("Oscilloscope") != std::string::npos);
 }
+
+TEST(organigram_colours_header_on_the_path_progress_colours_for_the_branches) {
+    org::Theme th = theme();
+    th.path = "<P>"; th.walked = "<W>"; th.pending = "<R>"; th.line = "<L>";
+    const org::Tree t = org::player_tree();
+    int fetch = -1;
+    for (int i = 0; i < t.count; ++i) if (std::string(t.n[i].title) == "Fetch Cover") fetch = i;
+    CHECK(fetch > 0);
+    const auto rows = org::render(t, fetch, 140, 44, 0.0, th, "info");
+    bool main_box = false, walked_branch = false, pending_box = false, line_colour = false;
+    for (const auto& r : rows) {
+        if (r.find("<P>\xe2\x95\xad") != std::string::npos) main_box = true;          // a box corner on the path: the header colour
+        if (r.find("<W>\xe2\x94\x82") != std::string::npos || r.find("<W>\xe2\x94\x80") != std::string::npos || r.find("<W>\xe2\x94\x94") != std::string::npos || r.find("<W>\xe2\x94\x8c") != std::string::npos || r.find("<W>\xe2\x94\xbc") != std::string::npos || r.find("<W>\xe2\x94\xac") != std::string::npos || r.find("<W>\xe2\x94\xb4") != std::string::npos) walked_branch = true;
+        if (r.find("<R>\xe2\x95\xad") != std::string::npos) pending_box = true;       // a box off the path: the "remaining" colour
+        if (r.find("<L>") != std::string::npos) line_colour = true;
+    }
+    CHECK(main_box);
+    CHECK(walked_branch);
+    CHECK(pending_box);
+    CHECK(!line_colour);   // the old border colour is gone from the tree itself
+}
