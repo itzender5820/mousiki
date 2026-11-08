@@ -132,12 +132,12 @@ std::vector<int> WaveformQuantizer::resample_for_ui(const std::vector<float>& hi
 static bool stream_decode_miniaudio(const fs::path& file_path, StreamingPcm& pcm,
                                      const std::function<void(const float*, size_t)>& on_chunk) {
     ma_decoder decoder;
-    ma_decoder_config config = ma_decoder_config_init(ma_format_f32, 1, 44100);
+    ma_decoder_config config = ma_decoder_config_init(ma_format_f32, static_cast<ma_uint32>(StreamingPcm::kChannels), 44100);
     if (ma_decoder_init_file(file_path.string().c_str(), &config, &decoder) != MA_SUCCESS) {
         return false; // let the caller fall back to the ffmpeg path (e.g. Opus, which this can't touch)
     }
 
-    float buf[4096];
+    float buf[4096 * StreamingPcm::kChannels]; // 4096 interleaved frames
     ma_uint64 frames_read = 0;
     for (;;) {
         ma_result result = ma_decoder_read_pcm_frames(&decoder, buf, 4096, &frames_read);
@@ -166,7 +166,7 @@ static void stream_decode_ffmpeg_fallback(const fs::path& file_path, StreamingPc
     // redirect below, which means ffmpeg never even sees our terminal's
     // fd, but this makes the intent explicit and costs nothing.
     std::string cmd = "ffmpeg -nostdin -v error -i " + shell_quote(file_path.string())
-                     + " -f f32le -ac 1 -ar 44100 -";
+                     + " -f f32le -ac " + std::to_string(StreamingPcm::kChannels) + " -ar 44100 -";
 
     int out_pipe[2];
     if (pipe(out_pipe) != 0) {
@@ -206,22 +206,27 @@ static void stream_decode_ffmpeg_fallback(const fs::path& file_path, StreamingPc
     // BUG FIX #3: the old design used std::vector<char> leftover with
     // erase(begin, begin+n) — an O(N) shift called once per read()
     // chunk across the whole decode. Replaced with a tiny fixed carry
-    // buffer: at most sizeof(float)-1 = 3 bytes can ever be left over
-    // between chunks, so we never need more than 3 bytes of carry state.
-    char carry[sizeof(float) - 1];
+    // buffer. We align on whole *frames* (kChannels floats), not single
+    // floats: if a read ended mid-frame, the stray L (or R) sample must
+    // wait for its pair, or the channels would swap for the rest of the
+    // track. At most kFrameBytes-1 = 7 bytes can ever be left over
+    // between chunks, so that's all the carry state we need.
+    constexpr size_t kFrameBytes = sizeof(float) * StreamingPcm::kChannels;
+    char carry[kFrameBytes - 1];
     size_t carry_len = 0;
     std::array<char, 65536> buf{};
     ssize_t n;
     while ((n = read(out_pipe[0], buf.data(), buf.size())) > 0) {
         // Prepend any bytes left from the previous read.
         size_t total = carry_len + static_cast<size_t>(n);
-        size_t whole_floats = total / sizeof(float);
-        size_t whole_bytes  = whole_floats * sizeof(float);
+        size_t whole_frames = total / kFrameBytes;
+        size_t whole_floats = whole_frames * StreamingPcm::kChannels;
+        size_t whole_bytes  = whole_frames * kFrameBytes;
 
-        if (whole_floats > 0) {
+        if (whole_frames > 0) {
             // The first `carry_len` bytes come from the carry buffer;
             // the remainder from the current read.  We assemble only as
-            // many complete floats as we need, never allocating a
+            // many complete frames as we need, never allocating a
             // temporary vector for the whole chunk.
             std::vector<float> chunk(whole_floats);
             size_t out_byte = 0;
@@ -233,16 +238,16 @@ static void stream_decode_ffmpeg_fallback(const fs::path& file_path, StreamingPc
             std::memcpy(reinterpret_cast<char*>(chunk.data()) + carry_len,
                         buf.data(), from_buf);
 
-            pcm.append(chunk.data(), chunk.size());
-            if (on_chunk) on_chunk(chunk.data(), chunk.size());
+            pcm.append(chunk.data(), whole_frames);
+            if (on_chunk) on_chunk(chunk.data(), whole_frames);
 
-            // Save the remaining 0-3 bytes as new carry.
+            // Save the remaining 0-7 bytes as new carry.
             size_t leftover_start = from_buf;
             carry_len = static_cast<size_t>(n) - from_buf;
             for (size_t i = 0; i < carry_len; ++i)
                 carry[i] = buf[leftover_start + i];
         } else {
-            // Less than one float across carry+buf combined — absorb into carry.
+            // Less than one frame across carry+buf combined — absorb into carry.
             for (size_t i = 0; i < static_cast<size_t>(n) && carry_len < sizeof(carry); ++i)
                 carry[carry_len++] = buf[i];
         }

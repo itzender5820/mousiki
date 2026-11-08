@@ -29,8 +29,8 @@ public:
     FftVisualizer& operator=(const FftVisualizer&) = delete;
 
     // Called from the AUDIO CALLBACK thread, once per chunk it processes.
-    // Downmixes to mono if needed by the caller before calling this (the
-    // player is already mono end-to-end, so this expects mono frames).
+    // Expects mono frames: playback is stereo, so Player::data_callback()
+    // averages the channels of each chunk before calling this.
     void push_samples(const float* samples, size_t count, int sample_rate);
 
     // Called from the main/render thread. Returns `num_bars` levels in
