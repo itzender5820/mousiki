@@ -2130,6 +2130,9 @@ def video_library_modes(binary, root, scripts):
 def video_translation_tab(binary, root, scripts):
     """The big video overlay: TAB goes off -> lyrics -> lyrics + translation -> translation only, through every saved translation; the
     legend names the one shown. (Needs ffmpeg for the test video.)"""
+    if shutil.which("ffmpeg") is None:
+        print("  skipped: video translation TAB (ffmpeg is not installed on this machine)")
+        return
     home = os.path.join(root, "vtt_home")
     lib = os.path.join(root, "vtt_music")
     os.makedirs(os.path.join(home, ".config", "mousiki"))
