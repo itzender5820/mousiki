@@ -45,7 +45,7 @@ jobs:
           cmake --build build --parallel 4
 
       - name: Analyze (results are kept, not uploaded yet)
-        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370   # v4
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066   # v4
         with:
           category: "/language:c-cpp"
           upload: never
@@ -81,6 +81,6 @@ jobs:
           languages: actions
           build-mode: none
 
-      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370   # v4
+      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066   # v4
         with:
           category: "/language:actions"
