@@ -1,4 +1,5 @@
 #include "test_framework.h"
+#include "bg_tasks.h"
 
 #include <chrono>
 #include <clocale>
@@ -22,6 +23,7 @@ void fail(const char* file, int line, const std::string& what) {
 }
 
 TempHome::TempHome() {
+    muisc::bg_idle_wait(20000);   // (a helper task of the test before still runs ffmpeg: the environment must not change under it)
     const char* h = std::getenv("HOME");
     had_home_ = h != nullptr;
     if (h) old_home_ = h;
@@ -39,6 +41,7 @@ TempHome::TempHome() {
 }
 
 TempHome::~TempHome() {
+    muisc::bg_idle_wait(20000);
 #if defined(_WIN32)
     _putenv_s("HOME", had_home_ ? old_home_.c_str() : "");
 #else

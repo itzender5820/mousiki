@@ -1495,9 +1495,16 @@ int App::run() {
 bool App::wait_background(int ms) {
     bg_->quit.store(true);                                  // the long loops stop at their next file
     if (current_pcm_) current_pcm_->cancelled.store(true);  // a decode that still runs lets go of its file
-    const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
-    while (bg_->running.load() > 0 && std::chrono::steady_clock::now() < until)
+    const auto start = std::chrono::steady_clock::now();
+    const auto until = start + std::chrono::milliseconds(ms);
+    const auto kill_at = start + std::chrono::milliseconds(ms / 3);
+    bool killed = false;
+    while (bg_->running.load() > 0 && std::chrono::steady_clock::now() < until) {
+        // a task still waits after the first third of the time: most likely for a program it started (yt-dlp, the lyrics or translation
+        // helper, ffprobe on a slow drive): that is ended, the task returns and the App can be closed in the proper way
+        if (!killed && std::chrono::steady_clock::now() >= kill_at) { kill_all_children(); killed = true; }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
     const int left = bg_->running.load();
     if (left > 0) ConsoleLog::instance().log_basic("quit: " + std::to_string(left) + " background task(s) still busy -- left to end with the program");
     return left == 0;

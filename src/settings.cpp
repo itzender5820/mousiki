@@ -810,6 +810,162 @@ static void skip_about_app_block(std::ifstream& in) {
 // Load settings from config.txt
 // =====================================================================
 
+// ---- the table of the simple settings (a flag, or a number with a range) ----------------------------------------------------------------
+// One entry per setting: the key of config.txt, the member it is kept in, the range of a number, and the comment line(s) that follow the
+// value in the file. It drives reading (apply_simple_setting, called with every key before the long chain below) and writing
+// (write_simple_setting, called where the line stands in write_settings, so the order of the file stays as it is). A new flag or number
+// needs one entry here and one write_simple_setting() call. Settings with their own spelling, aliases of older versions or a rule
+// (the colours, the looks, the lists) are read and written by hand as before. (tests: settings_every_simple_key_round_trips_with_a_changed_value)
+namespace {
+struct SimpleSetting {
+    const char* key;
+    const char* legacy;         // the key of older versions (also read), or nullptr
+    bool& (*flag)(Settings&);   // a flag, or nullptr
+    int& (*num)(Settings&);     // a number, or nullptr
+    std::string& (*str)(Settings&);   // a text or a colour, or nullptr
+    int lo, hi;                 // the range of a number
+    bool colour;                // a text that is a colour: an empty value is ignored, the rest is normalised
+    int step;                   // a number that is rounded to steps of this size (percent values), 0 = the number as it is
+    bool digit_first;           // (with step) a value that does not start with a digit is ignored
+    bool quoted;                // a text written between quotes (the box characters)
+    const char* after;          // written after the value: the rest of the line and the comment lines ("" = just the line end)
+};
+#define SIMPLE_FLAG(key, legacy, member, after) {key, legacy, [](Settings& s) -> bool& { return s.member; }, nullptr, nullptr, 0, 0, false, 0, false, false, after}
+#define SIMPLE_NUM(key, legacy, member, lo, hi, after) {key, legacy, nullptr, [](Settings& s) -> int& { return s.member; }, nullptr, lo, hi, false, 0, false, false, after}
+#define SIMPLE_COLOUR(key, legacy, member) {key, legacy, nullptr, nullptr, [](Settings& s) -> std::string& { return s.member; }, 0, 0, true, 0, false, false, "\n"}
+#define SIMPLE_TEXT(key, legacy, member, after) {key, legacy, nullptr, nullptr, [](Settings& s) -> std::string& { return s.member; }, 0, 0, false, 0, false, false, after}
+#define SIMPLE_QUOTED(key, legacy, member, after) {key, legacy, nullptr, nullptr, [](Settings& s) -> std::string& { return s.member; }, 0, 0, false, 0, false, true, after}
+#define SIMPLE_PERCENT(key, legacy, member, digit_first, after) {key, legacy, nullptr, [](Settings& s) -> int& { return s.member; }, nullptr, 0, 100, false, 5, digit_first, false, after}
+const SimpleSetting kSimpleSettings[] = {
+    SIMPLE_FLAG("VolumeGradient", nullptr, volume_gradient, "\n## true = the filled part of the VOLUME BAR is coloured with the VIZ gradient from left to right (like the oscilloscope), false = one colour\n"),
+    SIMPLE_FLAG("UseModePlayer", nullptr, use_mode[0], "\n"),
+    SIMPLE_FLAG("UseModeRadio", nullptr, use_mode[1], "\n"),
+    SIMPLE_FLAG("UseModeAudiobook", nullptr, use_mode[2], "\n"),
+    SIMPLE_FLAG("VideoLayoutScales", nullptr, vl_scales, "\n"),
+    SIMPLE_FLAG("UseLyrics", nullptr, use_lyrics, "\n"),
+    SIMPLE_FLAG("UseOscilloscope", nullptr, use_osci, "\n"),
+    SIMPLE_FLAG("UseSpectrogram", nullptr, use_spectro, "\n"),
+    SIMPLE_FLAG("UseSphere", nullptr, use_sphere, "\n"),
+    SIMPLE_FLAG("MenuIndexClassic", nullptr, menu_index_classic, "\n## the \"<\" menus overlay: false = the tree (organigram), true = the classic view with every category as a box (SHIFT+t switches, the last view is kept)\n"),
+    SIMPLE_FLAG("SleepFade", nullptr, sleep_fade, "\n## sleep timer: fade the volume out over the last 10 % of the time (30 s .. 10 min), then pause\n"),
+    SIMPLE_FLAG("WizardSeen", nullptr, wizard_seen, "\n## the help wizard (SHIFT+w) opened itself once already; false makes it greet you again on the next start\n"),
+    SIMPLE_FLAG("AutoSave", nullptr, autosave_enabled, "\n## resume exact song/position/queue/repeat/shuffle next launch\n"),
+    SIMPLE_FLAG("AutoSaveIndicator", nullptr, autosave_indicator, "\n"),
+    SIMPLE_FLAG("ElimentDummyButtons", "Element_dummy_buttons", element_dummy_buttons, "\n"),
+    SIMPLE_FLAG("VizLyricsField", "Eliment_vizfield", element_vizfield, "\n"),
+    SIMPLE_FLAG("VideoMode", "video_mode", video_mode, "\n"),
+    SIMPLE_FLAG("VideoView", "video_view", video_view, "\n"),
+    SIMPLE_FLAG("VideoAuto", "video_auto", video_auto, "\n"),
+    SIMPLE_FLAG("MetaDataOnly", "meta_only", meta_only, "\n"),
+    SIMPLE_NUM("VideoLayout", nullptr, video_layout, 0, 3, "\n"),
+    SIMPLE_NUM("VideoDownHeight", "video_down_height", video_down_height, 144, 2160, "\n"),
+    SIMPLE_NUM("VisualizerFluidity", "visualizer_fluidity", visualizer_fluidity, 1, 10, "\n## 1 to 10\n"),
+    SIMPLE_NUM("VisualizerDegradationSpeed", "visualizer_degradation_speed", visualizer_degradation_speed, 1, 10, "\n## 1 to 10\n"),
+    SIMPLE_NUM("HifiFluidity", "hifi_fluidity", hifi_fluidity, 1, 10, "\n## 1 to 10 -- the Hi-Fi style keeps its own bar values (VisualizerFluidity ... are the Classic ones)\n"),
+    SIMPLE_NUM("HifiDegradationSpeed", "hifi_degradation", hifi_degradation, 1, 10, "\n## 1 to 10\n"),
+    SIMPLE_NUM("HifiViscosity", "hifi_viscosity", hifi_viscosity, 0, 10, "\n## 0 to 10\n"),
+    SIMPLE_NUM("VisualizerViscosity", "visualizer_viscosity", visualizer_viscosity, 0, 10, "\n## 1 to 10\n"),
+    SIMPLE_COLOUR("ColorDiskTop", "disk_color", disk_color),
+    SIMPLE_COLOUR("ColorDiskBottom", "disk_color_end", disk_color_end),
+    SIMPLE_COLOUR("ColorBorderTop", "border_color", border_color),
+    SIMPLE_COLOUR("ColorBorderBottom", "border_color_bottom", border_color_bottom),
+    SIMPLE_COLOUR("ColorHeader", "header_color", header_color),
+    SIMPLE_COLOUR("ColorTabCurrent", "tab_current_color", tab_current_color),
+    SIMPLE_COLOUR("ColorTabOther", "tab_other_color", tab_other_color),
+    SIMPLE_COLOUR("ColorLegend", "legend_color", legend_color),
+    SIMPLE_COLOUR("ColorChangeFg", "change_text_color", change_text_color),
+    SIMPLE_COLOUR("ColorChangeBg", "change_bg_color", change_bg_color),
+    SIMPLE_COLOUR("ColorLyricsActiveLineFg", "active_line_color", active_line_color),
+    SIMPLE_COLOUR("ColorLyricsActiveLineBg", "active_line_bg_color", active_line_bg_color),
+    SIMPLE_COLOUR("ColorLyricsActiveWordFg", "active_word_color", active_word_color),
+    SIMPLE_COLOUR("ColorLyricsActiveWordBg", "active_word_bg_color", active_word_bg_color),
+    SIMPLE_COLOUR("ColorLyricsInactiveFg", "inactive_line_color", inactive_line_color),
+    SIMPLE_COLOUR("ColorLyricsInactiveBg", "inactive_line_bg_color", inactive_line_bg_color),
+    SIMPLE_COLOUR("ColorProgressBarPending", "progress_remaining_color", progress_remaining_color),
+    SIMPLE_COLOUR("ColorProgressBarPlayed", "progress_played_color", progress_played_color),
+    SIMPLE_COLOUR("ColorMetadataKey", "meta_key_color", meta_key_color),
+    SIMPLE_COLOUR("ColorMetadataVal", "meta_val_color", meta_val_color),
+    SIMPLE_COLOUR("ColorSearchFg", "search_text_color", search_text_color),
+    SIMPLE_COLOUR("ColorSearchInactiveFg", "search_inactive_text_color", search_inactive_text_color),
+    SIMPLE_COLOUR("ColorSearchInactiveBg", "search_inactive_bg_color", search_inactive_bg_color),
+    SIMPLE_COLOUR("ColorListInactiveFg", "list_color", list_color),
+    SIMPLE_COLOUR("ColorListInactiveBg", "list_inactive_bg_color", list_inactive_bg_color),
+    SIMPLE_COLOUR("ColorListPlayingFg", "list_playing_color", list_playing_color),
+    SIMPLE_COLOUR("ColorListCursorFg", "list_cursor_color", list_cursor_color),
+    SIMPLE_COLOUR("ColorListCursorBg", "list_cursor_bg_color", list_cursor_bg_color),
+    SIMPLE_COLOUR("ColorQueueInactiveFg", "queue_color", queue_color),
+    SIMPLE_COLOUR("ColorQueueInactiveBg", "queue_inactive_bg_color", queue_inactive_bg_color),
+    SIMPLE_COLOUR("ColorQueuePlayingFg", "queue_playing_color", queue_playing_color),
+    SIMPLE_COLOUR("ColorQueueCursorFg", "queue_cursor_color", queue_cursor_color),
+    SIMPLE_COLOUR("ColorQueueCursorBg", "queue_cursor_bg_color", queue_cursor_bg_color),
+    SIMPLE_COLOUR("ColorVizLeft", "visualizer_color", visualizer_color),
+    SIMPLE_COLOUR("ColorVizRight", "visualizer_color_end", visualizer_color_end),
+    SIMPLE_TEXT("AudioDevice", nullptr, audio_device, "\n## the sound output of all modes, as the system names it (Settings -> GENERAL -> AUDIO -> Choose Audio Device); empty = the system's default device\n"),
+    SIMPLE_TEXT("RemoteAppPin", nullptr, remote_pin, "\n## 4 - 8 digits -- the PIN the app needs; made when the remote app is switched on (mousiki --remote-info shows it)\n"),
+    SIMPLE_NUM("HifiGain", "hifi_gain", hifi_gain, -20, 20, "\n## -20 to 20 dB -- Hi-Fi: moves the levels up or down\n"),
+    SIMPLE_NUM("HifiRange", "hifi_range", hifi_range, 40, 100, "\n## 40 to 100 dB -- Hi-Fi: the range from the bottom to the top of the bars (smaller = steeper)\n"),
+    SIMPLE_PERCENT("CoverContrast", nullptr, cover_contrast, false, "\n## 0 .. 100 (percent, steps of 5) -- more contrast for the album cover (0 = the cover as it is)\n"),
+    SIMPLE_PERCENT("CoverBrightness", nullptr, cover_brightness, false, "\n## 0 .. 100 (percent, steps of 5) -- the cover behind the disk: how bright its dots are lifted (0 = the picture's own range; more = brighter, like the plain disk)\n"),
+    SIMPLE_PERCENT("CoverColors", nullptr, cover_colors, false, "\n## 0 .. 100 (percent, steps of 5) -- the cover behind the disk: its own colours mixed into the disk's gradient (0 = gradient only, 100 = the cover's own colours)\n"),
+    SIMPLE_PERCENT("VideoContrast", "video_contrast", video_contrast, false, "\n## 0 .. 100 (percent, steps of 5) -- more contrast for the video's picture (0 = as it is)\n"),
+    SIMPLE_PERCENT("VideoBrightness", "video_brightness", video_brightness, true, "\n## 0 .. 100 (percent, steps of 5) -- the brightness of the video's picture (50 = as it is, lower = darker, higher = brighter; a track can have its own: Style Option)\n"),
+    SIMPLE_PERCENT("VideoColors", "video_colors", video_colors, false, "\n## 0 .. 100 (percent, steps of 5) -- the video's colours (0 = greyscale, 100 = as they are)\n"),
+    SIMPLE_QUOTED("UpperLeftCorner", "upper_left_corner", box_upper_left, ";\n"),
+    SIMPLE_QUOTED("UpperRightCorner", "upper_right_corner", box_upper_right, ";\n"),
+    SIMPLE_QUOTED("BottomLeftCorner", "bottom_left_corner", box_lower_left, ";\n"),
+    SIMPLE_QUOTED("LowerRightCorner", "lower_right_corner", box_lower_right, ";\n"),
+    SIMPLE_QUOTED("Vertical", "vertical", box_vertical, ";\n"),
+    SIMPLE_QUOTED("Horizontal", "horizontal", box_horizontal, ";\n"),
+    SIMPLE_QUOTED("ListSeparator", "list_separator", list_separator, "\n"),
+    SIMPLE_COLOUR("ColorLegendCommand", "legend_cmd_color", legend_cmd_color),
+    SIMPLE_FLAG("ElimentDiskBorder", "eliment_disk_border", disk_border, "\n## true , false -- the \":  :\" column between the disk (or cover) and the meta data; false: it is left out and the disk sits in the middle of the space between the left border and the meta data\n"),
+    SIMPLE_FLAG("TerminalDefaultFont", nullptr, terminal_default_font, "\n## true , false -- true = Mousiki leaves the terminal's own font alone; false = Mousiki's window uses the font of TerminalFont= (Settings -> GENERAL -> TEXT AND TRANSLITERATION -> Terminal Default Font)\n"),
+    SIMPLE_FLAG("MarqueeScrolling", nullptr, marquee, "\n"),
+    SIMPLE_FLAG("StereoPlayback", nullptr, stereo, "\n"),
+    SIMPLE_FLAG("NormalizeVolume", nullptr, normalize, "\n"),
+    SIMPLE_FLAG("EqualizerEnabled", nullptr, eq_enabled, "\n"),
+    SIMPLE_COLOUR("progress_timestamp_color", nullptr, progress_timestamp_color),   // (read only: never written to the file)
+    SIMPLE_COLOUR("button_color", nullptr, button_color),   // (read only: never written to the file)
+};
+#undef SIMPLE_FLAG
+#undef SIMPLE_NUM
+#undef SIMPLE_COLOUR
+#undef SIMPLE_TEXT
+#undef SIMPLE_QUOTED
+#undef SIMPLE_PERCENT
+const SimpleSetting* find_simple_setting(const std::string& key) {
+    for (const SimpleSetting& e : kSimpleSettings) if (key == e.key) return &e;
+    return nullptr;
+}
+}  // namespace
+
+static bool apply_simple_setting(Settings& s, const std::string& key, const std::string& value) {
+    const SimpleSetting* e = find_simple_setting(key);
+    if (!e) for (const SimpleSetting& c : kSimpleSettings) if (c.legacy && key == c.legacy) { e = &c; break; }
+    if (!e) return false;
+    if (e->flag) e->flag(s) = parse_bool(value);
+    else if (e->num && e->step) {   // a percent value: rounded to steps of 5
+        const std::string v = trim_ws(unquote(value));
+        if (!(e->digit_first && (v.empty() || !std::isdigit(static_cast<unsigned char>(v[0]))))) e->num(s) = std::clamp((std::atoi(v.c_str()) + e->step / 2) / e->step * e->step, e->lo, e->hi);
+    }
+    else if (e->num) { try { e->num(s) = std::clamp(std::stoi(trim_ws(unquote(value))), e->lo, e->hi); } catch (...) {} }
+    else if (e->colour) { if (!value.empty()) e->str(s) = normalize_color_value(value); }
+    else if (e->quoted) e->str(s) = unquote(value);
+    else e->str(s) = trim_ws(unquote(value));
+    return true;
+}
+
+static void write_simple_setting(std::ostream& out, const Settings& cs, const char* key) {
+    Settings& s = const_cast<Settings&>(cs);   // (the accessors give a reference; the value is only read here)
+    const SimpleSetting* e = find_simple_setting(key);
+    if (!e) return;
+    out << e->key << "=";
+    if (e->quoted) out << "\"";
+    if (e->flag) out << (e->flag(s) ? "true" : "false"); else if (e->num) out << e->num(s); else out << e->str(s);
+    if (e->quoted) out << "\"";
+    out << e->after;
+}
+
 static Settings load_from_config(const fs::path& path) {
     Settings s;
     bool have_viz_default = false;  // no VizDefault= line (a config from before): start with the view it was left on
@@ -926,6 +1082,7 @@ static Settings load_from_config(const fs::path& path) {
             {"Seprator", "seprator"}, {"ListSeparator", "list_separator"},
         };
         if (osci_config_key(s, key, value)) continue;
+        if (apply_simple_setting(s, key, value)) continue;
         if (spectro_profile_key(s, key, value)) continue;
         if (spectro_config_key(s.spectro, key, value)) continue;
         {
@@ -935,7 +1092,6 @@ static Settings load_from_config(const fs::path& path) {
         // These two don't map onto an existing key 1:1 (string enum ->
         // bool / int), so they're handled directly instead of aliased.
         if (key == "ColorCodes") { s.colors_palette = trim_ws(unquote(value)) == "palette"; continue; }   // the marker: colour numbers are palette numbers
-        if (key == "VolumeGradient") { s.volume_gradient = parse_bool(value); continue; }
         if (key == "VolumeIndicator") {   // "#", "⠶", "⣿" or "⡾⣽"; anything else keeps the default
             const int st = volume_style_from_name(trim_ws(unquote(value)));
             if (st >= 0) s.volume_indicator = st;
@@ -960,9 +1116,7 @@ static Settings load_from_config(const fs::path& path) {
             s.book_ask_bookmark = !(v == "false" || v == "0" || v == "off" || v == "no");
             continue;
         }
-        if (key == "TerminalDefaultFont") { s.terminal_default_font = parse_bool(value); continue; }
         if (key == "TerminalFont") { const std::string v = trim_ws(unquote(value)); if (!v.empty()) s.terminal_font = v; continue; }
-        if (key == "AudioDevice") { s.audio_device = trim_ws(unquote(value)); continue; }
         if (key == "BookSpeed") {   // 0.5 .. 3.0, rounded to the 0.05 steps of the setting
             try {
                 const double v = std::stod(trim_ws(unquote(value)));
@@ -1029,18 +1183,6 @@ static Settings load_from_config(const fs::path& path) {
             else if (v == "5" || v == "full" || v == "full anima" || v == "cover behind disk (full anima)") s.cover_mode = 4;
             continue;
         }
-        if (key == "CoverBrightness" || key == "CoverColors") {
-            std::string v = trim_ws(unquote(value));
-            if (!v.empty() && v.back() == '%') v.pop_back();
-            (key == "CoverBrightness" ? s.cover_brightness : s.cover_colors) = std::clamp((std::atoi(v.c_str()) + 2) / 5 * 5, 0, 100);
-            continue;
-        }
-        if (key == "CoverContrast") {
-            std::string v = trim_ws(unquote(value));
-            if (!v.empty() && v.back() == '%') v.pop_back();
-            s.cover_contrast = std::clamp((std::atoi(v.c_str()) + 2) / 5 * 5, 0, 100);
-            continue;
-        }
         if (key == "CoverSearch") {
             std::string v = trim_ws(unquote(value));
             for (char& ch : v) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
@@ -1102,7 +1244,6 @@ static Settings load_from_config(const fs::path& path) {
             continue;
         }
         if (key == "RemoteAppPort") { const int pt = std::atoi(trim_ws(unquote(value)).c_str()); if (pt >= 1024 && pt <= 65535) s.remote_port = pt; continue; }
-        if (key == "RemoteAppPin") { s.remote_pin = trim_ws(unquote(value)); continue; }
         if (key == "StartMode") {
             std::string v = trim_ws(unquote(value));
             for (char& c : v) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -1110,9 +1251,6 @@ static Settings load_from_config(const fs::path& path) {
             continue;
         }
         if (key == "BookAnimation") continue;   // an older file: the animations are braille only now
-        if (key == "UseModePlayer") { s.use_mode[0] = parse_bool(value); continue; }
-        if (key == "UseModeRadio") { s.use_mode[1] = parse_bool(value); continue; }
-        if (key == "UseModeAudiobook") { s.use_mode[2] = parse_bool(value); continue; }
         if (key == "ModeOrder") { parse_mode_order(value, s.mode_order); continue; }
         if (key == "AudioBookPath") {
             std::string path = trim_ws(unquote(value));
@@ -1136,21 +1274,12 @@ static Settings load_from_config(const fs::path& path) {
 
         // --- Element toggles ---
         if (key == "Eliment_disk" || key == "Element_disk") { s.element_disk = parse_bool(value); continue; }
-        if (key == "ElimentDiskBorder" || key == "eliment_disk_border") { s.disk_border = parse_bool(value); continue; }
-        if (key == "Element_dummy_buttons") { s.element_dummy_buttons = parse_bool(value); continue; }
         if (key == "Eliment_queue" || key == "Element_queue") { s.element_queue = parse_bool(value); continue; }
         if (key == "Eliment_waveform_progress_bar" || key == "Element_waveform") { s.element_waveform = parse_bool(value); continue; }
         if (key == "Eliment_lyrics" || key == "Element_lyrics") { s.element_lyrics = parse_bool(value); continue; }
-        if (key == "Eliment_vizfield") { s.element_vizfield = parse_bool(value); continue; }
-        if (key == "video_mode") { s.video_mode = parse_bool(value); continue; }
-        if (key == "video_view") { s.video_view = parse_bool(value); continue; }
         if (key == "video_lyrics") { s.video_lyrics = lyr_mode_parse(trim_ws(unquote(value))); continue; }
-        if (key == "video_auto") { s.video_auto = parse_bool(value); continue; }
         if (key == "video_cover") { std::string v = ascii_lower_str(trim_ws(unquote(value))); s.video_cover = (v == "snapshot" || v == "thumbnail" || v == "1" || v == "true") ? 1 : (v == "disk" || v == "2") ? 2 : (v == "fallback" || v == "thumbnail fallback" || v == "3") ? 3 : 0; continue; }   // ("disk" of an older version: the cover)
         if (key == "video_size") { std::string v = ascii_lower_str(trim_ws(unquote(value))); s.video_size = (v == "cropped" || v == "crop" || v == "1") ? 1 : (v == "full" || v == "2") ? 2 : (v == "framed" || v == "3") ? 3 : 0; continue; }
-        if (key == "video_brightness") { const std::string bv = trim_ws(unquote(value)); if (!bv.empty() && std::isdigit(static_cast<unsigned char>(bv[0]))) s.video_brightness = std::clamp((std::atoi(bv.c_str()) + 2) / 5 * 5, 0, 100); continue; }
-        if (key == "video_contrast") { s.video_contrast = std::clamp((std::atoi(trim_ws(unquote(value)).c_str()) + 2) / 5 * 5, 0, 100); continue; }
-        if (key == "video_colors") { s.video_colors = std::clamp((std::atoi(trim_ws(unquote(value)).c_str()) + 2) / 5 * 5, 0, 100); continue; }
         if (key == "video_mp3") { s.video_mp3 = parse_bool(value) || ascii_lower_str(trim_ws(unquote(value))) == "on"; continue; }
         if (key == "video_clap") {   // text | clap | none (true / false of the first version: clap / text)
             const std::string v = ascii_lower_str(trim_ws(unquote(value)));
@@ -1165,19 +1294,12 @@ static Settings load_from_config(const fs::path& path) {
         if (key == "video_fx") { std::string v = ascii_lower_str(trim_ws(unquote(value))); s.video_fx = video_fx_from(v); continue; }
         if (key == "video_full_lyrics") continue;   // (older versions: the lyrics of the big video overlay are the track's "Use Lyrics on Video" now)
         if (key == "VideoFullTranslation") continue;   // (older versions: see above)
-        if (key == "VideoLayout") { try { s.video_layout = std::clamp(std::stoi(value), 0, 3); } catch (...) {} continue; }
         if (key == "VideoLayoutOsciStyle" || key == "VideoLayoutSpectroStyle" || key == "VideoLayoutOsciMode" || key == "VideoLayoutSpectroView") {
             const std::string v = ascii_lower_str(trim_ws(unquote(value)));
             const int n = (v == "braille" || v == "xy" || v == "spectrogram" || v == "0") ? 0 : (v == "image" || v == "yt" || v == "waterfall" || v == "1") ? 1 : -1;
             (key == "VideoLayoutOsciStyle" ? s.vl_osci_style : key == "VideoLayoutSpectroStyle" ? s.vl_spec_style : key == "VideoLayoutOsciMode" ? s.vl_osci_mode : s.vl_spec_view) = n;
             continue;
         }
-        if (key == "VideoLayoutScales") { s.vl_scales = parse_bool(value); continue; }
-        if (key == "video_down_height") { try { s.video_down_height = std::clamp(std::stoi(value), 144, 2160); } catch (...) {} continue; }
-        if (key == "UseLyrics") { s.use_lyrics = parse_bool(value); continue; }
-        if (key == "UseOscilloscope") { s.use_osci = parse_bool(value); continue; }
-        if (key == "UseSpectrogram") { s.use_spectro = parse_bool(value); continue; }
-        if (key == "UseSphere") { s.use_sphere = parse_bool(value); continue; }
         if (key == "VizOrder") {
             // "sphere,osci,spectro,lyrics" in any order; names that are missing are appended in the default order, so
             // a short or damaged list never loses a view.
@@ -1269,17 +1391,9 @@ static Settings load_from_config(const fs::path& path) {
             continue;
         }
         if (key == "Eliment_visualizer" || key == "Element_visualizer") { s.element_visualizer = parse_bool(value); continue; }
-        if (key == "meta_only") { s.meta_only = parse_bool(value); continue; }
 
         // --- Border characters ---
-        if (key == "upper_left_corner") { s.box_upper_left = unquote(value); continue; }
-        if (key == "upper_right_corner") { s.box_upper_right = unquote(value); continue; }
-        if (key == "bottom_left_corner") { s.box_lower_left = unquote(value); continue; }
-        if (key == "lower_right_corner") { s.box_lower_right = unquote(value); continue; }
-        if (key == "vertical") { s.box_vertical = unquote(value); continue; }
-        if (key == "horizontal") { s.box_horizontal = unquote(value); continue; }
         if (key == "seprator" || key == "separator") { s.meta_separator = unquote(value); continue; }
-        if (key == "list_separator") { s.list_separator = unquote(value); continue; }
 
         // --- Visualizer tuning ---
         if (key == "viz_style") { try { s.viz_style = std::stoi(value); } catch (...) {} continue; }
@@ -1311,67 +1425,21 @@ static Settings load_from_config(const fs::path& path) {
         if (set_color("lyr_active_word", value, s.lyr_active_word_color)) continue;
 
         // --- Extended color fields (direct name=value for compatibility) ---
-        if (key == "disk_color") { if (!value.empty()) s.disk_color = normalize_color_value(value); continue; }
-        if (key == "disk_color_end") { if (!value.empty()) s.disk_color_end = normalize_color_value(value); continue; }
         if (key == "disk_color_gradient") { s.disk_color_gradient = parse_bool(value); continue; }
         if (key == "disk_rotation_speed") { try { s.disk_rotation_speed = std::clamp(std::stod(value), 0.01, 1.00); } catch (...) {} continue; }
-        if (key == "border_color") { if (!value.empty()) s.border_color = normalize_color_value(value); continue; }
-        if (key == "border_color_bottom") { if (!value.empty()) s.border_color_bottom = normalize_color_value(value); continue; }
-        if (key == "header_color") { if (!value.empty()) s.header_color = normalize_color_value(value); continue; }
-        if (key == "tab_current_color") { if (!value.empty()) s.tab_current_color = normalize_color_value(value); continue; }
-        if (key == "tab_other_color") { if (!value.empty()) s.tab_other_color = normalize_color_value(value); continue; }
-        if (key == "legend_color") { if (!value.empty()) s.legend_color = normalize_color_value(value); continue; }
-        if (key == "legend_cmd_color") { if (!value.empty()) s.legend_cmd_color = normalize_color_value(value); continue; }
         if (key == "focus_color") { if (!value.empty()) { s.focus_color = normalize_color_value(value); focus_color_set = true; } continue; }
-        if (key == "change_text_color") { if (!value.empty()) s.change_text_color = normalize_color_value(value); continue; }
-        if (key == "change_bg_color") { if (!value.empty()) s.change_bg_color = normalize_color_value(value); continue; }
-        if (key == "active_line_color") { if (!value.empty()) s.active_line_color = normalize_color_value(value); continue; }
-        if (key == "active_line_bg_color") { if (!value.empty()) s.active_line_bg_color = normalize_color_value(value); continue; }
-        if (key == "active_word_color") { if (!value.empty()) s.active_word_color = normalize_color_value(value); continue; }
         if (key == "BorderGradient" || key == "border_gradient") { { std::string v = value; for (char& ch : v) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch))); s.border_smooth = (v != "rough"); } continue; }
-        if (key == "active_word_bg_color") { if (!value.empty()) s.active_word_bg_color = normalize_color_value(value); continue; }
-        if (key == "inactive_line_color") { if (!value.empty()) s.inactive_line_color = normalize_color_value(value); continue; }
-        if (key == "inactive_line_bg_color") { if (!value.empty()) s.inactive_line_bg_color = normalize_color_value(value); continue; }
-        if (key == "progress_remaining_color") { if (!value.empty()) s.progress_remaining_color = normalize_color_value(value); continue; }
-        if (key == "progress_played_color") { if (!value.empty()) s.progress_played_color = normalize_color_value(value); continue; }
-        if (key == "progress_timestamp_color") { if (!value.empty()) s.progress_timestamp_color = normalize_color_value(value); continue; }
-        if (key == "meta_key_color") { if (!value.empty()) s.meta_key_color = normalize_color_value(value); continue; }
-        if (key == "meta_val_color") { if (!value.empty()) s.meta_val_color = normalize_color_value(value); continue; }
-        if (key == "search_text_color") { if (!value.empty()) s.search_text_color = normalize_color_value(value); continue; }
         if (key == "search_bg_color") { s.search_bg_color = value.empty() ? std::string() : normalize_color_value(value); continue; }   // empty = no colour (a theme may have none)
-        if (key == "search_inactive_text_color") { if (!value.empty()) s.search_inactive_text_color = normalize_color_value(value); continue; }
-        if (key == "search_inactive_bg_color") { if (!value.empty()) s.search_inactive_bg_color = normalize_color_value(value); continue; }
-        if (key == "list_color") { if (!value.empty()) s.list_color = normalize_color_value(value); continue; }
-        if (key == "list_inactive_bg_color") { if (!value.empty()) s.list_inactive_bg_color = normalize_color_value(value); continue; }
-        if (key == "list_playing_color") { if (!value.empty()) s.list_playing_color = normalize_color_value(value); continue; }
-        if (key == "list_cursor_color") { if (!value.empty()) s.list_cursor_color = normalize_color_value(value); continue; }
         if (key == "list_playing_bg_color") { s.list_playing_bg_color = value.empty() ? std::string() : normalize_color_value(value); continue; }   // empty = no colour (a theme may have none)
-        if (key == "list_cursor_bg_color") { if (!value.empty()) s.list_cursor_bg_color = normalize_color_value(value); continue; }
-        if (key == "queue_color") { if (!value.empty()) s.queue_color = normalize_color_value(value); continue; }
-        if (key == "queue_inactive_bg_color") { if (!value.empty()) s.queue_inactive_bg_color = normalize_color_value(value); continue; }
-        if (key == "queue_playing_color") { if (!value.empty()) s.queue_playing_color = normalize_color_value(value); continue; }
         if (key == "queue_playing_bg_color") { s.queue_playing_bg_color = value.empty() ? std::string() : normalize_color_value(value); continue; }   // empty = no colour (a theme may have none)
-        if (key == "queue_cursor_color") { if (!value.empty()) s.queue_cursor_color = normalize_color_value(value); continue; }
-        if (key == "queue_cursor_bg_color") { if (!value.empty()) s.queue_cursor_bg_color = normalize_color_value(value); continue; }
-        if (key == "button_color") { if (!value.empty()) s.button_color = normalize_color_value(value); continue; }
-        if (key == "visualizer_color") { if (!value.empty()) s.visualizer_color = normalize_color_value(value); continue; }
-        if (key == "visualizer_color_end") { if (!value.empty()) s.visualizer_color_end = normalize_color_value(value); continue; }
-        if (key == "visualizer_fluidity") { try { s.visualizer_fluidity = std::clamp(std::stoi(value), 1, 10); } catch (...) {} continue; }
-        if (key == "visualizer_degradation_speed") { try { s.visualizer_degradation_speed = std::clamp(std::stoi(value), 1, 10); } catch (...) {} continue; }
         if (key == "bars_style") { const std::string v = trim_ws(unquote(value)); s.bars_style = (v == "hifi" || v == "hi-fi" || v == "1") ? 1 : 0; continue; }
         if (key == "hifi_resolution") { const std::string v = trim_ws(unquote(value)); s.hifi_resolution = (v == "rough" || v == "1") ? 1 : 0; continue; }
         if (key == "hifi_channels") { const std::string v = trim_ws(unquote(value)); s.hifi_channels = (v == "mono" || v == "1") ? 1 : 0; continue; }
         if (key == "hifi_scale") { const std::string v = trim_ws(unquote(value)); s.hifi_scale = (v == "full" || v == "0") ? 0 : (v == "low" || v == "2") ? 2 : (v == "very low" || v == "3") ? 3 : 1; continue; }
         if (key == "hifi_fscale") { const std::string v = trim_ws(unquote(value)); s.hifi_fscale = v == "linear" ? 0 : (v == "logarithmic" || v == "log") ? 1 : v == "bark" ? 3 : v == "erb" ? 4 : 2; continue; }
-        if (key == "hifi_gain") { try { s.hifi_gain = std::clamp(std::stoi(trim_ws(unquote(value))), -20, 20); } catch (...) {} continue; }
-        if (key == "hifi_range") { try { s.hifi_range = std::clamp(std::stoi(trim_ws(unquote(value))), 40, 100); } catch (...) {} continue; }
-        if (key == "hifi_fluidity") { try { s.hifi_fluidity = std::clamp(std::stoi(value), 1, 10); } catch (...) {} continue; }
-        if (key == "hifi_degradation") { try { s.hifi_degradation = std::clamp(std::stoi(value), 1, 10); } catch (...) {} continue; }
-        if (key == "hifi_viscosity") { try { s.hifi_viscosity = std::clamp(std::stoi(value), 0, 10); } catch (...) {} continue; }
         if (key == "hifi_adapt") { const std::string v = trim_ws(unquote(value)); s.hifi_adapt = (v == "on" || v == "1") ? 1 : 0; continue; }
         if (key == "hifi_split") { const std::string v = trim_ws(unquote(value)); s.hifi_split = (v == "remove" || v == "0") ? 0 : 1; continue; }
         if (key == "hifi_color") { const std::string v = trim_ws(unquote(value)); s.hifi_color = (v == "corresponding" || v == "1") ? 1 : 0; continue; }
-        if (key == "visualizer_viscosity") { try { s.visualizer_viscosity = std::clamp(std::stoi(value), 0, 10); } catch (...) {} continue; }
         if (key == "theme_name") { s.theme_name = value; continue; }
         if (key == "play_mode") { try { s.play_mode = std::clamp(std::stoi(value), 0, 4); } catch (...) {} continue; }
         if (key == "waveform_smooth") { s.waveform_smooth = parse_bool(value); continue; }
@@ -1386,18 +1454,14 @@ static Settings load_from_config(const fs::path& path) {
 
         // --- Emoji handling ---------------------------------------------
         if (key == "ReplaceEmoji") { std::string lv = value; for (char& ch : lv) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch))); s.emoji_mode = lv == "safe" ? 1 : (parse_bool(value) ? 2 : 0); continue; }
-        if (key == "MarqueeScrolling") { s.marquee = parse_bool(value); continue; }
 
         // --- Stereo ------------------------------------------------------
-        if (key == "StereoPlayback") { s.stereo = parse_bool(value); continue; }
 
         // --- Loudness normalisation -------------------------------------
-        if (key == "NormalizeVolume") { s.normalize = parse_bool(value); continue; }
         if (key == "NormalizeTargetLufs") { try { s.normalize_target_lufs = std::clamp(std::stod(value), -40.0, 0.0); } catch (...) {} continue; }
         if (key == "NormalizeMaxBoostDb") { try { s.normalize_max_boost_db = std::clamp(std::stod(value), 0.0, 24.0); } catch (...) {} continue; }
 
         // --- Equaliser ---------------------------------------------------
-        if (key == "EqualizerEnabled") { s.eq_enabled = parse_bool(value); continue; }
         if (key == "EqualizerBands") {
             // "0,3,-2,..." -- ten comma-separated dB values. Anything short or
             // malformed is ignored as a whole rather than half-applied.
@@ -1445,9 +1509,6 @@ static Settings load_from_config(const fs::path& path) {
         }
 
         // --- Autosave / session snapshot --------------------------------
-        if (key == "MenuIndexClassic") { s.menu_index_classic = parse_bool(value); continue; }
-        if (key == "SleepFade") { s.sleep_fade = parse_bool(value); continue; }
-        if (key == "WizardSeen") { s.wizard_seen = parse_bool(value); continue; }
         if (key == "SidPlayLength") {
             try { s.sid_play_length = std::clamp(std::stoi(trim_ws(unquote(value))), 10, 1800); } catch (...) {}
             continue;
@@ -1470,8 +1531,6 @@ static Settings load_from_config(const fs::path& path) {
             continue;
         }
         if (key == "TranslateUrl" || key == "TranslateKey") continue;   // retired with LibreTranslate: old configs may still hold them
-        if (key == "AutoSave") { s.autosave_enabled = parse_bool(value); continue; }
-        if (key == "AutoSaveIndicator") { s.autosave_indicator = parse_bool(value); continue; }
         if (key == "AutoSaveDelayInSec") { try { s.autosave_delay_sec = std::max(1, std::stoi(value)); } catch (...) {} continue; }
         if (key == "AutoSaveChr") {
             // Only one character allowed: keep just the first UTF-8
@@ -1917,55 +1976,60 @@ static void write_settings(std::ostream& out, const Settings& s) {
     out << "# 16-255 look the same in every terminal; 1-15 are the terminal's 16 base colours and change with its colour scheme (10 is green in CMD, maybe yellow in yours).\n";
     out << "ColorCodes=palette\n\n";
     out << "# Frame & Controls\n";
-    out << "ColorBorderTop=" << s.border_color << "\n";
-    out << "ColorBorderBottom=" << s.border_color_bottom << "\n";
+    write_simple_setting(out, s, "ColorBorderTop");
+    write_simple_setting(out, s, "ColorBorderBottom");
     out << "# BorderGradient: smooth = the frame fades line by line from the top to the bottom colour, rough = only the bottom border line has the bottom colour\n";
     out << "BorderGradient=" << (s.border_smooth ? "smooth" : "rough") << "\n";
-    out << "ColorDiskTop=" << s.disk_color << "\n";
-    out << "ColorDiskBottom=" << s.disk_color_end << "\n";
-    out << "ColorMetadataKey=" << s.meta_key_color << "\n";
-    out << "ColorMetadataVal=" << s.meta_val_color << "\n";
-    out << "ColorVizLeft=" << s.visualizer_color << "\n";
-    out << "ColorVizRight=" << s.visualizer_color_end << "\n";
-    out << "ColorProgressBarPlayed=" << s.progress_played_color << "\n";
-    out << "ColorProgressBarPending=" << s.progress_remaining_color << "\n";
+    write_simple_setting(out, s, "ColorDiskTop");
+    write_simple_setting(out, s, "ColorDiskBottom");
+    write_simple_setting(out, s, "ColorMetadataKey");
+    write_simple_setting(out, s, "ColorMetadataVal");
+    write_simple_setting(out, s, "ColorVizLeft");
+    write_simple_setting(out, s, "ColorVizRight");
+    write_simple_setting(out, s, "ColorProgressBarPlayed");
+    write_simple_setting(out, s, "ColorProgressBarPending");
     out << "\n# Section headers (the REFERENCE tab's category titles and the\n";
     out << "# LOCAL PATH / DOWNLOAD PATH / PLAYLIST PATH titles on the PATHS tab) -- 0 = no color, plain bold text\n";
-    out << "ColorHeader=" << s.header_color << "\n";
+    write_simple_setting(out, s, "ColorHeader");
     out << "\n# Key command legends (the grey hint lines such as \"[ESC] close\" in the Settings, the big\n";
     out << "# list / queue overlays, the playlist / meta editor and the history) -- 0 = terminal default\n";
-    out << "ColorLegend=" << s.legend_color << "\n";
-    out << "# ... and the descriptions behind those keys (\"Close\" in \"[ESC] Close\")\nColorLegendCommand=" << s.legend_cmd_color << "\n";
-    out << "ColorTabCurrent=" << s.tab_current_color << "\nColorTabOther=" << s.tab_other_color << "\n";
+    write_simple_setting(out, s, "ColorLegend");
+    out << "# ... and the descriptions behind those keys (\"Close\" in \"[ESC] Close\")\n";
+    write_simple_setting(out, s, "ColorLegendCommand");
+    write_simple_setting(out, s, "ColorTabCurrent");
+    write_simple_setting(out, s, "ColorTabOther");
     out << "\n# \"This field is actively being typed into\" (a PATHS row, a hex colour value, a\n";
     out << "# hotkey, a meta editor tag) -- 0 = terminal default\n";
-    out << "ColorChangeFg=" << s.change_text_color << "\nColorChangeBg=" << s.change_bg_color << "\n";
+    write_simple_setting(out, s, "ColorChangeFg");
+    write_simple_setting(out, s, "ColorChangeBg");
     out << "\n# Pane focus indicator (the little triangle after the title of the pane that has the keys) -- 0 = plain bold\n";
     out << "ColorFocus=" << s.focus_color << "\n";
     out << "\n# Search bar: typed query (highlighted behind the query text only) and the idle bar\n# (empty FG = same as List Inactive; empty BG = none)\n";
-    out << "ColorSearchFg=" << s.search_text_color << "\nColorSearchBg=" << s.search_bg_color << "\n";
-    out << "ColorSearchInactiveFg=" << s.search_inactive_text_color << "\nColorSearchInactiveBg=" << s.search_inactive_bg_color << "\n";
+    write_simple_setting(out, s, "ColorSearchFg");
+    out << "ColorSearchBg=" << s.search_bg_color << "\n";
+    write_simple_setting(out, s, "ColorSearchInactiveFg");
+    write_simple_setting(out, s, "ColorSearchInactiveBg");
     out << "\n# List\n";
-    out << "ColorListInactiveFg=" << s.list_color << "\n";
-    out << "ColorListInactiveBg=" << s.list_inactive_bg_color << "\n";
-    out << "ColorListPlayingFg=" << s.list_playing_color << "\n";
+    write_simple_setting(out, s, "ColorListInactiveFg");
+    write_simple_setting(out, s, "ColorListInactiveBg");
+    write_simple_setting(out, s, "ColorListPlayingFg");
     out << "ColorListPlayingBg=" << s.list_playing_bg_color << "\n";
-    out << "ColorListCursorFg=" << s.list_cursor_color << "\n";
-    out << "ColorListCursorBg=" << s.list_cursor_bg_color << "\n";
+    write_simple_setting(out, s, "ColorListCursorFg");
+    write_simple_setting(out, s, "ColorListCursorBg");
     out << "\n# Queue\n";
-    out << "ColorQueueInactiveFg=" << s.queue_color << "\n";
-    out << "ColorQueueInactiveBg=" << s.queue_inactive_bg_color << "\n";
-    out << "ColorQueuePlayingFg=" << s.queue_playing_color << "\n";
+    write_simple_setting(out, s, "ColorQueueInactiveFg");
+    write_simple_setting(out, s, "ColorQueueInactiveBg");
+    write_simple_setting(out, s, "ColorQueuePlayingFg");
     out << "ColorQueuePlayingBg=" << s.queue_playing_bg_color << "\n";
-    out << "ColorQueueCursorFg=" << s.queue_cursor_color << "\n";
-    out << "ColorQueueCursorBg=" << s.queue_cursor_bg_color << "\n";
+    write_simple_setting(out, s, "ColorQueueCursorFg");
+    write_simple_setting(out, s, "ColorQueueCursorBg");
     out << "\n# Lyrics\n";
-    out << "ColorLyricsInactiveFg=" << s.inactive_line_color << "\n";
-    out << "ColorLyricsInactiveBg=" << s.inactive_line_bg_color << "\n";
-    out << "ColorLyricsActiveLineFg=" << s.active_line_color << "\n";
-    out << "ColorLyricsActiveLineBg=" << s.active_line_bg_color << "\n";
-    out << "ColorLyricsActiveWordFg=" << s.active_word_color << "\n";
-    out << "ColorLyricsActiveWordBg=" << s.active_word_bg_color << "\n";
+    write_simple_setting(out, s, "ColorLyricsInactiveFg");
+    write_simple_setting(out, s, "ColorLyricsInactiveBg");
+    write_simple_setting(out, s, "ColorLyricsActiveLineFg");
+    write_simple_setting(out, s, "ColorLyricsActiveLineBg");
+    write_simple_setting(out, s, "ColorLyricsActiveWordFg");
+    write_simple_setting(out, s, "ColorLyricsActiveWordBg");
     out << "\n";
 
     out << "##-------------------------------------------\n";
@@ -1973,7 +2037,7 @@ static void write_settings(std::ostream& out, const Settings& s) {
     out << "##-------------------------------------------\n\n";
     auto tf = [](bool v) -> const char* { return v ? "true" : "false"; };
     out << "ElimentDisk=" << tf(s.element_disk) << "\n";
-    out << "ElimentDiskBorder=" << tf(s.disk_border) << "\n## true , false -- the \":  :\" column between the disk (or cover) and the meta data; false: it is left out and the disk sits in the middle of the space between the left border and the meta data\n";
+    write_simple_setting(out, s, "ElimentDiskBorder");
     out << "LatinLetters=" << tf(s.latin_letters) << "\n## true , false -- Japanese, Korean and Chinese titles, tags and lyrics are shown in Latin letters (switch with SHIFT+' on a US keyboard, see HKeyTranslit)\n";
     out << "LyricsNameVariants=" << tf(s.lyrics_name_variants) << "\n## true , false -- a lyrics search (also the refetch) that finds nothing tries other spellings: the Latin-letters spelling, the title / artist without their Latin or without their Japanese part, the title alone\n";
     out << "LatinMacrons=" << tf(s.latin_macrons) << "\n## true , false -- Latin letters (SHIFT+'): Japanese long vowels with a macron (koohii -> koohii off, kōhī on; ou -> ō); off = spelled out (ou, uu)\n";
@@ -1982,18 +2046,18 @@ static void write_settings(std::ostream& out, const Settings& s) {
     out << "LatinHanziDefault=" << (s.latin_hanzi == 1 ? "chinese" : s.latin_hanzi == 2 ? "japanese" : "leave") << "\n## leave , chinese , japanese -- Latin letters (SHIFT+'): Chinese characters of which nothing says whether the text is Japanese or Chinese (the same in both writings, e.g. 東京): leave them, read them as Chinese (pinyin), or as Japanese (they stay as they are unless the optional kanji reader, see the manual, knows their reading)\n";
     out << "AlbumCover=" << tf(s.album_cover) << "\n## true , false -- music player: the cover of the playing track takes the disk's place (needs ElimentDisk=true; where a track has no cover the disk is shown)\n";
     out << "CoverMode=" << (s.cover_mode == 0 ? "cover" : s.cover_mode == 1 ? "gradient" : s.cover_mode == 3 ? "disk2" : s.cover_mode == 4 ? "full" : s.cover_mode == 5 ? "ascii" : s.cover_mode == 6 ? "ascii2" : "disk") << "\n## cover (just the cover) , gradient (the cover in the disk's gradient colours, as a wave moving diagonally from the upper left to the lower right) , disk (the cover behind the disk: the disk's dots are pinholes that let the full cover shine through; the dots stay on their grid, only the pattern turns) , disk2 (the same, but the dots themselves turn) , full (the disk's full animation, the dots that come and go as it turns) , ascii (the cover as braille dots in its own colours, also where the terminal could show a picture) , ascii2 (the same in the disk's gradient)\n";
-    out << "CoverContrast=" << s.cover_contrast << "\n## 0 .. 100 (percent, steps of 5) -- more contrast for the album cover (0 = the cover as it is)\n";
-    out << "CoverBrightness=" << s.cover_brightness << "\n## 0 .. 100 (percent, steps of 5) -- the cover behind the disk: how bright its dots are lifted (0 = the picture's own range; more = brighter, like the plain disk)\n";
-    out << "CoverColors=" << s.cover_colors << "\n## 0 .. 100 (percent, steps of 5) -- the cover behind the disk: its own colours mixed into the disk's gradient (0 = gradient only, 100 = the cover's own colours)\n";
+    write_simple_setting(out, s, "CoverContrast");
+    write_simple_setting(out, s, "CoverBrightness");
+    write_simple_setting(out, s, "CoverColors");
     out << "CoverChroma=" << chroma_name(s.cover_chroma) << "\n## chromatic aberration of a cover that shows its own colours (Just Cover, Cover Colors above 0, the ASCII looks): off | subtle | medium | strong\n";
     out << "CoverSearch=" << (s.cover_search == 1 ? "folder first" : s.cover_search == 2 ? "file first" : s.cover_search == 3 ? "folder only" : s.cover_search == 4 ? "file only" : "default")
         << "\n## default (the picture inside the file, else the closest-named picture in the folder) , folder first , file first (inside the file, else only a closely named folder picture) , folder only , file only -- every search except file only ends with any picture of the folder (the first by name) when nothing else gave one\n";
-    out << "ElimentDummyButtons=" << tf(s.element_dummy_buttons) << "\n";
+    write_simple_setting(out, s, "ElimentDummyButtons");
     out << "ElimentQueue=" << tf(s.element_queue) << "\n";
     out << "ElimentWaveForm=" << tf(s.element_waveform) << "\n";
     out << "VolumeIndicator=" << kVolIndicatorNames[std::clamp(s.volume_indicator, 0, kVolStyleCount - 1)] << "\n## # , \xE2\xA0\xB6 , \xE2\xA3\xBF , \xE2\xA1\xBE\xE2\xA3\xBD , disk -- what the VOLUME BAR is drawn with (\xE2\xA1\xBE\xE2\xA3\xBD is a fixed row that does not repeat; disk follows the braille effect of the disk)\n";
-    out << "VolumeGradient=" << tf(s.volume_gradient) << "\n## true = the filled part of the VOLUME BAR is coloured with the VIZ gradient from left to right (like the oscilloscope), false = one colour\n";
-    out << "VizLyricsField=" << tf(s.element_vizfield) << "\n";
+    write_simple_setting(out, s, "VolumeGradient");
+    write_simple_setting(out, s, "VizLyricsField");
     out << "## false = no Viz/Lyrics field right of the meta data at all (the meta data take its width; no lyrics are fetched for it)\n";
     out << "ElimentLyrics=" << tf(s.element_lyrics) << "\n";
     out << "## true = the field shows the lyrics (needs UseLyrics=true), false = it shows the visual of LyricViz. The \".\" key switches it.\n";
@@ -2005,7 +2069,7 @@ static void write_settings(std::ostream& out, const Settings& s) {
     out << "VideoLyrics=" << (s.video_lyrics == 1 ? "lyrics" : s.video_lyrics == 2 ? "both" : s.video_lyrics == 3 ? "translation" : "none") << "\n";
     out << "## Include Lyrics (the & overlay): none | lyrics | both (lyrics + translation) | translation = what is shown under the video's picture (true / false of older versions still work)\n";
     out << "## (with a translation shown, the last row under the picture is used first, then the lyric block grows upwards: the picture gets smaller)\n";
-    out << "VideoAuto=" << tf(s.video_auto) << "\n";
+    write_simple_setting(out, s, "VideoAuto");
     out << "## true = a track that has a video switches the field to the video view, a track without one to the Lyrics/Viz Default view\n";
     out << "VideoCover=" << (s.video_cover == 1 ? "thumbnail" : s.video_cover == 2 ? "disk" : s.video_cover == 3 ? "fallback" : "cover") << "\n";
     out << "## cover = the disk shows the track's cover; thumbnail = a frame of the track's video (the cover, then the disk, when it has no video); disk = a track with a video shows the plain disk (no cover, no thumbnail)\n";
@@ -2013,9 +2077,9 @@ static void write_settings(std::ostream& out, const Settings& s) {
     out << "## the video's picture in the small field: regular = the whole picture | cropped = two columns cut off each side | full = fills the field (the oscilloscope's space), cropped to fit, the lyric line as a small black box over it\n";
     out << "VideoFx=" << video_fx_key(s.video_fx) << "\n";
     out << "## a retro effect on the video's picture (small field and full screen): off | scanlines | crt | vhs | glitch | pixel | gradient | quiet glitch\n";
-    out << "VideoContrast=" << s.video_contrast << "\n## 0 .. 100 (percent, steps of 5) -- more contrast for the video's picture (0 = as it is)\n";
-    out << "VideoBrightness=" << s.video_brightness << "\n## 0 .. 100 (percent, steps of 5) -- the brightness of the video's picture (50 = as it is, lower = darker, higher = brighter; a track can have its own: Style Option)\n";
-    out << "VideoColors=" << s.video_colors << "\n## 0 .. 100 (percent, steps of 5) -- the video's colours (0 = greyscale, 100 = as they are)\n";
+    write_simple_setting(out, s, "VideoContrast");
+    write_simple_setting(out, s, "VideoBrightness");
+    write_simple_setting(out, s, "VideoColors");
     out << "VideoRound=" << tf(s.video_round) << "\n## Rounded Corners: the corners of the video's picture are cut round like the corners of the UI (a track can have its own: Style Option): true | false\n";
     out << "VideoClap=" << (s.video_clap == 2 ? "none" : s.video_clap == 0 ? "text note" : "clap") << "\n## Show Clap Loading: what shows while a video loads, in the small field and in the big video overlay: text note (\"video: starting ...\") | clap (a small clapperboard in the border colours) | none\n";
     out << "VideoChroma=" << chroma_name(s.video_chroma) << "\n## chromatic aberration of the video's picture (red and blue pushed apart, more towards the corners; works with every effect): off | subtle | medium | strong\n";
@@ -2024,30 +2088,30 @@ static void write_settings(std::ostream& out, const Settings& s) {
     out << "VideoBuffer=" << s.video_buffer << "\n";
     out << "## megabytes of decoded video frames kept ahead of the picture: 8 | 16 | 32 | 64 | 128 | 256 (a wider picture holds fewer seconds in it)\n";
     out << "VideoMp3=" << tf(s.video_mp3) << "\n## yt-dlp mp3 from mp4: SEARCH YT also saves the sound of a downloaded video as an mp3 song in the download folder when no song is the target (CTRL+o in SEARCH YT changes it per download): true | false\n";
-out << "VideoLayout=" << s.video_layout << "\n";
+write_simple_setting(out, s, "VideoLayout");
     out << "## the layout of the full screen video (SHIFT+UP / SHIFT+DOWN there): 0 video | 1 video + oscilloscope | 2 video + spectrogram | 3 video + oscilloscope + spectrogram\n";
     out << "VideoLayoutOsciStyle=" << (s.vl_osci_style < 0 ? "default" : s.vl_osci_style == 1 ? "image" : "braille") << "\n";
     out << "VideoLayoutOsciMode=" << (s.vl_osci_mode < 0 ? "default" : s.vl_osci_mode == 1 ? "yt" : "xy") << "\n";
     out << "VideoLayoutSpectroStyle=" << (s.vl_spec_style < 0 ? "default" : s.vl_spec_style == 1 ? "image" : "braille") << "\n";
     out << "VideoLayoutSpectroView=" << (s.vl_spec_view < 0 ? "default" : s.vl_spec_view == 1 ? "waterfall" : "spectrogram") << "\n";
     out << "## the oscilloscope's and the spectrogram's own picture style (braille | image) and version (XY | YT, spectrogram | waterfall) in those layouts; default = as in their options (SHIFT+o / SHIFT+i)\n";
-    out << "VideoLayoutScales=" << tf(s.vl_scales) << "\n";
+    write_simple_setting(out, s, "VideoLayoutScales");
     out << "## the grid of the oscilloscope and the scales of the spectrogram in those layouts (SHIFT+g there)\n";
-    out << "VideoDownHeight=" << s.video_down_height << "\n";
+    write_simple_setting(out, s, "VideoDownHeight");
     out << "## the highest picture height of a video that Search YT downloads (into <download folder>/video_down)\n";
-    out << "VideoMode=" << tf(s.video_mode) << "\n";
+    write_simple_setting(out, s, "VideoMode");
     out << "## true = video files (mp4, mkv, mov, avi, webm ...) are listed too and the \"video\" view joins the \".\" cycle after the lyrics: it plays the picture of the track's video in the field with the current lyric line under it. HKeyVideo (\"&\" = SHIFT+6 on a German keyboard, SHIFT+y elsewhere) switches it.\n";
-    out << "VideoView=" << tf(s.video_view) << "\n";
+    write_simple_setting(out, s, "VideoView");
     out << "## true = the field is on the video view right now (VizDefault=last keeps it; VizDefault=video starts with it)\n";
     out << "NoVideoViz=" << (s.novideo_viz == 0 ? "sphere" : s.novideo_viz == 1 ? "osci" : s.novideo_viz == 2 ? "spectro" : s.novideo_viz == 3 ? "none" : "lyrics") << "\n";
     out << "## what the video view shows while the track has no video: lyrics, sphere, osci, spectro or none\n";
     out << "NoLyricsViz=" << (s.nolyrics_viz == 1 ? "osci" : s.nolyrics_viz == 2 ? "spectro" : s.nolyrics_viz == 3 ? "none" : "sphere") << "\n";
     out << "## What the field shows while the lyrics view is on but no lyrics are available (sphere | osci | spectro | none).\n";
     out << "## Picking one turns its \"Use ...\" switch below on; switching that off again moves this pick to the next visual that is on.\n";
-    out << "UseLyrics=" << tf(s.use_lyrics) << "\n";
-    out << "UseOscilloscope=" << tf(s.use_osci) << "\n";
-    out << "UseSpectrogram=" << tf(s.use_spectro) << "\n";
-    out << "UseSphere=" << tf(s.use_sphere) << "\n";
+    write_simple_setting(out, s, "UseLyrics");
+    write_simple_setting(out, s, "UseOscilloscope");
+    write_simple_setting(out, s, "UseSpectrogram");
+    write_simple_setting(out, s, "UseSphere");
     out << "## false = left out of the lyrics area: not in the \".\" cycle. The windows\n";
     out << "## (SHIFT+8 spectrogram, SHIFT+9 oscilloscope) and the full screen (SHIFT+u) work either way.\n";
     {
@@ -2061,7 +2125,7 @@ out << "VideoLayout=" << s.video_layout << "\n";
     spectro_profiles_write(out, s, "##");
     out << "## Tune all of these live with SHIFT+o in the main UI\n";
     out << "Visualizer=" << tf(s.element_visualizer) << "\n";
-    out << "MetaDataOnly=" << tf(s.meta_only) << "\n";
+    write_simple_setting(out, s, "MetaDataOnly");
     out << "## true  = the (search-)lists show embedded metadata only -- the title tag is used\n";
     out << "##         instead of the filename (files without a title tag keep their filename)\n";
     out << "## false = lists show filename AND metadata, as before\n";
@@ -2071,26 +2135,26 @@ out << "VideoLayout=" << s.video_layout << "\n";
     out << "##-------------------------------------------\n";
     out << "##             PANEL 3: ANIMA/VIZ\n";
     out << "##-------------------------------------------\n\n";
-    out << "VisualizerFluidity=" << s.visualizer_fluidity << "\n## 1 to 10\n";
+    write_simple_setting(out, s, "VisualizerFluidity");
     out << "WaveformStyle=" << (s.waveform_smooth ? "smooth" : "raw") << "\n## raw , smooth\n";
     out << "DiskRotationSpeed=" << s.disk_rotation_speed << "\n## 0.01x to 1.00x\n";
     out << "StartMode=" << (s.start_mode == "radio" ? "radio" : s.start_mode == "audiobook" ? "audiobook" : "player")
         << "\n## player , radio , audiobook -- the mode Mousiki starts in (SHIFT and + / SHIFT and - switch while it runs; set in Settings -> GENERAL -> MODES)\n";
-    out << "UseModePlayer=" << tf(s.use_mode[0]) << "\n";
-    out << "UseModeRadio=" << tf(s.use_mode[1]) << "\n";
-    out << "UseModeAudiobook=" << tf(s.use_mode[2]) << "\n";
+    write_simple_setting(out, s, "UseModePlayer");
+    write_simple_setting(out, s, "UseModeRadio");
+    write_simple_setting(out, s, "UseModeAudiobook");
     out << "## false = the mode is left out of the mode switch (one mode always stays on); set in Settings -> GENERAL -> MODES\n";
     out << "ModeOrder=" << mode_order_text(s.mode_order) << "\n## the order SHIFT and + walks through the modes (player, radio, audiobook in any order); SHIFT and - goes back; Settings -> GENERAL -> MODES -> Mode Order 1..3\n";
     out << "BlackBackground=" << (s.black_background ? "true" : "false") << "\n## true , false -- the terminal's background is black while Mousiki runs (given back on exit; player and radio)\n";
     out << "RemoteApp=" << (s.remote_app ? "true" : "false") << "\n## true , false -- the remote app (Android app or phone browser) can control Mousiki over the home network (off by default; player and radio)\n";
     out << "RemoteAppPort=" << s.remote_port << "\n## 1024 - 65535 -- the network port of the remote app (default 4747)\n";
-    out << "RemoteAppPin=" << s.remote_pin << "\n## 4 - 8 digits -- the PIN the app needs; made when the remote app is switched on (mousiki --remote-info shows it)\n";
+    write_simple_setting(out, s, "RemoteAppPin");
     out << "ShareProfiles=" << (s.share_profiles ? "true" : "false") << "\n## true , false -- the radio uses this file's oscilloscope and spectrogram settings instead of its own (its own come back when this is false; player and radio)\n";
     out << "BookmarkAsk=" << (s.book_ask_bookmark ? "true" : "false") << "\n## true , false -- audio book mode: changing the chapter, the mode or quitting asks first whether to set a bookmark at the exact time (the audio is paused meanwhile)\n";
     out << "BookCoverWave=" << (s.book_cover_wave ? "true" : "false") << "\n## true , false -- with BookCover on: true = the colour wave runs over the cover (a grey cover), false = the cover is shown in its own colours (the standard picture always has the wave)\n";
-    out << "TerminalDefaultFont=" << (s.terminal_default_font ? "true" : "false") << "\n## true , false -- true = Mousiki leaves the terminal's own font alone; false = Mousiki's window uses the font of TerminalFont= (Settings -> GENERAL -> TEXT AND TRANSLITERATION -> Terminal Default Font)\n";
+    write_simple_setting(out, s, "TerminalDefaultFont");
     out << "TerminalFont=" << s.terminal_font << "\n## the font of Mousiki's window where the terminal allows it (Windows Terminal: the profile \"Mousiki\"; macOS Terminal.app, iTerm2, the old Windows console): a font installed on the computer; Cascadia Mono is the default\n";
-    out << "AudioDevice=" << s.audio_device << "\n## the sound output of all modes, as the system names it (Settings -> GENERAL -> AUDIO -> Choose Audio Device); empty = the system's default device\n";
+    write_simple_setting(out, s, "AudioDevice");
     {
         char sp[16];
         std::snprintf(sp, sizeof sp, "%.2f", s.book_speed);
@@ -2107,18 +2171,18 @@ out << "VideoLayout=" << s.video_layout << "\n";
     out << "MediaKeys=" << (s.media_keys ? "true" : "false") << "\n## true , false -- the system's media controls: Windows shows Mousiki in the media pop-up and its media keys work, Linux shows it in the desktop's media widgets (MPRIS; playerctl works), macOS shows Now Playing and handles the media keys (read at the next start; player and radio)\n";
     out << "PlaybackMode=" << play_mode_name(s.play_mode) << "\n## list , loop , shuffle , stop , queue then stop\n"
         << "## shuffle never reorders the queue: n and the end of a track play its next title, only # picks a random one of it\n";
-    out << "VisualizerDegradationSpeed=" << s.visualizer_degradation_speed << "\n## 1 to 10\n";
-    out << "VisualizerViscosity=" << s.visualizer_viscosity << "\n## 1 to 10\n";
+    write_simple_setting(out, s, "VisualizerDegradationSpeed");
+    write_simple_setting(out, s, "VisualizerViscosity");
     out << "VisualizerStyle=" << (s.bars_style == 1 ? "hifi" : "classic") << "\n## classic , hifi -- the spectrum bars under the meta data: classic, or Hi-Fi (a braille column per frequency step, stereo, at the program's frame rate)\n";
     out << "HifiResolution=" << (s.hifi_resolution == 1 ? "rough" : "fine") << "\n## fine , rough -- Hi-Fi: a band per dot column, or per two dot columns\n";
     out << "HifiChannels=" << (s.hifi_channels == 1 ? "mono" : "stereo") << "\n## stereo , mono -- Hi-Fi: the left channel on the left and the right one on the right (bass in the middle), or one mix across the width\n";
     out << "HifiScale=" << (s.hifi_scale == 0 ? "full" : s.hifi_scale == 2 ? "low" : s.hifi_scale == 3 ? "very low" : "medium") << "\n## full , medium , low , very low -- Hi-Fi: the height of the bars (the lower, the lower the middle levels; the peaks stay visible)\n";
     out << "HifiFrequencyScale=" << (s.hifi_fscale == 0 ? "linear" : s.hifi_fscale == 1 ? "logarithmic" : s.hifi_fscale == 3 ? "bark" : s.hifi_fscale == 4 ? "erb" : "mel") << "\n## linear , logarithmic , mel , bark , erb -- Hi-Fi: the frequency scale of the bars\n";
-    out << "HifiGain=" << s.hifi_gain << "\n## -20 to 20 dB -- Hi-Fi: moves the levels up or down\n";
-    out << "HifiRange=" << s.hifi_range << "\n## 40 to 100 dB -- Hi-Fi: the range from the bottom to the top of the bars (smaller = steeper)\n";
-    out << "HifiFluidity=" << s.hifi_fluidity << "\n## 1 to 10 -- the Hi-Fi style keeps its own bar values (VisualizerFluidity ... are the Classic ones)\n";
-    out << "HifiDegradationSpeed=" << s.hifi_degradation << "\n## 1 to 10\n";
-    out << "HifiViscosity=" << s.hifi_viscosity << "\n## 0 to 10\n";
+    write_simple_setting(out, s, "HifiGain");
+    write_simple_setting(out, s, "HifiRange");
+    write_simple_setting(out, s, "HifiFluidity");
+    write_simple_setting(out, s, "HifiDegradationSpeed");
+    write_simple_setting(out, s, "HifiViscosity");
     out << "HifiAdapt=" << (s.hifi_adapt == 1 ? "on" : "off") << "\n## on , off -- Hi-Fi: adapts the height to the song (dense, compressed music with a full frequency range is lowered more)\n";
     out << "HifiSplit=" << (s.hifi_split == 0 ? "remove" : "add") << "\n## add , remove -- Hi-Fi: an empty dot column between the left and the right channel\n";
     out << "HifiColor=" << (s.hifi_color == 1 ? "corresponding" : "gradient") << "\n## gradient , corresponding -- Hi-Fi: the bar colours from left to right, or the colours of the spectrogram by height\n";
@@ -2147,7 +2211,7 @@ out << "VideoLayout=" << s.video_layout << "\n";
     out << "##-------------------------------------------\n";
     out << "##             MARQUEE SCROLLING\n";
     out << "##-------------------------------------------\n\n";
-    out << "MarqueeScrolling=" << (s.marquee ? "true" : "false") << "\n";
+    write_simple_setting(out, s, "MarqueeScrolling");
     out << "## true  = a title that is too long for its column scrolls (the row under the cursor, Name / Artist / Album of the\n";
     out << "##         metadata block, the playlist editor lists)\n";
     out << "## false = nothing scrolls, a too long text is cut off with \"...\"\n";
@@ -2156,7 +2220,7 @@ out << "VideoLayout=" << s.video_layout << "\n";
     out << "##-------------------------------------------\n";
     out << "##             STEREO\n";
     out << "##-------------------------------------------\n\n";
-    out << "StereoPlayback=" << (s.stereo ? "true" : "false") << "\n";
+    write_simple_setting(out, s, "StereoPlayback");
     out << "## true  = play tracks in stereo (uses about twice the memory per loaded track)\n";
     out << "## false = mono: left and right are folded together, as in earlier versions\n";
     out << "## Turning it off takes effect immediately; turning it on applies from the next track.\n";
@@ -2165,7 +2229,7 @@ out << "VideoLayout=" << s.video_layout << "\n";
     out << "##-------------------------------------------\n";
     out << "##             LOUDNESS NORMALIZATION\n";
     out << "##-------------------------------------------\n\n";
-    out << "NormalizeVolume=" << (s.normalize ? "true" : "false") << "\n";
+    write_simple_setting(out, s, "NormalizeVolume");
     out << "NormalizeTargetLufs=" << s.normalize_target_lufs << "\n";
     out << "NormalizeMaxBoostDb=" << s.normalize_max_boost_db << "\n";
     out << "## Each track is measured (LUFS) while it decodes and played at NormalizeTargetLufs.\n";
@@ -2177,7 +2241,7 @@ out << "VideoLayout=" << s.video_layout << "\n";
     out << "##-------------------------------------------\n";
     out << "##             EQUALIZER (Shift+E)\n";
     out << "##-------------------------------------------\n\n";
-    out << "EqualizerEnabled=" << (s.eq_enabled ? "true" : "false") << "\n";
+    write_simple_setting(out, s, "EqualizerEnabled");
     out << "EqualizerBands=";
     for (int b = 0; b < kEqBands; ++b) out << (b ? "," : "") << s.eq_gains[b];
     out << "\n";
@@ -2204,16 +2268,16 @@ out << "VideoLayout=" << s.video_layout << "\n";
     out << "##-------------------------------------------\n";
     out << "##             AUTOSAVE / SESSION SNAPSHOT\n";
     out << "##-------------------------------------------\n\n";
-    out << "SleepFade=" << tf(s.sleep_fade) << "\n## sleep timer: fade the volume out over the last 10 % of the time (30 s .. 10 min), then pause\n";
-    out << "MenuIndexClassic=" << tf(s.menu_index_classic) << "\n## the \"<\" menus overlay: false = the tree (organigram), true = the classic view with every category as a box (SHIFT+t switches, the last view is kept)\n";
-    out << "WizardSeen=" << tf(s.wizard_seen) << "\n## the help wizard (SHIFT+w) opened itself once already; false makes it greet you again on the next start\n";
+    write_simple_setting(out, s, "SleepFade");
+    write_simple_setting(out, s, "MenuIndexClassic");
+    write_simple_setting(out, s, "WizardSeen");
     out << "SidPlayLength=" << s.sid_play_length << "\n## SID tunes (C64) are rendered by sidplayfp for this many seconds (10 .. 1800)\n";
     out << "KaraokeLyricsSize=" << s.karaoke_lyrics_size << "\n## karaoke overlay (k): lyrics size 1 (normal text) .. 5, SHIFT and + / SHIFT and - change it there\n";
     out << "TranslateService=" << s.translate_service << "\n## READ LYRICS (CTRL+L) translation service, picked with [t] there: google | mymemory\n";
     out << "TranslateTo=" << s.translate_to << "\n## language the lyrics are translated INTO (a code such as en, de, fr, es ...), picked with [t] in READ LYRICS\n";
     out << "TranslateFrom=" << s.translate_from << "\n## language OF the lyrics: auto = the service detects it, or a code such as de, ja ... (picked with [t])\n";
-    out << "AutoSave=" << tf(s.autosave_enabled) << "\n## resume exact song/position/queue/repeat/shuffle next launch\n";
-    out << "AutoSaveIndicator=" << tf(s.autosave_indicator) << "\n";
+    write_simple_setting(out, s, "AutoSave");
+    write_simple_setting(out, s, "AutoSaveIndicator");
     out << "AutoSaveDelayInSec=" << s.autosave_delay_sec << "\n";
     out << "AutoSaveChr=" << s.autosave_chr << "\n## exactly one character is used, even if you paste more\n";
     out << "AutoSaveIndicatorType=" << (s.autosave_indicator_type == 1 ? "color" : "blink") << "\n## blink , color\n";
@@ -2232,14 +2296,14 @@ out << "VideoLayout=" << s.video_layout << "\n";
         out << "          " << c << "={" << upper << "," << lower << "},\n";
     }
     out << "        };\n\n";
-    out << "UpperLeftCorner=\"" << s.box_upper_left << "\";\n";
-    out << "UpperRightCorner=\"" << s.box_upper_right << "\";\n";
-    out << "BottomLeftCorner=\"" << s.box_lower_left << "\";\n";
-    out << "LowerRightCorner=\"" << s.box_lower_right << "\";\n";
-    out << "Vertical=\"" << s.box_vertical << "\";\n";
-    out << "Horizontal=\"" << s.box_horizontal << "\";\n";
+    write_simple_setting(out, s, "UpperLeftCorner");
+    write_simple_setting(out, s, "UpperRightCorner");
+    write_simple_setting(out, s, "BottomLeftCorner");
+    write_simple_setting(out, s, "LowerRightCorner");
+    write_simple_setting(out, s, "Vertical");
+    write_simple_setting(out, s, "Horizontal");
     out << "Seprator=\"" << s.meta_separator << "\"\n";
-    out << "ListSeparator=\"" << s.list_separator << "\"\n";
+    write_simple_setting(out, s, "ListSeparator");
     out << "\n# GENERAL\n";
     {
         std::string setting_key = s.hotkeys.count("HKeySetting") ? s.hotkeys.at("HKeySetting") : "s";

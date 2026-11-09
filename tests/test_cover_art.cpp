@@ -451,3 +451,49 @@ TEST(a_video_uses_the_choices_and_covers_of_the_song_it_is_paired_with) {
     rq.store_rev = cover_store_revision();
     CHECK(resolve_cover_source(rq).none);
 }
+
+TEST(a_preview_slot_and_the_playing_slot_do_not_throw_each_other_out) {
+    if (!have_ffmpeg()) return;   // (no ffmpeg here)
+    mt::TempHome home;
+    const fs::path a = home.path() / "albA", b = home.path() / "albB";
+    fs::create_directories(a);
+    fs::create_directories(b);
+    touch(a / "song.mp3");
+    touch(b / "song.mp3");
+    make_png(a / "cover.png", "red");
+    make_png(b / "cover.png", "blue");
+    CoverRequest ra, rb;
+    ra.path = path_utf8(a / "song.mp3"); ra.title = "song"; ra.album = "A"; ra.search = 0; ra.store_rev = cover_store_revision();
+    rb.path = path_utf8(b / "song.mp3"); rb.title = "song"; rb.album = "B"; rb.search = 0; rb.store_rev = cover_store_revision();
+    // both are read, then asked in turn like the main screen (the playing track) and the Style Option preview (another track) do every frame
+    bool got_a = false, got_b = false;
+    for (int i = 0; i < 400 && !(got_a && got_b); ++i) {
+        got_a = got_a || track_cover(ra, false) != nullptr;
+        got_b = got_b || track_cover(rb, true) != nullptr;
+        if (!(got_a && got_b)) std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    CHECK(got_a);
+    CHECK(got_b);
+    int missing = 0;
+    for (int i = 0; i < 60; ++i) {
+        if (!track_cover(ra, false)) ++missing;
+        if (!track_cover(rb, true)) ++missing;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    CHECK_EQ(missing, 0);   // (with one slot for both, each ask threw the other's picture out and started a new read)
+}
+
+TEST(a_style_or_look_change_does_not_make_the_cover_load_again) {
+    mt::TempHome home;
+    const unsigned rev = cover_store_revision(), srev = cover_style_revision();
+    CoverStyle st;
+    st.brightness = 40;
+    set_cover_track_style("/music/a.mp3", st);
+    set_cover_album_look("Album", "/music", 2);
+    CHECK_EQ(cover_store_revision(), rev);      // the request of the cover stays the same: the picture on screen is not thrown away
+    CHECK(cover_style_revision() != srev);      // (but what the looks are read from is refreshed)
+    CHECK_EQ(cover_track_style("/music/a.mp3").brightness, 40);
+    CHECK_EQ(cover_album_look("Album", "/music"), 2);
+    set_cover_track_choice("/music/a.mp3", kCoverNone);   // a different picture is a change of the store
+    CHECK(cover_store_revision() != rev);
+}

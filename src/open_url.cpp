@@ -1,5 +1,6 @@
 // Opens a web address in the default browser. Only plain https addresses without spaces or control
 // characters are passed on.
+#include "bg_tasks.h"
 #include "open_url.h"
 
 #include <cstdint>
@@ -40,7 +41,7 @@ bool open_url(const std::string& url) {
 #else
     const Args cmd = {"xdg-open", url};
 #endif
-    std::thread([cmd] { run_capture(cmd, /*merge_stderr=*/false); }).detach();   // a browser that starts up may not return at once
+    bg_async([cmd] { run_capture(cmd, /*merge_stderr=*/false); return 0; });   // a browser that starts up may not return at once
     return true;
 #endif
 }

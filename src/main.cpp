@@ -6,6 +6,9 @@
 #include <iostream>
 #include <string>
 #include "app.h"
+#include "bg_tasks.h"
+#include "process_util.h"
+#include <cstdlib>
 #include "terminal_font.h"
 #include "mode_switch.h"
 #include "scope_window.h"
@@ -176,5 +179,13 @@ int main(int argc, char** argv) {
     // puts the code pages and console modes back the way we found them.
     muisc::win_console_restore();
 #endif
+    // The helper tasks of the cover loading get a moment; one that is still busy (an ffmpeg on a slow drive) must not meet destroyed
+    // objects while the program ends: then the process ends here, without running the destructors.
+    if (!muisc::bg_wait_all(700)) muisc::kill_all_children();
+    if (!muisc::bg_wait_all(800)) {
+        std::cout.flush();
+        std::cerr.flush();
+        std::_Exit(rc);
+    }
     return rc;
 }

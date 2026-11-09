@@ -1,6 +1,7 @@
 // Album covers: finds the best picture for a track (inside the file or a close-named picture in its
 // folder), decodes it with ffmpeg, quantises the colours and scales it to the disk's place.
 #include "cover_art.h"
+#include "bg_tasks.h"
 #include <set>
 #include "book_art.h"
 #include "cover_store.h"
@@ -415,6 +416,7 @@ namespace {
 CoverImage load_track_cover(CoverRequest rq, std::string key) {
     g_cover_may_wait = true;
     CoverImage d;
+    if (bg_stopping().load()) { d.key = key; return d; }   // (the program ends: nothing is read)
     d.key = key;
     const fs::path file = path_from_utf8(rq.path);
     const fs::path dir = file.parent_path();
@@ -548,28 +550,29 @@ std::string request_key(const CoverRequest& rq) {
 // the single slot: the cover that is ready, and the one being read
 struct TrackCoverState {
     CoverImage have;
-    std::future<CoverImage> pending;
+    std::shared_future<CoverImage> pending;
     std::string pending_key;
 };
-TrackCoverState& state() {
-    static TrackCoverState s;
-    return s;
+TrackCoverState& state(bool preview = false) {
+    static TrackCoverState playing, shown;   // (the preview of an overlay has a slot of its own, see track_cover())
+    return preview ? shown : playing;
 }
 
 } // namespace
 
-const CoverImage* track_cover(const CoverRequest& rq) {
+const CoverImage* track_cover(const CoverRequest& rq, bool preview) {
     if (rq.path.empty()) return nullptr;
-    TrackCoverState& s = state();
+    TrackCoverState& s = state(preview);
     const std::string key = request_key(rq);
     if (s.pending.valid() && s.pending.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         s.have = s.pending.get();
+        s.pending = {};
         s.pending_key.clear();
     }
     if (s.have.key == key) return s.have.ok ? &s.have : nullptr;
     if (!s.pending.valid()) {
         s.pending_key = key;
-        s.pending = std::async(std::launch::async, load_track_cover, rq, key);
+        s.pending = bg_async([rq, key]() { return load_track_cover(rq, key); });
     }
     // the next track of the same album (in the same folder) is being read: the cover on screen is the one it will get
     const std::string dir = path_utf8(path_from_utf8(rq.path).parent_path());
@@ -632,6 +635,7 @@ namespace {
 
 struct Preview {
     std::shared_future<CoverImage> fut;
+    std::shared_ptr<std::atomic<bool>> dropped = std::make_shared<std::atomic<bool>>(false);   // set when the slot is thrown away: the read is not started (or not finished) any more
     std::chrono::steady_clock::time_point born = std::chrono::steady_clock::now();
 };
 std::map<std::string, Preview>& previews() {
@@ -653,21 +657,28 @@ Preview& preview_slot(const std::string& file, bool embedded, bool video = false
         Preview& old = it->second;
         const bool failed = old.fut.wait_for(std::chrono::seconds(0)) == std::future_status::ready && !old.fut.get().ok;
         if (!failed || std::chrono::steady_clock::now() - old.born < std::chrono::seconds(5)) return old;
+        old.dropped->store(true);
         m.erase(it);
         auto& ord = preview_order();
         ord.erase(std::remove(ord.begin(), ord.end(), key), ord.end());
     }
     auto& order = preview_order();
-    if (order.size() >= 32) { m.erase(order.front()); order.erase(order.begin()); }   // (a running read keeps its own state alive)
+    if (order.size() >= 32) {
+        auto old = m.find(order.front());
+        if (old != m.end()) { old->second.dropped->store(true); m.erase(old); }
+        order.erase(order.begin());
+    }   // (a running read keeps its own state alive)
     order.push_back(key);
     Preview p;
-    p.fut = std::async(std::launch::async, [file, embedded, video, key]() {
+    p.fut = bg_async([file, embedded, video, key, dropped = p.dropped]() {
         CoverImage d;
         d.key = key;
+        BgSlot slot;   // (at most three ffmpeg runs at a time; scrolling through the list does not start thirty)
+        if (!slot.ok() || dropped->load() || bg_stopping().load()) return d;   // thrown away or the program ends: nothing to read
         if (video) decode_video_snapshot(path_from_utf8(file), d);   // a frame of the video (a tenth into it)
         else decode_cover_file(path_from_utf8(file), embedded, d);
         return d;
-    }).share();
+    });
     return m.emplace(key, std::move(p)).first->second;
 }
 

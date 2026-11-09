@@ -113,7 +113,9 @@ struct CoverRequest {
 };
 // The cover of the track, once it has been read in the background. nullptr: not read yet, or the track has none (cover_note()
 // says which). While the next track of the same album is read, the cover of the one before stays.
-const CoverImage* track_cover(const CoverRequest& rq);
+// preview = true: the slot of the overlays' previews (Style Option, Cover Options ...). The playing track's cover and a preview of another track
+// asked in turn in one slot would throw each other out every frame (the picture blinks: the cover, the plain disk, the cover ...).
+const CoverImage* track_cover(const CoverRequest& rq, bool preview = false);
 // "" while the cover is being read or exists; otherwise why there is none ("no picture inside the file or in the folder").
 std::string cover_note(const CoverRequest& rq);
 // Which picture a track would get, without decoding it (the overlays' previews): the same order as the cover search incl. the choices.

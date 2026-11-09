@@ -13,6 +13,7 @@
 #include <sstream>
 #include <vector>
 #include <map>
+#include <set>
 
 using namespace muisc;
 
@@ -602,4 +603,105 @@ TEST(settings_old_dither_effect_reads_as_dither_bw) {
     { std::ofstream f(config_path()); f << "VideoFx=dither\n"; }
     const Settings s = load_settings();
     CHECK_EQ(s.video_fx, 21);                  // Dither B/W
+}
+
+// The safety net of every change to the settings code: for each `Key=value` line of the default config.txt, a copy of the file with that
+// one value changed is read and written again; the changed value has to come back (a flag flipped, a number one up or one down -- one of the
+// two is inside every range). It finds a setting that is written but not read, read but not written, or clamped where it should not be.
+// Settings that depend on another setting are listed below with the reason.
+TEST(settings_every_simple_key_round_trips_with_a_changed_value) {
+    mt::TempHome home;
+    save_settings(load_settings());
+    std::string base;
+    { std::ifstream in(config_path(), std::ios::binary); std::ostringstream ss; ss << in.rdbuf(); base = ss.str(); }
+    CHECK(base.size() > 1000);
+    std::vector<std::string> lines;
+    { std::istringstream in(base); std::string l; while (std::getline(in, l)) { if (!l.empty() && l.back() == '\r') l.pop_back(); lines.push_back(l); } }
+    // keys whose value is set by other settings on purpose (the written value is not the one read):
+    //   VideoView: only on while the video mode and the lyrics are on;  SpectroLastStyle0/1: the view in use shows its own style.
+    const std::set<std::string> skip = {"VideoView", "SpectroLastStyle0", "SpectroLastStyle1"};
+    int bools = 0, ints = 0, colours = 0, other = 0;
+    std::vector<std::string> problems;
+    auto round_trip = [&](size_t idx, const std::string& key, const std::string& value) {
+        std::string text;
+        for (size_t i = 0; i < lines.size(); ++i) text += (i == idx ? key + "=" + value : lines[i]) + "\n";
+        { std::ofstream o(config_path(), std::ios::binary | std::ios::trunc); o << text; }
+        const std::string out = settings_to_text(load_settings());
+        std::istringstream in(out); std::string l;
+        const std::string want = key + "=" + value;
+        while (std::getline(in, l)) { if (!l.empty() && l.back() == '\r') l.pop_back(); if (l == want) return true; }
+        return false;
+    };
+    for (size_t i = 0; i < lines.size(); ++i) {
+        const std::string& l = lines[i];
+        if (l.empty() || l[0] == '#' || l[0] == '[' || l.rfind("HKey", 0) == 0) continue;
+        const size_t eq = l.find('=');
+        if (eq == std::string::npos || eq == 0) continue;
+        const std::string key = l.substr(0, eq), value = l.substr(eq + 1);
+        if (skip.count(key)) continue;
+        if (value == "true" || value == "false") {
+            ++bools;
+            if (!round_trip(i, key, value == "true" ? "false" : "true")) problems.push_back(key + " (flag: " + value + " -> " + (value == "true" ? "false" : "true") + ")");
+            continue;
+        }
+        char* end = nullptr;
+        const long n = std::strtol(value.c_str(), &end, 10);
+        if (!value.empty() && end && *end == 0) {
+            ++ints;
+            // (some numbers take steps or a list of values: 5, 10, 25 up or down, or twice / half)
+            bool ok = false;
+            for (const long cand : {n + 1, n - 1, n + 5, n - 5, n + 10, n - 10, n + 25, n - 25, n * 2, n / 2, n * 2 + 1}) {
+                if (cand == n) continue;
+                if (round_trip(i, key, std::to_string(cand))) { ok = true; break; }
+            }
+            if (!ok) problems.push_back(key + " (number: " + value + ")");
+            continue;
+        }
+        if (key.rfind("Color", 0) == 0 && key != "ColorCodes") {   // a colour: a new value has to come back as the file has it (the colours are written as 0..255 palette numbers or #rrggbb)
+            ++colours;
+            std::string other_value = value == "#102030" ? "#304050" : "#102030";
+            if (!round_trip(i, key, other_value)) problems.push_back(key + " (colour: " + value + " -> " + other_value + ")");
+            continue;
+        }
+        ++other;
+    }
+    std::printf("  [settings round trip: %d flags, %d numbers, %d colours checked, %d other values not checked]\n", bools, ints, colours, other);
+    for (const std::string& p : problems) std::printf("  PROBLEM: %s\n", p.c_str());
+    CHECK(problems.empty());
+    CHECK(bools > 50);
+    CHECK(ints > 50);
+}
+// The table of the simple settings: the names of older versions are still read, a number stays inside its range, a flag takes yes / true / 1.
+TEST(settings_table_reads_old_names_clamps_numbers_and_takes_flag_spellings) {
+    mt::TempHome home;
+    save_settings(load_settings());   // (makes the folder of config.txt)
+    auto read = [&](const std::string& text) {
+        { std::ofstream o(config_path(), std::ios::binary | std::ios::trunc); o << "# test\n" << text; }   // (a comment line first)
+        return load_settings();
+    };
+    CHECK_EQ(read("video_down_height=1000\n").video_down_height, 1000);          // the key of an older version
+    CHECK_EQ(read("VideoDownHeight=99999\n").video_down_height, 2160);           // above the range
+    CHECK_EQ(read("VideoDownHeight=5\n").video_down_height, 144);                // below it
+    CHECK_EQ(read("VideoDownHeight=abc\n").video_down_height, Settings().video_down_height);   // not a number: the default stays
+    CHECK_EQ(read("VideoLayout=7\n").video_layout, 3);
+    CHECK(read("Eliment_vizfield=yes\n").element_vizfield);
+    CHECK(read("VideoAuto=1\n").video_auto);
+    CHECK(!read("VolumeGradient=false\n").volume_gradient);
+    CHECK(read("VolumeGradient=true\n").volume_gradient);
+    CHECK_EQ(read("hifi_viscosity=50\n").hifi_viscosity, 10);
+    // percent values: steps of 5, a trailing %, quotes; a brightness of the video that does not start with a digit is ignored
+    CHECK_EQ(read("CoverBrightness=47%\n").cover_brightness, 45);
+    CHECK_EQ(read("CoverBrightness=48\n").cover_brightness, 50);
+    CHECK_EQ(read("CoverContrast=\"33\"\n").cover_contrast, 35);
+    CHECK_EQ(read("CoverColors=250\n").cover_colors, 100);
+    CHECK_EQ(read("VideoContrast=33\n").video_contrast, 35);
+    CHECK_EQ(read("video_colors=12\n").video_colors, 10);
+    CHECK_EQ(read("VideoBrightness=abc\n").video_brightness, Settings().video_brightness);
+    CHECK_EQ(read("VideoBrightness=64\n").video_brightness, 65);
+    // the box characters: written between quotes, read with or without them, older names too
+    CHECK(read("Vertical=\"|\";\n").box_vertical == "|");
+    CHECK(read("upper_left_corner=+\n").box_upper_left == "+");
+    CHECK(read("ListSeparator=\" / \"\n").list_separator == " / ");
+    CHECK(read("legend_cmd_color=77\n").legend_cmd_color == "77");
+    CHECK(read("ColorLegendCommand=88\n").legend_cmd_color == "88");
 }

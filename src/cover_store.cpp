@@ -90,8 +90,8 @@ struct LibCovers {
     std::shared_future<std::map<std::string, fs::path>> fut;
 };
 LibCovers& lib_covers() {
-    static LibCovers l;
-    return l;
+    static LibCovers* l = new LibCovers();   // (never destroyed: a walk through a big library must never hold up the end of the program)
+    return *l;
 }
 bool under(const fs::path& dir, const fs::path& root) {
     auto d = dir.begin(), r = root.begin();
@@ -134,12 +134,18 @@ fs::path fetched_cover_in_library(const std::string& album, bool wait) {
             l.started_gen = l.gen;
             l.at = now;
             const std::vector<fs::path> roots = l.roots;
-            l.fut = std::async(std::launch::async, [roots]() {
+            auto prom = std::make_shared<std::promise<std::map<std::string, fs::path>>>();
+            l.fut = prom->get_future().share();
+            std::thread([roots, prom]() {   // (a detached thread, not std::async: its future would wait for the walk when the program ends)
                 std::map<std::string, fs::path> idx;
+                const auto t_start = std::chrono::steady_clock::now();
+                size_t seen = 0;
                 for (const fs::path& root : roots) {
                     std::error_code ec;
                     fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end;
                     for (; !ec && it != end; it.increment(ec)) {
+                        if ((++seen & 1023) == 0 && std::chrono::steady_clock::now() - t_start > std::chrono::seconds(20)) break;   // (a huge library: what is found so far is used)
+                        if (seen > 400000) break;
                         std::error_code e2;
                         if (!it->is_directory(e2)) continue;
                         if (it.depth() >= 6) { it.disable_recursion_pending(); continue; }
@@ -148,9 +154,9 @@ fs::path fetched_cover_in_library(const std::string& album, bool wait) {
                         for (const fs::path& f : pictures_in(it->path())) idx.emplace(cover_name_key(path_utf8(f.stem())), f);
                     }
                 }
+                prom->set_value(std::move(idx));
                 cover_store_touch();   // (the covers that were looked for before it was ready are asked for again)
-                return idx;
-            }).share();
+            }).detach();
         }
         fut = l.fut;
     }
@@ -201,6 +207,7 @@ struct Choices {
     std::map<std::string, std::string> vopts;           // track path -> "on,size,fx,contrast,colors,chroma,res" (-1 = as in the VIDEO overlay)
     std::map<std::string, std::string> vmode;           // track path -> "1" cover / "2" video thumbnail / "3" plain disk (absent: as in the VIDEO overlay)
     std::atomic<unsigned> revision{1};
+    std::atomic<unsigned> style_revision{1};   // a look / contrast / brightness ... changed: no picture is read again for it
 };
 
 Choices& choices() {
@@ -320,7 +327,7 @@ void set_cover_album_look(const std::string& album, const std::string& folder, i
         if (look < 0 || look >= kCoverLookCount) c.look.erase(key); else c.look[key] = std::to_string(look);
         save_locked(c);
     }
-    cover_store_touch();
+    choices().style_revision.fetch_add(1);   // (not cover_store_touch(): the picture itself is the same, reading it again made it blink away)
 }
 
 CoverStyle cover_track_style(const std::string& track_path) {
@@ -353,7 +360,7 @@ void set_cover_track_style(const std::string& track_path, const CoverStyle& st) 
         else c.style[track_path] = std::to_string(st.look) + "," + std::to_string(st.contrast) + "," + std::to_string(st.brightness) + "," + std::to_string(st.colors) + "," + std::to_string(st.chroma);
         save_locked(c);
     }
-    cover_store_touch();
+    choices().style_revision.fetch_add(1);   // (not cover_store_touch(): the picture itself is the same, reading it again made it blink away)
 }
 
 std::string cover_fetch_failure(const std::string& album) {
@@ -483,6 +490,7 @@ void set_cover_album_choice(const std::string& album, const std::string& choice)
 }
 
 unsigned cover_store_revision() { return choices().revision.load(); }
+unsigned cover_style_revision() { return choices().style_revision.load(); }
 void cover_store_touch() { choices().revision.fetch_add(1); }
 
 bool cover_deletable(const CoverCandidate& c) { return c.kind != CoverCandidate::Embedded; }

@@ -1,4 +1,5 @@
 // The Latin name lookup: artists written in Chinese characters are asked for on MusicBrainz in the background, one at a time.
+#include "bg_tasks.h"
 #include "app.h"
 
 #include <memory>
@@ -40,10 +41,11 @@ void App::poll_name_lookup() {
     job->name = names[0];
     name_job_ = job;
     const fs::path script = name_lookup_script_;
-    std::thread([job, script]() {
+    bg_async([job, script]() {
         job->result = lookup_artist_name(script, job->name);
         job->done.store(true);
-    }).detach();
+        return 0;
+    });
 }
 
 void App::poll_kanji_reader() {
@@ -81,10 +83,11 @@ void App::poll_kanji_reader() {
     job->texts = std::move(texts);
     kanji_job_ = job;
     const fs::path script = kanji_script_;
-    std::thread([job, script]() {
+    bg_async([job, script]() {
         job->result = read_kanji(script, job->texts);
         job->done.store(true);
-    }).detach();
+        return 0;
+    });
 }
 
 }  // namespace muisc

@@ -64,7 +64,7 @@ std::vector<std::string> App::meta_cover_pane(int inner, int rows) const {
         CoverRequest tq = rq;
         tq.thumb_fallback = vm == 3;
         tq.snapshot_video = video_source_for(path_from_utf8(path));
-        if (const CoverImage* img = track_cover(tq)) {
+        if (const CoverImage* img = track_cover(tq, true)) {
             if (cf_->full_res && gfx_proto_ != GfxProto::None && !overlay_up0 &&
                 cover_full_picture_img(img, inner, rows, meta_->pane_col + 2, 4 + kMetaFieldCount + 3)) {
                 std::vector<std::string> pic;
@@ -485,7 +485,7 @@ std::vector<std::string> App::meta_sty_preview(int prev_w, int rows, const Cover
         const bool cover_less = src.none || src.file.empty();
         const bool thumb_mode = has_video && !plain_video && (vm == 1 || (vm == 3 && cover_less && !no_cover_chosen));
         if (thumb_mode) rq.snapshot_video = video_source_for(path_from_utf8(meta_->sty_track));
-        const CoverImage* thumb = thumb_mode ? track_cover(rq) : nullptr;   // a frame of the video, as the disk shows it
+        const CoverImage* thumb = thumb_mode ? track_cover(rq, true) : nullptr;   // a frame of the video, as the disk shows it
         if (thumb_mode) src = CoverSource();
         if (plain_video) { plain_disk(); note = "plain disk (the Video setting of this track)"; }
         else if (thumb_mode && !thumb) { plain_disk(); note = "reading a frame of the video ..."; }

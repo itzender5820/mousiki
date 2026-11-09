@@ -1,5 +1,6 @@
 // The update check: asks the releases page once a day in the background and remembers the answer, so
 // the new-version notice is shown once per version.
+#include "bg_tasks.h"
 #include "update_check.h"
 
 #include <algorithm>
@@ -204,12 +205,12 @@ void start(const fs::path& script) {
         g_have = !st.latest.empty();
     }
     if (fresh) return;   // asked within the last day: the stored answer is used, no network
-    std::thread(worker, script, st, true).detach();
+    bg_async([script, st] { worker(script, st, true); return 0; });
 }
 
 bool check_now(const fs::path& script) {
     if (g_check_running.exchange(true)) return false;
-    std::thread(run_check, script).detach();
+    bg_async([script] { run_check(script); return 0; });
     return true;
 }
 

@@ -7,6 +7,8 @@
 #include <cstdlib>
 #include <csignal>
 #include <cstring>
+#include <mutex>
+#include <set>
 #include <sstream>
 #include <vector>
 
@@ -30,6 +32,24 @@ extern char** environ;
 #endif
 
 namespace muisc {
+
+// The running children (every ChildProcess is in it from its creation to its destruction), for kill_all_children().
+namespace {
+struct ChildRegistry {
+    std::mutex mu;
+    std::set<ChildProcess*> live;
+};
+ChildRegistry& children() {
+    static ChildRegistry* r = new ChildRegistry();   // (never destroyed: a task may still end a child while the program ends)
+    return *r;
+}
+}  // namespace
+
+void kill_all_children() {
+    ChildRegistry& r = children();
+    std::lock_guard<std::mutex> lk(r.mu);   // (a ChildProcess that is being destroyed waits for this: none is gone while it is killed)
+    for (ChildProcess* c : r.live) c->kill();
+}
 
 // Quotes one argument for display only: plain words are left alone, anything else gets single quotes.
 static std::string quote_for_log(const std::string& s) {
@@ -99,9 +119,18 @@ struct ChildProcess::Impl {
     bool  reaped = false;
 };
 
-ChildProcess::ChildProcess() : impl_(new Impl) {}
+ChildProcess::ChildProcess() : impl_(new Impl) {
+    ChildRegistry& r = children();
+    std::lock_guard<std::mutex> lk(r.mu);
+    r.live.insert(this);
+}
 
 ChildProcess::~ChildProcess() {
+    {
+        ChildRegistry& r = children();
+        std::lock_guard<std::mutex> lk(r.mu);
+        r.live.erase(this);
+    }
     if (impl_->out_fd >= 0) ::close(impl_->out_fd);
     wait();
 }
@@ -312,9 +341,18 @@ struct ChildProcess::Impl {
     bool   reaped = false;
 };
 
-ChildProcess::ChildProcess() : impl_(new Impl) {}
+ChildProcess::ChildProcess() : impl_(new Impl) {
+    ChildRegistry& r = children();
+    std::lock_guard<std::mutex> lk(r.mu);
+    r.live.insert(this);
+}
 
 ChildProcess::~ChildProcess() {
+    {
+        ChildRegistry& r = children();
+        std::lock_guard<std::mutex> lk(r.mu);
+        r.live.erase(this);
+    }
     if (impl_->out_read != INVALID_HANDLE_VALUE) CloseHandle(impl_->out_read);
     impl_->out_read = INVALID_HANDLE_VALUE;
     wait();

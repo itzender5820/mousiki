@@ -76,7 +76,7 @@ const CoverStyle& App::track_style() const {
     static const CoverStyle none;
     if (audiobook_ || !has_track_ || !current_is_local_ || current_path_.empty()) return none;
     const std::string path = path_utf8(current_path_);
-    const unsigned rev = cover_store_revision();
+    const unsigned rev = cover_store_revision() * 1000003u + cover_style_revision();
     if (path != look_cache_path_ || rev != look_cache_rev_) {
         look_cache_path_ = path;
         look_cache_rev_ = rev;

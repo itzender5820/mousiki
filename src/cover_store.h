@@ -83,6 +83,9 @@ bool cover_recently_fetched(const std::string& album, std::string* info = nullpt
 void mark_cover_fetched(const std::string& album, const std::string& info);
 // Counts up whenever a choice changes or a cover is fetched or deleted (the cover search is made again then).
 unsigned cover_store_revision();
+// Counts the changes of the looks and styles of tracks / albums (set_cover_track_style, set_cover_album_look): they change how a cover is drawn, not which
+// picture is read, so they are not part of cover_store_revision() (the cover would be read again and blink away).
+unsigned cover_style_revision();
 void cover_store_touch();
 
 // Whether the picture can be deleted from the disk: pictures in a folder / in fetched_covers, never the one inside a file.

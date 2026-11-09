@@ -50,6 +50,10 @@ Args python_command();
 // render loop.
 // ---------------------------------------------------------------------------
 
+// Ends every child process that is still running (SIGKILL / TerminateProcess), for the end of the program: a task that waits for a
+// download, a translation or a lyrics lookup then returns at once, and no child is left running on its own after the player has quit.
+void kill_all_children();
+
 class ChildProcess {
 public:
     ~ChildProcess();

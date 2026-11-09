@@ -137,6 +137,17 @@ class Session:
     def text(self):
         return "\n".join(self.screen.display)
 
+    def wait_for(self, cond, limit=8.0, step=0.25):
+        """Reads the screen until cond(text) is true or `limit` seconds are over (a loaded machine draws a moment after the key: a check
+        that looks right after the key can see the screen before it). Returns the last value of cond."""
+        end = time.time() + limit * SLOW
+        while True:
+            if cond(self.text()):
+                return True
+            if time.time() >= end:
+                return False
+            self.pump(step)
+
     def row_cells(self, y):
         row = self.screen.buffer[y]
         return [row[x].data for x in range(COLS)]
@@ -2331,11 +2342,7 @@ def video_fullscreen_sizes(binary, root, scripts):
         check("VideoFx=scanlines" not in conf, "full screen video: the effect is the track's own (not the general setting)")
         # Style Option (SHIFT+s) of the playing track: the rows of its video
         sess.send("S", 1.5)
-        for _ in range(10):                                  # (a busy machine draws the overlay a little later)
-            tt = sess.text()
-            if "Video Chromatic Aberration" in tt and "Cover Chromatic Aberration" in tt and "Video Contrast" in tt and "Video Effect" in tt:
-                break
-            sess.pump(0.5)
+        sess.wait_for(lambda tt: all(w in tt for w in ("Video Chromatic Aberration", "Cover Chromatic Aberration", "Video Contrast", "Video Effect", "Video Resolution", "Use mp4 audio for this song", "as in Settings (off)")), 15.0)   # (a busy machine draws the overlay a little later)
         t = sess.text()
         check("Video of this track" in t and "Video Size" in t and "Video Effect" in t, "style option: video on / off, size and effect rows for this track")
         check("Video Contrast" in t and "Video Colors" in t and "Video Chromatic Aberration" in t and "Cover Chromatic Aberration" in t, "style option: contrast, colors and chromatic aberration rows (video and cover)")
@@ -2378,7 +2385,10 @@ def video_fullscreen_sizes(binary, root, scripts):
             if "> Use Video in Lyrics Field" in sess.text():
                 break
             sess.send(b"\x1b[B", 0.2)
+            if sess.wait_for(lambda tt: "> Use Video in Lyrics Field" in tt, 1.5):   # (the key is seen before the next one is sent: no row is passed on a slow machine)
+                break
         sess.send(b"\x1b[C", 0.8)
+        sess.wait_for(lambda tt: "Use Video in Lyrics Field" in tt and "[ ] false" in tt.split("Use Video in Lyrics Field", 1)[1][:80], 8.0)
         check("Use Video in Lyrics Field" in sess.text() and "[ ] false" in sess.text().split("Use Video in Lyrics Field", 1)[1][:80], "video overlay: the Video mode can be switched off")
         sess.send(b"\x1b", 1.0)
         sess.send("/", 0.5)
@@ -2467,20 +2477,24 @@ def organigram_menu(binary, root, scripts):
             if "Alpha Song" in sess.text():
                 break
         sess.send("<", 1.5)
+        sess.wait_for(lambda t: "Main" in t and "System" in t and "Sound" in t and "Library" in t and "Other Lists" in t and "Visualizations" in t and "Lyrics" in t)
         t = sess.text()
         check("Main" in t and "System" in t and "Sound" in t and "Library" in t and "Other Lists" in t and "Visualizations" in t and "Lyrics" in t,
               "organigram: Main and its categories are drawn")
         check("Settings" in t and "Cheat Sheet" in t and "Equalizer" not in t, "organigram: the first category is open")
         sess.send(b"\x1b[C", 0.8)
+        sess.wait_for(lambda t: "Equalizer" in t and "Cheat Sheet" not in t)
         t = sess.text()
         check("Equalizer" in t and "Cheat Sheet" not in t, "organigram: RIGHT goes to the next category")
         for _ in range(3):
             sess.send(b"\x1b[C", 0.5)
         sess.send(b"\x1b[B", 0.6)
         sess.send(b"\x1b[B", 0.6)
+        sess.wait_for(lambda t: "Meta Data Menu" in t and "Fetch and Convert" in t and "Cover and Video Look" in t)
         t = sess.text()
         check("Meta Data Menu" in t and "Fetch and Convert" in t and "Cover and Video Look" in t, "organigram: the meta data branches open one level at a time")
         sess.send(b"\x1b[B", 0.6)
+        sess.wait_for(lambda t: "Fetch Cover" in t and "File Conversion" in t)
         t = sess.text()
         check("Fetch Cover" in t and "File Conversion" in t, "organigram: the lower menus of a branch are shown")
         sess.send(b"\x1b[A", 0.5)
@@ -2490,6 +2504,7 @@ def organigram_menu(binary, root, scripts):
             sess.send(b"\x1b[D", 0.5)
         sess.send(b"\x1b[B", 0.5)
         sess.send(b"\r", 1.2)   # System / Settings: ENTER opens the settings
+        sess.wait_for(lambda t: "PATHS" in t or "GENERAL" in t)
         t = sess.text()
         check("PATHS" in t or "GENERAL" in t, "organigram: ENTER opens the menu of the box (Settings)")
         sess.send(b"\x1b", 1.0)
@@ -2501,17 +2516,21 @@ def organigram_menu(binary, root, scripts):
         sess.send(b"\x1b[B", 0.6)
         sess.send(b"\x1b[C", 0.6)
         sess.send(b"\x1b[B", 0.8)
+        sess.wait_for(lambda t: "Spectrum Bars" in t and "Spectrogram" in t and "Oscilloscope" in t and "Creator" in t and "Extra Window" in t and "Options" in t)
         t = sess.text()
         check("Spectrum Bars" in t and "Spectrogram" in t and "Oscilloscope" in t and "Creator" in t and "Extra Window" in t and "Options" in t,
               "organigram: the visualizations are grouped (Spectrogram: options, overlay, extra window) on several rows")
         sess.send("T", 1.0)   # SHIFT+t: the classic view, every category as a box
+        sess.wait_for(lambda t: "Equalizer" in t and "Karaoke Mode" in t and "Playlists" in t and "Fetch Cover" in t)
         t = sess.text()
         check("Equalizer" in t and "Karaoke Mode" in t and "Playlists" in t and "Fetch Cover" in t, "organigram: SHIFT+t shows the classic view with every category's options")
         sess.send(b"\x1b", 1.0)
         sess.send("<", 1.0)
+        sess.wait_for(lambda t: "Equalizer" in t and "Karaoke Mode" in t)
         t = sess.text()
         check("Equalizer" in t and "Karaoke Mode" in t, "organigram: the classic view is remembered")
         sess.send("T", 1.0)
+        sess.wait_for(lambda t: "Karaoke Mode" not in t and "Visualizations" in t)
         t = sess.text()
         check("Karaoke Mode" not in t and "Visualizations" in t, "organigram: SHIFT+t goes back to the tree")
         sess.send(b"\x1b", 1.0)
