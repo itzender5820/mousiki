@@ -86,6 +86,15 @@ struct RadioApp {
     bool gfx_shown = false;
     bool gfx2_shown = false;   // the second picture of the big oscilloscope overlay (Kitty image id 1)
     Clock::time_point next_frame{};
+    // Reduce Motion When Paused (the player's setting, one for both programs): nothing tuned (or the stream paused) and no key for
+    // 3 s -> about 10 frames a second; a screen that stood exactly still for 20 of them -> 4 a second.
+    bool reduce_motion = true;
+    bool off_air_now = false;                  // set per frame: no station tuned (idle / failed) or the timeshift is paused
+    Clock::time_point last_input{};
+    std::string last_body;                     // the text of the previous frame
+    int still_frames = 0;
+    int false_wakes = 0;                       // wake-ups for input in a row that gave no key (see the wait at the end of the frame)
+    bool woke_for_input = false;
     unsigned long gfx_tick = 0;
     bool running = true;
     bool switch_mode = false;

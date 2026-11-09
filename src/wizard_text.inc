@@ -1787,7 +1787,9 @@ marquee.
                                                   3 seconds: the screen is redrawn about 10 times a
                                                   second, and 4 times a second once it has stood
                                                   still for 2 seconds (less CPU, less traffic over
-                                                  SSH). Any key brings the full rate back. 
+                                                  SSH). Any key brings the full rate back. The
+           radio does the same when no station is tuned
+           (or the stream is paused).
 
 [REMOTE / UPDATES:][[Header]]
 [Remote App:][[Legend]]                                       [ENTER] opens the REMOTE APP overlay (on/off, address, QR
@@ -1806,9 +1808,9 @@ marquee.
 
 [Check Update:][[Legend]] [ENTER] on this row asks GitHub for the newest release now
                                                   and writes the answer on this screen (needs Python 3 and
-                                                  a network connection). Nothing is installed.
 )WIZ",
-R"WIZ(
+R"WIZ(                                                  a network connection). Nothing is installed.
+
 [Media Keys:][[Legend]]                                       Windows media pop-up/keys, Linux MPRIS widgets/playerctl,
                                                   macOS Now Playing; the system media keys control Mousiki.
                                                   Has not been tested well for every OS. Feel free to
@@ -1917,9 +1919,9 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
 [VIDEO:][[Header]]
 [Video Size][[Legend]] Regular / cropped / full / framed picture in the small field.
 [Video Effect][[Legend]]                                      A retro look for the picture (also in the full screen
-                                                  video, with a preview here).
 )WIZ",
-R"WIZ([Video Contrast][[Legend]]                                    More contrast for the picture, like Cover Contrast.
+R"WIZ(                                                  video, with a preview here).
+[Video Contrast][[Legend]]                                    More contrast for the picture, like Cover Contrast.
 [Video Brightness][[Legend]]                                  50 % = as it is, lower darker, higher brighter.
 [Video Colors][[Legend]]                                      0 = greyscale .. 100 % as they are.
 [Video Chromatic Aberration][[Legend]] Red and blue pushed apart: off / subtle / medium / strong.

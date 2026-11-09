@@ -636,6 +636,12 @@ bool player_black_background() {
     return !(v == "false" || v == "0" || v == "off" || v == "no");
 }
 
+bool player_reduce_motion() {
+    // Reduce Motion When Paused: one value for both programs, ReduceMotionWhenPaused= in the player's config.txt (true when missing)
+    const std::string v = ascii_lower_str(player_config_value("reducemotionwhenpaused"));
+    return !(v == "false" || v == "0" || v == "off" || v == "no");
+}
+
 bool set_player_black_background(bool on) {
     return set_player_config_value("BlackBackground", on ? "true" : "false");
 }

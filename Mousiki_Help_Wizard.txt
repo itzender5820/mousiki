@@ -1773,7 +1773,9 @@ marquee.
                                                   3 seconds: the screen is redrawn about 10 times a
                                                   second, and 4 times a second once it has stood
                                                   still for 2 seconds (less CPU, less traffic over
-                                                  SSH). Any key brings the full rate back. 
+                                                  SSH). Any key brings the full rate back. The
+           radio does the same when no station is tuned
+           (or the stream is paused).
 
 [REMOTE / UPDATES:][[Header]]
 [Remote App:][[Legend]]                                       [ENTER] opens the REMOTE APP overlay (on/off, address, QR

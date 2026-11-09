@@ -412,7 +412,7 @@ UseTerminalSettings=false
 FullScreen=false
 ## true , false -- ask the terminal for full screen when Mousiki starts (overrides TerminalCols / TerminalRows while on)
 ReduceMotionWhenPaused=true
-## true , false (default true) -- paused (or with nothing playing) and untouched for a few seconds, the screen is redrawn only about 10 times a second (the disk turns slower, the sphere is calmer): much less CPU and terminal traffic (a screen that has not changed for 2 seconds is looked at only 4 times a second); any key brings the full frame rate back at once.
+## true , false (default true) -- paused (or with nothing playing) and untouched for a few seconds, the screen is redrawn only about 10 times a second (the disk turns slower, the sphere is calmer): much less CPU and terminal traffic (a screen that has not changed for 2 seconds is looked at only 4 times a second); any key brings the full frame rate back at once. The radio uses the same value (read when it starts): with no station tuned, or the stream paused, it draws about 10 times a second.
 TerminalDefaultFont=false
 ## true = Mousiki leaves the terminal's own font alone; false = Mousiki's window uses the font of TerminalFont= (Settings -> TEXT AND TRANSLITERATION -> Terminal Default Font)
 TerminalFont=Cascadia Mono

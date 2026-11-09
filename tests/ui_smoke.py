@@ -319,6 +319,35 @@ def radio_latin_toggle(binary, root, scripts):
         sess.kill()
 
 
+def radio_idle_rate(binary, root, scripts):
+    """Radio mode, nothing tuned: Reduce Motion When Paused lowers the frame rate after a few quiet seconds, a key brings it back,
+    and with the setting off the full rate stays."""
+    def run(tag, extra):
+        home = os.path.join(root, "radioidle_" + tag)
+        os.makedirs(os.path.join(home, ".config", "mousiki"))
+        with open(os.path.join(home, ".config", "mousiki", "stations.txt"), "w", encoding="utf-8") as f:
+            f.write("# name | genre | country | codec | kbps | url | [*] favorite\nPlain Station | Rock | US | MP3 | 128 | http://127.0.0.1:9/c | *\n")
+        with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+            f.write("LocalMusicPath=%s\nStartMode=radio\nWizardSeen=true\n%s" % (os.path.join(root, "music"), extra))
+        sess = Session(binary, home, scripts, {"MOUSIKI_RADIO_NULL": "1"})
+        try:
+            sess.wait_for(lambda t: "Plain Station" in t)
+            sess.send(b"\x1b", 0.5)   # (a first start may show the help wizard)
+            sess.pump(5)               # quiet: no key for more than 3 s
+            b0 = len(sess.raw); sess.pump(3); quiet = sess.raw[b0:].count(b"\x1b[?2026h")
+            sess.send(b"\x1b[B", 0.0)   # a key
+            b0 = len(sess.raw); sess.pump(1); after_key = sess.raw[b0:].count(b"\x1b[?2026h")
+            return quiet, after_key, sess.alive()
+        finally:
+            sess.kill()
+    q, k, alive = run("on", "")
+    check(alive, "radio idle rate: the program is still running")
+    check(q <= 60, "radio idle rate: nothing tuned and untouched, the screen is redrawn at a low rate (%d frames in 3 s)" % q)
+    check(k >= 20, "radio idle rate: a key brings the full rate back (%d frames in 1 s)" % k)
+    q2, _, _ = run("off", "ReduceMotionWhenPaused=false\n")
+    check(q2 >= 3 * 30 * 0.6 and q2 > q, "radio idle rate: with Reduce Motion When Paused off the full rate stays (%d frames in 3 s)" % q2)
+
+
 def radio_organigram(binary, root, scripts):
     """Radio mode: "<" shows the menu organigram (Main, its categories, the boxes of the open category); ENTER on Equalizer opens the equalizer."""
     home = os.path.join(root, "radioorg_home")
@@ -2698,7 +2727,7 @@ def run_scenario(name, binary, root, scripts):
 
 
 SCENARIOS = ["narrow80", "narrow100", "main", "read_lyrics_play", "karaoke_timing", "book_speed_and_devices", "paging_and_translit_row",
-             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "radio_organigram", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "translation_editor", "translation_create", "play_mode_back", "disk_border_setting", "translation_paste_undo", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key", "video_overlays", "video_pair_tags", "video_fetch_flow", "video_fetch_restore", "settings_video_preview", "video_files_tab", "video_library_modes", "video_fullscreen_sizes", "video_translation_tab", "organigram_menu", "scope_spectro_overlays", "radio_waterfall", "radio_station_edit"]
+             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "radio_organigram", "radio_idle_rate", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "translation_editor", "translation_create", "play_mode_back", "disk_border_setting", "translation_paste_undo", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key", "video_overlays", "video_pair_tags", "video_fetch_flow", "video_fetch_restore", "settings_video_preview", "video_files_tab", "video_library_modes", "video_fullscreen_sizes", "video_translation_tab", "organigram_menu", "scope_spectro_overlays", "radio_waterfall", "radio_station_edit"]
 
 
 def main():

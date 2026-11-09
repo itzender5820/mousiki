@@ -257,6 +257,7 @@ void load_player_mode_settings(RadioSettings& s);
 void save_player_mode_settings(const RadioSettings& s);
 // Black Background lives there too (BlackBackground=true|false, true when missing).
 bool player_black_background();
+bool player_reduce_motion();
 bool set_player_black_background(bool on);
 // Share Profiles lives there too (ShareProfiles=true|false, false when missing).
 bool player_share_profiles();

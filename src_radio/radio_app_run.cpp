@@ -438,6 +438,7 @@ void RadioApp::frame_tick() {
     if (!ui.model.scope_notice.empty() && ui.model.t_sec > ui.model.scope_notice_until) ui.model.scope_notice.clear();
     {   // history store, YouTube overlay and recording notices: once per frame
         const RadioStatus rs = engine.status();
+        off_air_now = rs.state == StreamState::Idle || rs.state == StreamState::Failed || rs.timeshift_paused;
         const long long now_unix = static_cast<long long>(std::time(nullptr));
         rhist.tick(rs, ui.model.dt, now_unix);
         HistoryModel& hm = ui.model.hmenu;
@@ -466,6 +467,8 @@ int RadioApp::interactive() {
     gfx = gfx_probe(cfg.gfx_protocol);
     ui.model.gfx_proto = gfx;
     next_frame = Clock::now();
+    last_input = next_frame;
+    reduce_motion = player_reduce_motion();   // ReduceMotionWhenPaused= in the player's config.txt, read once
     t0 = Clock::now();
     last = t0;
     // First start of the radio after an install: greet with the help wizard,
@@ -475,9 +478,11 @@ int RadioApp::interactive() {
     while (running) {
         frame_tick();
         int k;
+        const auto input_before = last_input;
 
         int menus_inject = 0;   // the key of the entry chosen in the MENUS index: handled next, as if it had just been typed
         while ((k = (menus_inject ? std::exchange(menus_inject, 0) : term.poll_key())) != 0) {
+            last_input = Clock::now();
             const bool arrow = last_key_was_arrow();
             const int nvis = static_cast<int>(ui.model.visible.size());
             KeyCtx kc{k, arrow, nvis, menus_inject};
@@ -497,6 +502,10 @@ int RadioApp::interactive() {
                 continue;
             key_main(kc);
         }
+
+        if (last_input != input_before) false_wakes = 0;   // a real key: waiting for input works
+        else if (woke_for_input) ++false_wakes;
+        woke_for_input = false;
 
         const auto now = Clock::now();
         ui.model.dt = std::chrono::duration<double>(now - last).count();
@@ -542,6 +551,9 @@ int RadioApp::interactive() {
                 const bool heal = now - last_full_frame > std::chrono::seconds(2);
                 std::string body;
                 for (size_t i = 0; i < frame.size(); ++i) { body += frame[i]; if (i + 1 < frame.size()) body += "\r\n"; }
+                still_frames = (body == last_body && !ui.model.gfx.active && !ui.model.gfx2.active && ui.model.spectro_area[0] < 0)
+                                   ? std::min(still_frames + 1, 1000) : 0;
+                last_body = body;
                 std::string d;
                 if (diff_frame_lines(body, prev_lines, d) && !cleared && !heal) out += d;
                 else { out += body; last_full_frame = now; }
@@ -576,10 +588,21 @@ int RadioApp::interactive() {
         }
         write_frame(out);
         // frame pacing: one frame every 1 / frame_rate seconds (the render time counts), never a burst to catch up
-        next_frame += std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0 / std::clamp(cfg.osci().frame_rate, 30, 165)));
+        int fps = std::clamp(cfg.osci().frame_rate, 30, 165);
+        // Reduce Motion When Paused, as in the player: off air (nothing tuned / paused), no key for 3 s, the wizard closed: 10 frames a
+        // second; when 20 of them in a row were the same, 4. A key ends the wait at once (and brings the full rate back).
+        const bool quiet = reduce_motion && off_air_now && !ui.model.wizard_open && Clock::now() - last_input > std::chrono::seconds(3);
+        if (quiet) fps = std::min(fps, still_frames >= 20 ? 4 : 10);
+        next_frame += std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0 / fps));
         const auto after = Clock::now();
         if (next_frame < after) next_frame = after;
-        std::this_thread::sleep_until(next_frame);
+        if (quiet && false_wakes < 3) {   // (the input signalling although there is no key: sleep, as before)
+            while (Clock::now() < next_frame) {
+                const int left = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(next_frame - Clock::now()).count()) + 1;
+                if (term.wait_input(std::min(left, 50))) { woke_for_input = true; break; }
+                false_wakes = 0;
+            }
+        } else std::this_thread::sleep_until(next_frame);
     }
     muisc::remote::stop();
     set_text_entry(false);
