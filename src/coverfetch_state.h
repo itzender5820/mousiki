@@ -54,6 +54,7 @@ struct CoverFetchState {
     std::atomic<bool> pending_ready{false};
     std::atomic<int> progress{0}, total{0};
     std::atomic<bool> scanning{false};
+    bool was_scanning = false;   // (cf_poll: the scan has just ended -- per App, the music player and the audio book each have their own)
     int untagged = 0;                       // tracks of the search without an album tag (not listed)
     std::thread fetch_thread;
     std::atomic<bool> fetch_running{false};

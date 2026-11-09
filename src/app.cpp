@@ -20,6 +20,7 @@
 #include "path_utf8.h"
 #include "utf8_util.h"
 #include "console_log.h"
+#include "video_timing.h"
 #include "karaoke_font.h"
 #include "glyph_raster.h"
 #include "chiptune.h"
@@ -1035,6 +1036,7 @@ void App::run_poll_terminal(TerminalIO& term, bool& gfx_shown) {
     for (int key = term.poll_key(); key != 0; key = term.poll_key()) {
         const bool in_settings = mode_ == Mode::Settings || mode_ == Mode::ColorEdit;
         if (in_settings) status_line_.clear();   // a message stays until the next key; then the "unsaved changes" note shows again
+        last_input_ = std::chrono::steady_clock::now();
         handle_key(key);
         if (mode_ == Mode::Settings || mode_ == Mode::ColorEdit) settings_update_dirty();
     }
@@ -1202,9 +1204,15 @@ int App::run() {
     unsigned long gfx_tick = 0;
 
 
+    int false_wakes = 0;           // wake-ups for input in a row that gave no key (see the wait at the end of the loop)
+    bool woke_for_input = false;
     while (!quit_) {
         const auto frame_start = std::chrono::steady_clock::now();
+        const auto input_before = last_input_;
         run_poll_terminal(term, gfx_shown);
+        if (last_input_ != input_before) false_wakes = 0;                    // a real key: waiting for input works
+        else if (woke_for_input) ++false_wakes;
+        woke_for_input = false;
         run_tick();
 
         // A layout bug on some odd terminal size (a negative width reaching a
@@ -1230,22 +1238,19 @@ int App::run() {
         // replaces the cells under it): the picture then flickers. Only the panel (and its preview picture) is live.
         bool sty_frozen = false;
         {
-            static std::string frozen_body;
-            static int frozen_cols = -1, frozen_rows = -1;
             const bool freeze = ((mode_ == Mode::MetaEdit && meta_->sty_from_main) || (mode_ == Mode::VideoSearch && vs_pic_ != 0) || (mode_ == Mode::VideoLink && vl_pic_ != 0)) && frame_main_len_ != std::string::npos && frame_main_len_ <= frame_str.size();   // (SEARCH YT with a thumbnail picture freezes the main screen too: the line writes of the live screen next to a Sixel picture wipe it)
             // (the look chosen in the panel is shown behind it at once: the frozen screen is taken again when the look changes)
             const std::string look_sig = std::to_string(eff_cover_mode()) + "|" + std::to_string(eff_cover_contrast()) + "|" + std::to_string(eff_cover_brightness()) + "|" +
                                          std::to_string(eff_cover_colors()) + "|" + std::to_string(eff_cover_chroma()) + "|" + (settings_.album_cover ? "a" : "d");
-            static std::string frozen_sig;
-            if (freeze && (frozen_body.empty() || frozen_cols != term.cols() || frozen_rows != term.rows() || frozen_sig != look_sig)) {
-                frozen_body = frame_str.substr(0, frame_main_len_);
-                frozen_cols = term.cols(); frozen_rows = term.rows();
-                frozen_sig = look_sig;
+            if (freeze && (frozen_body_.empty() || frozen_cols_ != term.cols() || frozen_rows_ != term.rows() || frozen_sig_ != look_sig)) {
+                frozen_body_ = frame_str.substr(0, frame_main_len_);
+                frozen_cols_ = term.cols(); frozen_rows_ = term.rows();
+                frozen_sig_ = look_sig;
             } else if (freeze) {
                 sty_frozen = true;
-                frame_str = frozen_body + frame_str.substr(frame_main_len_);
-                frame_main_len_ = frozen_body.size();
-            } else frozen_body.clear();
+                frame_str = frozen_body_ + frame_str.substr(frame_main_len_);
+                frame_main_len_ = frozen_body_.size();
+            } else frozen_body_.clear();
         }
         // Static screens (menus, settings, a paused player) produce the very
         // same bytes frame after frame; sending them again only gives the
@@ -1339,7 +1344,9 @@ int App::run() {
             if (gfx_ok_ && gfx_.active && gfx_proto_ != GfxProto::None) {
                 const bool visible = gfx_.crop < gfx_.cols;
                 if (visible && (gfx_.fresh || !gfx_shown)) {
+                    const auto enc0 = std::chrono::steady_clock::now();
                     wire += gfx_emit(gfx_proto_, gfx_);
+                    video_timing().encode_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - enc0).count();
                     gfx_shown = true;
                     // the oscilloscope picture covers its cells: the caption box goes on top of it again
                     if (caption_rect_[2] > 0 && !caption_text_.empty())
@@ -1397,7 +1404,27 @@ int App::run() {
         } else if (pv_spectro_gfx_.shown()) {
             wire = pv_spectro_gfx_.clear(sp_proto) + wire;
         }
-        if (!wire.empty()) write_frame(wire);
+        if (!wire.empty()) {
+            // a slow frame is written to the console log (a few lines a second at most) so a stutter can be told apart: the time spent
+            // building the frame, the time the terminal needed to take the data, and how much it was
+            const auto built = std::chrono::steady_clock::now();
+            const size_t wire_kib = wire.size() / 1024;
+            // a frame with a picture goes to the writer thread: the next frame is built while the terminal swallows this one
+            const bool async_write = gfx_.active && wire_kib >= 32 && write_frame_async_allowed();
+            if (async_write) write_frame_async(std::move(wire)); else write_frame(wire);
+            const auto done = std::chrono::steady_clock::now();
+            const double build_ms = std::chrono::duration<double, std::milli>(built - frame_start).count();
+            const double write_ms = std::chrono::duration<double, std::milli>(done - built).count();
+            static std::chrono::steady_clock::time_point last_slow{};
+            if ((build_ms > 40.0 || write_ms > 40.0 || (async_write && write_frame_last_ms() > 40.0)) && gfx_.active && done - last_slow >= std::chrono::milliseconds(400)) {
+                last_slow = done;
+                ConsoleLog::instance().log_basic("slow frame: built in " + std::to_string(static_cast<int>(build_ms)) + " ms, " + (async_write ? "waited " + std::to_string(static_cast<int>(write_ms)) + " ms for the writer (the terminal took " + std::to_string(static_cast<int>(write_frame_last_ms())) + " ms for the last frame), " : "the terminal took " + std::to_string(static_cast<int>(write_ms)) + " ms, ") +
+                                                 std::to_string(wire_kib) + " KiB (picture " + std::to_string(gfx_.w) + "x" + std::to_string(gfx_.h) + "; look " +
+                                                 std::to_string(static_cast<int>(video_timing().look_ms.load())) + " ms [grade " + std::to_string(static_cast<int>(video_timing().grade_ms.load())) + ", effect " +
+                                                 std::to_string(video_timing().fx.load()) + ": " + std::to_string(static_cast<int>(video_timing().fx_ms.load())) + ", threads " + std::to_string(video_timing().threads.load()) + "], colours " + std::to_string(static_cast<int>(video_timing().quant_ms.load())) + " ms, encoding " +
+                                                 std::to_string(static_cast<int>(video_timing().encode_ms.load())) + " ms)");
+            }
+        }
         // 25fps (was 12.5fps) — the 700ms waveform reveal animation only
         // got ~9 frames to work with at the old 80ms cadence, which
         // showed as a handful of visible ~11% jumps rather than a smooth
@@ -1405,11 +1432,34 @@ int App::run() {
         // visualizer's motion generally. Text-frame rendering is cheap
         // enough that doubling the rate here is not a meaningful CPU/
         // battery concern.
-        {   // sleep in short slices so a changed terminal size is picked up at once, not after a whole frame
-            const auto until = frame_start + std::chrono::microseconds(1000000 / std::max(1, settings_.osci().frame_rate));
+        {   // wait for the next frame; a key (or a changed terminal size) ends the wait at once
+            int fps = std::max(1, settings_.osci().frame_rate);
+            // Reduce Motion When Paused: nothing plays (or it is paused), nobody touched a key for a few seconds and the main screen is
+            // showing: about 10 frames a second are plenty for a slowly turning disk. Any key brings the full rate back (the wait below
+            // ends with it).
+            if (settings_.reduce_motion_paused && mode_ == Mode::Browse && (!has_track_ || player_.is_paused()) &&
+                std::chrono::steady_clock::now() - last_input_ > std::chrono::seconds(3))
+                fps = std::min(fps, 10);
+            // A video on the screen: the screen is looked at often enough to show every picture of the film when it is due. At the lowest frame
+            // rate (30) a 25 or 30 fps film beat against the screen's own rhythm and pictures were shown twice or skipped (not smooth).
+            if (settings_.video_mode && (settings_.video_view || video_full_) && has_track_ && !player_.is_paused() && video_.has_video())
+                fps = std::max(fps, 60);
+            const auto until = frame_start + std::chrono::microseconds(1000000 / fps);
             const int r0 = term.rows(), c0 = term.cols();
-            while (std::chrono::steady_clock::now() < until) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            // A frame is never shorter than ~5 ms, so a flood of input (mouse reports, a held key) cannot make the loop spin.
+            const auto floor_t = std::min(until, frame_start + std::chrono::milliseconds(5));
+            std::this_thread::sleep_until(floor_t);
+            while (true) {
+                const auto now = std::chrono::steady_clock::now();
+                if (now >= until) break;
+                if (false_wakes >= 3) {   // the input keeps signalling although there was no key to read: wait by sleeping, as before
+                    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                    if (term.rows() != r0 || term.cols() != c0) break;
+                    continue;
+                }
+                const int left = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(until - now).count()) + 1;
+                if (term.wait_input(std::min(left, 40))) { woke_for_input = true; break; }   // (in slices of at most 40 ms: the terminal size is looked at in between)
+                false_wakes = 0;                                                               // it did wait: input does not stay signalled
                 if (term.rows() != r0 || term.cols() != c0) break;
             }
         }
@@ -1435,6 +1485,7 @@ int App::run() {
     remote::stop();
     term.restore();
     shutdown();
+    write_frame_drain();
     std::cout << "\nbye.\n";
     return 0;
 }

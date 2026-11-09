@@ -1,4 +1,6 @@
 #include "video_player.h"
+#include "video_timing.h"
+#include <atomic>
 
 #include "console_log.h"
 #include "path_utf8.h"
@@ -45,12 +47,16 @@ inline float fx_luma(const uint8_t* p) { return 0.299f * p[0] + 0.587f * p[1] + 
 inline float fx_wave_y(const float* c) { return std::sqrt(0.299f * c[0] * c[0] + 0.587f * c[1] * c[1] + 0.114f * c[2] * c[2]); }
 // The wave's colour made equally bright along the whole wave (the dimmest of the three gradient colours sets the level), so a light
 // colour such as the purple does not light the picture up into bars: the wave changes the hue only, the picture's brightness stays.
-inline void fx_even_wave(const VideoFxGradient& g, float* c) {
+inline float fx_wave_lo(const VideoFxGradient& g) {   // (the dimmest of the three gradient colours: the same for every pixel of a frame)
     float lo = 255.0f;
     for (int i = 0; i < 3; ++i) { const float v[3] = {static_cast<float>(g.c[i][0]), static_cast<float>(g.c[i][1]), static_cast<float>(g.c[i][2])}; lo = std::min(lo, fx_wave_y(v)); }
+    return lo;
+}
+inline void fx_even_wave_lo(float lo, float* c) {
     const float y = fx_wave_y(c);
     if (y > lo && y > 1.0f) { const float k = std::max(lo, 80.0f) / y; if (k < 1.0f) for (int i = 0; i < 3; ++i) c[i] *= k; }
 }
+inline void fx_even_wave(const VideoFxGradient& g, float* c) { fx_even_wave_lo(fx_wave_lo(g), c); }
 
 // A picture made of f x f blocks, c channels of floats (for glows: they are blurred small and sampled smoothly, which is cheap and soft).
 struct FxSmall {
@@ -99,6 +105,34 @@ void fx_blur(FxSmall& s, int r, int passes) {
                 }
             }
 }
+// The pixel loops of the video looks are independent row by row (each reads the untouched copy of the frame and writes its own rows), so
+// the rows are shared between a few threads. A small picture (or a one-core machine) just runs in the calling thread.
+std::atomic<int> g_fx_threads{0};   // VideoPlayer::set_fx_threads()
+
+template <class F>
+void par_rows(int h, F&& fn) {
+    // threads for the looks: half of the cores, at most 4 (the decoder, the audio and the screen need some too); MOUSIKI_FX_THREADS=1 turns it off
+    static const int automatic = [] {
+        if (const char* e = std::getenv("MOUSIKI_FX_THREADS")) { const int v = std::atoi(e); if (v >= 1) return std::min(v, 16); }
+        return std::clamp(static_cast<int>(std::max(1u, std::thread::hardware_concurrency())) / 2, 1, 4);
+    }();
+    const int forced = g_fx_threads.load(std::memory_order_relaxed);
+    const int threads = forced > 0 ? forced : automatic;
+    const int n = std::min(threads, h / 32);
+    video_timing().threads = std::max(1, n);
+    if (n <= 1) { fn(0, h); return; }
+    std::vector<std::thread> pool;
+    pool.reserve(static_cast<size_t>(n));
+    int done = h;   // the rows from `done` on are done by the threads started; the first rows by this thread
+    for (int i = n - 1; i >= 1; --i) {
+        const int a = h * i / n, b = done;
+        try { pool.emplace_back([&fn, a, b] { fn(a, b); }); done = a; }
+        catch (...) { break; }   // no thread to be had: this thread takes those rows too
+    }
+    fn(0, done);
+    for (auto& t : pool) t.join();
+}
+
 // The value of channel k at the full-resolution pixel (x, y), smoothly (bilinear between the blocks).
 inline float fx_sample(const FxSmall& s, int k, int x, int y) {
     const float fx = (static_cast<float>(x) + 0.5f) / s.f - 0.5f, fy = (static_cast<float>(y) + 0.5f) / s.f - 0.5f;
@@ -108,6 +142,24 @@ inline float fx_sample(const FxSmall& s, int k, int x, int y) {
     auto v = [&](int xx, int yy) { return s.v[(static_cast<size_t>(yy) * s.w + xx) * s.c + k]; };
     return (v(x0, y0) * (1 - tx) + v(x1, y0) * tx) * (1 - ty) + (v(x0, y1) * (1 - tx) + v(x1, y1) * tx) * ty;
 }
+// The three channels at once (the position arithmetic is done once; the result is the same as three fx_sample() calls).
+inline void fx_sample3(const FxSmall& s, int x, int y, float* o) {
+    const float fx = (static_cast<float>(x) + 0.5f) / s.f - 0.5f, fy = (static_cast<float>(y) + 0.5f) / s.f - 0.5f;
+    const int x0 = std::clamp(static_cast<int>(std::floor(fx)), 0, s.w - 1), y0 = std::clamp(static_cast<int>(std::floor(fy)), 0, s.h - 1);
+    const int x1 = std::min(s.w - 1, x0 + 1), y1 = std::min(s.h - 1, y0 + 1);
+    const float tx = std::clamp(fx - static_cast<float>(x0), 0.0f, 1.0f), ty = std::clamp(fy - static_cast<float>(y0), 0.0f, 1.0f);
+    const float* a = &s.v[(static_cast<size_t>(y0) * s.w + x0) * s.c];
+    const float* b = &s.v[(static_cast<size_t>(y0) * s.w + x1) * s.c];
+    const float* c = &s.v[(static_cast<size_t>(y1) * s.w + x0) * s.c];
+    const float* d = &s.v[(static_cast<size_t>(y1) * s.w + x1) * s.c];
+    for (int k = 0; k < 3; ++k) o[k] = (a[k] * (1 - tx) + b[k] * tx) * (1 - ty) + (c[k] * (1 - tx) + d[k] * tx) * ty;
+}
+// x^e for x = luma / 255, as a table over the integer 299 r + 587 g + 114 b (what the luma is made of): a pow() per pixel costs more than the rest of the look.
+struct LumaPow {
+    std::vector<float> t;
+    explicit LumaPow(float e) : t(255001) { for (size_t i = 0; i < t.size(); ++i) t[i] = std::pow(static_cast<float>(i) / 255000.0f, e); }
+    float at(const uint8_t* p) const { return t[static_cast<size_t>(299 * p[0] + 587 * p[1] + 114 * p[2])]; }
+};
 // 8 x 8 Bayer threshold (0..63) built from the 4 x 4 one
 inline int fx_bayer8(int x, int y) {
     static const int q[2][2] = {{0, 2}, {3, 1}};
@@ -140,56 +192,74 @@ void VideoPlayer::apply_fx(VideoFrame& f, int fx, double t, bool braille, const 
     if (fx == 1) {   // scanlines: a beam that is narrower on bright lines, a glow around bright spots, a slow refresh bar, a faint flicker
         const float depth = braille ? 0.34f : 0.50f;
         // the bright pass of the picture, softened sideways: the glow (bloom) that bleeds into the dark gaps
-        std::vector<float> glow(static_cast<size_t>(w) * h);
-        for (int y = 0; y < h; ++y)
-            for (int x = 0; x < w; ++x) {
-                float acc = 0.0f;
-                for (int k = -2; k <= 2; ++k) {
-                    const int xx = std::clamp(x + k, 0, w - 1);
-                    const uint8_t* q = &src[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(xx)];
-                    const float lum = 0.299f * q[0] + 0.587f * q[1] + 0.114f * q[2];
-                    acc += std::max(0.0f, lum - 150.0f) * (k == 0 ? 0.36f : std::abs(k) == 1 ? 0.24f : 0.08f);
+        std::vector<float> glow(static_cast<size_t>(w) * h), lumv(static_cast<size_t>(w) * h);
+        par_rows(h, [&](int ry0, int ry1) {
+            for (int y = ry0; y < ry1; ++y) {
+                const uint8_t* r = &src[static_cast<size_t>(y) * stride];
+                float* lv = &lumv[static_cast<size_t>(y) * w];
+                for (int x = 0; x < w; ++x) lv[x] = 0.299f * r[3 * x] + 0.587f * r[3 * x + 1] + 0.114f * r[3 * x + 2];   // (the luma of every pixel once, not five times)
+                float* gl = &glow[static_cast<size_t>(y) * w];
+                for (int x = 0; x < w; ++x) {
+                    float acc = 0.0f;
+                    for (int k = -2; k <= 2; ++k) {
+                        const float lum = lv[std::clamp(x + k, 0, w - 1)];
+                        acc += std::max(0.0f, lum - 150.0f) * (k == 0 ? 0.36f : std::abs(k) == 1 ? 0.24f : 0.08f);
+                    }
+                    gl[x] = acc;
                 }
-                glow[static_cast<size_t>(y) * w + x] = acc;
             }
+        });
         const float bar_y = (1.0f - std::fmod(static_cast<float>(t) * 0.07f, 1.0f)) * h;   // the refresh bar climbs the picture
         const float bar_h = std::max(4.0f, h * 0.22f);
         const float flick = 1.0f + 0.010f * std::sin(static_cast<float>(t) * 31.0f);
-        for (int y = 0; y < h; ++y) {
-            const float ph = static_cast<float>(y % period) / static_cast<float>(period);
-            const float gap = 0.5f - 0.5f * std::cos(ph * 6.2831853f);   // 0 on the beam row, 1 in the middle of the gap
-            const float bd = std::fabs(static_cast<float>(y) - bar_y);
-            const float bar = bd < bar_h ? 1.0f - 0.16f * (0.5f + 0.5f * std::cos(bd / bar_h * 3.14159265f)) : 1.0f;
-            for (int x = 0; x < w; ++x) {
-                const uint8_t* q = &src[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)];
-                const float lum = (0.299f * q[0] + 0.587f * q[1] + 0.114f * q[2]) / 255.0f;
-                const float d = depth * gap * (1.0f - 0.55f * lum);   // a bright line has a wider beam: its gap is less dark
-                const float g = glow[static_cast<size_t>(y) * w + x] * (0.55f + 0.45f * gap);   // the glow shows most in the gaps
-                for (int c = 0; c < 3; ++c) {
-                    const float v = (q[c] * (1.0f - d) * (1.0f + depth * 0.22f * (1.0f - gap)) + g * (c == 2 ? 0.9f : 1.0f)) * bar * flick;
-                    px[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x) + static_cast<size_t>(c)] = fx_clamp(v);
+        par_rows(h, [&](int ry0, int ry1) {
+            for (int y = ry0; y < ry1; ++y) {
+                const float ph = static_cast<float>(y % period) / static_cast<float>(period);
+                const float gap = 0.5f - 0.5f * std::cos(ph * 6.2831853f);   // 0 on the beam row, 1 in the middle of the gap
+                const float bd = std::fabs(static_cast<float>(y) - bar_y);
+                const float bar = bd < bar_h ? 1.0f - 0.16f * (0.5f + 0.5f * std::cos(bd / bar_h * 3.14159265f)) : 1.0f;
+                for (int x = 0; x < w; ++x) {
+                    const uint8_t* q = &src[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)];
+                    const float lum = (0.299f * q[0] + 0.587f * q[1] + 0.114f * q[2]) / 255.0f;
+                    const float d = depth * gap * (1.0f - 0.55f * lum);   // a bright line has a wider beam: its gap is less dark
+                    const float g = glow[static_cast<size_t>(y) * w + x] * (0.55f + 0.45f * gap);   // the glow shows most in the gaps
+                    for (int c = 0; c < 3; ++c) {
+                        const float v = (q[c] * (1.0f - d) * (1.0f + depth * 0.22f * (1.0f - gap)) + g * (c == 2 ? 0.9f : 1.0f)) * bar * flick;
+                        px[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x) + static_cast<size_t>(c)] = fx_clamp(v);
+                    }
                 }
             }
-        }
+        });
     } else if (fx == 2) {   // crt
         const float depth = braille ? 0.30f : 0.40f;
         const bool mask = !braille && w >= 160;   // the RGB stripes need pixels to be seen
+        static const std::vector<float> kTube = [] { std::vector<float> t(4097); for (size_t i = 0; i < t.size(); ++i) t[i] = 255.0f * std::pow(static_cast<float>(i) / 4096.0f, 1.08f); return t; }();   // (the tube's gamma, a table with interpolation)
         const float flick = 1.0f + 0.012f * std::sin(static_cast<float>(t) * 47.0f) + 0.008f * (fx_rand(tick, 3) - 0.5f);
-        for (int y = 0; y < h; ++y) {
-            const float dy = (static_cast<float>(y) + 0.5f) / h * 2.0f - 1.0f;
-            const float line = beam(y, depth) * (1.0f + depth * 0.30f);
-            for (int x = 0; x < w; ++x) {
-                const float dx = (static_cast<float>(x) + 0.5f) / w * 2.0f - 1.0f;
-                const float vig = 1.0f - 0.34f * std::pow(std::fabs(dx), 2.6f) - 0.30f * std::pow(std::fabs(dy), 2.6f) - 0.10f * dx * dx * dy * dy;
-                for (int c = 0; c < 3; ++c) {
-                    float v = braille ? static_cast<float>(src[static_cast<size_t>(y) * stride + 3 * x + c]) : soft_sample(x, y, c);
-                    if (mask) v *= (x % 3 == c) ? 1.08f : 0.86f;   // the phosphor stripe of this colour is lit, the other two are dim
-                    // a touch more contrast, like a tube's gamma
-                    v = 255.0f * std::pow(std::clamp(v / 255.0f, 0.0f, 1.0f), 1.08f);
-                    px[static_cast<size_t>(y) * stride + 3 * x + c] = fx_clamp(v * line * std::max(0.35f, vig) * flick);
+        // the vignette's two powers depend on x alone and on y alone: computed once per column / row instead of once per pixel
+        std::vector<float> vx(static_cast<size_t>(w)), vy(static_cast<size_t>(h));
+        for (int x = 0; x < w; ++x) vx[static_cast<size_t>(x)] = std::pow(std::fabs((static_cast<float>(x) + 0.5f) / w * 2.0f - 1.0f), 2.6f);
+        for (int y = 0; y < h; ++y) vy[static_cast<size_t>(y)] = std::pow(std::fabs((static_cast<float>(y) + 0.5f) / h * 2.0f - 1.0f), 2.6f);
+        par_rows(h, [&](int ry0, int ry1) {
+            for (int y = ry0; y < ry1; ++y) {
+                const float dy = (static_cast<float>(y) + 0.5f) / h * 2.0f - 1.0f;
+                const float line = beam(y, depth) * (1.0f + depth * 0.30f);
+                for (int x = 0; x < w; ++x) {
+                    const float dx = (static_cast<float>(x) + 0.5f) / w * 2.0f - 1.0f;
+                    const float vig = 1.0f - 0.34f * vx[static_cast<size_t>(x)] - 0.30f * vy[static_cast<size_t>(y)] - 0.10f * dx * dx * dy * dy;
+                    for (int c = 0; c < 3; ++c) {
+                        float v = braille ? static_cast<float>(src[static_cast<size_t>(y) * stride + 3 * x + c]) : soft_sample(x, y, c);
+                        if (mask) v *= (x % 3 == c) ? 1.08f : 0.86f;   // the phosphor stripe of this colour is lit, the other two are dim
+                        // a touch more contrast, like a tube's gamma
+                        {
+                            const float pos = std::clamp(v / 255.0f, 0.0f, 1.0f) * 4096.0f;
+                            const int i = std::min(4095, static_cast<int>(pos));
+                            v = kTube[static_cast<size_t>(i)] + (kTube[static_cast<size_t>(i) + 1] - kTube[static_cast<size_t>(i)]) * (pos - static_cast<float>(i));
+                        }
+                        px[static_cast<size_t>(y) * stride + 3 * x + c] = fx_clamp(v * line * std::max(0.35f, vig) * flick);
+                    }
                 }
             }
-        }
+        });
     } else if (fx == 3) {   // vhs
         const int split = std::max(1, w / 180);
         const float band_y = std::fmod(static_cast<float>(t) * 0.11f, 1.0f) * h;   // the tracking band rolls up the picture
@@ -243,50 +313,57 @@ void VideoPlayer::apply_fx(VideoFrame& f, int fx, double t, bool braille, const 
     } else if (fx == 6) {   // gradient: a slow diagonal wave in the gradient colours, from the upper left to the lower right
         const VideoFxGradient g = grad ? *grad : VideoFxGradient();
         const float shift = static_cast<float>(t) * 0.10f;
-        for (int y = 0; y < h; ++y)
-            for (int x = 0; x < w; ++x) {
-                const float p = (static_cast<float>(x) / w + static_cast<float>(y) / h) * 0.5f;   // 0 upper left .. 1 lower right
-                float u = std::fmod(p * 1.25f - shift, 1.0f);   // the wave travels towards the lower right
-                if (u < 0.0f) u += 1.0f;
-                const float k = 1.0f - std::fabs(2.0f * u - 1.0f);   // there and back: left colour - centre - right colour - centre ...
-                const float pos = k * 2.0f;
-                const int i0 = std::min(1, static_cast<int>(pos));
-                const float fr = pos - static_cast<float>(i0);
-                const uint8_t* s = &src[static_cast<size_t>(y) * stride + 3 * x];
-                const float lum = (0.299f * s[0] + 0.587f * s[1] + 0.114f * s[2]) / 255.0f;
-                // The wave's colour only goes through the light parts: the shade follows the brightness, a dark area stays dark (no grey
-                // wash of the original is mixed in), so the dark parts of the picture do not turn into big coloured bands.
-                const float shade = braille ? 1.10f * lum : 1.12f * std::pow(lum, 1.15f);
-                float wcol[3];
-                for (int c = 0; c < 3; ++c) {
-                    wcol[c] = g.c[i0][c] * (1.0f - fr) + g.c[i0 + 1][c] * fr;
+        const float wave_lo = fx_wave_lo(g);   // (the same for every pixel of the frame)
+        static const LumaPow kShade(1.15f);
+        par_rows(h, [&](int ry0, int ry1) {
+            for (int y = ry0; y < ry1; ++y)
+                for (int x = 0; x < w; ++x) {
+                    const float p = (static_cast<float>(x) / w + static_cast<float>(y) / h) * 0.5f;   // 0 upper left .. 1 lower right
+                    float u = p * 1.25f - shift; u -= std::trunc(u);   // (the remainder of a division by 1: exact, and much cheaper than fmod)   // the wave travels towards the lower right
+                    if (u < 0.0f) u += 1.0f;
+                    const float k = 1.0f - std::fabs(2.0f * u - 1.0f);   // there and back: left colour - centre - right colour - centre ...
+                    const float pos = k * 2.0f;
+                    const int i0 = std::min(1, static_cast<int>(pos));
+                    const float fr = pos - static_cast<float>(i0);
+                    const uint8_t* s = &src[static_cast<size_t>(y) * stride + 3 * x];
+                    const float lum = (0.299f * s[0] + 0.587f * s[1] + 0.114f * s[2]) / 255.0f;
+                    // The wave's colour only goes through the light parts: the shade follows the brightness, a dark area stays dark (no grey
+                    // wash of the original is mixed in), so the dark parts of the picture do not turn into big coloured bands.
+                    const float shade = braille ? 1.10f * lum : 1.12f * kShade.at(s);
+                    float wcol[3];
+                    for (int c = 0; c < 3; ++c) {
+                        wcol[c] = g.c[i0][c] * (1.0f - fr) + g.c[i0 + 1][c] * fr;
+                    }
+                    fx_even_wave_lo(wave_lo, wcol);
+                    for (int c = 0; c < 3; ++c) px[static_cast<size_t>(y) * stride + 3 * x + c] = fx_clamp(wcol[c] * shade);
                 }
-                fx_even_wave(g, wcol);
-                for (int c = 0; c < 3; ++c) px[static_cast<size_t>(y) * stride + 3 * x + c] = fx_clamp(wcol[c] * shade);
-            }
+        });
     } else if (fx == 8 || fx == 9) {   // phosphor: a monochrome tube (green or amber) with a glow around the bright parts
         const float tr = fx == 8 ? 60.0f : 255.0f, tg = fx == 8 ? 255.0f : 170.0f, tb = fx == 8 ? 100.0f : 30.0f;
         const int f = braille ? 1 : std::max(1, w / 200);
         FxSmall glow = fx_small(w, h, f, 1, [&](int x, int y, float* o) { o[0] = std::max(0.0f, fx_luma(&src[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)]) / 255.0f - 0.35f) / 0.65f; });
         fx_blur(glow, braille ? 1 : 2, 2);
         const float flick = 1.0f + 0.010f * std::sin(static_cast<float>(t) * 53.0f) + 0.006f * (fx_rand(tick, 5) - 0.5f);
-        for (int y = 0; y < h; ++y) {
-            const float dy = (static_cast<float>(y) + 0.5f) / h * 2.0f - 1.0f;
-            const float line = beam(y, braille ? 0.22f : 0.36f);
-            for (int x = 0; x < w; ++x) {
-                const float dx = (static_cast<float>(x) + 0.5f) / w * 2.0f - 1.0f;
-                const float vig = 1.0f - 0.26f * std::pow(std::fabs(dx), 2.4f) - 0.22f * std::pow(std::fabs(dy), 2.4f);
-                const float l = fx_luma(&src[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)]) / 255.0f;
-                float v = std::pow(l, 1.12f) * 0.92f + fx_sample(glow, 0, x, y) * 0.55f;
-                v *= line * std::max(0.4f, vig) * flick;
-                const float hot = std::max(0.0f, v - 0.85f) * 1.6f;   // the hottest spots burn towards white
-                uint8_t* q = &px[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)];
-                const float k = std::min(v, 1.0f);
-                q[0] = fx_clamp(4.0f + tr * k + 255.0f * hot * 0.45f);
-                q[1] = fx_clamp(8.0f + tg * k + 255.0f * hot * 0.45f);
-                q[2] = fx_clamp(5.0f + tb * k + 255.0f * hot * 0.45f);
+        std::vector<float> vx(static_cast<size_t>(w)), vy(static_cast<size_t>(h));   // the vignette's powers, per column / row
+        for (int x = 0; x < w; ++x) vx[static_cast<size_t>(x)] = std::pow(std::fabs((static_cast<float>(x) + 0.5f) / w * 2.0f - 1.0f), 2.4f);
+        for (int y = 0; y < h; ++y) vy[static_cast<size_t>(y)] = std::pow(std::fabs((static_cast<float>(y) + 0.5f) / h * 2.0f - 1.0f), 2.4f);
+        static const LumaPow kPhos(1.12f);
+        par_rows(h, [&](int ry0, int ry1) {
+            for (int y = ry0; y < ry1; ++y) {
+                const float line = beam(y, braille ? 0.22f : 0.36f);
+                for (int x = 0; x < w; ++x) {
+                    const float vig = 1.0f - 0.26f * vx[static_cast<size_t>(x)] - 0.22f * vy[static_cast<size_t>(y)];
+                    float v = kPhos.at(&src[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)]) * 0.92f + fx_sample(glow, 0, x, y) * 0.55f;
+                    v *= line * std::max(0.4f, vig) * flick;
+                    const float hot = std::max(0.0f, v - 0.85f) * 1.6f;   // the hottest spots burn towards white
+                    uint8_t* q = &px[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)];
+                    const float k = std::min(v, 1.0f);
+                    q[0] = fx_clamp(4.0f + tr * k + 255.0f * hot * 0.45f);
+                    q[1] = fx_clamp(8.0f + tg * k + 255.0f * hot * 0.45f);
+                    q[2] = fx_clamp(5.0f + tb * k + 255.0f * hot * 0.45f);
+                }
             }
-        }
+        });
     } else if (fx == 10) {   // halftone: newsprint, ink dots on a 45 degree grid whose size follows the darkness
         const float cs = braille ? 3.0f : std::max(3.5f, static_cast<float>(h) / 64.0f);
         const float ca = 0.70710678f, sa = 0.70710678f, aa = 0.9f / cs;
@@ -300,25 +377,33 @@ void VideoPlayer::apply_fx(VideoFrame& f, int fx, double t, bool braille, const 
                 }
             for (int k = 0; k < 3; ++k) o[k] = a[k] / static_cast<float>(n);
         };
-        for (int y = 0; y < h; ++y)
-            for (int x = 0; x < w; ++x) {
-                const float u = (static_cast<float>(x) * ca + static_cast<float>(y) * sa) / cs, v = (-static_cast<float>(x) * sa + static_cast<float>(y) * ca) / cs;
-                const float cu = std::floor(u) + 0.5f, cv = std::floor(v) + 0.5f;
-                const float du = u - cu, dv = v - cv, d = std::sqrt(du * du + dv * dv);
-                const int xc = std::clamp(static_cast<int>((cu * ca - cv * sa) * cs), 0, w - 1), yc = std::clamp(static_cast<int>((cu * sa + cv * ca) * cs), 0, h - 1);
-                float c[3];
-                sample(xc, yc, c);
-                const float lum = (0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2]) / 255.0f;
-                const float cov = std::clamp(1.0f - std::pow(lum, 0.95f), 0.0f, 1.0f);
-                const float r = std::sqrt(cov) * 0.72f;
-                const float ink = 1.0f - fx_smooth(r - aa, r + aa, d);
-                uint8_t* q = &px[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)];
-                for (int k = 0; k < 3; ++k) {
-                    const float paper = (k == 0 ? 243.0f : k == 1 ? 238.0f : 224.0f) * 0.84f + c[k] * 0.16f;   // warm paper with a hint of the picture
-                    q[k] = fx_clamp(paper * (1.0f - ink) + c[k] * 0.50f * ink);
+        par_rows(h, [&](int ry0, int ry1) {
+            for (int y = ry0; y < ry1; ++y) {
+                // everything but the distance to the dot's centre belongs to the dot (its cell): worked out once per dot, not per pixel
+                float cu_last = 1e30f, cv_last = 1e30f, c[3] = {0, 0, 0}, r = 0.0f;
+                for (int x = 0; x < w; ++x) {
+                    const float u = (static_cast<float>(x) * ca + static_cast<float>(y) * sa) / cs, v = (-static_cast<float>(x) * sa + static_cast<float>(y) * ca) / cs;
+                    const float cu = std::floor(u) + 0.5f, cv = std::floor(v) + 0.5f;
+                    const float du = u - cu, dv = v - cv, d = std::sqrt(du * du + dv * dv);
+                    if (cu != cu_last || cv != cv_last) {
+                        cu_last = cu; cv_last = cv;
+                        const int xc = std::clamp(static_cast<int>((cu * ca - cv * sa) * cs), 0, w - 1), yc = std::clamp(static_cast<int>((cu * sa + cv * ca) * cs), 0, h - 1);
+                        sample(xc, yc, c);
+                        const float lum = (0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2]) / 255.0f;
+                        const float cov = std::clamp(1.0f - std::pow(lum, 0.95f), 0.0f, 1.0f);
+                        r = std::sqrt(cov) * 0.72f;
+                    }
+                    const float ink = 1.0f - fx_smooth(r - aa, r + aa, d);
+                    uint8_t* q = &px[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)];
+                    for (int k = 0; k < 3; ++k) {
+                        const float paper = (k == 0 ? 243.0f : k == 1 ? 238.0f : 224.0f) * 0.84f + c[k] * 0.16f;   // warm paper with a hint of the picture
+                        q[k] = fx_clamp(paper * (1.0f - ink) + c[k] * 0.50f * ink);
+                    }
                 }
             }
-    } else if (fx == 11 || fx == 21 || fx == 22) {   // dither: a one-bit picture, ordered (Bayer) dots in two inks (21: plain black and white, 22: black and the gradient wave)
+        });
+    } else if (fx == 21 || fx == 22) {   // dither: a one-bit picture, ordered (Bayer) dots in two inks (21: plain black and white, 22: black and the gradient wave); 11 and 14 (Bloom) are no longer offered and do nothing
+
         const VideoFxGradient dg = grad ? *grad : VideoFxGradient();
         const int bs = (!braille && h >= 240) ? 2 : 1;
         // Local contrast: a detailed picture came out as a few big black and white areas, because one global curve decides every dot. The
@@ -335,76 +420,88 @@ void VideoPlayer::apply_fx(VideoFrame& f, int fx, double t, bool braille, const 
                 }
             }
             const int rad = std::max(3, w / 40);
-            for (int y = 0; y < h; ++y)
-                for (int x = 0; x < w; ++x) {
-                    const int x0 = std::max(0, x - rad), x1 = std::min(w, x + rad + 1), y0 = std::max(0, y - rad), y1 = std::min(h, y + rad + 1);
-                    const double sum = ii[static_cast<size_t>(y1) * (w + 1) + x1] - ii[static_cast<size_t>(y0) * (w + 1) + x1] - ii[static_cast<size_t>(y1) * (w + 1) + x0] + ii[static_cast<size_t>(y0) * (w + 1) + x0];
-                    lm[static_cast<size_t>(y) * w + x] = static_cast<float>(sum / (static_cast<double>(x1 - x0) * (y1 - y0)));
-                }
-        }
-        for (int y = 0; y < h; ++y)
-            for (int x = 0; x < w; ++x) {
-                const int bx = x / bs, by = y / bs;
-                const int sx = std::min(w - 1, bx * bs + bs / 2), sy = std::min(h - 1, by * bs + bs / 2);
-                float l = fx_luma(&src[static_cast<size_t>(sy) * stride + 3 * static_cast<size_t>(sx)]) / 255.0f;
-                const float mean = lm[static_cast<size_t>(sy) * w + sx];
-                l += 1.1f * (l - mean) * std::clamp(mean / 0.18f, 0.0f, 1.0f);
-                const float thr = (static_cast<float>(fx_bayer8(bx, by)) + 0.5f) / 64.0f;
-                const bool on = std::pow(std::clamp((l - 0.5f) * 1.12f + 0.5f, 0.0f, 1.0f), 1.2f) > thr;
-                uint8_t* q = &px[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)];
-                if (fx == 22) {   // the light dots take the colour of the wave there, the dark ones stay black
-                    float wc[3] = {0, 0, 0};
-                    if (on) {
-                        const float p = (static_cast<float>(sx) / w + static_cast<float>(sy) / h) * 0.5f;
-                        float u = std::fmod(p * 1.25f - static_cast<float>(t) * 0.10f, 1.0f);
-                        if (u < 0.0f) u += 1.0f;
-                        const float pos = (1.0f - std::fabs(2.0f * u - 1.0f)) * 2.0f;
-                        const int i0 = std::min(1, static_cast<int>(pos));
-                        const float fr = pos - static_cast<float>(i0);
-                        for (int k = 0; k < 3; ++k) wc[k] = dg.c[i0][k] * (1.0f - fr) + dg.c[i0 + 1][k] * fr;
-                        fx_even_wave(dg, wc);
+            par_rows(h, [&](int ry0, int ry1) {
+                for (int y = ry0; y < ry1; ++y)
+                    for (int x = 0; x < w; ++x) {
+                        const int x0 = std::max(0, x - rad), x1 = std::min(w, x + rad + 1), y0 = std::max(0, y - rad), y1 = std::min(h, y + rad + 1);
+                        const double sum = ii[static_cast<size_t>(y1) * (w + 1) + x1] - ii[static_cast<size_t>(y0) * (w + 1) + x1] - ii[static_cast<size_t>(y1) * (w + 1) + x0] + ii[static_cast<size_t>(y0) * (w + 1) + x0];
+                        lm[static_cast<size_t>(y) * w + x] = static_cast<float>(sum / (static_cast<double>(x1 - x0) * (y1 - y0)));
                     }
-                    for (int k = 0; k < 3; ++k) q[k] = fx_clamp(wc[k]);
-                } else if (fx == 21) q[0] = q[1] = q[2] = on ? 255 : 0;
-                else { q[0] = on ? 236 : 14; q[1] = on ? 238 : 16; q[2] = on ? 226 : 28; }
-            }
-    } else if (fx == 12 || fx == 18 || fx == 20 || fx == 23 || fx == 24) {   // game boy (20: the four shades are the gradient wave's colour in four brightnesses): four greens, in a coarse grid with a light dither (18: low-res, big blocks)
-        const bool low = fx == 18 || fx == 24;
+            });
+        }
+        float thr_on[64];   // pow(v, 1.2) > thr  <=>  v > thr^(1/1.2): the power is taken of the 64 thresholds, not of every pixel
+        for (int i = 0; i < 64; ++i) thr_on[i] = std::pow((static_cast<float>(i) + 0.5f) / 64.0f, 1.0f / 1.2f);
+        const float dwave_lo = fx_wave_lo(dg);
+        par_rows(h, [&](int ry0, int ry1) {
+            for (int y = ry0; y < ry1; ++y)
+                for (int x = 0; x < w; ++x) {
+                    const int bx = x / bs, by = y / bs;
+                    const int sx = std::min(w - 1, bx * bs + bs / 2), sy = std::min(h - 1, by * bs + bs / 2);
+                    float l = fx_luma(&src[static_cast<size_t>(sy) * stride + 3 * static_cast<size_t>(sx)]) / 255.0f;
+                    const float mean = lm[static_cast<size_t>(sy) * w + sx];
+                    l += 1.1f * (l - mean) * std::clamp(mean / 0.18f, 0.0f, 1.0f);
+                    const bool on = std::clamp((l - 0.5f) * 1.12f + 0.5f, 0.0f, 1.0f) > thr_on[fx_bayer8(bx, by)];
+                    uint8_t* q = &px[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)];
+                    if (fx == 22) {   // the light dots take the colour of the wave there, the dark ones stay black
+                        float wc[3] = {0, 0, 0};
+                        if (on) {
+                            const float p = (static_cast<float>(sx) / w + static_cast<float>(sy) / h) * 0.5f;
+                            float u = p * 1.25f - static_cast<float>(t) * 0.10f; u -= std::trunc(u);   // (the remainder of a division by 1: exact, and much cheaper than fmod)
+                            if (u < 0.0f) u += 1.0f;
+                            const float pos = (1.0f - std::fabs(2.0f * u - 1.0f)) * 2.0f;
+                            const int i0 = std::min(1, static_cast<int>(pos));
+                            const float fr = pos - static_cast<float>(i0);
+                            for (int k = 0; k < 3; ++k) wc[k] = dg.c[i0][k] * (1.0f - fr) + dg.c[i0 + 1][k] * fr;
+                            fx_even_wave_lo(dwave_lo, wc);
+                        }
+                        for (int k = 0; k < 3; ++k) q[k] = fx_clamp(wc[k]);
+                    } else q[0] = q[1] = q[2] = on ? 255 : 0;
+                }
+        });
+    } else if (fx == 12 || fx == 18 || fx == 20 || fx == 23 || fx == 24 || fx == 25) {   // game boy (20, 25: the four shades are the gradient wave's colour in four brightnesses): four greens, in a coarse grid with a light dither (18, 24, 25: low-res, big blocks)
+        const bool low = fx == 18 || fx == 24 || fx == 25;
+        const bool waved = fx == 20 || fx == 25;
         const int pal0 = (fx == 23 || fx == 24) ? 4 : 0;   // (the black and white version: the shades 4 .. 7 of kGameBoy)
         const VideoFxGradient gg = grad ? *grad : VideoFxGradient();
+        const float wave_lo = fx_wave_lo(gg);
         static const float kShadeK[4] = {0.0f, 0.42f, 0.72f, 1.0f};   // (the darkest shade is black: the wave only runs through the light shades)
         auto wave_at = [&](int x, int y, float* o) {
             const float p = (static_cast<float>(x) / w + static_cast<float>(y) / h) * 0.5f;
-            float u = std::fmod(p * 1.25f - static_cast<float>(t) * 0.10f, 1.0f);
+            float u = p * 1.25f - static_cast<float>(t) * 0.10f; u -= std::trunc(u);   // (the remainder of a division by 1: exact, and much cheaper than fmod)
             if (u < 0.0f) u += 1.0f;
             const float pos = (1.0f - std::fabs(2.0f * u - 1.0f)) * 2.0f;
             const int i0 = std::min(1, static_cast<int>(pos));
             const float fr = pos - static_cast<float>(i0);
             for (int k = 0; k < 3; ++k) o[k] = gg.c[i0][k] * (1.0f - fr) + gg.c[i0 + 1][k] * fr;
-            fx_even_wave(gg, o);
+            fx_even_wave_lo(wave_lo, o);
         };
         const int bs = low ? (braille ? 2 : std::max(3, static_cast<int>(std::lround(w / 160.0))))
                            : (braille ? 1 : std::max(2, static_cast<int>(std::lround(w / 320.0))));
-        for (int by = 0; by < h; by += bs)
-            for (int bx = 0; bx < w; bx += bs) {
-                const int x1 = std::min(w, bx + bs), y1 = std::min(h, by + bs);
-                float sum = 0.0f;
-                for (int y = by; y < y1; ++y)
-                    for (int x = bx; x < x1; ++x) sum += fx_luma(&src[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)]);
-                float l = sum / (static_cast<float>((x1 - bx) * (y1 - by)) * 255.0f);
-                l = std::clamp((l - 0.5f) * 1.18f + 0.5f, 0.0f, 1.0f);   // a little more contrast: four shades are few
-                l = std::pow(l, 1.35f);   // and the dark half goes to the dark shades: shadows are not made lighter
-                const float d = (static_cast<float>(kBayer4[(by / bs) & 3][(bx / bs) & 3]) / 15.0f - 0.5f) * 0.22f;
-                const int idx = std::clamp(static_cast<int>(std::floor((l + d) * 4.0f)), 0, 3);
-                float wc[3] = {0, 0, 0};
-                if (fx == 20) wave_at(std::min(w - 1, bx + bs / 2), std::min(h - 1, by + bs / 2), wc);
-                for (int y = by; y < y1; ++y)
-                    for (int x = bx; x < x1; ++x) {
-                        const bool gap = false;   // (no LCD gap any more: its grid of lines came out as squares in the 240-colour palette)
-                        uint8_t* q = &px[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)];
-                        for (int k = 0; k < 3; ++k) q[k] = fx_clamp((fx == 20 ? wc[k] * kShadeK[idx] : kGameBoy[pal0 + idx][k]) * (gap ? 0.86f : 1.0f));
+        const int block_rows = (h + bs - 1) / bs;
+        par_rows(block_rows, [&](int br0, int br1) {   // (the blocks are independent: each reads the untouched copy and writes its own pixels)
+            for (int br = br0; br < br1; ++br) {
+                const int by = br * bs;
+                for (int bx = 0; bx < w; bx += bs) {
+                    const int x1 = std::min(w, bx + bs), y1 = std::min(h, by + bs);
+                    float sum = 0.0f;
+                    for (int y = by; y < y1; ++y)
+                        for (int x = bx; x < x1; ++x) sum += fx_luma(&src[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)]);
+                    float l = sum / (static_cast<float>((x1 - bx) * (y1 - by)) * 255.0f);
+                    l = std::clamp((l - 0.5f) * 1.18f + 0.5f, 0.0f, 1.0f);   // a little more contrast: four shades are few
+                    l = std::pow(l, 1.35f);   // and the dark half goes to the dark shades: shadows are not made lighter
+                    const float d = (static_cast<float>(kBayer4[(by / bs) & 3][(bx / bs) & 3]) / 15.0f - 0.5f) * 0.22f;
+                    const int idx = std::clamp(static_cast<int>(std::floor((l + d) * 4.0f)), 0, 3);
+                    float wc[3] = {0, 0, 0};
+                    if (waved) wave_at(std::min(w - 1, bx + bs / 2), std::min(h - 1, by + bs / 2), wc);
+                    uint8_t col[3];   // (the colour of the block: worked out once, not for every pixel of it)
+                    for (int k = 0; k < 3; ++k) col[k] = fx_clamp(waved ? wc[k] * kShadeK[idx] : kGameBoy[pal0 + idx][k]);
+                    for (int y = by; y < y1; ++y) {
+                        uint8_t* q = &px[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(bx)];
+                        for (int x = bx; x < x1; ++x, q += 3) { q[0] = col[0]; q[1] = col[1]; q[2] = col[2]; }
                     }
+                }
             }
+        });
     } else if (fx == 13) {   // ega 16: the 16 colours of the old PC graphics, ordered dither
         const int bs = (!braille && h >= 300) ? 2 : 1;
         for (int by = 0; by < h; by += bs)
@@ -430,25 +527,6 @@ void VideoPlayer::apply_fx(VideoFrame& f, int fx, double t, bool braille, const 
                         q[0] = kEga[best][0]; q[1] = kEga[best][1]; q[2] = kEga[best][2];
                     }
             }
-    } else if (fx == 14) {   // bloom: a soft glow around the bright parts, a hint of halation
-        const int f = braille ? 1 : std::max(1, w / 160);
-        FxSmall glow = fx_small(w, h, f, 3, [&](int x, int y, float* o) {
-            const uint8_t* s = &src[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)];
-            const float k = fx_smooth(0.50f, 0.95f, fx_luma(s) / 255.0f);
-            o[0] = s[0] * k; o[1] = s[1] * k; o[2] = s[2] * k;
-        });
-        FxSmall wide = glow;
-        fx_blur(glow, 2, 2);
-        fx_blur(wide, braille ? 2 : 5, 3);
-        for (int y = 0; y < h; ++y)
-            for (int x = 0; x < w; ++x) {
-                uint8_t* q = &px[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)];
-                for (int k = 0; k < 3; ++k) {
-                    const float base = src[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x) + k];
-                    const float g = 0.55f * fx_sample(glow, k, x, y) + 0.60f * fx_sample(wide, k, x, y) * (k == 0 ? 1.08f : k == 2 ? 0.92f : 1.0f);   // warmer wide halo
-                    q[k] = fx_clamp(255.0f - (255.0f - base) * (255.0f - std::min(255.0f, g)) / 255.0f);   // "screen": never clips harshly
-                }
-            }
     } else if (fx == 15) {   // film: grain, a faint sepia tone, a flickering gate, a vignette, now and then a scratch and some dust
         const float flick = 1.0f + (fx_rand(tick, 31) - 0.5f) * 0.07f + 0.012f * std::sin(static_cast<float>(t) * 9.0f);
         const int grain = braille ? 1 : std::max(1, w / 320);
@@ -456,20 +534,23 @@ void VideoPlayer::apply_fx(VideoFrame& f, int fx, double t, bool braille, const 
         const int weave = (fx_rand(tick, 51) < 0.12f) ? ((fx_rand(tick, 52) < 0.5f) ? -1 : 1) * std::max(1, h / 360) : 0;   // the picture jumps a little in the gate now and then
         const bool scratch = fx_rand(tick / 3, 41) < 0.30f;
         const int sx = static_cast<int>(fx_rand(tick / 3, 42) * w);
-        for (int y = 0; y < h; ++y) {
-            const float dy = (static_cast<float>(y) + 0.5f) / h * 2.0f - 1.0f;
-            const int ys = std::clamp(y + weave, 0, h - 1);
-            for (int x = 0; x < w; ++x) {
-                const float dx = (static_cast<float>(x) + 0.5f) / w * 2.0f - 1.0f;
-                const float vig = 1.0f - 0.30f * std::pow(std::fabs(dx), 2.4f) - 0.26f * std::pow(std::fabs(dy), 2.4f);
-                const uint8_t* s = &src[static_cast<size_t>(ys) * stride + 3 * static_cast<size_t>(x)];
-                const float l = fx_luma(s);
-                const float sep[3] = {std::min(255.0f, l * 1.08f + 10.0f), l * 0.95f + 4.0f, l * 0.76f};
-                const float n = (fx_rand(tick * 7919U + static_cast<uint32_t>(x / grain), static_cast<uint32_t>(y / grain)) - 0.5f) * 2.0f * amp * (0.55f + 0.9f * (1.0f - l / 255.0f));
-                uint8_t* q = &px[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)];
-                for (int k = 0; k < 3; ++k) q[k] = fx_clamp((s[k] * 0.68f + sep[k] * 0.32f) * flick * std::max(0.45f, vig) + n);
+        std::vector<float> vx(static_cast<size_t>(w)), vy(static_cast<size_t>(h));   // the vignette's powers, per column / row
+        for (int x = 0; x < w; ++x) vx[static_cast<size_t>(x)] = std::pow(std::fabs((static_cast<float>(x) + 0.5f) / w * 2.0f - 1.0f), 2.4f);
+        for (int y = 0; y < h; ++y) vy[static_cast<size_t>(y)] = std::pow(std::fabs((static_cast<float>(y) + 0.5f) / h * 2.0f - 1.0f), 2.4f);
+        par_rows(h, [&](int ry0, int ry1) {
+            for (int y = ry0; y < ry1; ++y) {
+                const int ys = std::clamp(y + weave, 0, h - 1);
+                for (int x = 0; x < w; ++x) {
+                    const float vig = 1.0f - 0.30f * vx[static_cast<size_t>(x)] - 0.26f * vy[static_cast<size_t>(y)];
+                    const uint8_t* s = &src[static_cast<size_t>(ys) * stride + 3 * static_cast<size_t>(x)];
+                    const float l = fx_luma(s);
+                    const float sep[3] = {std::min(255.0f, l * 1.08f + 10.0f), l * 0.95f + 4.0f, l * 0.76f};
+                    const float n = (fx_rand(tick * 7919U + static_cast<uint32_t>(x / grain), static_cast<uint32_t>(y / grain)) - 0.5f) * 2.0f * amp * (0.55f + 0.9f * (1.0f - l / 255.0f));
+                    uint8_t* q = &px[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)];
+                    for (int k = 0; k < 3; ++k) q[k] = fx_clamp((s[k] * 0.68f + sep[k] * 0.32f) * flick * std::max(0.45f, vig) + n);
+                }
             }
-        }
+        });
         if (scratch) {   // a thin, bright, slightly wavering vertical line
             for (int y = 0; y < h; ++y) {
                 if (fx_rand(static_cast<uint32_t>(y / 6), 43 + tick / 3) < 0.25f) continue;
@@ -494,7 +575,7 @@ void VideoPlayer::apply_fx(VideoFrame& f, int fx, double t, bool braille, const 
         const VideoFxGradient g = grad ? *grad : VideoFxGradient();
         auto wave = [&](int x, int y, float* o) {   // the wave of the gradient look (6) at this point
             const float p = (static_cast<float>(x) / w + static_cast<float>(y) / h) * 0.5f;
-            float u = std::fmod(p * 1.25f - static_cast<float>(t) * 0.10f, 1.0f);
+            float u = p * 1.25f - static_cast<float>(t) * 0.10f; u -= std::trunc(u);   // (the remainder of a division by 1: exact, and much cheaper than fmod)
             if (u < 0.0f) u += 1.0f;
             const float pos = (1.0f - std::fabs(2.0f * u - 1.0f)) * 2.0f;
             const int i0 = std::min(1, static_cast<int>(pos));
@@ -502,20 +583,24 @@ void VideoPlayer::apply_fx(VideoFrame& f, int fx, double t, bool braille, const 
             for (int k = 0; k < 3; ++k) o[k] = (g.c[i0][k] * (1.0f - fr) + g.c[i0 + 1][k] * fr) / 255.0f;
         };
         std::vector<float> lum(static_cast<size_t>(w) * h);
-        for (int y = 0; y < h; ++y)
-            for (int x = 0; x < w; ++x) lum[static_cast<size_t>(y) * w + x] = fx_luma(&src[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)]);
+        par_rows(h, [&](int ry0, int ry1) {
+            for (int y = ry0; y < ry1; ++y)
+                for (int x = 0; x < w; ++x) lum[static_cast<size_t>(y) * w + x] = fx_luma(&src[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)]);
+        });
         auto L = [&](int x, int y) { return lum[static_cast<size_t>(std::clamp(y, 0, h - 1)) * w + static_cast<size_t>(std::clamp(x, 0, w - 1))]; };
         const int rr = (!braille && w >= 480) ? 2 : 1;   // the Sobel reach grows with the picture, so a wide picture gets lines of a similar look
         std::vector<float> edge(static_cast<size_t>(w) * h);
-        for (int y = 0; y < h; ++y)
-            for (int x = 0; x < w; ++x) {
-                const float gx = (L(x + rr, y - rr) + 2 * L(x + rr, y) + L(x + rr, y + rr)) - (L(x - rr, y - rr) + 2 * L(x - rr, y) + L(x - rr, y + rr));
-                const float gy = (L(x - rr, y + rr) + 2 * L(x, y + rr) + L(x + rr, y + rr)) - (L(x - rr, y - rr) + 2 * L(x, y - rr) + L(x + rr, y - rr));
-                {   // a floor under the noise and a steeper rise: clean lines on a deeper black (more contrast), not blown out
-                    const float m = std::sqrt(gx * gx + gy * gy) / (4.0f * 255.0f) * 3.2f;
-                    edge[static_cast<size_t>(y) * w + x] = fx_smooth(0.10f, 0.85f, m);
+        par_rows(h, [&](int ry0, int ry1) {
+            for (int y = ry0; y < ry1; ++y)
+                for (int x = 0; x < w; ++x) {
+                    const float gx = (L(x + rr, y - rr) + 2 * L(x + rr, y) + L(x + rr, y + rr)) - (L(x - rr, y - rr) + 2 * L(x - rr, y) + L(x - rr, y + rr));
+                    const float gy = (L(x - rr, y + rr) + 2 * L(x, y + rr) + L(x + rr, y + rr)) - (L(x - rr, y - rr) + 2 * L(x, y - rr) + L(x + rr, y - rr));
+                    {   // a floor under the noise and a steeper rise: clean lines on a deeper black (more contrast), not blown out
+                        const float m = std::sqrt(gx * gx + gy * gy) / (4.0f * 255.0f) * 3.2f;
+                        edge[static_cast<size_t>(y) * w + x] = fx_smooth(0.10f, 0.85f, m);
+                    }
                 }
-            }
+        });
         const int f = braille ? 1 : std::max(1, w / 200);
         auto edge_col = [&](int x, int y, float* o) {   // the colour of the outline: the picture's colour here, made vivid (19: the wave)
             if (wavy) { wave(x, y, o); return; }
@@ -524,25 +609,34 @@ void VideoPlayer::apply_fx(VideoFrame& f, int fx, double t, bool braille, const 
             const float mean = (s[0] + s[1] + s[2]) / 3.0f / mx;
             for (int k = 0; k < 3; ++k) o[k] = std::clamp((s[k] / mx - mean) * 1.3f + mean * 0.9f + 0.08f, 0.0f, 1.0f);
         };
+        std::vector<float> colv(static_cast<size_t>(w) * h * 3);   // the outline colour of every pixel, worked out once (it is used twice)
+        par_rows(h, [&](int ry0, int ry1) {
+            for (int y = ry0; y < ry1; ++y)
+                for (int x = 0; x < w; ++x) edge_col(x, y, &colv[(static_cast<size_t>(y) * w + x) * 3]);
+        });
         FxSmall glow = fx_small(w, h, f, 3, [&](int x, int y, float* o) {
-            float c[3]; edge_col(x, y, c);
+            const float* c = &colv[(static_cast<size_t>(y) * w + x) * 3];
             const float e = edge[static_cast<size_t>(y) * w + x];
             for (int k = 0; k < 3; ++k) o[k] = c[k] * e;
         });
         fx_blur(glow, braille ? 1 : 2, 2);
-        for (int y = 0; y < h; ++y)
-            for (int x = 0; x < w; ++x) {
-                float c[3]; edge_col(x, y, c);
-                const float e = edge[static_cast<size_t>(y) * w + x];
-                const uint8_t* s = &src[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)];
-                uint8_t* q = &px[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)];
-                if (wavy) {   // the picture in grey, tinted a little by the wave, under outlines that glow in the wave's colours
-                    const float lum = fx_luma(s) / 255.0f;
-                    for (int k = 0; k < 3; ++k) q[k] = fx_clamp(255.0f * (lum * (0.03f + 0.05f * c[k]) + c[k] * e * 1.0f + fx_sample(glow, k, x, y) * 0.75f));   // the grey areas take the wave's colour too
-                } else {
-                    for (int k = 0; k < 3; ++k) q[k] = fx_clamp(s[k] * 0.03f + 255.0f * (c[k] * e * 1.0f + fx_sample(glow, k, x, y) * 0.7f) + (e > 0.85f ? 20.0f * (e - 0.85f) * 6.0f : 0.0f));
+        par_rows(h, [&](int ry0, int ry1) {
+            for (int y = ry0; y < ry1; ++y)
+                for (int x = 0; x < w; ++x) {
+                    const float* c = &colv[(static_cast<size_t>(y) * w + x) * 3];
+                    const float e = edge[static_cast<size_t>(y) * w + x];
+                    const uint8_t* s = &src[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)];
+                    uint8_t* q = &px[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x)];
+                    float gs[3];
+                    fx_sample3(glow, x, y, gs);
+                    if (wavy) {   // the picture in grey, tinted a little by the wave, under outlines that glow in the wave's colours
+                        const float lum = fx_luma(s) / 255.0f;
+                        for (int k = 0; k < 3; ++k) q[k] = fx_clamp(255.0f * (lum * (0.03f + 0.05f * c[k]) + c[k] * e * 1.0f + gs[k] * 0.75f));   // the grey areas take the wave's colour too
+                    } else {
+                        for (int k = 0; k < 3; ++k) q[k] = fx_clamp(s[k] * 0.03f + 255.0f * (c[k] * e * 1.0f + gs[k] * 0.7f) + (e > 0.85f ? 20.0f * (e - 0.85f) * 6.0f : 0.0f));
+                    }
                 }
-            }
+        });
     } else if (fx == 17) {   // interlace: the odd lines come from the frame before -- where something moved the lines comb
         const bool pv = prev && prev->w == w && prev->h == h && prev->rgb.size() >= src.size();
         for (int y = 0; y < h; ++y) {
@@ -650,14 +744,22 @@ void VideoPlayer::apply_grade(VideoFrame& f, int contrast, int colors, int chrom
             lut[i] = fx_clamp(static_cast<float>((b - 127.5) * factor + 127.5));
         }
         const float sat = static_cast<float>(colors) / 100.0f;
-        for (size_t i = 0; i < n; ++i) {
-            uint8_t* p = &f.rgb[i * 3];
-            float v[3] = {static_cast<float>(lut[p[0]]), static_cast<float>(lut[p[1]]), static_cast<float>(lut[p[2]])};
-            if (colors < 100) {
-                const float l = 0.299f * v[0] + 0.587f * v[1] + 0.114f * v[2];
-                for (float& c : v) c = l + (c - l) * sat;
-            }
-            p[0] = fx_clamp(v[0]); p[1] = fx_clamp(v[1]); p[2] = fx_clamp(v[2]);
+        if (colors >= 100) {   // only the curve: a table lookup per byte
+            par_rows(h, [&](int ry0, int ry1) {
+                uint8_t* p = &f.rgb[static_cast<size_t>(ry0) * w * 3];
+                uint8_t* e = &f.rgb[static_cast<size_t>(ry1) * w * 3];
+                for (; p != e; ++p) *p = lut[*p];
+            });
+        } else {
+            par_rows(h, [&](int ry0, int ry1) {
+                for (size_t i = static_cast<size_t>(ry0) * w; i < static_cast<size_t>(ry1) * w; ++i) {
+                    uint8_t* p = &f.rgb[i * 3];
+                    float v[3] = {static_cast<float>(lut[p[0]]), static_cast<float>(lut[p[1]]), static_cast<float>(lut[p[2]])};
+                    const float l = 0.299f * v[0] + 0.587f * v[1] + 0.114f * v[2];
+                    for (float& c : v) c = l + (c - l) * sat;
+                    p[0] = fx_clamp(v[0]); p[1] = fx_clamp(v[1]); p[2] = fx_clamp(v[2]);
+                }
+            });
         }
     }
     if (chroma > 0) {   // red is pushed outwards, blue inwards, more and more towards the corners (a lens that does not focus every colour alike)
@@ -671,32 +773,46 @@ void VideoPlayer::apply_grade(VideoFrame& f, int contrast, int colors, int chrom
             auto v = [&](int xx, int yy) { return static_cast<float>(src[(static_cast<size_t>(yy) * w + xx) * 3 + static_cast<size_t>(c)]); };
             return (v(x0, y0) * (1 - tx) + v(x1, y0) * tx) * (1 - ty) + (v(x0, y1) * (1 - tx) + v(x1, y1) * tx) * ty;
         };
-        for (int y = 0; y < h; ++y)
-            for (int x = 0; x < w; ++x) {
-                const float dx = (x - cx) / std::max(1.0f, cx), dy = (y - cy) / std::max(1.0f, cy);
-                const float r2 = (dx * dx + dy * dy) * 0.5f;
-                const float g = 1.0f + k * (0.4f + 1.2f * r2);
-                uint8_t* q = &f.rgb[(static_cast<size_t>(y) * w + x) * 3];
-                q[0] = fx_clamp(bil(cx + (x - cx) * g, cy + (y - cy) * g, 0));
-                q[2] = fx_clamp(bil(cx + (x - cx) / g, cy + (y - cy) / g, 2));
-            }
+        par_rows(h, [&](int ry0, int ry1) {
+            for (int y = ry0; y < ry1; ++y)
+                for (int x = 0; x < w; ++x) {
+                    const float dx = (x - cx) / std::max(1.0f, cx), dy = (y - cy) / std::max(1.0f, cy);
+                    const float r2 = (dx * dx + dy * dy) * 0.5f;
+                    const float g = 1.0f + k * (0.4f + 1.2f * r2);
+                    uint8_t* q = &f.rgb[(static_cast<size_t>(y) * w + x) * 3];
+                    q[0] = fx_clamp(bil(cx + (x - cx) * g, cy + (y - cy) * g, 0));
+                    q[2] = fx_clamp(bil(cx + (x - cx) / g, cy + (y - cy) / g, 2));
+                }
+        });
     }
 }
 
 void VideoPlayer::apply_look(VideoFrame& f, const VideoLook& look, double t, bool braille, const VideoFrame* prev) {
+    const auto g0 = std::chrono::steady_clock::now();
     apply_grade(f, look.contrast, look.colors, look.chroma, look.brightness);
+    const auto g1 = std::chrono::steady_clock::now();
+    video_timing().grade_ms = std::chrono::duration<double, std::milli>(g1 - g0).count();
+    video_timing().fx = look.fx;
+    video_timing().fx_ms = 0.0;
     if (look.fx > 0) {
         apply_fx(f, look.fx, t, braille, &look.grad, prev);
+        video_timing().fx_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - g1).count();
         // The tube looks came out a little too hard in the blacks: the shadows are lifted a touch (pixel and film less, they were only a bit too hard).
         const int fx = look.fx;
-        const float lift = (fx == 1 || fx == 2 || fx == 3 || fx == 4 || fx == 7 || fx == 6 || fx == 8 || fx == 9 || fx == 14) ? 16.0f : (fx == 5 || fx == 15) ? 9.0f : 0.0f;
+        const float lift = (fx == 1 || fx == 2 || fx == 3 || fx == 4 || fx == 7 || fx == 6 || fx == 8 || fx == 9) ? 16.0f : (fx == 5 || fx == 15) ? 9.0f : 0.0f;
         if (lift > 0.0f) {
             uint8_t lut[256];
             for (int v = 0; v < 256; ++v) lut[v] = static_cast<uint8_t>(std::lround(lift + v * (255.0f - lift) / 255.0f));
-            for (auto& b : f.rgb) b = lut[b];
+            par_rows(f.h, [&](int ry0, int ry1) {
+                uint8_t* p = &f.rgb[static_cast<size_t>(ry0) * f.w * 3];
+                uint8_t* e = &f.rgb[static_cast<size_t>(ry1) * f.w * 3];
+                for (; p != e; ++p) *p = lut[*p];
+            });
         }
     }
 }
+
+void VideoPlayer::set_fx_threads(int n) { g_fx_threads.store(std::max(0, std::min(n, 16)), std::memory_order_relaxed); }
 
 VideoPlayer::VideoPlayer() = default;
 
@@ -852,6 +968,7 @@ void VideoPlayer::run(uint64_t gen, double from, int w, int h) {
         if (gen == gen_) { eof_ = true; note_ = "video: ffmpeg could not be started"; }
         return;
     }
+    child->lower_priority();   // (after every start the decoder runs flat out to fill its buffer: the picture being drawn goes first)
     ChildProcess* raw = child.get();
     {
         std::lock_guard<std::mutex> lk(child_m_);
@@ -1011,33 +1128,35 @@ void VideoPlayer::quantize(const VideoFrame& f, std::vector<uint8_t>& hue, std::
         const float fr = static_cast<float>(v - kCubeLevel[i]) / static_cast<float>(kCubeLevel[i + 1] - kCubeLevel[i]);
         return fr > thr ? i + 1 : i;
     };
-    for (int y = 0; y < f.h; ++y) {
-        for (int x = 0; x < f.w; ++x) {
-            const size_t i = static_cast<size_t>(y) * f.w + x;
-            const int r = f.rgb[i * 3], g = f.rgb[i * 3 + 1], b = f.rgb[i * 3 + 2];
-            const int mx = std::max({r, g, b});
-            // The dark floor: the effects (glow, flicker, gaps of the lines) leave the black parts of a picture a hair above black, and the
-            // dither turned that into a visible raster of little squares over every dark area. What is almost black stays black.
-            int flat = -1;   // exactly one of the Game Boy greens: flat, no dither
-            for (int k = 0; k < 8; ++k) {
-                const int ex = r - kGameBoy[k][0], ey = g - kGameBoy[k][1], ez = b - kGameBoy[k][2];
-                if (ex * ex + ey * ey + ez * ez <= 12) flat = k;
-            }
-            if (flat >= 0) { hue[i] = static_cast<uint8_t>(240 + flat); continue; }
-            if (mx <= 30) { hue[i] = 216; continue; }   // (216 = the black of the grey ramp)
-            const float thr = (static_cast<float>(kBayer4[y & 3][x & 3]) + 0.5f) / 16.0f;
-            // A colour with some saturation is dithered over the colour cube (a dim tint keeps being a tint and does not collapse into the grey
-            // ramp); only an almost grey one takes the finer ramp of 24 greys.
-            const bool use_cube = mx - std::min({r, g, b}) >= std::max(10, mx * 12 / 100);   // (a pale off-white is still "almost grey": relative to its brightness)
-            if (use_cube) {
-                hue[i] = static_cast<uint8_t>(36 * cube_index(r, thr) + 6 * cube_index(g, thr) + cube_index(b, thr));
-            } else {   // the ramp of 24 greys, dithered the same way
-                const float gv = (r + g + b) / 3.0f * 23.0f / 255.0f;
-                const int gi0 = std::clamp(static_cast<int>(gv), 0, 22);
-                hue[i] = static_cast<uint8_t>(216 + ((gv - static_cast<float>(gi0)) > thr ? gi0 + 1 : gi0));
+    par_rows(f.h, [&](int ry0, int ry1) {
+        for (int y = ry0; y < ry1; ++y) {
+            for (int x = 0; x < f.w; ++x) {
+                const size_t i = static_cast<size_t>(y) * f.w + x;
+                const int r = f.rgb[i * 3], g = f.rgb[i * 3 + 1], b = f.rgb[i * 3 + 2];
+                const int mx = std::max({r, g, b});
+                // The dark floor: the effects (glow, flicker, gaps of the lines) leave the black parts of a picture a hair above black, and the
+                // dither turned that into a visible raster of little squares over every dark area. What is almost black stays black.
+                int flat = -1;   // exactly one of the Game Boy greens: flat, no dither
+                for (int k = 0; k < 8; ++k) {
+                    const int ex = r - kGameBoy[k][0], ey = g - kGameBoy[k][1], ez = b - kGameBoy[k][2];
+                    if (ex * ex + ey * ey + ez * ez <= 12) flat = k;
+                }
+                if (flat >= 0) { hue[i] = static_cast<uint8_t>(240 + flat); continue; }
+                if (mx <= 30) { hue[i] = 216; continue; }   // (216 = the black of the grey ramp)
+                const float thr = (static_cast<float>(kBayer4[y & 3][x & 3]) + 0.5f) / 16.0f;
+                // A colour with some saturation is dithered over the colour cube (a dim tint keeps being a tint and does not collapse into the grey
+                // ramp); only an almost grey one takes the finer ramp of 24 greys.
+                const bool use_cube = mx - std::min({r, g, b}) >= std::max(10, mx * 12 / 100);   // (a pale off-white is still "almost grey": relative to its brightness)
+                if (use_cube) {
+                    hue[i] = static_cast<uint8_t>(36 * cube_index(r, thr) + 6 * cube_index(g, thr) + cube_index(b, thr));
+                } else {   // the ramp of 24 greys, dithered the same way
+                    const float gv = (r + g + b) / 3.0f * 23.0f / 255.0f;
+                    const int gi0 = std::clamp(static_cast<int>(gv), 0, 22);
+                    hue[i] = static_cast<uint8_t>(216 + ((gv - static_cast<float>(gi0)) > thr ? gi0 + 1 : gi0));
+                }
             }
         }
-    }
+    });
 }
 
 std::vector<std::vector<VideoPlayer::Cell>> VideoPlayer::braille(const VideoFrame& f, int cols, int rows) {

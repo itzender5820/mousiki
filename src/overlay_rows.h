@@ -54,7 +54,7 @@ enum StyleRow : int {
     kStCoverBrightness,
     kStCoverColors,
     kStCoverChroma,
-    kStCoverOrThumb,    // Use Cover or Thumbnail                 (Video mode)
+    kStCoverOrThumb,    // Use Disk/Cover/Thumbnail                (Video mode)
     kStVideoOn,         // Video of this track                    (Video mode)
     kStVideoLyrics,     // Use Lyrics on Video
     kStVideoSize,

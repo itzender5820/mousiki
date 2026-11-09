@@ -134,7 +134,7 @@ struct Settings : VizPrefs {
     int vl_spec_style = -1;           // VideoLayoutSpectroStyle=
     int vl_spec_view = -1;            // VideoLayoutSpectroView=: -1 as in the options, 0 spectrogram, 1 waterfall
     bool vl_scales = true;            // VideoLayoutScales=: grid / scales of the oscilloscope and the spectrogram in the layouts
-    int video_cover = 0;              // Cover, Disk or Thumbnail (VideoCover=): 0 cover, 1 thumbnail (a frame of the video), 2 disk (plain disk for a track with a video)
+    int video_cover = 0;              // Disk/Cover/Thumbnail (VideoCover=): 0 cover, 1 thumbnail (a frame of the video, else the cover), 2 disk (plain disk for a track with a video), 3 thumbnail fallback (the cover, a frame of the video only when there is no cover)
     // Where downloaded videos go (Search YT): <download folder>/video_down; and the quality cap (height in pixels) of such a download.
     int video_down_height = 720;   // config.txt: VideoDownHeight=
     // "When No Video Shows" (ANIMA/VIZ tab): what the field shows on the video view while the track has no video: 0 sphere, 1 oscilloscope,
@@ -213,6 +213,7 @@ struct Settings : VizPrefs {
     std::string box_lower_right = "\u256f";  // ╯
     std::string box_vertical = "\u2502";     // │
     std::string box_horizontal = "\u2500";   // ─
+    bool disk_border = false;                // the ":  :" column between the disk and the meta data (false: the disk is centred in the space instead)
     std::string meta_separator = ":  :";     // separator between disk|meta|lyrics columns
     std::string list_separator = "|";        // separator in list panel between columns
 
@@ -399,6 +400,7 @@ struct Settings : VizPrefs {
     int terminal_cols = kTermColsDefault;
     int terminal_rows = kTermRowsDefault;
     bool full_screen = false;
+    bool reduce_motion_paused = true;   // ReduceMotionWhenPaused=: paused (or nothing playing) and untouched for a few seconds, the screen is redrawn at a low rate (POSIX terminals)
     // true: Mousiki leaves the terminal alone whatever Terminal Size / Full Screen say (they stay as they are); UseTerminalSettings.
     bool use_terminal_settings = false;
     // The desktop's media controls (Linux: MPRIS; macOS: Now Playing + media keys); config.txt: MediaKeys=true|false.

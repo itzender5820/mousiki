@@ -15,6 +15,8 @@
 #include <cmath>
 #include <future>
 #include <map>
+#include <mutex>
+#include <filesystem>
 #include <memory>
 #include <sstream>
 
@@ -260,6 +262,8 @@ bool is_picture_file(const fs::path& f) {
 
 } // namespace
 
+thread_local bool g_cover_may_wait = false;   // (the background reader of a cover may wait for the library's index; the screen never does)
+
 fs::path pick_folder_picture(const fs::path& dir, const std::vector<std::string>& names, bool generic, bool any, bool fetched) {
     std::error_code ec;
     std::vector<fs::path> pics;
@@ -270,6 +274,16 @@ fs::path pick_folder_picture(const fs::path& dir, const std::vector<std::string>
         ec.clear();
         for (fs::directory_iterator it(dir / kFetchedCoversDir, ec), end; !ec && it != end; it.increment(ec))
             if (it->is_regular_file(ec) && is_picture_file(it->path())) { pics.push_back(it->path()); from_fetched.insert(it->path()); }
+        const fs::path home = shared_covers_home(dir);   // a video in video_down: the covers fetched for the songs of the download folder too
+        if (!home.empty()) {
+            ec.clear();
+            for (fs::directory_iterator it(home / kFetchedCoversDir, ec), end; !ec && it != end; it.increment(ec))
+                if (it->is_regular_file(ec) && is_picture_file(it->path())) { pics.push_back(it->path()); from_fetched.insert(it->path()); }
+        }
+        if (!names.empty() && !names[0].empty() && cover_outside_library(dir)) {   // no folder of its own (video_down, a cache folder): the fetched covers of the library, by the album's name
+            const fs::path lib = fetched_cover_in_library(names[0], g_cover_may_wait);
+            if (!lib.empty()) { pics.push_back(lib); from_fetched.insert(lib); }
+        }
     }
     if (pics.empty()) return {};
     std::sort(pics.begin(), pics.end());
@@ -307,6 +321,27 @@ namespace {
 // ffmpeg writes the picture as one PAM image (a tiny header, then RGBA bytes) at most 640 x 640; the grey level of it is
 // 0.15 + 0.85 * luminance, times the alpha -- the same as the audio book cover's.
 } // namespace
+// A picture that ffmpeg gave nothing for: its complaint goes into the console log, once per file (the previews try again later).
+static void note_unreadable_picture(const fs::path& file, bool embedded, double seek) {
+    static std::mutex mu;
+    static std::set<std::string> told;
+    const std::string key = path_utf8(file);
+    {
+        std::lock_guard<std::mutex> lk(mu);
+        if (!told.insert(key).second) return;
+    }
+    Args cmd = {"ffmpeg", "-v", "error", "-nostdin"};
+    if (seek > 0.0) { char b[32]; std::snprintf(b, sizeof b, "%.2f", seek); cmd.push_back("-ss"); cmd.push_back(b); }
+    cmd.insert(cmd.end(), {"-i", key});
+    if (embedded) cmd.push_back("-an");
+    cmd.insert(cmd.end(), {"-frames:v", "1", "-f", "null", "-"});
+    const ProcResult r = run_capture(cmd, true);
+    std::string msg = r.out;
+    while (!msg.empty() && (msg.back() == '\n' || msg.back() == '\r')) msg.pop_back();
+    const size_t nl = msg.find('\n');
+    ConsoleLog::instance().log_basic("picture: ffmpeg gave no picture for " + key + " (exit " + std::to_string(r.exit_code) + "): " + (msg.empty() ? std::string("no message (no video stream?)") : (nl == std::string::npos ? msg : msg.substr(0, nl)).substr(0, 300)));
+}
+
 bool decode_cover_file(const fs::path& file, bool embedded, CoverImage& d, double seek) {
     Args cmd = {"ffmpeg", "-v", "error"};
     if (seek > 0.0) { char b[32]; std::snprintf(b, sizeof b, "%.2f", seek); cmd.push_back("-ss"); cmd.push_back(b); }
@@ -321,7 +356,10 @@ bool decode_cover_file(const fs::path& file, bool embedded, CoverImage& d, doubl
         while ((n = child->read(buf.data(), buf.size())) > 0) o.append(buf.data(), static_cast<size_t>(n));
         child->wait();
     }
-    if (o.size() < 16 || o.compare(0, 2, "P7") != 0) return false;
+    if (o.size() < 16 || o.compare(0, 2, "P7") != 0) {
+        note_unreadable_picture(file, embedded, seek);
+        return false;
+    }
     const size_t hdr = o.find("ENDHDR\n");
     if (hdr == std::string::npos) return false;
     int w = 0, h = 0;
@@ -375,6 +413,7 @@ bool decode_video_snapshot(const fs::path& video, CoverImage& d) {
 namespace {
 
 CoverImage load_track_cover(CoverRequest rq, std::string key) {
+    g_cover_may_wait = true;
     CoverImage d;
     d.key = key;
     const fs::path file = path_from_utf8(rq.path);
@@ -386,7 +425,7 @@ CoverImage load_track_cover(CoverRequest rq, std::string key) {
     std::string tried;
     // Settings -> Cover, Disk or Thumbnail: a frame of the track's video first; the usual search (the chosen cover, the file, the folder,
     // the disk) is the fallback when it cannot be read.
-    if (!rq.snapshot_video.empty()) {
+    if (!rq.snapshot_video.empty() && !rq.thumb_fallback) {
         CoverImage t;
         t.key = key;
         if (decode_video_snapshot(path_from_utf8(rq.snapshot_video), t)) {
@@ -401,23 +440,24 @@ CoverImage load_track_cover(CoverRequest rq, std::string key) {
     // What the user chose beats the search (except with "Within File Only", which looks at the files alone): first the picture chosen
     // for this track, then the one chosen for its album name.
     if (rq.search != 4) {
-        for (int pass = 0; pass < 2; ++pass) {
-            const std::string choice = pass == 0 ? cover_track_choice(rq.path) : cover_album_choice(rq.album);
+        for (int pass = 0; pass < 3; ++pass) {   // the track's own choice, the choice of the song it is paired with (a video), the album's choice
+            if (pass == 1 && rq.pair_path.empty()) continue;
+            const std::string choice = pass == 0 ? cover_track_choice(rq.path) : pass == 1 ? cover_track_choice(rq.pair_path) : cover_album_choice(rq.album);
             if (choice.empty()) continue;
             if (choice == kCoverNone) {   // "no cover": the disk
-                d.per_track = pass == 0;
-                d.note = "no cover chosen for this " + std::string(pass == 0 ? "track" : "album");
+                d.per_track = pass <= 1;
+                d.note = "no cover chosen for this " + std::string(pass <= 1 ? "track" : "album");
                 ConsoleLog::instance().log_basic("album cover: none (chosen) for " + rq.path);
                 return d;
             }
             CoverImage t;
             t.key = key;
             const bool emb = choice == kCoverEmbedded;
-            const fs::path pic = emb ? file : path_from_utf8(choice);
+            const fs::path pic = emb ? (pass == 1 ? path_from_utf8(rq.pair_path) : file) : path_from_utf8(choice);
             if (decode_picture(pic, emb, t)) {
                 d = std::move(t);
                 d.dir = path_utf8(dir); d.album = rq.album;
-                d.per_track = pass == 0;
+                d.per_track = pass <= 1;
                 d.source = emb ? path_utf8(file.filename()) + " (inside the file)" : path_utf8(pic.filename());
                 ConsoleLog::instance().log_basic("album cover: using the chosen " + std::string(emb ? "picture inside " : "") + rq.path + (emb ? "" : " -> " + path_utf8(pic)));
                 return d;
@@ -451,14 +491,58 @@ CoverImage load_track_cover(CoverRequest rq, std::string key) {
         }
         tried += "; ";
     }
+    if (!rq.pair_path.empty()) {   // a video: what the song it is paired with would get (its folder, its fetched covers, the picture inside it)
+        CoverRequest r2 = rq;
+        r2.path = rq.pair_path; r2.pair_path.clear(); r2.snapshot_video.clear(); r2.thumb_fallback = false;
+        CoverImage d2 = load_track_cover(r2, key);
+        if (d2.ok) { d2.per_track = false; return d2; }
+    }
+    if (rq.thumb_fallback && !rq.snapshot_video.empty()) {   // no cover anywhere: a frame of the track's video
+        CoverImage t;
+        t.key = key;
+        if (decode_video_snapshot(path_from_utf8(rq.snapshot_video), t)) {
+            d = std::move(t);
+            d.dir = path_utf8(dir); d.album = rq.album;
+            d.source = path_utf8(path_from_utf8(rq.snapshot_video).filename()) + " (video snapshot)";
+            ConsoleLog::instance().log_basic("album cover: no cover, using a frame of " + rq.snapshot_video);
+            return d;
+        }
+        tried += "the video's frame could not be read; ";
+    }
     if (tried.size() >= 2) tried.resize(tried.size() - 2);
     d.note = tried.empty() ? "nothing to search" : tried;
     ConsoleLog::instance().log_basic("album cover: none for " + rq.path + " (" + d.note + ")");
     return d;
 }
 
+// "size:mtime" of a picture file, read at most once a second per file: a picture that was edited in place (same name) is a new picture.
+std::string file_stamp(const std::string& file) {
+    if (file.empty()) return std::string();
+    struct Hit { std::chrono::steady_clock::time_point at; std::string stamp; };
+    static std::mutex mu;
+    static std::map<std::string, Hit> memo;
+    const auto now = std::chrono::steady_clock::now();
+    std::lock_guard<std::mutex> lk(mu);
+    auto it = memo.find(file);
+    if (it != memo.end() && now - it->second.at < std::chrono::seconds(1)) return it->second.stamp;
+    std::error_code ec;
+    const fs::path p = path_from_utf8(file);
+    const auto sz = fs::file_size(p, ec);
+    const auto mt = ec ? fs::file_time_type() : fs::last_write_time(p, ec);
+    std::string st = ec ? std::string("-") : std::to_string(static_cast<unsigned long long>(sz)) + ":" + std::to_string(static_cast<long long>(mt.time_since_epoch().count()));
+    if (memo.size() > 256) memo.clear();
+    memo[file] = {now, st};
+    return st;
+}
+
 std::string request_key(const CoverRequest& rq) {
-    return rq.path + "\n" + rq.title + "\n" + rq.album + "\n" + std::to_string(rq.search) + "\n" + std::to_string(rq.store_rev) + "\n" + rq.snapshot_video;
+    std::string pic;   // the chosen picture file (track, else album): edited in place = a new request
+    if (rq.search != 4) {
+        std::string c = cover_track_choice(rq.path);
+        if (c.empty()) c = cover_album_choice(rq.album);
+        if (!c.empty() && c != kCoverNone && c != kCoverEmbedded) pic = file_stamp(c);
+    }
+    return pic + "\n" + rq.path + "\n" + rq.title + "\n" + rq.album + "\n" + std::to_string(rq.search) + "\n" + std::to_string(rq.store_rev) + "\n" + rq.snapshot_video + (rq.thumb_fallback ? "\nfb" : "") + "\n" + rq.pair_path;
 }
 
 // the single slot: the cover that is ready, and the one being read
@@ -510,13 +594,15 @@ CoverSource resolve_cover_source(const CoverRequest& rq) {
     const fs::path file = path_from_utf8(rq.path);
     const fs::path dir = file.parent_path();
     if (rq.search != 4) {
-        for (int pass = 0; pass < 2; ++pass) {
-            const std::string choice = pass == 0 ? (rq.ignore_track_choice ? std::string() : cover_track_choice(rq.path)) : cover_album_choice(rq.album);
+        for (int pass = 0; pass < 3; ++pass) {   // the track's own choice, the choice of the song it is paired with (a video), the album's choice
+            if (pass == 1 && rq.pair_path.empty()) continue;
+            const std::string choice = pass == 0 ? (rq.ignore_track_choice ? std::string() : cover_track_choice(rq.path))
+                                     : pass == 1 ? (rq.ignore_track_choice ? std::string() : cover_track_choice(rq.pair_path)) : cover_album_choice(rq.album);
             if (choice.empty()) continue;
             out.chosen = true;
             if (choice == kCoverNone) { out.none = true; out.label = "no cover chosen"; return out; }
             std::error_code ec;
-            if (choice == kCoverEmbedded) { out.file = rq.path; out.embedded = true; out.label = "inside the file (chosen)"; return out; }
+            if (choice == kCoverEmbedded) { out.file = pass == 1 ? rq.pair_path : rq.path; out.embedded = true; out.label = "inside the file (chosen)"; return out; }
             if (fs::exists(path_from_utf8(choice), ec)) { out.file = choice; out.label = path_utf8(path_from_utf8(choice).filename()) + " (chosen)"; return out; }
             out.chosen = false;
         }
@@ -530,6 +616,12 @@ CoverSource resolve_cover_source(const CoverRequest& rq) {
             if (!pic.empty()) { out.file = path_utf8(pic); out.label = path_utf8(pic.filename()); return out; }
         }
     }
+    if (!rq.pair_path.empty()) {   // a video: what the song it is paired with would get
+        CoverRequest r2 = rq;
+        r2.path = rq.pair_path; r2.pair_path.clear();
+        const CoverSource s2 = resolve_cover_source(r2);
+        if (!s2.none && !s2.file.empty()) return s2;
+    }
     out.none = true;
     out.label = "no cover found";
     return out;
@@ -540,6 +632,7 @@ namespace {
 
 struct Preview {
     std::shared_future<CoverImage> fut;
+    std::chrono::steady_clock::time_point born = std::chrono::steady_clock::now();
 };
 std::map<std::string, Preview>& previews() {
     static std::map<std::string, Preview> m;
@@ -551,10 +644,19 @@ std::vector<std::string>& preview_order() {
 }
 
 Preview& preview_slot(const std::string& file, bool embedded, bool video = false) {
-    const std::string key = std::string(video ? "V|" : embedded ? "E|" : "F|") + file;
+    const std::string key = std::string(video ? "V|" : embedded ? "E|" : "F|") + file + "|" + file_stamp(file);
     auto& m = previews();
     auto it = m.find(key);
-    if (it != m.end()) return it->second;
+    if (it != m.end()) {
+        // a picture that could not be read is tried again after a few seconds: the file may have been busy or half written (a download
+        // that was still running, a drive that woke up) and a failure must not stay for the whole session
+        Preview& old = it->second;
+        const bool failed = old.fut.wait_for(std::chrono::seconds(0)) == std::future_status::ready && !old.fut.get().ok;
+        if (!failed || std::chrono::steady_clock::now() - old.born < std::chrono::seconds(5)) return old;
+        m.erase(it);
+        auto& ord = preview_order();
+        ord.erase(std::remove(ord.begin(), ord.end(), key), ord.end());
+    }
     auto& order = preview_order();
     if (order.size() >= 32) { m.erase(order.front()); order.erase(order.begin()); }   // (a running read keeps its own state alive)
     order.push_back(key);

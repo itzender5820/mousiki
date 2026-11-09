@@ -703,19 +703,20 @@ and artist of .sid). All other fields are saved in the folder "chip_tracker_meta
 COVER IN THE EDIT PANE AND COVER OPTIONS:[[Header]]
 The cover of the highlighted track is shown under the fields. Move down to the button
 [ Cover Options ] and hit [ENTER]: choose a picture for THIS track (inside the file, in its
-folder, in its fetched_covers folder, the album's covers), "Automatic" (Settings -> Cover
-Search decides); above them "The disk shows": as in the VIDEO SETTINGS / the cover / the video thumbnail (a
-frame of
-THIS track's video) / the plain disk. Delete a picture from the disk ([DEL]); [DEL] on Automatic or on the
+folder, in its fetched_covers folder, the album's covers; a file outside the library, e.g. in video_down,
+also finds the library's fetched_covers by album name), "Automatic" (Settings -> Cover
+Search decides); above them "The disk shows": as in the settings / the cover / the video thumbnail (a
+frame of THIS track's video, shown in the preview) / the plain disk / the cover, else the thumbnail. A picture chosen here weighs most (the track
+shows it at once; Automatic gives the decision back to the settings). Delete a picture from the disk ([DEL]); [DEL] on Automatic or on the
 picture inside the file gives the track NO cover (the disk is shown; Automatic brings a cover back). The
 cover shown in the edit pane follows the choice (cover / video frame / plain disk). Search pictures by file
-name ([/]); [TAB] stops at the disk options, the pictures and the search field. The choice goes before the
+name ([/]; the full path of a picture file typed or pasted there is listed too, for a track with no picture near it); [TAB] stops at the disk options, the pictures and the search field. The choice goes before the
 album default of the cover fetch menu and before the Cover Search setting (except "Within File Only").
 Next to it sits the button [ Style Option ] (move there with [->] or [ENTER] on it): a small
 overlay with the look of THIS track (as in Settings, Disk, Just Cover, Cover with Gradient, the
 Cover behind Disk looks, the ASCII looks), its own Cover Contrast, Cover Brightness, Cover
 Colors and Cover Chromatic Aberration, and the look of its whole ALBUM (no album tag: of that folder). With
-the Video mode on a row "Use Cover or Thumbnail" sets the cover / video thumbnail / disk of THIS track (the
+the Video mode on a row "Use Disk/Cover/Thumbnail" sets the cover / video thumbnail / disk of THIS track (the
 same choice as in Cover Options; the VIDEO SETTINGS overlay holds the default). [<-][->] change a row (with the
 Video mode on more rows: Video of this track on / off, Video Size, Video Effect, Video Contrast, Video
 Brightness, Video Colors, Video Chromatic Aberration, for this track only),
@@ -1205,8 +1206,9 @@ ROW[[Header]]                           WHAT IT DOES[[Header]]
                               the Lyrics/Viz Default (a view / last used = the view before the
                               video / video = stays on the video view, then When No Video Shows
                               decides). A view chosen with [.] / [,] stays.
-[Cover, Disk or Thumbnail][[Legend]]      What the disk shows: the cover, a frame of the video, or the plain
-                              disk. The meta editor sets it for a single track.
+[Disk/Cover/Thumbnail][[Legend]]          What the disk shows: the cover, a frame of the video, the plain disk,
+                              or the cover with the frame only as fallback. The meta editor sets it
+                              for a single track.
 [Picture Size][[Legend]]                  How the picture fills the field (table below).
 [Effect][[Legend]]                        A retro look for the picture (list below).
 
@@ -1220,7 +1222,7 @@ framed        Like full, one row and two columns smaller on every side.
 [EFFECTS (also Video Effect in Settings, with a preview):][[Header]]
 Off, Scanlines, CRT, VHS, Glitch, Quiet Glitch, Pixel, Gradient, Phosphor Green, Phosphor Amber,
 Halftone, Dither B/W, Dither Gradient, Game Boy High-Res, Game Boy High-Res B/W, Game Boy Low-Res
-B/W, Game Boy High-Res Gradient, Game Boy Low-Res, EGA 16, Film, Neon Edge, Neon Edge Gradient,
+B/W, Game Boy High-Res Gradient, Game Boy Low-Res, Game Boy Low-Res Gradient, EGA 16, Film, Neon Edge, Neon Edge Gradient,
 Interlace. A paused video shows a still effect.
 Pick one in the overlay, with [g] on the video view, or per track in Style Option [SHIFT+s].
 
@@ -1767,6 +1769,11 @@ marquee.
 [Full Screen:][[Legend]]                                      true = the terminal is asked for full screen at every
                                                   start; settings in Terminal Size are then ignored.
 
+[Reduce Motion When Paused:][[Legend]]                       true = paused (or nothing playing) and untouched for
+                                                  3 seconds: the screen is redrawn about 10 times a
+                                                  second (less CPU, less traffic over SSH). Any key
+                                                  brings the full rate back. 
+
 [REMOTE / UPDATES:][[Header]]
 [Remote App:][[Legend]]                                       [ENTER] opens the REMOTE APP overlay (on/off, address, QR
                                                   code for the phone, port, and a PIN that can be
@@ -1911,6 +1918,10 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
                                                   (see below).
 
 [Disk Speed:][[Legend]]                                       with range between 0.01 - 1.00.
+
+[Disk Border:][[Legend]]                                      shows or hides the ":  :" column between the disk and
+                                                  the meta data (off by default). Off: the disk sits in
+                                                  the middle of the space before the meta data.
 
 [Album Cover (music player):][[Legend]]                       Album Cover (false by default) shows the cover of the
                                                   playing track in the disk's place; a track without a

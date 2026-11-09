@@ -63,17 +63,18 @@ void App::video_menu_change(int row, int dir) {
             force_redraw_ = true;
             break;
         case kVmCover: {
-            settings_.video_cover = (settings_.video_cover + (dir < 0 ? 2 : 1)) % 3;   // cover -> thumbnail -> disk
-            set_config_value("VideoCover", settings_.video_cover == 1 ? "thumbnail" : settings_.video_cover == 2 ? "disk" : "cover");
+            settings_.video_cover = (settings_.video_cover + (dir < 0 ? 3 : 1)) % 4;   // cover -> thumbnail -> disk -> thumbnail fallback
+            set_config_value("VideoCover", settings_.video_cover == 1 ? "thumbnail" : settings_.video_cover == 2 ? "disk" : settings_.video_cover == 3 ? "fallback" : "cover");
             std::string note;
-            if (settings_.video_cover == 1 && !settings_.album_cover) {   // the picture behind the disk is the Album Cover look
+            if ((settings_.video_cover == 1 || settings_.video_cover == 3) && !settings_.album_cover) {   // the picture behind the disk is the Album Cover look
                 settings_.album_cover = true;
                 set_config_value("AlbumCover", "true");
                 note = " (Album Cover turned on)";
             }
             if (settings_.video_cover != 0 && !settings_.video_mode) note += " -- needs the Video mode";
-            status_line_ = settings_.video_cover == 1 ? "disk: a frame of the track's video (the thumbnail), else its cover, else the disk" + note
+            status_line_ = settings_.video_cover == 1 ? "disk: a frame of the track's video (the thumbnail), else its cover" + note
                          : settings_.video_cover == 2 ? "disk: the plain disk for a track with a video -- no cover, no thumbnail" + note
+                         : settings_.video_cover == 3 ? "disk: the track's cover, a frame of its video (the thumbnail) only when there is no cover" + note
                                                       : "disk: the track's cover (else the disk)";
             ++video_rev_;
             snap_track_.clear();
@@ -387,7 +388,7 @@ std::vector<std::string> App::build_video_menu_panel() const {
     lines.push_back(row(entry(vmenu_sel_ == kVmVideoMode, "Use Video in Lyrics Field", toggle(settings_.video_mode)), vmenu_sel_ == kVmVideoMode));
     lines.push_back(row(entry(vmenu_sel_ == kVmLyrics, "Include Lyrics", std::string("< ") + lyr_mode_name(settings_.video_lyrics) + " >"), vmenu_sel_ == kVmLyrics));
     lines.push_back(row(entry(vmenu_sel_ == kVmAutoVideo, "Auto Video (else Lyrics/Viz Default)", toggle(settings_.video_auto)), vmenu_sel_ == kVmAutoVideo));
-    lines.push_back(row(entry(vmenu_sel_ == kVmCover, "Cover, Disk or Thumbnail", std::string("< ") + (settings_.video_cover == 1 ? "thumbnail" : settings_.video_cover == 2 ? "disk" : "cover") + " >"), vmenu_sel_ == kVmCover));
+    lines.push_back(row(entry(vmenu_sel_ == kVmCover, "Disk/Cover/Thumbnail", std::string("< ") + (settings_.video_cover == 1 ? "thumbnail" : settings_.video_cover == 2 ? "disk" : settings_.video_cover == 3 ? "thumbnail fallback" : "cover") + " >"), vmenu_sel_ == kVmCover));
     lines.push_back(section("Picture"));
     lines.push_back(row(entry(vmenu_sel_ == kVmSize, "Picture Size", std::string("< ") + (settings_.video_size == 1 ? "cropped" : settings_.video_size == 2 ? "full" : settings_.video_size == 3 ? "framed" : "regular") + " >"), vmenu_sel_ == kVmSize));
     lines.push_back(row(entry(vmenu_sel_ == kVmRounded, "Rounded Corners", toggle(settings_.video_round)), vmenu_sel_ == kVmRounded));

@@ -23,6 +23,7 @@
 #include <cerrno>
 #include <fcntl.h>
 #include <spawn.h>
+#include <sys/resource.h>
 #include <sys/wait.h>
 #include <unistd.h>
 extern char** environ;
@@ -107,6 +108,10 @@ ChildProcess::~ChildProcess() {
 
 void ChildProcess::kill() {
     if (!impl_->reaped && impl_->pid > 0) ::kill(impl_->pid, SIGKILL);
+}
+
+void ChildProcess::lower_priority() {
+    if (!impl_->reaped && impl_->pid > 0) setpriority(PRIO_PROCESS, static_cast<id_t>(impl_->pid), 5);
 }
 
 std::ptrdiff_t ChildProcess::read(char* buf, std::size_t n) {
@@ -318,6 +323,10 @@ ChildProcess::~ChildProcess() {
 
 void ChildProcess::kill() {
     if (!impl_->reaped && impl_->process != INVALID_HANDLE_VALUE) TerminateProcess(impl_->process, 1);
+}
+
+void ChildProcess::lower_priority() {
+    if (!impl_->reaped && impl_->process != INVALID_HANDLE_VALUE) SetPriorityClass(impl_->process, BELOW_NORMAL_PRIORITY_CLASS);
 }
 
 std::ptrdiff_t ChildProcess::read(char* buf, std::size_t n) {

@@ -4,6 +4,7 @@
 #include "app.h"
 #include "app_internal.h"
 #include "console_log.h"
+#include "video_timing.h"
 #include "path_utf8.h"
 #include "utf8_util.h"
 #include "video_links.h"
@@ -37,18 +38,57 @@ std::string App::video_source_for(const fs::path& track) const {
         std::error_code lec;
         if (!linked.empty() && fs::exists(path_from_utf8(linked), lec)) return linked;
     }
+    // The search of the folder and the library below is the costly part (a directory listing and a pass over every track), and the
+    // meta panel asks for it on every frame: the answer is kept per track.
+    const std::string key = path_utf8(track);
+    const auto now = std::chrono::steady_clock::now();
+    {
+        std::lock_guard<std::mutex> lk(vsrc_mu_);
+        if (vsrc_rev_ != static_cast<uint64_t>(video_rev_) || vsrc_n_ != all_local_tracks_.size()) { vsrc_.clear(); vsrc_rev_ = static_cast<uint64_t>(video_rev_); vsrc_n_ = all_local_tracks_.size(); }
+        const auto hit = vsrc_.find(key);
+        if (hit != vsrc_.end() && now - hit->second.second < std::chrono::seconds(2)) return hit->second.first;
+    }
+    std::string found;
     const std::string stem = lower_stem(track);
     std::error_code ec;
     for (const fs::path& dir : {track.parent_path()}) {
-        for (fs::directory_iterator it(dir, fs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec)) {
+        for (fs::directory_iterator it(dir, fs::directory_options::skip_permission_denied, ec), end; !ec && it != end && found.empty(); it.increment(ec)) {
             std::error_code e2;
             if (!it->is_regular_file(e2)) continue;
-            if (LocalSource::is_video_file(it->path()) && lower_stem(it->path()) == stem) return path_utf8(it->path());
+            if (LocalSource::is_video_file(it->path()) && lower_stem(it->path()) == stem) found = path_utf8(it->path());
         }
     }
-    for (const auto& t : all_local_tracks_)
-        if (LocalSource::is_video_file(t.path) && lower_stem(t.path) == stem) return path_utf8(t.path);
-    return std::string();
+    if (found.empty())
+        for (const auto& t : all_local_tracks_)
+            if (LocalSource::is_video_file(t.path) && lower_stem(t.path) == stem) { found = path_utf8(t.path); break; }
+    {
+        std::lock_guard<std::mutex> lk(vsrc_mu_);
+        if (vsrc_.size() > 512) vsrc_.clear();
+        vsrc_[key] = {found, now};
+    }
+    return found;
+}
+
+std::string App::paired_song_for_video(const std::string& video) const {
+    if (video.empty() || !LocalSource::is_video_file(path_from_utf8(video))) return std::string();
+    const auto now = std::chrono::steady_clock::now();
+    {
+        std::lock_guard<std::mutex> lk(psong_mu_);
+        const auto hit = psong_.find(video);
+        if (hit != psong_.end() && now - hit->second.second < std::chrono::seconds(2)) return hit->second.first;
+    }
+    std::string found;
+    const std::vector<std::string> linked = VideoLinks::get().tracks_for(video);
+    if (!linked.empty()) found = linked.front();
+    if (found.empty()) {
+        const std::string stem = lower_stem(path_from_utf8(video));
+        for (const auto& t : all_local_tracks_)
+            if (!LocalSource::is_video_file(t.path) && lower_stem(t.path) == stem) { found = path_utf8(t.path); break; }
+    }
+    std::lock_guard<std::mutex> lk(psong_mu_);
+    if (psong_.size() > 512) psong_.clear();
+    psong_[video] = {found, now};
+    return found;
 }
 
 bool App::song_paired_with_video(const fs::path& track) const {
@@ -194,7 +234,7 @@ void App::video_toggle() {
     }
     refresh_local_view();   // the video files join / leave the library list
     if (settings_.video_mode && settings_.video_auto && !audiobook_ && current_is_local_ && !current_path_.empty() && !video_shown_for(current_path_).empty()) {
-        if (!settings_.video_view) auto_prev_view_ = settings_.element_lyrics ? 3 : std::clamp(settings_.lyric_viz, 0, 2); auto_prev_known_ = true;
+        if (!settings_.video_view) { auto_prev_view_ = settings_.element_lyrics ? 3 : std::clamp(settings_.lyric_viz, 0, 2); auto_prev_known_ = true; }
         settings_.element_lyrics = true;   // turned on while a track with a video plays: the field jumps to the video at once
         settings_.video_view = true;
     }
@@ -656,9 +696,13 @@ bool App::video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, 
             const VideoFrame* src = frame;
             if (cx0 != 0 || cy0 != 0 || outw != dw || outh != dh) { shown = VideoPlayer::crop(*frame, cx0, cy0, outw, outh); src = &shown; }
             VideoFrame fxf;
+            const auto tm0 = std::chrono::steady_clock::now();
             if (look.active()) { fxf = *src; VideoPlayer::apply_look(fxf, look, t, false, prevp); src = &fxf; }
+            const auto tm1 = std::chrono::steady_clock::now();
             if (tc) { g.rgb = src->rgb; g.level.assign(static_cast<size_t>(g.w) * g.h, 255); g.hue.clear(); }
             else VideoPlayer::quantize(*src, g.hue, g.level);
+            video_timing().look_ms = std::chrono::duration<double, std::milli>(tm1 - tm0).count();
+            video_timing().quant_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - tm1).count();
             if (round_corners) {   // the corners cut round, like the corners of the UI: a quarter circle of about one cell row
                 const int rp = std::clamp(g.w / std::max(1, vcols) * 11 / 20, 2, std::min(g.w, g.h) / 2);   // (the curve of a terminal corner such as "─╮": about half a cell width, a little more)
                 const float rf = static_cast<float>(rp);

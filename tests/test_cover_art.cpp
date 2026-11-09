@@ -7,6 +7,9 @@
 
 #include <filesystem>
 #include <fstream>
+#include <thread>
+#include <chrono>
+#include <cstdlib>
 
 using namespace muisc;
 namespace fs = std::filesystem;
@@ -257,4 +260,185 @@ TEST(cover_scaled_keeps_several_sizes) {
     CHECK(&cover_scaled(c, 40, 20, false, 0) == &a);                    // the first size is still there (not made again)
     CHECK_EQ(a.w, 40);
     CHECK_EQ(b.w, 20);
+}
+
+namespace {
+void make_png(const fs::path& p, const char* colour) {
+    const std::string cmd = std::string("ffmpeg -loglevel quiet -y -f lavfi -i color=c=") + colour + ":s=64x64 -frames:v 1 \"" + p.string() + "\"";
+    if (std::system(cmd.c_str()) != 0) {}
+}
+const CoverImage* wait_cover(const CoverRequest& rq) {
+    for (int i = 0; i < 400; ++i) {
+        if (const CoverImage* c = track_cover(rq)) if (c->key.find(std::to_string(rq.store_rev)) != std::string::npos) return c;
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    return track_cover(rq);
+}
+}
+
+TEST(cover_track_choice_changes_the_picture_and_same_path_edit_is_seen) {
+    mt::TempHome home;
+    const fs::path d = home.path() / "alb9";
+    fs::create_directories(d);
+    touch(d / "song.mp3");
+    make_png(d / "a.png", "red");
+    make_png(d / "b.png", "blue");
+    CoverRequest rq;
+    rq.path = path_utf8(d / "song.mp3");
+    rq.title = "song"; rq.album = "Nine"; rq.search = 0;
+    set_cover_track_choice(rq.path, path_utf8(d / "a.png"));
+    rq.store_rev = cover_store_revision();
+    const CoverImage* c1 = wait_cover(rq);
+    CHECK(c1 != nullptr);
+    const unsigned char r1 = c1 ? c1->rgb[0] : 0, b1 = c1 ? c1->rgb[2] : 0;
+    set_cover_track_choice(rq.path, path_utf8(d / "b.png"));
+    rq.store_rev = cover_store_revision();
+    const CoverImage* c2 = wait_cover(rq);
+    CHECK(c2 != nullptr);
+    CHECK(c2 && c2->rgb[2] > c2->rgb[0] && r1 > b1);               // red, then blue
+    std::this_thread::sleep_for(std::chrono::milliseconds(1200));   // (a file is looked at once a second)
+    make_png(d / "b.png", "green");                                   // the same file edited, chosen again
+    set_cover_track_choice(rq.path, path_utf8(d / "b.png"));
+    rq.store_rev = cover_store_revision();
+    const CoverImage* c3 = wait_cover(rq);
+    CHECK(c3 != nullptr);
+    CHECK(c3 && c3->rgb[1] > c3->rgb[2]);
+    const CoverImage* p1 = preview_cover(path_utf8(d / "b.png"), false);
+    for (int i = 0; i < 200 && !p1; ++i) { std::this_thread::sleep_for(std::chrono::milliseconds(25)); p1 = preview_cover(path_utf8(d / "b.png"), false); }
+    CHECK(p1 != nullptr);
+    // the chosen file edited in place with no new choice: the cover of the track is read again (within a second or two)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+    make_png(d / "b.png", "blue");
+    bool seen_blue = false;
+    for (int i = 0; i < 200 && !seen_blue; ++i) { const CoverImage* c = track_cover(rq); seen_blue = c && c->rgb[2] > c->rgb[1]; if (!seen_blue) std::this_thread::sleep_for(std::chrono::milliseconds(25)); }
+    CHECK(seen_blue);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+    make_png(d / "b.png", "red");
+    const CoverImage* p2 = nullptr;
+    for (int i = 0; i < 200 && !p2; ++i) { p2 = preview_cover(path_utf8(d / "b.png"), false); if (!p2) std::this_thread::sleep_for(std::chrono::milliseconds(25)); }
+    CHECK(p2 && p2->rgb[0] > p2->rgb[1]);   // the preview shows the edited file
+}
+
+TEST(thumbnail_fallback_uses_the_cover_first_and_the_video_frame_only_without_one) {
+    mt::TempHome home;
+    const fs::path d = home.path() / "alb10";
+    fs::create_directories(d);
+    touch(d / "song.mp3");
+    const std::string vid = path_utf8(d / "song.mp4");
+    if (std::system(("ffmpeg -loglevel quiet -y -f lavfi -i color=c=green:s=64x64:d=1:r=10 -pix_fmt yuv420p \"" + vid + "\"").c_str()) != 0) {}
+    CoverRequest rq;
+    rq.path = path_utf8(d / "song.mp3");
+    rq.title = "song"; rq.album = "Ten"; rq.search = 0;
+    rq.snapshot_video = vid; rq.thumb_fallback = true;
+    rq.store_rev = cover_store_revision();
+    const CoverImage* none = nullptr;
+    for (int i = 0; i < 400 && !none; ++i) { none = track_cover(rq); if (!none) std::this_thread::sleep_for(std::chrono::milliseconds(25)); }
+    CHECK(none != nullptr);                                            // no cover: a frame of the video (green)
+    CHECK(none && none->rgb[1] > none->rgb[0] && none->rgb[1] > none->rgb[2]);
+    make_png(d / "cover.png", "red");
+    set_cover_track_choice(rq.path, path_utf8(d / "cover.png"));
+    rq.store_rev = cover_store_revision();
+    const CoverImage* c = wait_cover(rq);
+    CHECK(c && c->rgb[0] > c->rgb[1]);                                 // a cover: the cover, not the frame
+    set_cover_track_choice(rq.path, kCoverNone);                       // "no cover" on purpose: the disk (the fallback must not use the frame there)
+    rq.thumb_fallback = false; rq.snapshot_video.clear();
+    rq.store_rev = cover_store_revision();
+    CHECK(cover_track_choice(rq.path) == kCoverNone);
+}
+
+TEST(cover_track_video_mode_knows_cover_thumbnail_disk_and_fallback) {
+    mt::TempHome home;
+    set_cover_track_video_mode("/x/a.mp3", 4);
+    CHECK_EQ(cover_track_video_mode("/x/a.mp3"), 4);
+    set_cover_track_video_mode("/x/a.mp3", 3);   // the plain disk
+    CHECK_EQ(cover_track_video_mode("/x/a.mp3"), 3);
+    set_cover_track_video_mode("/x/a.mp3", 7);   // not a mode: removed
+    CHECK_EQ(cover_track_video_mode("/x/a.mp3"), 0);
+    set_cover_track_video_mode("/x/a.mp3", 2);
+    CHECK_EQ(cover_track_video_mode("/x/a.mp3"), 2);
+    set_cover_track_video_mode("/x/a.mp3", 0);
+    CHECK_EQ(cover_track_video_mode("/x/a.mp3"), 0);
+}
+
+TEST(a_picture_that_could_not_be_read_is_tried_again_later) {
+    mt::TempHome home;
+    const fs::path d = home.path() / "alb11";
+    fs::create_directories(d);
+    const fs::path good = d / "good.png", pic = d / "pic.png";
+    make_png(good, "red");
+    const auto size = fs::file_size(good);
+    { std::ofstream o(pic, std::ios::binary); o << std::string(size, 'x'); }   // not a picture, but of the size of one
+    const auto when = fs::last_write_time(pic);
+    const std::string f = path_utf8(pic);
+    const CoverImage* p = nullptr;
+    for (int i = 0; i < 100 && preview_cover_loading(f, false); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    p = preview_cover(f, false);
+    CHECK(p == nullptr);                                    // cannot be read
+    fs::copy_file(good, pic, fs::copy_options::overwrite_existing);
+    fs::last_write_time(pic, when);                         // (the same size and time: only the retry can show it)
+    std::this_thread::sleep_for(std::chrono::milliseconds(5500));
+    for (int i = 0; i < 100 && !p; ++i) { p = preview_cover(f, false); if (!p) std::this_thread::sleep_for(std::chrono::milliseconds(50)); }
+    CHECK(p != nullptr);
+}
+
+TEST(a_video_in_video_down_sees_the_covers_of_the_download_folder) {
+    mt::TempHome home;
+    const fs::path dl = home.path() / "dl";
+    fs::create_directories(dl / "video_down");
+    fs::create_directories(dl / kFetchedCoversDir);
+    touch(dl / "video_down" / "Clip.mp4");
+    touch(dl / kFetchedCoversDir / "Some Album.jpg");
+    touch(dl / kFetchedCoversDir / "Other.png");
+    const auto c = cover_candidates(dl / "video_down" / "Clip.mp4", false);
+    CHECK_EQ(static_cast<int>(c.size()), 2);
+    CHECK(!find_fetched_cover(dl / "video_down", "Some Album").empty());
+    CHECK(find_fetched_cover(dl / "video_down", "Nope").empty());
+    CHECK(shared_covers_home(dl / "music").empty());
+    const fs::path pic = pick_folder_picture(dl / "video_down", {"Some Album", "Clip"}, false, false, true);
+    CHECK(!pic.empty());
+}
+
+TEST(a_file_outside_the_library_finds_the_fetched_covers_of_the_library_by_album) {
+    mt::TempHome home;
+    const fs::path lib = home.path() / "lib", other = home.path() / "elsewhere";
+    fs::create_directories(lib / "Band" / "Album" / kFetchedCoversDir);
+    fs::create_directories(other);
+    touch(lib / "Band" / "Album" / kFetchedCoversDir / "Lib Album.jpg");
+    set_cover_library_roots({lib});
+    CHECK(!cover_outside_library(lib / "Band" / "Album"));
+    CHECK(cover_outside_library(other));
+    CHECK(!fetched_cover_in_library("Lib Album", true).empty());
+    CHECK(fetched_cover_in_library("Nope", true).empty());
+    CHECK(!find_fetched_cover(other, "Lib Album").empty());
+    CHECK(find_fetched_cover(lib / "Band" / "Album", "Other Album").empty());
+    set_cover_library_roots({});
+}
+
+TEST(a_video_uses_the_choices_and_covers_of_the_song_it_is_paired_with) {
+    mt::TempHome home;
+    const fs::path songs = home.path() / "lib" / "Songs", vids = home.path() / "dl" / "video_down";
+    fs::create_directories(songs / kFetchedCoversDir);
+    fs::create_directories(vids);
+    touch(songs / "Tune.mp3");
+    touch(vids / "Tune.mp4");
+    touch(songs / "pic.jpg");
+    CoverRequest rq;
+    rq.path = path_utf8(vids / "Tune.mp4");
+    rq.title = "Tune"; rq.album = "Tune Album"; rq.search = 0;
+    rq.store_rev = cover_store_revision();
+    CHECK(resolve_cover_source(rq).none);                                   // not paired: nothing near the video
+    rq.pair_path = path_utf8(songs / "Tune.mp3");
+    touch(songs / kFetchedCoversDir / "Tune Album.jpg");                    // a cover fetched for the song's album
+    CoverSource s = resolve_cover_source(rq);
+    CHECK(!s.none);
+    CHECK(path_utf8(path_from_utf8(s.file).parent_path().filename()) == kFetchedCoversDir);
+    set_cover_track_choice(rq.pair_path, path_utf8(songs / "pic.jpg"));     // the song's own choice serves the video
+    rq.store_rev = cover_store_revision();
+    CHECK_EQ(resolve_cover_source(rq).file, path_utf8(songs / "pic.jpg"));
+    fs::remove(songs / "Tune.mp3");                                         // the song is gone: its choice stays
+    rq.store_rev = cover_store_revision();
+    CHECK_EQ(resolve_cover_source(rq).file, path_utf8(songs / "pic.jpg"));
+    set_cover_track_choice(rq.path, kCoverNone);                            // the video's own choice goes first
+    rq.store_rev = cover_store_revision();
+    CHECK(resolve_cover_source(rq).none);
 }

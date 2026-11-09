@@ -9,6 +9,9 @@
 #include <chrono>
 #include <cstdint>
 #include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
 #include <cstdio>
 #include <iostream>
 #include <cerrno>
@@ -113,6 +116,7 @@ static std::string bg_query() {
     return "";
 #else
     if (!isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO)) return "";
+    write_frame_drain();
     std::cout << std::flush;
     const char q[] = "\x1b]11;?\x1b\\\x1b[c";
     if (::write(STDOUT_FILENO, q, sizeof q - 1) < 0) return "";
@@ -152,11 +156,13 @@ void terminal_black_background(bool on) {
             g_bg_restore_len = std::min(back.size(), sizeof g_bg_restore);
             std::copy(back.begin(), back.begin() + static_cast<std::ptrdiff_t>(g_bg_restore_len), g_bg_restore);
         }
+        write_frame_drain();
         std::cout << "\x1b]11;rgb:00/00/00\x1b\\" << std::flush;
         g_bg_black = true;
         g_bg_restore_armed = 1;
     } else {
         g_bg_restore_armed = 0;
+        write_frame_drain();
         std::cout.write(g_bg_restore, static_cast<std::streamsize>(g_bg_restore_len));
         std::cout << std::flush;
         g_bg_black = false;
@@ -184,8 +190,10 @@ static std::string palette_rgb(const std::string& v) {
 void terminal_default_text(const std::string& palette) {
     const std::string want = g_bg_black ? palette_rgb(palette) : std::string();
     if (want == g_fg_set) return;
+    write_frame_drain();
     if (want.empty()) std::cout << "\x1b]110\x1b\\";              // the terminal's own text colour again
     else std::cout << "\x1b]10;" << want << "\x1b\\";
+    write_frame_drain();
     std::cout << std::flush;
     g_fg_set = want;
 }
@@ -257,6 +265,7 @@ void terminal_apply_size(int cols, int rows, bool fullscreen) {
     if (!tty) return;
     if (fullscreen) {
         if (g_fullscreen_applied) return;
+        write_frame_drain();
         std::cout << "\x1b[10;1t" << std::flush;   // xterm: full screen
 #if defined(_WIN32)
         win_set_fullscreen(true);                   // Windows Terminal: its F11
@@ -265,6 +274,7 @@ void terminal_apply_size(int cols, int rows, bool fullscreen) {
         return;
     }
     if (g_fullscreen_applied) {
+        write_frame_drain();
         std::cout << "\x1b[10;0t" << std::flush;
 #if defined(_WIN32)
         win_set_fullscreen(false);
@@ -281,12 +291,14 @@ void terminal_apply_size(int cols, int rows, bool fullscreen) {
     struct winsize ws{};
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col == cols && ws.ws_row == rows) return;
 #endif
+    write_frame_drain();
     std::cout << "\x1b[8;" << rows << ";" << cols << "t" << std::flush;
 }
 
 static bool g_alt_screen_held = false;
 void terminal_hold_alt_screen() { g_alt_screen_held = true; }
 void terminal_release_alt_screen() {
+    write_frame_drain();
     if (g_alt_screen_held) { terminal_background_restore(); std::cout << "\x1b[?25h" << "\x1b[?1049l" << std::flush; g_alt_screen_held = false; }
 }
 
@@ -330,13 +342,17 @@ TerminalIO::TerminalIO() {
     // miscalculation, the damage is contained to mousiki's own private
     // buffer instead of polluting the terminal the person is actually
     // going to keep using afterwards.
+    write_frame_drain();
     if (g_alt_screen_held) {   // taken over from the mode that just ended: stay on the alternate screen, just blank it
         g_alt_screen_held = false;
+        write_frame_drain();
         std::cout << "\x1b[2J\x1b[H\x1b[?25l" << std::flush;
     } else {
+        write_frame_drain();
         std::cout << "\x1b[?1049h" << "\x1b[?25l" << std::flush; // enter alt-screen, hide cursor
     }
 #if !defined(_WIN32)
+    write_frame_drain();
     std::cout << "\x1b[?2004h" << std::flush;   // bracketed paste: a pasted text is wrapped in ESC [ 200 ~ ... ESC [ 201 ~
 #endif
 }
@@ -348,12 +364,14 @@ void TerminalIO::restore() {
 #if defined(_WIN32)
         win_raw_mode_exit();
 #else
+        write_frame_drain();
         std::cout << "\x1b[?2004l" << std::flush;   // (the next mode switches it on again)
         remove_fatal_signal_handlers();
         tcsetattr(STDIN_FILENO, TCSANOW, &g_orig_termios);
 #endif
         if (!g_alt_screen_held) {   // show cursor, leave alt-screen and give the terminal its background back (not when the other mode takes it over)
             terminal_background_restore();
+            write_frame_drain();
             std::cout << "\x1b[?25h" << "\x1b[?1049l" << std::flush;
         }
         raw_mode_active_ = false;
@@ -584,6 +602,24 @@ int TerminalIO::poll_key() {
     if (next != 0) held = next;
     g_last_key_was_arrow = false;
     return key;
+}
+
+bool TerminalIO::wait_input(int ms) const {
+    ms = std::max(0, ms);
+#if defined(_WIN32)
+    if (!win_wait_input(ms)) return false;
+    // Windows Terminal types a pasted text into the console as a burst of key events (win_poll_key() gathers them into one paste): a
+    // moment for the whole burst to arrive, so the first poll does not take only its first characters as typed keys.
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    return true;
+#else
+    struct pollfd p;
+    p.fd = STDIN_FILENO; p.events = POLLIN; p.revents = 0;
+    const int r = ::poll(&p, 1, ms);
+    if (r > 0 && (p.revents & POLLIN)) return true;
+    if (r > 0) std::this_thread::sleep_for(std::chrono::milliseconds(ms));   // the input is closed or broken: it would return at once, again and again
+    return false;
+#endif
 }
 
 int TerminalIO::poll_key_raw() {
@@ -874,7 +910,7 @@ static std::string park_cursor(const std::string& frame) {
     return frame + "\x1b[H";
 }
 
-void write_frame(const std::string& frame_in) {
+static void write_frame_now(const std::string& frame_in) {
     const std::string frame = park_cursor(frame_in);
 #if defined(_WIN32)
     // Synchronized update (ConPTY / Windows Terminal honour it; older consoles ignore it): one finished frame is painted, never a half-drawn one.
@@ -900,6 +936,73 @@ void write_frame(const std::string& frame_in) {
     }
 #endif
 }
+
+
+// A frame with a big picture (a video) takes the terminal 30-100 ms to swallow. It is handed to a writer thread so the next frame can be
+// built meanwhile; anything else that writes to the terminal first waits until the writer is idle (write_frame_drain()), so the order of
+// the escape sequences is never mixed. MOUSIKI_SYNC_WRITE=1 writes every frame in place again.
+namespace {
+struct AsyncWriter {
+    std::mutex mu;
+    std::condition_variable cv;
+    std::string pending;
+    bool has = false, busy = false, started = false;
+    std::atomic<double> last_ms{0.0};
+    void loop() {
+        std::unique_lock<std::mutex> lk(mu);
+        for (;;) {
+            cv.wait(lk, [&] { return has; });
+            std::string job = std::move(pending);
+            pending.clear();
+            has = false;
+            busy = true;
+            lk.unlock();
+            const auto t0 = std::chrono::steady_clock::now();
+            write_frame_now(job);
+            last_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            lk.lock();
+            busy = false;
+            cv.notify_all();
+        }
+    }
+};
+AsyncWriter& writer() {
+    static AsyncWriter* w = new AsyncWriter();   // (never destroyed: the thread may still run at exit)
+    return *w;
+}
+}  // namespace
+
+void write_frame_drain() {
+    AsyncWriter& w = writer();
+    std::unique_lock<std::mutex> lk(w.mu);
+    w.cv.wait(lk, [&] { return !w.has && !w.busy; });
+}
+
+void write_frame(const std::string& frame) {
+    write_frame_drain();
+    write_frame_now(frame);
+}
+
+bool write_frame_async_allowed() {
+    static const bool off = [] { const char* e = std::getenv("MOUSIKI_SYNC_WRITE"); return e && *e && *e != '0'; }();
+    return !off;
+}
+
+double write_frame_async(std::string frame) {
+    AsyncWriter& w = writer();
+    const auto t0 = std::chrono::steady_clock::now();
+    {
+        std::unique_lock<std::mutex> lk(w.mu);
+        if (!w.started) { w.started = true; std::thread([&w] { w.loop(); }).detach(); }
+        w.cv.wait(lk, [&] { return !w.has && !w.busy; });   // (the frame before is still being written: the time the picture waits for the terminal)
+        w.pending = std::move(frame);
+        w.has = true;
+    }
+    w.cv.notify_all();
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+}
+
+double write_frame_last_ms() { return writer().last_ms.load(); }
 
 int TerminalIO::rows() const {
 #if defined(_WIN32)
@@ -996,8 +1099,23 @@ std::string replace_emoji_valid(const std::string& s) {
     if (g_emoji_mode == 0) return s;
     // Fast path: every emoji, VS16, ZWJ and keycap is encoded with a lead byte
     // >= 0xE2, so nearly every ordinary title bails out here after one scan.
+    // Exact, not just a hint: what can start an emoji (or follow a character to make one) is a 4-byte character (U+10000 and up:
+    // pictographs, flags, tags), a BMP emoji of the table above (U+231A .. U+2B55: lead byte E2, second byte 8C 8F 97 .. 9E AC AD),
+    // a keycap (U+20E3 = E2 83 A3) or a variation selector 16 (U+FE0F = EF B8 8F). Braille (E2 A0 .. A3), box drawing (E2 94 ..)
+    // and block characters (E2 96 ..), which every disk, waveform and border line is made of, are none of them: they skip the copy.
     bool maybe = false;
-    for (unsigned char c : s) { if (c >= 0xE2) { maybe = true; break; } }
+    const size_t n = s.size();
+    for (size_t k = 0; k < n && !maybe; ++k) {
+        const unsigned char c = static_cast<unsigned char>(s[k]);
+        if (c < 0xE2) continue;
+        if (c >= 0xF0) { maybe = true; break; }
+        const unsigned char b1 = k + 1 < n ? static_cast<unsigned char>(s[k + 1]) : 0;
+        const unsigned char b2 = k + 2 < n ? static_cast<unsigned char>(s[k + 2]) : 0;
+        if (c == 0xEF) { if (b1 == 0xB8 && b2 == 0x8F) maybe = true; }
+        else if (c == 0xE2) {
+            if (b1 == 0x8C || b1 == 0x8F || (b1 >= 0x97 && b1 <= 0x9E) || b1 == 0xAC || b1 == 0xAD || (b1 == 0x83 && b2 == 0xA3)) maybe = true;
+        }   // (other 3-byte characters: CJK, Hangul, Indic ... are never emoji)
+    }
     if (!maybe) return s;
 
     std::string out;

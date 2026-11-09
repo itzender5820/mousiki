@@ -43,10 +43,11 @@ std::vector<std::string> App::meta_cover_pane(int inner, int rows) const {
     if (rq.album == "-") rq.album.clear();
     rq.search = settings_.cover_search;
     rq.store_rev = cover_store_revision();
-    // what the disk shows of this track (Cover Options / Style Option / VIDEO SETTINGS): the cover, a frame of its video, or the plain disk
+    rq.pair_path = paired_song_for_video(rq.path);
+    // what the disk shows of this track (Cover Options / Style Option / VIDEO SETTINGS): the cover, a frame of its video, or the cover with the frame as fallback
     const int own = cover_track_video_mode(path);
     const bool has_video = !video_source_for(path_from_utf8(path)).empty();
-    const int vm = own == 1 ? 0 : own == 2 ? 1 : own == 3 ? 2 : settings_.video_mode ? settings_.video_cover : 0;   // 0 cover, 1 thumbnail, 2 plain disk
+    const int vm = own == 1 ? 0 : own == 2 ? 1 : own == 3 ? 2 : own == 4 ? 3 : settings_.video_mode ? settings_.video_cover : 0;   // 0 cover, 1 thumbnail, 2 disk, 3 thumbnail fallback
     const bool plain_disk = own == 3 || (own == 0 && vm == 2 && has_video);
     const bool overlay_up0 = meta_->choice_open || meta_->cov_open || meta_->sty_open || meta_->save.active;
     if (plain_disk) {
@@ -59,8 +60,9 @@ std::vector<std::string> App::meta_cover_pane(int inner, int rows) const {
         }
         return out;
     }
-    if ((own == 2 || (own == 0 && vm == 1)) && has_video) {   // thumbnail: a frame of the video is the current picture
+    if ((vm == 1 || vm == 3) && has_video && !(vm == 3 && cover_track_choice(path) == kCoverNone)) {   // thumbnail: a frame of the video is the current picture (fallback: when there is no cover)
         CoverRequest tq = rq;
+        tq.thumb_fallback = vm == 3;
         tq.snapshot_video = video_source_for(path_from_utf8(path));
         if (const CoverImage* img = track_cover(tq)) {
             if (cf_->full_res && gfx_proto_ != GfxProto::None && !overlay_up0 &&
@@ -131,7 +133,7 @@ void App::meta_cov_rebuild() {
     const std::string q = ascii_lower_str(meta_->cov_query);
     meta_->cov_items.clear();
     if (q.empty()) {
-        for (int m = 10; m <= 13; ++m) meta_->cov_items.push_back({m, {}});   // what the disk shows of a track with a video (a mode of its own)
+        for (int m = 10; m <= 14; ++m) meta_->cov_items.push_back({m, {}});   // what the disk shows of a track with a video (a mode of its own)
         meta_->cov_items.push_back({1, {}});
     }
     std::vector<fs::path> seen;
@@ -142,6 +144,8 @@ void App::meta_cov_rebuild() {
         meta_->cov_items.push_back({0, c});
     };
     for (const auto& c : cover_candidates(track, false)) add(c);
+    const std::string pair_song = paired_song_for_video(meta_->cov_track);   // a video: the pictures around its song and the song's fetched covers too
+    if (!pair_song.empty()) for (const auto& c : cover_candidates(path_from_utf8(pair_song), false)) add(c);
     if (q.empty() ? has_embedded_picture(track) : (std::string("inside the file").find(q) != std::string::npos && has_embedded_picture(track))) {
         CoverCandidate e;
         e.kind = CoverCandidate::Embedded;
@@ -159,6 +163,26 @@ void App::meta_cov_rebuild() {
             c.kind = path_utf8(f.parent_path().filename()) == kFetchedCoversDir ? CoverCandidate::Fetched : CoverCandidate::Folder;
             c.label = path_utf8(f.parent_path().filename()) + "/" + path_utf8(f.filename());
             add(c);
+        }
+    }
+    // the full path of a picture file typed (or pasted) into the search: that file is a candidate, wherever it lives
+    if (!q.empty()) {
+        std::string typed = meta_->cov_query;
+        while (!typed.empty() && (typed.back() == ' ' || typed.back() == '"')) typed.pop_back();
+        while (!typed.empty() && (typed.front() == ' ' || typed.front() == '"')) typed.erase(typed.begin());
+        const fs::path tp = path_from_utf8(typed);
+        std::error_code ec;
+        if (!typed.empty() && tp.is_absolute() && is_picture_name(tp) && fs::is_regular_file(tp, ec)) {
+            bool dup = false;
+            for (const auto& s : seen) if (s == tp) { dup = true; break; }
+            if (!dup) {
+                seen.push_back(tp);
+                CoverCandidate c;
+                c.file = tp;
+                c.kind = CoverCandidate::Folder;
+                c.label = path_utf8(tp.parent_path().filename()) + "/" + path_utf8(tp.filename());
+                meta_->cov_items.push_back({0, c});
+            }
         }
     }
     // a search by file name also looks into the folders around the track (the folder above it, two levels down)
@@ -196,6 +220,11 @@ void App::meta_cov_rebuild() {
                 if (it.special == 0 && choice_of(it.c) == use) { std::rotate(meta_->cov_items.begin() + static_cast<long>(top), meta_->cov_items.begin() + static_cast<long>(i), meta_->cov_items.begin() + static_cast<long>(i) + 1); break; }
             }
         }
+    }
+    if (q.empty()) {   // nothing to pick from: say how to get a picture in
+        bool any = false;
+        for (const MetaCovItem& it : meta_->cov_items) if (it.special == 0) { any = true; break; }
+        if (!any) meta_->cov_msg = "no picture found near this track: [/] and type the full path of a picture file (it is listed, ENTER picks it)";
     }
     meta_->cov_sel = std::clamp(meta_->cov_sel, 0, std::max(0, static_cast<int>(meta_->cov_items.size()) - 1));
 }
@@ -278,12 +307,12 @@ bool App::handle_meta_sty_key(int key) {
         case kStCoverColors: st.colors = reset ? -1 : sty_step(st.colors, dir, 100, 5); break;
         case kStCoverChroma: st.chroma = reset ? -1 : sty_step(st.chroma, dir, kChromaLevels - 1, 1); break;
         case kStCoverOrThumb: {   // the mode of the track (the same one as in COVER OPTIONS)
-            int mode = cover_track_video_mode(meta_->sty_track);   // 0 as in the VIDEO SETTINGS, 1 cover, 2 thumbnail, 3 plain disk
-            mode = reset ? 0 : (mode + (dir > 0 ? 1 : 3)) % 4;
+            int mode = cover_track_video_mode(meta_->sty_track);   // 0 as in the settings, 1 cover, 2 thumbnail, 3 plain disk, 4 thumbnail fallback
+            mode = reset ? 0 : (mode + (dir > 0 ? 1 : 4)) % 5;
             set_cover_track_video_mode(meta_->sty_track, mode);
             ++video_rev_;
             snap_track_.clear();
-            static const char* const names[4] = {"as in the VIDEO SETTINGS", "the cover", "the video thumbnail", "the plain disk"};
+            static const char* const names[5] = {"as in the settings", "the cover", "the video thumbnail", "the plain disk", "the cover, else the video thumbnail"};
             meta_->sty_msg = std::string("saved: ") + names[mode];
             return true;
         }
@@ -445,15 +474,19 @@ std::vector<std::string> App::meta_sty_preview(int prev_w, int rows, const Cover
         if (rq.album == "-") rq.album.clear();
         rq.search = settings_.cover_search;
         rq.store_rev = cover_store_revision();
-        // what the disk shows of a track with a video: the cover, a frame of the video or the plain disk (Style Option / VIDEO overlay)
+        rq.pair_path = paired_song_for_video(rq.path);
+        // what the disk shows of a track with a video: the cover, a frame of the video, or the cover with the frame as fallback (Style Option / VIDEO overlay)
         const int own = cover_track_video_mode(rq.path);
         const bool has_video = !video_source_for(path_from_utf8(meta_->sty_track)).empty();
-        const int vm = own == 1 ? 0 : own == 2 ? 1 : own == 3 ? 2 : settings_.video_mode ? settings_.video_cover : 0;
+        const int vm = own == 1 ? 0 : own == 2 ? 1 : own == 3 ? 2 : own == 4 ? 3 : settings_.video_mode ? settings_.video_cover : 0;   // 0 cover, 1 thumbnail, 2 disk, 3 thumbnail fallback
         const bool plain_video = own == 3 || (own == 0 && vm == 2 && has_video);
-        if (vm == 1 && has_video) rq.snapshot_video = video_source_for(path_from_utf8(meta_->sty_track));
-        const bool thumb_mode = vm == 1 && has_video && !plain_video;
+        const bool no_cover_chosen = cover_track_choice(rq.path) == kCoverNone;
+        CoverSource src = resolve_cover_source(rq);
+        const bool cover_less = src.none || src.file.empty();
+        const bool thumb_mode = has_video && !plain_video && (vm == 1 || (vm == 3 && cover_less && !no_cover_chosen));
+        if (thumb_mode) rq.snapshot_video = video_source_for(path_from_utf8(meta_->sty_track));
         const CoverImage* thumb = thumb_mode ? track_cover(rq) : nullptr;   // a frame of the video, as the disk shows it
-        const CoverSource src = plain_video || thumb_mode ? CoverSource() : resolve_cover_source(rq);
+        if (thumb_mode) src = CoverSource();
         if (plain_video) { plain_disk(); note = "plain disk (the Video setting of this track)"; }
         else if (thumb_mode && !thumb) { plain_disk(); note = "reading a frame of the video ..."; }
         else if (!thumb_mode && (src.none || src.file.empty())) { plain_disk(); note = "no cover: the disk is shown"; }
@@ -521,9 +554,9 @@ std::vector<std::string> App::build_meta_sty_panel(int screen_w) const {
             case kStCoverChroma: return {"Cover Chromatic Aberration", st.chroma >= 0 ? std::string(chroma_name(st.chroma)) : std::string("as in Settings (") + chroma_name(settings_.cover_chroma) + ")"};
             case kStCoverOrThumb: {   // the same choice as COVER OPTIONS (this track) and the VIDEO overlay (the default of all tracks)
                 const int own = cover_track_video_mode(meta_->sty_track);
-                static const char* const dflt[3] = {"the cover", "the video thumbnail", "the plain disk"};
-                static const char* const names[4] = {"", "the cover", "the video thumbnail", "the plain disk"};
-                return {"Use Cover or Thumbnail", own == 0 ? std::string("as in VIDEO SETTINGS (") + dflt[std::clamp(settings_.video_cover, 0, 2)] + ")" : std::string(names[own])};
+                static const char* const dflt[4] = {"the cover", "the video thumbnail", "the plain disk", "the cover, else the thumbnail"};
+                static const char* const names[5] = {"", "the cover", "the video thumbnail", "the plain disk", "the cover, else the thumbnail"};
+                return {"Use Disk/Cover/Thumbnail", own == 0 ? std::string("as in the settings (") + dflt[std::clamp(settings_.video_cover, 0, 3)] + ")" : std::string(names[own])};
             }
             case kStVideoOn: return {"Video of this track", vo.on == 0 ? std::string("off") : std::string("on")};
             case kStVideoLyrics: return {"Use Lyrics on Video", vo.lyrics >= 0 ? std::string(lyr_mode_name(vo.lyrics)) : std::string("as in VIDEO SETTINGS (") + lyr_mode_name(settings_.video_lyrics) + ")"};
@@ -662,16 +695,20 @@ bool App::handle_meta_cov_key(int key) {
         else if (it.special == 2) { choice = kCoverNone; what = "no cover (the disk is shown)"; }
         else { choice = choice_of(it.c); what = apply_font_map(it.c.label, settings_.font_map); }
         if (it.special >= 10) {   // Cover, Disk or Thumbnail of this track: a mode of its own, the picture choice stays as it is
-            const int mode = it.special - 10;
+            const int mode = it.special - 10;   // 0 as in the settings, 1 cover, 2 thumbnail, 3 plain disk, 4 thumbnail fallback
             set_cover_track_video_mode(meta_->cov_track, mode);
             ++video_rev_;
             snap_track_.clear();
             meta_->cov_open = false;
-            static const char* const names[4] = {"as in the VIDEO SETTINGS", "the cover", "a frame of its video, else the cover", "the plain disk"};
-            meta_->status = std::string("this track shows: ") + names[mode] + (mode == 2 && video_source_for(path_from_utf8(meta_->cov_track)).empty() ? " (no video yet: the cover is used)" : "");
+            static const char* const names[5] = {"as in the VIDEO SETTINGS", "the cover", "a frame of its video, else the cover", "the plain disk", "the cover, a frame of its video when it has no cover"};
+            meta_->status = std::string("this track shows: ") + names[mode] + ((mode == 2 || mode == 4) && video_source_for(path_from_utf8(meta_->cov_track)).empty() ? " (no video yet: the cover is used)" : "");
             return true;
         }
         set_cover_track_choice(meta_->cov_track, choice);
+        // the picture chosen for this track weighs most: the track now shows the cover (no thumbnail over it, whatever the settings say); Automatic gives the decision back to the settings
+        set_cover_track_video_mode(meta_->cov_track, choice.empty() ? 0 : 1);
+        ++video_rev_;
+        snap_track_.clear();
         meta_->cov_open = false;
         meta_->status = "cover of this track: " + what;
         return true;
@@ -680,6 +717,9 @@ bool App::handle_meta_cov_key(int key) {
         const MetaCovItem& it = meta_->cov_items[static_cast<size_t>(meta_->cov_sel)];
         if (it.special == 1 || (it.special == 0 && it.c.kind == CoverCandidate::Embedded)) {   // no picture to take away: this track gets no cover at all
             set_cover_track_choice(meta_->cov_track, kCoverNone);
+            set_cover_track_video_mode(meta_->cov_track, 1);
+            ++video_rev_;
+            snap_track_.clear();
             meta_->cov_msg = "no cover for this track now: the disk is shown (pick Automatic to get a picture back)";
             meta_cov_rebuild();
             for (size_t i = 0; i < meta_->cov_items.size(); ++i) if (meta_->cov_items[i].special == 2) { meta_->cov_sel = static_cast<int>(i); break; }
@@ -725,12 +765,14 @@ std::vector<std::string> App::build_meta_cov_panel(int screen_w) const {
     {
         std::string file, msg;
         bool emb = false;
+        std::string vframe;   // a video whose frame is the preview (the thumbnail choices)
         if (n > 0) {
             const MetaCovItem& it = meta_->cov_items[static_cast<size_t>(meta_->cov_sel)];
             if (it.special == 0) { file = path_utf8(it.c.file); emb = it.c.kind == CoverCandidate::Embedded; }
             else if (it.special == 13) msg = "the plain disk";
+            else if (it.special == 14 && video_source_for(path_from_utf8(meta_->cov_track)).empty()) msg = "the cover; a frame of the video when there is none";
             else if (it.special == 2) msg = "no cover: the disk is shown";
-            else if (it.special == 12 && !video_source_for(path_from_utf8(meta_->cov_track)).empty()) msg = "a frame of the video";
+            else if (it.special == 12 && !video_source_for(path_from_utf8(meta_->cov_track)).empty()) vframe = path_utf8(video_source_for(path_from_utf8(meta_->cov_track)));
             else {   // Automatic (and the disk options that show the cover): the picture the search finds for the track, without its own choice
                 CoverRequest rq;
                 rq.path = meta_->cov_track;
@@ -738,25 +780,30 @@ std::vector<std::string> App::build_meta_cov_panel(int screen_w) const {
                 rq.album = meta_->hover_values[static_cast<size_t>(MetaField::Album)];
                 rq.search = settings_.cover_search;
                 rq.store_rev = cover_store_revision();
+                rq.pair_path = paired_song_for_video(rq.path);
                 rq.ignore_track_choice = true;
                 const CoverSource src = resolve_cover_source(rq);
                 if (!src.none && !src.file.empty()) { file = path_utf8(src.file); emb = src.embedded; }
+                else if (it.special == 14 && !video_source_for(path_from_utf8(meta_->cov_track)).empty()) vframe = path_utf8(video_source_for(path_from_utf8(meta_->cov_track)));
                 else msg = it.special == 12 ? "no video yet and no cover found: the disk" : "no cover found: the disk";
             }
         } else msg = "no picture found";
         // [t] (as in the meta editor and the cover fetch): the preview as a real picture (Kitty / Sixel) or as braille dots
         bool drawn = false;
-        if (cf_->full_res && gfx_proto_ != GfxProto::None && !file.empty()) {
+        const CoverImage* vimg = vframe.empty() ? nullptr : preview_video_frame(vframe);
+        if (!vframe.empty() && !vimg) msg = preview_video_frame_loading(vframe) ? "reading a frame of the video ..." : "(no frame of the video can be read)";
+        if (cf_->full_res && gfx_proto_ != GfxProto::None && (!file.empty() || vimg)) {
             // where the floating panel stands (the same arithmetic as draw_floating_panel()); the preview is right of the list
             const int panel_h = rows + 4;
             const int start_col = 1 + std::max(0, (screen_w - W) / 2);
             const int start_row = std::clamp(1 + std::max(0, (term_rows_ - panel_h) / 2 - kFloatingPanelUpShift), 1, std::max(1, term_rows_ - panel_h));
-            if (cover_full_picture(file, emb, prev_w, rows, (start_col - 1) + 1 + list_w + 1, (start_row - 1) + 2)) {
+            const int pcol = (start_col - 1) + 1 + list_w + 1, prow = (start_row - 1) + 2;
+            if (vimg ? cover_full_picture_img(vimg, prev_w, rows, pcol, prow) : cover_full_picture(file, emb, prev_w, rows, pcol, prow)) {
                 for (int r = 0; r < rows; ++r) prev.push_back(gfx_hole(prev_w));
                 drawn = true;
             }
         }
-        if (!drawn) prev = cover_preview_lines(file, emb, prev_w, rows, msg);
+        if (!drawn) prev = vimg ? cover_preview_lines_img(*vimg, prev_w, rows) : cover_preview_lines(file, emb, prev_w, rows, msg);
     }
     // The list in two groups so the three "modes" are not mistaken for search results: first how THIS track gets its picture (a choice of
     // one of three, drawn as radio marks), then the pictures that were found (a mark on the one in use).
@@ -774,7 +821,7 @@ std::vector<std::string> App::build_meta_cov_panel(int screen_w) const {
         const MetaCovItem& it = meta_->cov_items[static_cast<size_t>(k)];
         if (it.special >= 10) {
             if (top.empty()) top.push_back(heading("The disk shows"));
-            static const char* const labels[4] = {"As in the VIDEO SETTINGS (default)", "The cover", "The video thumbnail, else the cover", "The plain disk"};
+            static const char* const labels[5] = {"As in the settings (default)", "The cover", "The video thumbnail, else the cover", "The plain disk", "The cover, else the video thumbnail"};
             top.push_back({k, std::string(it.special - 10 == vmode_now ? "(o) " : "( ) ") + labels[it.special - 10]});
         } else if (it.special == 1) {
             pics.push_back({k, std::string(cur.empty() ? "(o) " : "( ) ") + "Automatic (as in Settings)"});

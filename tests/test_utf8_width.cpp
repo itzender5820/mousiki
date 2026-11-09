@@ -160,3 +160,25 @@ TEST(emoji_safe_mode_keeps_plain_emoji_and_replaces_risky_clusters) {
     CHECK(display_width("a" + cat + "b") != 3);
     set_emoji_mode(2);
 }
+
+// The fast path of the emoji replacement (the line has nothing that could be an emoji: it is not copied) must see every BMP emoji of
+// the table, a VS16 and a keycap, and let braille / box drawing / block characters through untouched.
+TEST(emoji_fast_path_sees_every_emoji_start) {
+    set_emoji_mode(2);
+    // every BMP emoji of the table is replaced by one "?" (width 1)
+    const unsigned cps[] = {0x231A, 0x23E9, 0x23F0, 0x23F3, 0x25FD, 0x2614, 0x2648, 0x267F, 0x2693, 0x26A1, 0x26AA, 0x26BD, 0x26C4, 0x26CE,
+                            0x26D4, 0x26EA, 0x26F2, 0x26F5, 0x26FA, 0x26FD, 0x2705, 0x270A, 0x2728, 0x274C, 0x274E, 0x2753, 0x2757, 0x2795,
+                            0x27B0, 0x27BF, 0x2B1B, 0x2B50, 0x2B55};
+    for (unsigned cp : cps) {
+        std::string s = "a";
+        s += static_cast<char>(0xE0 | (cp >> 12));
+        s += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+        s += static_cast<char>(0x80 | (cp & 0x3F));
+        CHECK(truncate_str(s, 10) == "a?");
+    }
+    CHECK(truncate_str("x\xEF\xB8\x8F", 10) == "?");                    // a plain character + VS16
+    CHECK(truncate_str("1\xEF\xB8\x8F\xE2\x83\xA3", 10) == "?");        // a keycap
+    CHECK(truncate_str("\xF0\x9F\x8E\xB5", 10) == "?");                 // a 4-byte emoji
+    const std::string line = "\xE2\xA1\x80\xE2\xA3\xBF\xE2\x94\x82\xE2\x94\x80\xE2\x96\x88\xE2\x96\x91";   // braille, box drawing, blocks
+    CHECK(truncate_str(line, 10) == line);
+}

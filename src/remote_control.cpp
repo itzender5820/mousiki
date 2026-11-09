@@ -163,6 +163,13 @@ void publish_status(const std::vector<std::pair<std::string, std::string>>& kv) 
         for (char& ch : clean) if (ch == '\n' || ch == '\r') ch = ' ';
         text += k + "=" + clean + "\n";
     }
+    // Paused or idle the text is the same second after second: it is written again only when it changed (or every 30 seconds, in
+    // case somebody removed the file). The "running" file, not this one, tells --status that the program is alive.
+    static std::string last_text;
+    static Clock::time_point last_write{};
+    if (text == last_text && now - last_write < std::chrono::seconds(30)) return;
+    last_text = text;
+    last_write = now;
     write_atomic(status_file(), text);
 }
 

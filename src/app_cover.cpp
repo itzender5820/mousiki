@@ -149,15 +149,17 @@ const CoverImage* App::player_cover() const {
     rq.album = md.album == "-" ? std::string() : md.album;
     rq.search = settings_.cover_search;
     rq.store_rev = cover_store_revision();
+    rq.pair_path = paired_song_for_video(rq.path);
     // Cover, Disk or Thumbnail: the mode of the track itself (meta editor -> COVER OPTIONS / STYLE OPTION) wins; a track without one follows
     // the setting of the VIDEO overlay (and only while the Video mode is on)
-    const int own = cover_track_video_mode(rq.path);   // 0 as in the VIDEO overlay, 1 cover, 2 thumbnail, 3 plain disk
+    const int own = cover_track_video_mode(rq.path);   // 0 as in the VIDEO settings, 1 cover, 2 thumbnail, 3 plain disk, 4 thumbnail fallback
     if (own == 3) return nullptr;
-    const int vmode = own == 1 ? 0 : own == 2 ? 1 : settings_.video_mode ? settings_.video_cover : 0;
+    const int vmode = own == 1 ? 0 : own == 2 ? 1 : own == 4 ? 3 : settings_.video_mode ? settings_.video_cover : 0;   // 0 cover, 1 thumbnail, 2 disk, 3 thumbnail fallback
     if (vmode >= 1) {   // the video of the track is found once per track
         if (snap_track_ != rq.path || snap_rev_ != video_rev_) { snap_track_ = rq.path; snap_rev_ = video_rev_; snap_video_ = video_source_for(current_path_); }
         if (vmode == 2 && !snap_video_.empty()) return nullptr;   // Disk: a track with a video shows the plain disk, no cover and no thumbnail
-        if (vmode == 1) rq.snapshot_video = snap_video_;          // Thumbnail: a frame of the video
+        if (vmode == 1) rq.snapshot_video = snap_video_;          // Thumbnail: a frame of the video first, then the usual search
+        else if (vmode == 3 && cover_track_choice(rq.path) != kCoverNone) { rq.snapshot_video = snap_video_; rq.thumb_fallback = true; }   // fallback: the cover first
     }
     return track_cover(rq);
 }
@@ -651,6 +653,13 @@ std::vector<std::string> App::cover_preview_lines(const std::string& file, bool 
     if (!msg.empty() || file.empty()) { centred_text(msg.empty() ? "no picture" : msg); return lines; }
     const CoverImage* img = preview_cover(file, embedded);
     if (!img) { centred_text(preview_cover_loading(file, embedded) ? "reading ..." : "(the picture cannot be read)"); return lines; }
+    return cover_preview_lines_img(*img, cols, rows);
+}
+
+std::vector<std::string> App::cover_preview_lines_img(const CoverImage& image, int cols, int rows) const {
+    cols = std::max(cols, 1); rows = std::max(rows, 1);
+    std::vector<std::string> lines(static_cast<size_t>(rows), std::string(static_cast<size_t>(cols), ' '));
+    const CoverImage* img = &image;
     const int fw = cols * 2, fh = rows * 4;
     const CoverScaled& cs = cover_scaled(*img, fw, fh, true, 0);   // (previews show the picture as it is: no contrast)
     const int ox = std::max(0, (fw - cs.w) / 2), oy = std::max(0, (fh - cs.h) / 2);

@@ -564,8 +564,8 @@ def paging_and_translit_row(binary, root, scripts):
         check("32" in find("Terminal Size") and "28" not in find("Terminal Size"), "terminal size: ENTER on the button sets it back to 120 x 32")
         sess.send(b"\x1b[B", 0.2)
         check("Full Screen" in find("Full Screen") and "false" in find("Full Screen"), "full screen: the row exists and is off by default")
-        for _ in range(10):
-            sess.send(b"\x1b[B", 0.1)   # down to Translit. Kanji (past REMOTE / UPDATES; TEXT AND TRANSLITERATION is last)
+        for _ in range(11):
+            sess.send(b"\x1b[B", 0.1)   # down to Translit. Kanji (past Reduce Motion When Paused and REMOTE / UPDATES; TEXT AND TRANSLITERATION is last)
         def row():
             return find("Translit. Kanji")
         def settle(word, limit=8.0):   # a slow machine draws the row a moment after the key: wait for it (up to `limit` s)
@@ -1369,6 +1369,42 @@ def translation_editor(binary, root, scripts):
     finally:
         sess.kill()
 
+def disk_border_setting(binary, root, scripts):
+    """Settings -> DISK -> Disk Border: with ElimentDiskBorder=false the ":  :" column between the disk and the meta data is gone and the
+    disk sits further right (in the middle of the space); with the default it is there."""
+    cols = {}
+    for name, val in (("on", "true"), ("off", "false")):
+        home = os.path.join(root, "db_home_" + name)
+        lib = os.path.join(root, "music")
+        os.makedirs(os.path.join(home, ".config", "mousiki"))
+        with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+            f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nElimentDiskBorder=%s\n" % (lib, val))
+        sess = Session(binary, home, scripts, quiet_stderr=True)
+        try:
+            for _ in range(30):
+                sess.pump(0.5)
+                if "HELP WIZARD" in sess.text():
+                    break
+            sess.send(b"\x1b", 1.0)
+            for _ in range(20):
+                sess.pump(0.5)
+                if "Alpha Song" in sess.text():
+                    break
+            t = sess.text()
+            check((":  :" in t) == (name == "on"), "disk border %s: the \":  :\" column is %s" % (name, "there" if name == "on" else "gone"))
+            first = None
+            for y in range(1, 12):                           # the first braille column of the disk, left of the meta data
+                row = sess.row_cells(y)
+                for x, ch in enumerate(row):
+                    if "\u2800" <= ch <= "\u28ff" and ch != "\u2800":
+                        first = x if first is None else min(first, x)
+                        break
+            cols[name] = first
+        finally:
+            sess.kill()
+    check(cols.get("on") is not None and cols.get("off") is not None and cols["off"] >= cols["on"], "disk border: with the border off the disk is not further left (on %s, off %s)" % (cols.get("on"), cols.get("off")))
+
+
 def play_mode_back(binary, root, scripts):
     """m steps through the play modes, j steps back (the console log names the mode)."""
     home = os.path.join(root, "pmb_home")
@@ -1654,7 +1690,7 @@ def disk_field_setting(binary, root, scripts):
         t = sess.text()
         check("DISK / COVER OPTIONS" in t and "Eliment Disk / Cover" in t and "Album Cover" in t, "disk field: the tab has DISK and DISK / COVER OPTIONS")
         check(t.index("Disk Speed") < t.index("DISK / COVER OPTIONS") < t.index("Album Cover"), "disk field: Disk Speed is under DISK, Album Cover under DISK / COVER OPTIONS")
-        for _ in range(17):                                 # to Eliment Disk (after Lyrics/Viz Default: When No Lyrics Show, When No Video Shows, Lyrics Alignment, Lyrics Animation, Include Lyrics, Video Size, Effect, Contrast, Colors, Chromatic Aberration, Rounded Corners, Show Clap Loading, Resolution, Buffer, yt-dlp mp3 from mp4)
+        for _ in range(18):                                 # to Eliment Disk (after Lyrics/Viz Default: When No Lyrics Show, When No Video Shows, Lyrics Alignment, Lyrics Animation, Include Lyrics, Video Size, Effect, Contrast, Colors, Chromatic Aberration, Rounded Corners, Show Clap Loading, Disk/Cover/Thumbnail, Resolution, Buffer, yt-dlp mp3 from mp4)
             sess.send(b"\x1b[B", 0.2)
         sess.pump(0.6)
         check("Show Disk / Cover" in sess.text(), "disk field: the row says Show Disk / Cover")
@@ -1663,7 +1699,7 @@ def disk_field_setting(binary, root, scripts):
         sess.send(b"\x1b[C", 1.0)
         check("Show Disk / Cover" in sess.text() and "Disk / Cover field removed" not in sess.text(), "disk field: Show Disk / Cover brings the preview back")
         check(sess.alive(), "disk field: the program is still running")
-        for _ in range(4):                                  # up to Show Clap Loading (yt-dlp mp3 from mp4, Video Buffer and Video Resolution are in between)
+        for _ in range(5):                                  # up to Show Clap Loading (yt-dlp mp3 from mp4, Video Buffer, Video Resolution and Disk/Cover/Thumbnail are in between)
             sess.send(b"\x1b[A", 0.2)
         sess.pump(0.8)
         t = sess.text()
@@ -1868,7 +1904,7 @@ def video_overlays(binary, root, scripts):
                 break
         sess.send("Y", 1.0)
         t = sess.text()
-        check("Include Lyrics" in t and "Cover, Disk or Thumbnail" in t and "Manually Couple Local Files" in t and "Quick Search/Down. YT" in t and "General Fetch Videos Menu" in t and "Delete Current Video" in t and "Refetch this Video" in t, "video overlay: the rows are listed")
+        check("Include Lyrics" in t and "Disk/Cover/Thumbnail" in t and "Manually Couple Local Files" in t and "Quick Search/Down. YT" in t and "General Fetch Videos Menu" in t and "Delete Current Video" in t and "Refetch this Video" in t, "video overlay: the rows are listed")
         check("Picture Size" in t and "Effect" in t and "Full Screen Video" in t, "video overlay: picture size, effect and full screen video rows are listed")
         check("Contrast" in t and "Colors" in t and "Chromatic Aberration" in t and "Resolution" in t and "Buffer" in t, "video overlay: contrast, colors, chromatic aberration, resolution and buffer rows")
         for _ in range(15):   # (to "Manually Couple Local Files", under "Full Screen Video"; Show Clap Loading is the row before it)
@@ -2641,7 +2677,7 @@ def run_scenario(name, binary, root, scripts):
 
 
 SCENARIOS = ["narrow80", "narrow100", "main", "read_lyrics_play", "karaoke_timing", "book_speed_and_devices", "paging_and_translit_row",
-             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "radio_organigram", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "translation_editor", "translation_create", "play_mode_back", "translation_paste_undo", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key", "video_overlays", "video_pair_tags", "video_fetch_flow", "video_fetch_restore", "settings_video_preview", "video_files_tab", "video_library_modes", "video_fullscreen_sizes", "video_translation_tab", "organigram_menu", "scope_spectro_overlays", "radio_waterfall", "radio_station_edit"]
+             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "radio_organigram", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "translation_editor", "translation_create", "play_mode_back", "disk_border_setting", "translation_paste_undo", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key", "video_overlays", "video_pair_tags", "video_fetch_flow", "video_fetch_restore", "settings_video_preview", "video_files_tab", "video_library_modes", "video_fullscreen_sizes", "video_translation_tab", "organigram_menu", "scope_spectro_overlays", "radio_waterfall", "radio_station_edit"]
 
 
 def main():

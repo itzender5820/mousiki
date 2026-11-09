@@ -592,6 +592,11 @@ void App::rescan_library() {
     // is read back once at startup by run() (before any rescan can happen)
     // and never again, so per-scan results go straight to the log instead.
     std::vector<std::string> diagnostics;
+    if (!audiobook_) {   // (the covers fetched into the library's folders are found for a file outside them, by the album's name)
+        std::vector<fs::path> roots;
+        for (const std::string& r : library_roots()) roots.push_back(path_from_utf8(r));
+        set_cover_library_roots(roots);
+    }
     all_local_tracks_ = local_source_.scan(library_roots(), &diagnostics);
     exclude_book_files(all_local_tracks_);
     if (VideoLinks::get().size() > 0) {   // a song or a video that was moved (outside Mousiki) is found again by its file name

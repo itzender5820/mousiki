@@ -190,6 +190,37 @@ void CacheManager::append_unique_line(const fs::path& file, const std::string& e
     if (out) out << (needs_newline ? "\n" : "") << entry << "\n";
 }
 
+fs::path CacheManager::audio_files_path() const { return download_dir_ / "history" / "downloaded_audio_files.txt"; }
+
+std::string CacheManager::cache_key(const std::string& title, const std::string& id) const {
+    if (id.empty() || id.find("://") != std::string::npos) return title;
+    const std::string stem = sanitize(title);
+    std::ifstream in(audio_files_path(), std::ios::binary);
+    std::string line, own;
+    bool taken = false;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        const size_t tab = line.find('\t');
+        if (tab == std::string::npos) continue;
+        const std::string lid = line.substr(0, tab), lstem = line.substr(tab + 1);
+        if (lid == id) own = lstem;          // this video was downloaded by Mousiki: under that name
+        else if (lstem == stem) taken = true; // another video owns the plain title's file
+    }
+    if (!own.empty()) return own == stem ? title : title + " [" + id + "]";
+    return taken ? title + " [" + id + "]" : title;
+}
+
+void CacheManager::record_audio_download(const std::string& key, const std::string& id) const {
+    if (id.empty() || id.find("://") != std::string::npos) return;
+    static std::mutex m;
+    std::lock_guard<std::mutex> lk(m);
+    std::error_code ec;
+    const fs::path file = audio_files_path();
+    fs::create_directories(file.parent_path(), ec);
+    if (ec) return;
+    append_unique_line(file, id + "\t" + sanitize(key));
+}
+
 fs::path CacheManager::video_archive_path() const { return download_dir_ / "history" / "downloaded_videos.txt"; }
 
 static bool plain_video_id(const std::string& id) {

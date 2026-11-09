@@ -105,6 +105,8 @@ struct CoverRequest {
     std::string title;    // title tag, else the file name without extension
     std::string album;    // album tag ("" = none)
     int search = 0;       // Settings -> Cover Search
+    std::string pair_path;   // a video file: the song it is paired with (its choices, folder and fetched covers are used too; the song may be gone)
+    bool thumb_fallback = false;   // Thumbnail fallback: the usual search first; only when it finds no picture, a frame of snapshot_video
     std::string snapshot_video;   // a video file whose frame is the cover (Settings: Cover or Video Snapshot); "" = the usual search
     bool ignore_track_choice = false;   // resolve_cover_source() only: what "Automatic" would find (the picture chosen for the track is left out)
     unsigned store_rev = 0;   // cover_store_revision(): the cover is made again when a choice was made or a cover fetched / deleted

@@ -123,8 +123,9 @@ PvKind kind_of(int id, const Settings& s) {
     switch (id) {
         case kSidLyrAlign: case kSidLyrAnim: case kSidUseLyrics: return kPvLyrics;
         case kSidUseVideo: case kSidVideoLyrics: case kSidVideoSize: case kSidVideoFx: case kSidVideoRes: case kSidVideoBuffer: case kSidVideoMp3: case kSidVideoContrast: case kSidVideoBrightness: case kSidVideoColors: case kSidVideoChroma: case kSidVideoRound: return kPvVideo;   // (a sample video; the lyrics preview when it is not there)
+        case kSidVideoCover: return kPvNone;
         case kSidVideoClap: return kPvClap;
-        case kSidDisk: case kSidDiskSpeed: return kPvDisk;
+        case kSidDisk: case kSidDiskSpeed: case kSidDiskBorder: return kPvDisk;
         case kSidAlbumCover: case kSidCoverMode: case kSidCoverContrast: case kSidCoverBrightness: case kSidCoverColors: case kSidCoverChroma:
         case kSidCoverSearch: return kPvCover;
         case kSidVolIndicator: case kSidDummy: return kPvVolume;

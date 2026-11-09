@@ -13,12 +13,24 @@ namespace muisc {
 
 // Fetched covers are saved in a folder of this name inside the folder of the tracks (one copy per folder that holds the album).
 inline constexpr const char* kFetchedCoversDir = "fetched_covers";
+// The folder whose fetched_covers a video in the download folder's video_down also looks into: the download folder itself (where the
+// covers of the downloaded songs are kept). Empty for any other folder.
+inline std::filesystem::path shared_covers_home(const std::filesystem::path& dir) {
+    return dir.filename() == "video_down" && dir.has_parent_path() ? dir.parent_path() : std::filesystem::path();
+}
 
 // A name as a key: lower case, punctuation and spacing ignored (the album "Abbey Road" and "abbey_road" are the same one).
 std::string cover_name_key(const std::string& name);
 
 // <track folder>/fetched_covers/<album>.<ext> if the album has a fetched cover there (any picture format), else an empty path.
 std::filesystem::path find_fetched_cover(const std::filesystem::path& track_folder, const std::string& album);
+// The folders of the music library (set by the music player after every scan). A file that lives outside them (the download folder's
+// video_down, a cache folder) has no fetched_covers folder of its own: find_fetched_cover() and the cover search then look for the album's
+// cover in the fetched_covers folders of the library, by the album's name. The index of those folders is made in the background (the
+// first answer may be "none"; the covers are asked for again when it is ready).
+void set_cover_library_roots(const std::vector<std::filesystem::path>& roots);
+bool cover_outside_library(const std::filesystem::path& folder);   // video_down, or a folder under none of the library folders
+std::filesystem::path fetched_cover_in_library(const std::string& album, bool wait = false);
 // The path (without extension) a fetched cover of the album is written to.
 std::filesystem::path fetched_cover_stem(const std::filesystem::path& track_folder, const std::string& album);
 // The album name as part of a file name (characters Windows does not allow become "_").

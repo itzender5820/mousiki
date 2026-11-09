@@ -86,6 +86,8 @@ public:
     // are) and chromatic aberration (0 off .. 3 strong: red and blue are pushed apart, more towards the corners).
     static void apply_grade(VideoFrame& f, int contrast, int colors, int chroma, int brightness = 50);   // brightness 0..100: 50 = as it is, lower darker, higher brighter (a gamma curve: black and white stay)
     // The whole look: the grade, then the effect.
+    // How many threads share the rows of the looks: 0 = automatic (half of the cores, at most 4; MOUSIKI_FX_THREADS= overrides), 1 = none.
+    static void set_fx_threads(int n);
     static void apply_look(VideoFrame& f, const VideoLook& look, double t, bool braille = false, const VideoFrame* prev = nullptr);
     // The frame that was on screen before the current one (nullptr: none, or another size).
     const VideoFrame* previous_frame() const;

@@ -1077,6 +1077,12 @@ static Settings load_from_config(const fs::path& path) {
             (key == "FullScreen" ? s.full_screen : s.use_terminal_settings) = (v == "true" || v == "1" || v == "on" || v == "yes");
             continue;
         }
+        if (key == "ReduceMotionWhenPaused") {
+            std::string v = trim_ws(unquote(value));
+            for (char& ch : v) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+            s.reduce_motion_paused = !(v == "false" || v == "0" || v == "off" || v == "no");
+            continue;
+        }
         if (key == "RateCap96") {
             std::string v = trim_ws(unquote(value));
             for (char& ch : v) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
@@ -1130,6 +1136,7 @@ static Settings load_from_config(const fs::path& path) {
 
         // --- Element toggles ---
         if (key == "Eliment_disk" || key == "Element_disk") { s.element_disk = parse_bool(value); continue; }
+        if (key == "ElimentDiskBorder" || key == "eliment_disk_border") { s.disk_border = parse_bool(value); continue; }
         if (key == "Element_dummy_buttons") { s.element_dummy_buttons = parse_bool(value); continue; }
         if (key == "Eliment_queue" || key == "Element_queue") { s.element_queue = parse_bool(value); continue; }
         if (key == "Eliment_waveform_progress_bar" || key == "Element_waveform") { s.element_waveform = parse_bool(value); continue; }
@@ -1139,7 +1146,7 @@ static Settings load_from_config(const fs::path& path) {
         if (key == "video_view") { s.video_view = parse_bool(value); continue; }
         if (key == "video_lyrics") { s.video_lyrics = lyr_mode_parse(trim_ws(unquote(value))); continue; }
         if (key == "video_auto") { s.video_auto = parse_bool(value); continue; }
-        if (key == "video_cover") { std::string v = ascii_lower_str(trim_ws(unquote(value))); s.video_cover = (v == "snapshot" || v == "thumbnail" || v == "1" || v == "true") ? 1 : (v == "disk" || v == "2") ? 2 : 0; continue; }
+        if (key == "video_cover") { std::string v = ascii_lower_str(trim_ws(unquote(value))); s.video_cover = (v == "snapshot" || v == "thumbnail" || v == "1" || v == "true") ? 1 : (v == "disk" || v == "2") ? 2 : (v == "fallback" || v == "thumbnail fallback" || v == "3") ? 3 : 0; continue; }   // ("disk" of an older version: the cover)
         if (key == "video_size") { std::string v = ascii_lower_str(trim_ws(unquote(value))); s.video_size = (v == "cropped" || v == "crop" || v == "1") ? 1 : (v == "full" || v == "2") ? 2 : (v == "framed" || v == "3") ? 3 : 0; continue; }
         if (key == "video_brightness") { const std::string bv = trim_ws(unquote(value)); if (!bv.empty() && std::isdigit(static_cast<unsigned char>(bv[0]))) s.video_brightness = std::clamp((std::atoi(bv.c_str()) + 2) / 5 * 5, 0, 100); continue; }
         if (key == "video_contrast") { s.video_contrast = std::clamp((std::atoi(trim_ws(unquote(value)).c_str()) + 2) / 5 * 5, 0, 100); continue; }
@@ -1966,6 +1973,7 @@ static void write_settings(std::ostream& out, const Settings& s) {
     out << "##-------------------------------------------\n\n";
     auto tf = [](bool v) -> const char* { return v ? "true" : "false"; };
     out << "ElimentDisk=" << tf(s.element_disk) << "\n";
+    out << "ElimentDiskBorder=" << tf(s.disk_border) << "\n## true , false -- the \":  :\" column between the disk (or cover) and the meta data; false: it is left out and the disk sits in the middle of the space between the left border and the meta data\n";
     out << "LatinLetters=" << tf(s.latin_letters) << "\n## true , false -- Japanese, Korean and Chinese titles, tags and lyrics are shown in Latin letters (switch with SHIFT+' on a US keyboard, see HKeyTranslit)\n";
     out << "LyricsNameVariants=" << tf(s.lyrics_name_variants) << "\n## true , false -- a lyrics search (also the refetch) that finds nothing tries other spellings: the Latin-letters spelling, the title / artist without their Latin or without their Japanese part, the title alone\n";
     out << "LatinMacrons=" << tf(s.latin_macrons) << "\n## true , false -- Latin letters (SHIFT+'): Japanese long vowels with a macron (koohii -> koohii off, kōhī on; ou -> ō); off = spelled out (ou, uu)\n";
@@ -1999,7 +2007,7 @@ static void write_settings(std::ostream& out, const Settings& s) {
     out << "## (with a translation shown, the last row under the picture is used first, then the lyric block grows upwards: the picture gets smaller)\n";
     out << "VideoAuto=" << tf(s.video_auto) << "\n";
     out << "## true = a track that has a video switches the field to the video view, a track without one to the Lyrics/Viz Default view\n";
-    out << "VideoCover=" << (s.video_cover == 1 ? "thumbnail" : s.video_cover == 2 ? "disk" : "cover") << "\n";
+    out << "VideoCover=" << (s.video_cover == 1 ? "thumbnail" : s.video_cover == 2 ? "disk" : s.video_cover == 3 ? "fallback" : "cover") << "\n";
     out << "## cover = the disk shows the track's cover; thumbnail = a frame of the track's video (the cover, then the disk, when it has no video); disk = a track with a video shows the plain disk (no cover, no thumbnail)\n";
     out << "VideoSize=" << (s.video_size == 1 ? "cropped" : s.video_size == 2 ? "full" : s.video_size == 3 ? "framed" : "regular") << "\n";
     out << "## the video's picture in the small field: regular = the whole picture | cropped = two columns cut off each side | full = fills the field (the oscilloscope's space), cropped to fit, the lyric line as a small black box over it\n";
@@ -2094,6 +2102,7 @@ out << "VideoLayout=" << s.video_layout << "\n";
     out << "TerminalCols=" << s.terminal_cols << "\nTerminalRows=" << s.terminal_rows << "\n## columns and rows (default 120 x 32; at least 100 x 28, at most what fits on the screen; 0 in either = leave the terminal as it is) -- Mousiki asks the terminal for this size when it starts and when you change it in Settings -> GENERAL -> TERMINAL -> Terminal Size. Terminals decide for themselves: xterm, GNOME Terminal, iTerm2, Terminal.app and recent versions of Windows Terminal usually obey, others (Konsole, kitty, Alacritty, tmux, tiling window managers) ignore it\n";
     out << "UseTerminalSettings=" << (s.use_terminal_settings ? "true" : "false") << "\n## true , false -- true: Mousiki leaves the terminal as it is (its own window size and full screen), whatever TerminalCols / TerminalRows / FullScreen say\n";
     out << "FullScreen=" << (s.full_screen ? "true" : "false") << "\n## true , false -- ask the terminal for full screen when Mousiki starts (overrides TerminalCols / TerminalRows while on)\n";
+    out << "ReduceMotionWhenPaused=" << (s.reduce_motion_paused ? "true" : "false") << "\n## true , false (default true) -- paused (or with nothing playing) and untouched for a few seconds, the screen is redrawn only about 10 times a second (the disk turns slower, the sphere is calmer) -- much less CPU and terminal traffic; any key brings the full frame rate back at once.\n";
     out << "RateCap96=" << (s.rate_cap_96 ? "true" : "false") << "\n## true , false (default true) -- a track above 96 kHz (e.g. 176.4 / 192 kHz) is brought down to 96 kHz; false plays it at its own rate: more RAM (the decoded audio grows with the rate, see TrackBufferMB) and the audio device must accept the rate. The next track that is loaded uses it\n";
     out << "MediaKeys=" << (s.media_keys ? "true" : "false") << "\n## true , false -- the system's media controls: Windows shows Mousiki in the media pop-up and its media keys work, Linux shows it in the desktop's media widgets (MPRIS; playerctl works), macOS shows Now Playing and handles the media keys (read at the next start; player and radio)\n";
     out << "PlaybackMode=" << play_mode_name(s.play_mode) << "\n## list , loop , shuffle , stop , queue then stop\n"
@@ -2357,7 +2366,7 @@ void copy_look(const Settings& src, Settings& dst) {
     MOUSIKI_LOOK(viz_left_color); MOUSIKI_LOOK(viz_center_color); MOUSIKI_LOOK(viz_right_color);
     MOUSIKI_LOOK(lyr_inactive_color); MOUSIKI_LOOK(lyr_active_line_color); MOUSIKI_LOOK(lyr_active_word_color);
     // elements and visualizations
-    MOUSIKI_LOOK(element_disk); MOUSIKI_LOOK(element_dummy_buttons); MOUSIKI_LOOK(element_queue); MOUSIKI_LOOK(element_waveform);
+    MOUSIKI_LOOK(element_disk); MOUSIKI_LOOK(disk_border); MOUSIKI_LOOK(element_dummy_buttons); MOUSIKI_LOOK(element_queue); MOUSIKI_LOOK(element_waveform);
     MOUSIKI_LOOK(volume_indicator); MOUSIKI_LOOK(volume_gradient); MOUSIKI_LOOK(element_vizfield); MOUSIKI_LOOK(element_lyrics);
     MOUSIKI_LOOK(lyric_viz); MOUSIKI_LOOK(nolyrics_viz); MOUSIKI_LOOK(use_lyrics); MOUSIKI_LOOK(use_osci); MOUSIKI_LOOK(use_spectro);
     MOUSIKI_LOOK(use_sphere); MOUSIKI_LOOK(viz_default); MOUSIKI_LOOK(element_visualizer); MOUSIKI_LOOK(waveform_smooth);

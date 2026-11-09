@@ -69,6 +69,10 @@ void win_raw_mode_exit();
 // ASCII hotkey value), and callers that accept free text (search box, etc.)
 // already handle exactly this shape of input from the POSIX side.
 int win_poll_key();
+// Waits up to `ms` milliseconds for something in the console input queue (a key press or release, a resize or focus event); true when
+// there is something (or a byte of a half-delivered character is waiting). The console input handle is signalled while its queue is
+// not empty, and win_poll_key() empties the queue, so the wait ends at once on input and sleeps otherwise.
+bool win_wait_input(int ms);
 
 // True while the key win_poll_key() just returned was one of the four
 // arrow keys. Because arrows deliberately collapse to the letters

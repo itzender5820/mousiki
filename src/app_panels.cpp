@@ -324,6 +324,7 @@ struct App::MetaPanel {
     int inner = 0;
     int book_extra = 0;
     int sep_w = 0;
+    int disk_pad = 0;   // Disk Border off: the columns the disk moves right to sit in the middle of the space before the meta data
     int panel_h = 0;
     int fixed_extra = 0;
     int avail = 0;
@@ -355,6 +356,7 @@ void App::meta_panel_disk(MetaPanel& m) const {
     [[maybe_unused]] auto& inner = m.inner;
     [[maybe_unused]] auto& book_extra = m.book_extra;
     [[maybe_unused]] auto& sep_w = m.sep_w;
+    const int disk_pad = m.disk_pad;
     [[maybe_unused]] auto& panel_h = m.panel_h;
     [[maybe_unused]] auto& fixed_extra = m.fixed_extra;
     [[maybe_unused]] auto& avail = m.avail;
@@ -378,7 +380,7 @@ void App::meta_panel_disk(MetaPanel& m) const {
     [[maybe_unused]] auto& lines_copy = m.lines_copy;
     [[maybe_unused]] auto& elapsed = m.elapsed;
     [[maybe_unused]] auto& lyrics_delay = m.lyrics_delay;
-    if (show_disk && audiobook_ && book_picture_gfx(2, disk_w, panel_h)) {
+    if (show_disk && audiobook_ && book_picture_gfx(2 + disk_pad, disk_w, panel_h)) {
         book_pic_img = true;
         // placeholder cells: the main loop writes them as spaces or (Sixel) skips them so the picture stays
         for (int i = 0; i < panel_h; ++i) disk_frame.push_back(gfx_hole(disk_w));
@@ -397,7 +399,7 @@ void App::meta_panel_disk(MetaPanel& m) const {
                                      std::string(static_cast<size_t>(std::max(0, disk_w - left - art_w)), ' '));
             else disk_frame.emplace_back(std::string(static_cast<size_t>(disk_w), ' '));
         }
-    } else if (show_disk && !audiobook_ && eff_album_cover() && album_cover_gfx(2, disk_w, panel_h)) {
+    } else if (show_disk && !audiobook_ && eff_album_cover() && album_cover_gfx(2 + disk_pad, disk_w, panel_h)) {
         // Album Cover: the cover of the playing track is a pixel image in the disk's place (it uses the picture slot gfx_, so the
         // oscilloscope image goes into the second slot gfx2_)
         cover_pic_img = true;
@@ -1057,6 +1059,9 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
     if (!show_viz) { meta_w = avail; lyrics_w = 0; }   // "Viz/Lyrics Field" off, or no room: the meta data take the field's place
     if (book_extra) meta_w = std::max(10, meta_w - book_extra);
 
+    // The ":  :" column can be switched off (Settings -> DISK -> Disk Border): the disk then sits in the middle of the space between
+    // the left border and the meta data, which start where they always did.
+    m.disk_pad = (show_disk && !settings_.disk_border) ? std::max(0, (sep_w - 1) / 2) : 0;
     meta_panel_disk(m);
     elapsed = has_track_ ? player_.poll_elapsed() : 0.0;
     fft_.set_fluidity(settings_.visualizer_fluidity);
@@ -1084,7 +1089,8 @@ std::vector<std::string> App::build_metadata_panel(int total_width) const {
     for (int row = 0; row < panel_h; ++row) {
         std::string content = "";
         if (show_disk) {
-            content += disk_frame[row] + sep_ansi;
+            if (settings_.disk_border) content += disk_frame[row] + sep_ansi;
+            else content += std::string(static_cast<size_t>(m.disk_pad), ' ') + disk_frame[row] + std::string(static_cast<size_t>(std::max(0, sep_w - m.disk_pad)), ' ');
         } else {
             content += "  ";
         }

@@ -340,6 +340,9 @@ private:
     std::vector<std::string> build_vf_choice_panel(int w, int h) const;
     mutable std::chrono::steady_clock::time_point video_away_since_{};   // since when the field is not on the video view     // size / place of the picture last built
     std::string video_source_for(const fs::path& track) const;
+    // For a video file: the song it is paired with (a link, else the song of the same file name in the library); "" for anything else. A linked song
+    // that is gone is still returned: the cover choices made for it keep serving the video.
+    std::string paired_song_for_video(const std::string& video) const;
     void video_toggle();
     // The video of a track as it is shown: video_source_for() unless the track's Style Option hides it; its size and effect (the track's own, else the VIDEO overlay's).
     std::string video_shown_for(const fs::path& track) const;
@@ -861,6 +864,7 @@ private:
     // Sixel and Cover Colors > 0 in a Cover behind Disk look: the picture is drawn with a fixed colour palette (`direct`), see cover_fill()
     bool cover_sixel_colours(int mode) const { return gfx_proto_ == GfxProto::Sixel && eff_cover_colors() > 0 && mode >= 2 && mode <= 4; }
     void cycle_cover_look(int dir);              // CTRL+t / CTRL+z: the plain disk and the cover looks (audio books: default picture, cover with wave, cover)
+    std::vector<std::string> cover_preview_lines_img(const CoverImage& img, int cols, int rows) const;   // a picture already in memory as braille dots
     std::vector<std::string> cover_preview_lines(const std::string& file, bool embedded, int cols, int rows, const std::string& msg = "") const;
     std::vector<std::string> album_cover_lines_for(const CoverImage& cover, int mode, int contrast, int brightness, int colors, double angle, int cols, int rows, int chroma = 0) const;   // any cover, any style (previews)
 
@@ -906,6 +910,18 @@ private:
     int order_swap_from_ = -1;       // Viz Order rows: the place the chosen view came from (the row that changed with it)
     int auto_prev_view_ = 3;        // Auto Video: the view before a track with a video took the field (0..2 a visual, 3 lyrics)
     bool auto_prev_set_ = false;
+    // the main screen kept standing behind the Style Option / video search overlays (App::run); per App like everything else
+    std::string frozen_body_, frozen_sig_;
+    int frozen_cols_ = -1, frozen_rows_ = -1;
+    // video_source_for(): the answer of the folder / library search per track (the meta panel asks for it every frame). Dropped when a
+    // video connection or the library changes (video_rev_, track count) and after 2 seconds anyway (a file that just appeared).
+    mutable std::mutex psong_mu_;   // paired_song_for_video(): the answer per video, kept for 2 seconds like vsrc_
+    mutable std::unordered_map<std::string, std::pair<std::string, std::chrono::steady_clock::time_point>> psong_;
+    mutable std::mutex vsrc_mu_;
+    mutable std::unordered_map<std::string, std::pair<std::string, std::chrono::steady_clock::time_point>> vsrc_;
+    mutable uint64_t vsrc_rev_ = ~0ull;
+    mutable size_t vsrc_n_ = 0;
+    std::chrono::steady_clock::time_point last_input_ = std::chrono::steady_clock::now();   // the last key (App::run: Reduce Motion When Paused)
     bool auto_prev_known_ = false;  // auto_prev_view_ was seen this run (a start on the video view has no earlier view)
     void meta_cov_open();
     void meta_cov_rebuild();

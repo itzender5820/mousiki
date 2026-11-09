@@ -28,6 +28,7 @@ void HifiBars::reset() {
     std::fill(ring_[0].begin(), ring_[0].end(), 0.0f);
     std::fill(ring_[1].begin(), ring_[1].end(), 0.0f);
     write_ = 0;
+    ++pushed_;
     for (auto& s : state_) s.clear();
     spec_ms_ = -1;
 }
@@ -36,6 +37,7 @@ void HifiBars::push(const float* lr, size_t frames, int rate) {
     if (!active() || !lr) return;
     std::lock_guard<std::mutex> lk(mtx_);
     rate_ = rate > 0 ? rate : 48000;
+    if (frames > 0) ++pushed_;
     for (size_t i = 0; i < frames; ++i) {
         ring_[0][static_cast<size_t>(write_)] = lr[2 * i];
         ring_[1][static_cast<size_t>(write_)] = lr[2 * i + 1];
@@ -45,10 +47,12 @@ void HifiBars::push(const float* lr, size_t frames, int rate) {
 
 // The magnitudes (in units of a full-scale sine = 1) of both channels over the last kN samples.
 void HifiBars::analyse() {
-    std::vector<float> a[2];
+    std::vector<float>* a = an_;   // (kept between frames: no allocation per call)
     int rate;
     {
         std::lock_guard<std::mutex> lk(mtx_);
+        if (pushed_ == analysed_ && !spec_[0].empty() && !spec_[1].empty()) return;   // no new samples (paused, or the audio is not feeding): the last result stands
+        analysed_ = pushed_;
         for (int c = 0; c < 2; ++c) {
             a[c].resize(kN);
             for (int i = 0; i < kN; ++i) a[c][static_cast<size_t>(i)] = ring_[c][static_cast<size_t>((write_ + i) % kN)];
@@ -61,7 +65,8 @@ void HifiBars::analyse() {
         win.resize(kN);
         for (int i = 0; i < kN; ++i) win[static_cast<size_t>(i)] = 0.5f * (1.0f - std::cos(2.0f * 3.14159265f * static_cast<float>(i) / (kN - 1)));
     }
-    std::vector<kiss_fft_cpx> fo(kN / 2 + 1);
+    static thread_local std::vector<kiss_fft_cpx> fo;
+    fo.resize(kN / 2 + 1);
     for (int c = 0; c < 2; ++c) {
         for (int i = 0; i < kN; ++i) a[c][static_cast<size_t>(i)] *= win[static_cast<size_t>(i)];
         kiss_fftr(static_cast<kiss_fftr_cfg>(cfg_), a[c].data(), fo.data());

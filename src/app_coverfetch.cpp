@@ -227,10 +227,9 @@ void App::poll_cover_fetch() {
         cf_rebuild_rows();
     }
     {   // the counts came in: a filter on counts is applied again once
-        static bool was_scanning = false;
         const bool now = cf_->scanning.load();
-        if (was_scanning && !now && cf_->index_ready && cf_->filter != 0) cf_rebuild_rows();
-        was_scanning = now;
+        if (cf_->was_scanning && !now && cf_->index_ready && cf_->filter != 0) cf_rebuild_rows();
+        cf_->was_scanning = now;
     }
     if (cf_->fetch_thread.joinable() && !cf_->fetch_running.load()) {
         cf_->fetch_thread.join();

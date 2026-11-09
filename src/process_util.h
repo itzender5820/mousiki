@@ -68,6 +68,10 @@ public:
     // the one reading, and after the child has exited.
     void kill();
 
+    // Makes the child yield the processor to the program itself (nice 5 / BELOW_NORMAL): the video decoder fills its buffer as fast as
+    // it can after every start and would otherwise take the processor away from the picture being drawn. Best effort.
+    void lower_priority();
+
 private:
     ChildProcess();
     friend std::unique_ptr<ChildProcess> spawn_capture(const Args&, bool);

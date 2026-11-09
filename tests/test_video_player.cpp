@@ -295,6 +295,7 @@ TEST(video_fx_off_changes_nothing_and_others_keep_the_size) {
     VideoPlayer::apply_fx(a, 0, 1.0);
     CHECK(a.rgb == src.rgb);
     for (int fx = 1; fx < kVideoFxCount; ++fx) {
+        if (video_fx_canon(fx) != fx) continue;   // (Dither 11 and Bloom 14 are no longer offered)
         VideoFrame b = src;
         VideoPlayer::apply_fx(b, fx, 1.0);
         CHECK_EQ(b.w, 200); CHECK_EQ(b.h, 120);
@@ -492,7 +493,7 @@ TEST(video_new_looks_do_what_they_say) {
     }
     {   // dither: two inks; game boy: four; ega 16: at most sixteen
         VideoFrame d = src, gb = src, ega = src;
-        VideoPlayer::apply_fx(d, 11, 1.0); VideoPlayer::apply_fx(gb, 12, 1.0); VideoPlayer::apply_fx(ega, 13, 1.0);
+        VideoPlayer::apply_fx(d, 21, 1.0); VideoPlayer::apply_fx(gb, 12, 1.0); VideoPlayer::apply_fx(ega, 13, 1.0);
         CHECK_EQ(fx_distinct_colours(d), 2L);
         CHECK(fx_distinct_colours(gb) <= 4L + 4L);   // (the faint LCD gap darkens the edges of a block: a second set of the four)
         CHECK(fx_distinct_colours(ega) <= 16L);

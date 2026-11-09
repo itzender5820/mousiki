@@ -287,7 +287,7 @@ bool App::browse_playback_key(const std::string& action, int key, int lookup_key
         } else if (next >= 3) {                    // -> lyrics, or the video (lyrics with the picture)
             // lyrics -> video (or back) keeps the lyrics that are there: fetching again would blank them for a moment (the no-lyrics visual with a "cached" caption)
             const bool have_lyrics = settings_.element_lyrics && lyrics_ready_ && lyrics_path_ == current_path_;
-            if (next == 4 && cur != 4) auto_prev_view_ = cur; auto_prev_known_ = true;   // (the view the video took the field from: "last used" brings it back on a track without a video)
+            if (next == 4 && cur != 4) { auto_prev_view_ = cur; auto_prev_known_ = true; }   // (the view the video took the field from: "last used" brings it back on a track without a video)
             settings_.element_lyrics = true;
             settings_.video_view = next == 4;
             const bool placeholder = next == 4 && settings_.novideo_viz != 4 && has_track_ && video_shown_for(current_path_).empty();   // the video view of a track without a video shows a visual: no lyrics needed

@@ -133,7 +133,7 @@ inline constexpr int kRefEnd = kRefStart + kRefRowCount;
 enum SetId {
     kSidVizField, kSidDisk, kSidDummy, kSidQueue, kSidWave, kSidLyricsEngine, kSidLyricViz, kSidVisualizer, kSidNoLyricsViz,
     kSidStereo, kSidNormalize, kSidMetaOnly, kSidEmoji, kSidMarquee, kSidUseLyrics, kSidUseOsci, kSidUseSpectro, kSidUseSphere,
-    kSidOrder1, kSidOrder2, kSidOrder3, kSidOrder4, kSidOrder5, kSidUseVideo, kSidNoVideoViz, kSidVideoSize, kSidVideoFx, kSidVideoContrast, kSidVideoBrightness, kSidVideoColors, kSidVideoChroma, kSidVideoRound, kSidVideoClap, kSidVideoRes, kSidVideoBuffer, kSidVideoMp3, kSidCoverChroma,
+    kSidOrder1, kSidOrder2, kSidOrder3, kSidOrder4, kSidOrder5, kSidUseVideo, kSidNoVideoViz, kSidVideoSize, kSidVideoFx, kSidVideoContrast, kSidVideoBrightness, kSidVideoColors, kSidVideoChroma, kSidVideoRound, kSidVideoClap, kSidVideoCover, kSidVideoRes, kSidVideoBuffer, kSidVideoMp3, kSidCoverChroma,
     kSidPlayback, kSidStartMode, kSidBlackBg, kSidShareProfiles, kSidRemoteApp, kSidUpdateCheck, kSidMediaKeys, kSidUseTermSettings, kSidTermSize, kSidFullScreen, kSidLatinLookup, kSidLatinMacrons, kSidLatinWo, kSidLatinHanzi, kSidLyricsVariants, kSidRateCap, kSidTrackBuffer,
     kSidVisFluidity, kSidWaveStyle, kSidDiskSpeed, kSidVisDegr, kSidVisVisc, kSidLyrAlign, kSidLyrAnim,
     kSidVolIndicator,
@@ -144,6 +144,8 @@ enum SetId {
     kSidCheckUpdate,   // [ENTER] checks for a newer release now (an action row, no value to switch)
     kSidBookSpeed,     // audio book player: the playback speed (0.5x - 3.0x, the pitch stays)
     kSidBarStyle, kSidHifiRes, kSidHifiChan, kSidHifiColor, kSidHifiScale, kSidHifiAdapt, kSidHifiSplit, kSidHifiFScale, kSidHifiGain, kSidHifiRange, kSidBarBehavior,   // SPECTRUM BARS: classic / Hi-Fi and the three rows only Hi-Fi shows
+    kSidReduceMotion,  // TERMINAL: a low frame rate while paused and untouched
+    kSidDiskBorder,    // DISK: the ":  :" column between the disk and the meta data on / off
     kSidAudioDevice,   // the sound output: shows the device in use, [ENTER] opens the CHOOSE AUDIO DEVICE overlay
 };
 // True while the audio book player is the mode that runs (set by App::run()): its GENERAL and ANIMA/VIZ tabs leave out what only
@@ -168,7 +170,7 @@ inline const std::vector<SetLine>& settings_layout(int tab) {
         {true, -1, ""},
         {true, -1, "TERMINAL"},
         {false, kSidBlackBg, "Black Background"}, {false, kSidUseTermSettings, "Use Terminal Settings"}, {false, kSidTermSize, "Terminal Size"},
-        {false, kSidFullScreen, "Full Screen"},
+        {false, kSidFullScreen, "Full Screen"}, {false, kSidReduceMotion, "Reduce Motion When Paused"},
         {true, -1, ""},
         {true, -1, "REMOTE / UPDATES"},
         {false, kSidRemoteApp, "Remote App"}, {false, kSidMediaKeys, "Media Keys"},
@@ -189,10 +191,10 @@ inline const std::vector<SetLine>& settings_layout(int tab) {
         {false, kSidLyrAlign, "Lyrics Alignment"}, {false, kSidLyrAnim, "Lyrics Animation"},
         {true, -1, ""},
         {true, -1, "VIDEO"},
-        {false, kSidVideoLyrics, "Include Lyrics"}, {false, kSidVideoSize, "Video Size"}, {false, kSidVideoFx, "Video Effect"}, {false, kSidVideoContrast, "Video Contrast"}, {false, kSidVideoBrightness, "Video Brightness"}, {false, kSidVideoColors, "Video Colors"}, {false, kSidVideoChroma, "Video Chromatic Aberration"}, {false, kSidVideoRound, "Video Rounded Corners"}, {false, kSidVideoClap, "Show Clap Loading"}, {false, kSidVideoRes, "Video Resolution"}, {false, kSidVideoBuffer, "Video Buffer"}, {false, kSidVideoMp3, "yt-dlp mp3 from mp4"},
+        {false, kSidVideoLyrics, "Include Lyrics"}, {false, kSidVideoSize, "Video Size"}, {false, kSidVideoFx, "Video Effect"}, {false, kSidVideoContrast, "Video Contrast"}, {false, kSidVideoBrightness, "Video Brightness"}, {false, kSidVideoColors, "Video Colors"}, {false, kSidVideoChroma, "Video Chromatic Aberration"}, {false, kSidVideoRound, "Video Rounded Corners"}, {false, kSidVideoClap, "Show Clap Loading"}, {false, kSidVideoCover, "Disk/Cover/Thumbnail"}, {false, kSidVideoRes, "Video Resolution"}, {false, kSidVideoBuffer, "Video Buffer"}, {false, kSidVideoMp3, "yt-dlp mp3 from mp4"},
         {true, -1, ""},
         {true, -1, "DISK"},
-        {false, kSidDisk, "Eliment Disk / Cover"}, {false, kSidDiskSpeed, "Disk Speed"},
+        {false, kSidDisk, "Eliment Disk / Cover"}, {false, kSidDiskSpeed, "Disk Speed"}, {false, kSidDiskBorder, "Disk Border"},
         {true, -1, ""},
         {true, -1, "DISK / COVER OPTIONS"},
         {false, kSidAlbumCover, "Album Cover"}, {false, kSidCoverMode, "Cover Mode"},
@@ -239,7 +241,7 @@ inline const std::vector<SetLine>& settings_layout(int tab) {
         {true, -1, ""},
         {true, -1, "TERMINAL"},
         {false, kSidBlackBg, "Black Background"}, {false, kSidUseTermSettings, "Use Terminal Settings"}, {false, kSidTermSize, "Terminal Size"},
-        {false, kSidFullScreen, "Full Screen"},
+        {false, kSidFullScreen, "Full Screen"}, {false, kSidReduceMotion, "Reduce Motion When Paused"},
         {true, -1, ""},
         {true, -1, "REMOTE / UPDATES"},
         {false, kSidRemoteApp, "Remote App"}, {false, kSidMediaKeys, "Media Keys"},
@@ -259,7 +261,7 @@ inline const std::vector<SetLine>& settings_layout(int tab) {
         {false, kSidLyricViz, "Notes/Viz Default"}, {false, kSidNoLyricsViz, "When No Notes Show"},
         {true, -1, ""},
         {true, -1, "BOOK COVER"},
-        {false, kSidBookCover, "Book Cover"}, {false, kSidBookCoverWave, "Book Gradient Wave"}, {false, kSidCoverContrast, "Cover Contrast"},
+        {false, kSidBookCover, "Book Cover"}, {false, kSidDiskBorder, "Disk Border"}, {false, kSidBookCoverWave, "Book Gradient Wave"}, {false, kSidCoverContrast, "Cover Contrast"},
         {false, kSidCoverBrightness, "Cover Brightness"}, {false, kSidCoverColors, "Cover Colors"},
         {true, -1, ""},
         {true, -1, "SEEK AND VOLUME"},

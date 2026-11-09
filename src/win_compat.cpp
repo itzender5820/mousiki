@@ -377,6 +377,17 @@ bool win_last_key_was_shifted() { return g_last_key_was_shifted; }
 bool win_last_key_was_ctrl() { return g_last_key_was_ctrl; }
 bool win_last_key_was_page() { return g_last_key_was_page; }
 
+bool win_wait_input(int ms) {
+    if (ms < 0) ms = 0;
+    if (!g_pending_key_bytes.empty()) return true;
+    if (!g_con.in || g_con.in == INVALID_HANDLE_VALUE) { Sleep(static_cast<DWORD>(ms)); return false; }
+    const DWORD r = WaitForSingleObject(g_con.in, static_cast<DWORD>(ms));
+    if (r == WAIT_OBJECT_0) return true;
+    if (r == WAIT_TIMEOUT) return false;
+    Sleep(static_cast<DWORD>(ms));   // the wait itself failed: just sleep, like the loop did before
+    return false;
+}
+
 int win_poll_key() {
     g_last_key_was_page = false;
     g_last_key_was_shifted = false;

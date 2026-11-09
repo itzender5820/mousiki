@@ -48,8 +48,9 @@ std::optional<SongResult> YoutubeSource::resolve(const std::string& query, std::
         return std::nullopt;
     }
 
-    fs::path cached = cache_.path_for(title, "opus");
-    if (cache_.is_cached(title, "opus")) {
+    const std::string key = cache_.cache_key(title, id);   // (a different song with the same title has its own file)
+    fs::path cached = cache_.path_for(key, "opus");
+    if (cache_.is_cached(key, "opus")) {
         SongResult result{title, artist, cached, true};
         return result;
     }
@@ -60,11 +61,12 @@ std::optional<SongResult> YoutubeSource::resolve(const std::string& query, std::
                                 "-x", "-f", "bestaudio/best", "--audio-format", "opus", "--audio-quality", "0",
                                 "-o", path_utf8(cached.parent_path() / cached.stem()) + ".%(ext)s", url}, /*merge_stderr=*/true);
 
-    if (!cache_.is_cached(title, "opus")) {
+    if (!cache_.is_cached(key, "opus")) {
         if (error_out) *error_out = "yt-dlp download failed:\n" + r.out;
         return std::nullopt;
     }
 
+    cache_.record_audio_download(key, id);
     cache_.record_download("youtube", id);   // shared with yt-dlp runs outside Mousiki (history/downloaded_history.txt)
     SongResult result{title, artist, cached, false};
     return result;
@@ -88,8 +90,9 @@ std::optional<SongResult> YoutubeSource::resolve_by_id(const std::string& video_
         if (error_out) *error_out = "yt-dlp download failed:\n" + r.out;
         return std::nullopt;
     }
-    fs::path cached = cache_.path_for(title, "opus");
-    if (cache_.is_cached(title, "opus")) {
+    const std::string key = cache_.cache_key(title, video_id);   // (a different song with the same title has its own file)
+    fs::path cached = cache_.path_for(key, "opus");
+    if (cache_.is_cached(key, "opus")) {
         SongResult result{title, artist, cached, true};
         return result;
     }
@@ -100,11 +103,12 @@ std::optional<SongResult> YoutubeSource::resolve_by_id(const std::string& video_
                                 "-x", "-f", "bestaudio/best", "--audio-format", "opus", "--audio-quality", "0",
                                 "-o", path_utf8(cached.parent_path() / cached.stem()) + ".%(ext)s", url}, /*merge_stderr=*/true);
 
-    if (!cache_.is_cached(title, "opus")) {
+    if (!cache_.is_cached(key, "opus")) {
         if (error_out) *error_out = "yt-dlp download failed:\n" + r.out;
         return std::nullopt;
     }
 
+    cache_.record_audio_download(key, video_id);
     cache_.record_download("youtube", video_id);   // shared with yt-dlp runs outside Mousiki (history/downloaded_history.txt)
     SongResult result{title, artist, cached, false};
     return result;

@@ -81,6 +81,8 @@ ColorLyricsActiveWordBg=
 ##-------------------------------------------
  
 ElimentDisk=true
+## true , false -- the ":  :" column between the disk (or cover) and the meta data; false: it is left out and the disk sits in the middle of the space between the left border and the meta data
+ElimentDiskBorder=false
 ## Album Cover (music player) = the cover of the playing track takes the disk's place (needs ElimentDisk=true; a track without a cover keeps the disk)
 AlbumCover=false
 ## CoverMode: cover = just the cover | gradient = a grey cover under the disk's gradient colours (a slow wave moving diagonally, upper left to lower right) | disk = the grey cover in full resolution
@@ -125,7 +127,7 @@ VideoLyrics=lyrics
 VideoAuto=true
 ## true = a track that has a video switches the field to the video view, a track without one to the Lyrics/Viz Default view
 VideoCover=cover
-## cover = the disk shows the track's cover; thumbnail = a frame of the track's video (the cover, then the disk, when it has no video); disk = a track with a video shows the plain disk (no cover, no thumbnail)
+## cover = the disk shows the track's cover; thumbnail = a frame of the track's video (the cover when it has no video); disk = a track with a video shows the plain disk (no cover, no thumbnail); fallback = the cover, a frame of the video only when the track has no cover (the cover chosen for a single track in the meta editor goes before this)
 VideoSize=regular
 ## the video's picture in the small field: regular = the whole picture | cropped = two columns cut off each side | full = fills the field (the oscilloscope's space), cropped to fit, the lyric line as a small black box over it | framed = like full, but one row and two columns smaller on every side (an empty frame)
 VideoFx=off
@@ -409,6 +411,8 @@ UseTerminalSettings=false
 ## true , false -- true: Mousiki leaves the terminal as it is (its own window size and full screen), whatever TerminalCols / TerminalRows / FullScreen say
 FullScreen=false
 ## true , false -- ask the terminal for full screen when Mousiki starts (overrides TerminalCols / TerminalRows while on)
+ReduceMotionWhenPaused=true
+## true , false (default true) -- paused (or with nothing playing) and untouched for a few seconds, the screen is redrawn only about 10 times a second (the disk turns slower, the sphere is calmer): much less CPU and terminal traffic; any key brings the full frame rate back at once.
 TerminalDefaultFont=false
 ## true = Mousiki leaves the terminal's own font alone; false = Mousiki's window uses the font of TerminalFont= (Settings -> TEXT AND TRANSLITERATION -> Terminal Default Font)
 TerminalFont=Cascadia Mono

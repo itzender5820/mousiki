@@ -738,6 +738,7 @@ std::string App::settings_get_value(int row, int col) const {
         switch (settings_item_id(settings_tab_, row)) {
             case kSidDisk: return settings_.element_disk ? "Show Disk / Cover" : "Remove Field";
             case kSidDummy: v = settings_.element_dummy_buttons; break;
+            case kSidDiskBorder: v = settings_.disk_border; break;
             case kSidQueue: v = settings_.element_queue; break;
             case kSidWave: v = settings_.element_waveform; break;
             case kSidVizField: v = settings_.element_vizfield; break;
@@ -754,6 +755,7 @@ std::string App::settings_get_value(int row, int col) const {
             case kSidVideoColors: return std::to_string(std::clamp(settings_.video_colors, 0, 100)) + "%";
             case kSidVideoChroma: return chroma_name(settings_.video_chroma);
             case kSidVideoRound: return settings_.video_round ? "on" : "off";
+            case kSidVideoCover: return settings_.video_cover == 1 ? "thumbnail" : settings_.video_cover == 2 ? "disk" : settings_.video_cover == 3 ? "thumbnail fallback" : "cover";
             case kSidVideoClap: return settings_.video_clap == 2 ? "none" : settings_.video_clap == 0 ? "text note" : "clap";
             case kSidCoverChroma: return chroma_name(settings_.cover_chroma);
             case kSidVideoRes: return video_res_label(settings_.video_res, gfx_proto_ == GfxProto::Sixel);
@@ -780,6 +782,7 @@ std::string App::settings_get_value(int row, int col) const {
             case kSidMediaKeys: v = settings_.media_keys; break;
             case kSidRateCap: v = settings_.rate_cap_96; break;
             case kSidFullScreen: v = settings_.full_screen; break;
+            case kSidReduceMotion: v = settings_.reduce_motion_paused; break;
             case kSidUseTermSettings: v = settings_.use_terminal_settings; break;
             case kSidTermSize: return col == 1 ? std::to_string(settings_.terminal_rows) : std::to_string(settings_.terminal_cols);   // "cols x rows": two fields
             case kSidLatinLookup: v = settings_.latin_lookup; break;
@@ -895,6 +898,7 @@ std::vector<std::string> App::settings_options_for(int tab, int row) const {
             case kSidVideoContrast: case kSidVideoBrightness: case kSidVideoColors: { std::vector<std::string> o; for (int i = 0; i <= 100; i += 5) o.push_back(std::to_string(i) + "%"); return o; }
             case kSidVideoChroma: case kSidCoverChroma: return {"off", "subtle", "medium", "strong"};
             case kSidVideoRound: return {"off", "on"};
+            case kSidVideoCover: return {"cover", "thumbnail", "disk", "thumbnail fallback"};
             case kSidVideoClap: return {"text note", "clap", "none"};
             case kSidVideoRes: return {video_res_label(0, gfx_proto_ == GfxProto::Sixel), video_res_label(1, gfx_proto_ == GfxProto::Sixel), video_res_label(2, gfx_proto_ == GfxProto::Sixel)};
             case kSidVideoMp3: return {"false", "true"};
@@ -991,6 +995,11 @@ void App::settings_commit_edit_impl() {
             (id == kSidVideoContrast ? settings_.video_contrast : id == kSidVideoBrightness ? settings_.video_brightness : settings_.video_colors) = std::clamp((std::atoi(d.c_str()) + 2) / 5 * 5, 0, 100);
             video_pic_key_.clear();
             return;
+        }
+        if (id == kSidVideoCover) {
+            settings_.video_cover = v == "thumbnail" ? 1 : v == "disk" ? 2 : v == "thumbnail fallback" ? 3 : 0;
+            if ((settings_.video_cover == 1 || settings_.video_cover == 3) && !settings_.album_cover) settings_.album_cover = true;   // (the Album Cover look draws the picture)
+            ++video_rev_; snap_track_.clear(); video_pic_key_.clear(); return;
         }
         if (id == kSidVideoClap) { settings_.video_clap = v == "none" ? 2 : v == "text note" ? 0 : 1; video_pic_key_.clear(); return; }
         if (id == kSidVideoRound) { settings_.video_round = v == "on"; video_pic_key_.clear(); return; }
@@ -1163,6 +1172,8 @@ void App::settings_commit_edit_impl() {
             case kSidDisk: settings_.element_disk = is_true; break;
             case kSidAlbumCover: settings_.album_cover = is_true; break;
             case kSidDummy: settings_.element_dummy_buttons = is_true; break;
+            case kSidDiskBorder: settings_.disk_border = is_true; break;
+            case kSidReduceMotion: settings_.reduce_motion_paused = is_true; break;
             case kSidQueue: settings_.element_queue = is_true; break;
             case kSidWave: settings_.element_waveform = is_true; break;
             case kSidVizField: settings_.element_vizfield = is_true; break;
@@ -1400,6 +1411,7 @@ void App::settings_cycle(int dir) {
     if (id == kSidVideoContrast) status_line_ = "video contrast: " + std::to_string(settings_.video_contrast) + "% -- more contrast for the video's picture (0 = as it is)" + note;
     if (id == kSidVideoBrightness) status_line_ = "video brightness: " + std::to_string(settings_.video_brightness) + "% -- 50 = as it is, lower = darker, higher = brighter" + note;
     if (id == kSidVideoColors) status_line_ = "video colors: " + std::to_string(settings_.video_colors) + "% -- 0 = greyscale, 100 = the video's own colours" + note;
+    if (id == kSidVideoCover) status_line_ = settings_.video_cover == 2 ? "disk/cover/thumbnail: the plain disk for a track with a video -- no cover, no thumbnail (a track without a video keeps its cover)" : settings_.video_cover == 1 ? "cover or thumbnail: a frame of the track's video, else its cover (needs the Video mode; turns Album Cover on)" : settings_.video_cover == 3 ? "cover or thumbnail: the track's cover, a frame of its video only when there is no cover (needs the Video mode; turns Album Cover on)" : "cover or thumbnail: the track's cover";
     if (id == kSidVideoClap) status_line_ = settings_.video_clap == 1 ? "show clap loading: clap -- a small clapperboard shows while a video loads" : settings_.video_clap == 0 ? "show clap loading: text note -- the text \"video: starting ...\" shows while a video loads" : "show clap loading: none -- nothing shows while a video loads";
     if (id == kSidVideoRound) status_line_ = settings_.video_round ? "video rounded corners: on -- the corners of the picture are cut round like the corners of the UI" : "video rounded corners: off";
     if (id == kSidVideoChroma) status_line_ = std::string("video chromatic aberration: ") + chroma_name(settings_.video_chroma) + " -- red and blue are pushed apart, more towards the corners; works with every effect" + note;

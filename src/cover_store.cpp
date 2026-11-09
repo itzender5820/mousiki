@@ -10,7 +10,9 @@
 #include <fstream>
 #include <ctime>
 #include <map>
+#include <future>
 #include <mutex>
+#include <chrono>
 #include <sstream>
 
 #include "path_utf8.h"
@@ -76,11 +78,98 @@ fs::path fetched_cover_stem(const fs::path& folder, const std::string& album) {
     return folder / kFetchedCoversDir / path_from_utf8(cover_file_name(album));
 }
 
+namespace {
+// An index of the fetched_covers folders of the library: the album's name key -> a picture. Built in the background.
+struct LibCovers {
+    std::mutex mu;
+    std::vector<fs::path> roots;
+    unsigned gen = 0;
+    bool started = false;
+    unsigned started_gen = 0;
+    std::chrono::steady_clock::time_point at{};
+    std::shared_future<std::map<std::string, fs::path>> fut;
+};
+LibCovers& lib_covers() {
+    static LibCovers l;
+    return l;
+}
+bool under(const fs::path& dir, const fs::path& root) {
+    auto d = dir.begin(), r = root.begin();
+    for (; r != root.end(); ++r, ++d) {
+        if (r->empty()) continue;   // (a trailing separator)
+        if (d == dir.end() || *d != *r) return false;
+    }
+    return true;
+}
+}  // namespace
+
+void set_cover_library_roots(const std::vector<fs::path>& roots) {
+    LibCovers& l = lib_covers();
+    std::lock_guard<std::mutex> lk(l.mu);
+    if (l.roots == roots) return;
+    l.roots = roots;
+    ++l.gen;
+}
+
+bool cover_outside_library(const fs::path& folder) {
+    if (folder.filename() == "video_down") return true;
+    LibCovers& l = lib_covers();
+    std::lock_guard<std::mutex> lk(l.mu);
+    if (l.roots.empty()) return false;   // (not known yet)
+    for (const fs::path& r : l.roots) if (under(folder, r)) return false;
+    return true;
+}
+
+fs::path fetched_cover_in_library(const std::string& album, bool wait) {
+    const std::string want = cover_name_key(cover_file_name(album));
+    if (want.empty()) return {};
+    LibCovers& l = lib_covers();
+    std::shared_future<std::map<std::string, fs::path>> fut;
+    {
+        std::lock_guard<std::mutex> lk(l.mu);
+        if (l.roots.empty()) return {};
+        const auto now = std::chrono::steady_clock::now();
+        if (!l.started || l.started_gen != l.gen || now - l.at > std::chrono::seconds(60)) {
+            l.started = true;
+            l.started_gen = l.gen;
+            l.at = now;
+            const std::vector<fs::path> roots = l.roots;
+            l.fut = std::async(std::launch::async, [roots]() {
+                std::map<std::string, fs::path> idx;
+                for (const fs::path& root : roots) {
+                    std::error_code ec;
+                    fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end;
+                    for (; !ec && it != end; it.increment(ec)) {
+                        std::error_code e2;
+                        if (!it->is_directory(e2)) continue;
+                        if (it.depth() >= 6) { it.disable_recursion_pending(); continue; }
+                        if (it->path().filename() != kFetchedCoversDir) continue;
+                        it.disable_recursion_pending();
+                        for (const fs::path& f : pictures_in(it->path())) idx.emplace(cover_name_key(path_utf8(f.stem())), f);
+                    }
+                }
+                cover_store_touch();   // (the covers that were looked for before it was ready are asked for again)
+                return idx;
+            }).share();
+        }
+        fut = l.fut;
+    }
+    if (!wait && fut.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return {};
+    const auto& idx = fut.get();
+    const auto it = idx.find(want);
+    return it == idx.end() ? fs::path() : it->second;
+}
+
 fs::path find_fetched_cover(const fs::path& folder, const std::string& album) {
     const std::string want = cover_name_key(album);
     if (want.empty()) return {};
     for (const fs::path& f : pictures_in(folder / kFetchedCoversDir))
         if (cover_name_key(path_utf8(f.stem())) == cover_name_key(cover_file_name(album))) return f;
+    const fs::path home = shared_covers_home(folder);   // a video in video_down: the covers fetched for the songs of the download folder
+    if (!home.empty())
+        for (const fs::path& f : pictures_in(home / kFetchedCoversDir))
+            if (cover_name_key(path_utf8(f.stem())) == cover_name_key(cover_file_name(album))) return f;
+    if (cover_outside_library(folder)) return fetched_cover_in_library(album);   // no folder of its own: the library's fetched covers
     return {};
 }
 
@@ -91,6 +180,10 @@ std::vector<CoverCandidate> cover_candidates(const fs::path& track, bool with_em
     for (const fs::path& f : pictures_in(dir)) v.push_back({CoverCandidate::Folder, f, path_utf8(f.filename())});
     for (const fs::path& f : pictures_in(dir / kFetchedCoversDir))
         v.push_back({CoverCandidate::Fetched, f, std::string(kFetchedCoversDir) + "/" + path_utf8(f.filename())});
+    const fs::path home = shared_covers_home(dir);   // a video in video_down: the covers fetched for the songs of the download folder too
+    if (!home.empty())
+        for (const fs::path& f : pictures_in(home / kFetchedCoversDir))
+            v.push_back({CoverCandidate::Fetched, f, std::string(kFetchedCoversDir) + "/" + path_utf8(f.filename())});
     return v;
 }
 
@@ -332,7 +425,7 @@ int cover_track_video_mode(const std::string& track_path) {
     const auto it = c.vmode.find(track_path);
     if (it == c.vmode.end()) return 0;
     const int v = std::atoi(it->second.c_str());
-    return v >= 1 && v <= 3 ? v : 0;
+    return v >= 1 && v <= 4 ? v : 0;   // 1 cover, 2 thumbnail, 3 plain disk, 4 thumbnail fallback
 }
 
 void set_cover_track_video_mode(const std::string& track_path, int mode) {
@@ -341,7 +434,7 @@ void set_cover_track_video_mode(const std::string& track_path, int mode) {
     {
         std::lock_guard<std::mutex> lk(c.mu);
         load_locked(c);
-        if (mode < 1 || mode > 3) c.vmode.erase(track_path); else c.vmode[track_path] = std::to_string(mode);
+        if (mode < 1 || mode > 4) c.vmode.erase(track_path); else c.vmode[track_path] = std::to_string(mode);
         save_locked(c);
     }
     cover_store_touch();

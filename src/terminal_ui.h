@@ -186,6 +186,9 @@ public:
     // produces, so text-entry fields that accept it need no special
     // casing per platform.
     int poll_key();
+    // Waits up to `ms` milliseconds for something to arrive on the terminal input (a key, a paste, a mouse report); true when there is
+    // something to read. It replaces the sleeping in short slices of the main loop (poll() on stdin; on Windows the console input handle).
+    bool wait_input(int ms) const;
 
     int rows() const;
     int cols() const;
@@ -283,6 +286,13 @@ void clipboard_set(const std::string& utf8);
 // Windows keeps the existing std::cout path (its streambuf already emits one
 // WriteConsoleW per flush).
 void write_frame(const std::string& frame);
+// For a frame with a big picture: written by a writer thread while the next one is built. Returns the ms spent waiting for the write of the
+// frame before. Every other write (write_frame() too) waits for the writer first; anything that writes to the terminal on its own calls
+// write_frame_drain() before.
+double write_frame_async(std::string frame);
+void write_frame_drain();
+bool write_frame_async_allowed();   // false with MOUSIKI_SYNC_WRITE=1
+double write_frame_last_ms();       // how long the terminal took for the last frame the writer wrote
 
 // 24-bit colours (ESC[38;2;r;g;bm / 48;2) need a terminal that knows them. macOS Terminal before macOS 26 does not and shows
 // wrong colours for them, so there write_frame() turns every one into the nearest of the 256 fixed colours (to_256_colours()).

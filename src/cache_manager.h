@@ -45,6 +45,14 @@ public:
     // shell function down_vid uses it) and downloaded_videos_files.txt ("<id> TAB <file>", Mousiki's own: which file a video was
     // saved as, so a second download of the same video connects the first file instead of fetching it again).
     fs::path video_archive_path() const;
+
+    // Songs: the file is named after the TITLE, so a second, different song with the same title ("Intro", "Home") would have
+    // found the first one's file and played that. cache_key() returns the title to use for the file name: the title itself,
+    // unless the file of that title belongs to another video id (<download folder>/history/downloaded_audio_files.txt,
+    // "<id> TAB <file stem>", written by Mousiki when it downloads) -- then "<title> [<id>]". Files without an entry (older
+    // downloads, yt-dlp runs outside Mousiki) are trusted as before, so nothing already downloaded changes its name.
+    std::string cache_key(const std::string& title, const std::string& id) const;
+    void record_audio_download(const std::string& key, const std::string& id) const;
     void record_video_download(const std::string& id, const std::string& file) const;
     // The file a video was downloaded to before (by Mousiki: the file list; by down_vid: "<title> [<id>].mp4" in video_down);
     // empty when there is none or it was deleted since (then it can be fetched again).
@@ -56,6 +64,7 @@ private:
     fs::path cache_dir_;
     fs::path download_dir_; // == cache_dir_ unless Settings sets a folder
     static void append_unique_line(const fs::path& file, const std::string& entry);
+    fs::path audio_files_path() const;
     static std::string sanitize(const std::string& raw);
     // Old ASCII-only naming rule, used only to locate files cached
     // before sanitize() became UTF-8 aware.

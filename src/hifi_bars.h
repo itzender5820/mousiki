@@ -40,6 +40,9 @@ private:
     static constexpr int kN = 4096;
     std::mutex mtx_;
     std::vector<float> ring_[2];
+    unsigned long long pushed_ = 0;       // bumped (under mtx_) by every push() and reset(): the analysis only runs again when it changed
+    unsigned long long analysed_ = 0;     // the pushed_ the last analysis saw (render thread)
+    std::vector<float> an_[2];            // the analysis buffers, kept between frames
     int write_ = 0;
     int rate_ = 48000;
     std::atomic<long long> used_ms_{-100000};
