@@ -2,9 +2,29 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#if defined(_WIN32)
+#include <sys/stat.h>
+#include <io.h>
+#include <fcntl.h>
+
+// MSVC defines off_t as 32-bit long; we need 64-bit for large files.
+// Override it for this translation unit only.
+#ifdef off_t
+#undef off_t
+#endif
+#define off_t int64_t
+
+using ssize_t = int64_t;
+
+static ssize_t pread(int fd, void* buf, size_t count, off_t offset) {
+    if (_lseeki64(fd, offset, SEEK_SET) == -1) return -1;
+    return _read(fd, buf, static_cast<unsigned int>(count));
+}
+#else
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#endif
 #include <vector>
 
 namespace muisc {
@@ -160,6 +180,15 @@ uint32_t parse_flac_duration(int fd) {
 } // namespace
 
 uint32_t probe_duration_native(const fs::path& path) {
+#if defined(_WIN32)
+    int fd = _wopen(path.wstring().c_str(), _O_RDONLY | _O_BINARY);
+    if (fd < 0) return 0;
+    struct _stat64 st;
+    if (_fstat64(fd, &st) != 0 || st.st_size <= 0) {
+        _close(fd);
+        return 0;
+    }
+#else
     int fd = open(path.c_str(), O_RDONLY);
     if (fd < 0) return 0;
     struct stat st;
@@ -167,6 +196,7 @@ uint32_t probe_duration_native(const fs::path& path) {
         close(fd);
         return 0;
     }
+#endif
 
     uint32_t duration = 0;
     std::string ext = path.extension().string();
@@ -177,7 +207,11 @@ uint32_t probe_duration_native(const fs::path& path) {
     else if (ext == ".mp3") duration = parse_mp3_duration(fd, st.st_size);
     else if (ext == ".flac") duration = parse_flac_duration(fd);
 
+#if defined(_WIN32)
+    _close(fd);
+#else
     close(fd);
+#endif
     return duration;
 }
 

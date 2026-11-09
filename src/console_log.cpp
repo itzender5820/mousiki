@@ -12,6 +12,9 @@ namespace fs = std::filesystem;
 
 static fs::path log_dir() {
     const char* home = std::getenv("HOME");
+#if defined(_WIN32)
+    if (!home) home = std::getenv("USERPROFILE");
+#endif
     fs::path base = home ? fs::path(home) : fs::path(".");
     return base / ".cache" / "mousiki" / "logs";
 }
@@ -20,7 +23,11 @@ static std::string now_hms() {
     auto now = std::chrono::system_clock::now();
     std::time_t t = std::chrono::system_clock::to_time_t(now);
     std::tm tmv{};
+#if defined(_WIN32)
+    localtime_s(&tmv, &t);
+#else
     localtime_r(&t, &tmv);
+#endif
     char buf[16];
     std::snprintf(buf, sizeof(buf), "%02d:%02d:%02d", tmv.tm_hour, tmv.tm_min, tmv.tm_sec);
     return buf;

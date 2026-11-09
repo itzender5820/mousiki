@@ -1,13 +1,20 @@
 #include "fft_visualizer.h"
 #include "kiss_fftr.h"
 #include <algorithm>
+#ifndef _USE_MATH_DEFINES
+#define _USE_MATH_DEFINES
+#endif
 #include <cmath>
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 #include <cstdlib>
 
 namespace muisc {
 
 FftVisualizer::FftVisualizer() {
     cfg_ = kiss_fftr_alloc(kFftSize, 0, nullptr, nullptr);
+    spectrum_.resize(kFftSize / 2 + 1);
 }
 
 FftVisualizer::~FftVisualizer() {
@@ -70,8 +77,7 @@ void FftVisualizer::compute_bands_locked(const std::array<float, kFftSize>& ring
     }
 
     int usable_bins = kFftSize / 2;
-    std::vector<kiss_fft_cpx> spectrum(usable_bins + 1);
-    kiss_fftr(static_cast<kiss_fftr_cfg>(cfg_), windowed.data(), spectrum.data());
+    kiss_fftr(static_cast<kiss_fftr_cfg>(cfg_), windowed.data(), spectrum_.data());
 
     const float norm_ref = static_cast<float>(kFftSize) * static_cast<float>(kFftSize);
     const float fr = static_cast<float>(sr) / static_cast<float>(kFftSize);
@@ -88,7 +94,7 @@ void FftVisualizer::compute_bands_locked(const std::array<float, kFftSize>& ring
         int hi = std::clamp(static_cast<int>(EDGES[b + 1] / fr), lo + 1, usable_bins);
         float e = 0.0f;
         for (int k = lo; k < hi; ++k) {
-            float re = spectrum[k].r, im = spectrum[k].i;
+            float re = spectrum_[k].r, im = spectrum_[k].i;
             e += re * re + im * im;
         }
         e /= static_cast<float>(hi - lo);
@@ -164,7 +170,10 @@ std::vector<int> FftVisualizer::compute_bars(int num_bars, double dt) {
     // reading from only 32 underlying bands, rounding to the nearest one
     // made several adjacent bars land on the exact same value, showing
     // as flat "steps" instead of a smooth curve between bars.
-    std::vector<float> targets(num_bars);
+    if (static_cast<int>(targets_.size()) != num_bars) {
+        targets_.assign(num_bars, 0.0f);
+        blended_.assign(num_bars, 0.0f);
+    }
     for (int i = 0; i < num_bars; ++i) {
         float t = (num_bars > 1) ? static_cast<float>(i) / static_cast<float>(num_bars - 1) : 0.0f;
         float pos = t * (kMaxBands - 1);
@@ -184,7 +193,7 @@ std::vector<int> FftVisualizer::compute_bars(int num_bars, double dt) {
             ? std::sin(3.14159265f * static_cast<float>(i) / static_cast<float>(num_bars - 1))
             : 1.0f;
 
-        targets[i] = std::pow(raw, 0.35f) * envelope;
+        targets_[i] = std::pow(raw, 0.35f) * envelope;
     }
 
     if (static_cast<int>(smoothed_bars_.size()) != num_bars) {
@@ -201,7 +210,7 @@ std::vector<int> FftVisualizer::compute_bars(int num_bars, double dt) {
     // meters read as natural because they fall faster than they rise;
     // release_k_ (independent of fluidity's spring_k_ now) enforces that.
     for (int i = 0; i < num_bars; ++i) {
-        bool falling = targets[i] < smoothed_bars_[i];
+        bool falling = targets_[i] < smoothed_bars_[i];
         // On a sudden drop, a bar that was still rising carries leftover
         // upward velocity — the increment-based integration below would
         // otherwise spend several frames just canceling that out before
@@ -210,20 +219,19 @@ std::vector<int> FftVisualizer::compute_bars(int num_bars, double dt) {
         // lets the release force take over right away instead.
         if (falling && velocity_[i] > 0.0f) velocity_[i] *= 0.15f;
         float k = falling ? release_k_ : spring_k_;
-        velocity_[i] += (targets[i] - smoothed_bars_[i]) * k * dtf;
+        velocity_[i] += (targets_[i] - smoothed_bars_[i]) * k * dtf;
         velocity_[i] *= (1.0f - std::clamp(damping_, 0.0f, 0.95f));
         smoothed_bars_[i] = std::clamp(smoothed_bars_[i] + velocity_[i] * dtf, 0.0f, 1.0f);
     }
 
     // Neighbor-blend pass (surface tension).
     if (viscosity_ > 0.0f && num_bars > 2) {
-        std::vector<float> blended = smoothed_bars_;
         for (int i = 0; i < num_bars; ++i) {
             float left = (i > 0) ? smoothed_bars_[i - 1] : smoothed_bars_[i];
             float right = (i < num_bars - 1) ? smoothed_bars_[i + 1] : smoothed_bars_[i];
-            blended[i] = smoothed_bars_[i] * (1.0f - viscosity_) + (left + right) * 0.5f * viscosity_;
+            blended_[i] = smoothed_bars_[i] * (1.0f - viscosity_) + (left + right) * 0.5f * viscosity_;
         }
-        smoothed_bars_.swap(blended);
+        smoothed_bars_.swap(blended_);
     }
 
     // Force the two true edge bars to baseline after blending —
