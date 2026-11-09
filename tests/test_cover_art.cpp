@@ -3,6 +3,7 @@
 #include "cover_art.h"
 #include "cover_store.h"
 #include "path_utf8.h"
+#include "process_util.h"
 #include "settings.h"
 
 #include <filesystem>
@@ -263,6 +264,11 @@ TEST(cover_scaled_keeps_several_sizes) {
 }
 
 namespace {
+// The pictures of these tests are made and read with ffmpeg: where there is none (a CI machine), the test does nothing, like the video tests.
+bool have_ffmpeg() {
+    static const bool ok = [] { const ProcResult r = run_capture({"ffmpeg", "-version"}); return r.exit_code == 0; }();
+    return ok;
+}
 void make_png(const fs::path& p, const char* colour) {
     const std::string cmd = std::string("ffmpeg -loglevel quiet -y -f lavfi -i color=c=") + colour + ":s=64x64 -frames:v 1 \"" + p.string() + "\"";
     if (std::system(cmd.c_str()) != 0) {}
@@ -277,6 +283,7 @@ const CoverImage* wait_cover(const CoverRequest& rq) {
 }
 
 TEST(cover_track_choice_changes_the_picture_and_same_path_edit_is_seen) {
+    if (!have_ffmpeg()) return;   // (no ffmpeg here)
     mt::TempHome home;
     const fs::path d = home.path() / "alb9";
     fs::create_directories(d);
@@ -320,6 +327,7 @@ TEST(cover_track_choice_changes_the_picture_and_same_path_edit_is_seen) {
 }
 
 TEST(thumbnail_fallback_uses_the_cover_first_and_the_video_frame_only_without_one) {
+    if (!have_ffmpeg()) return;   // (no ffmpeg here)
     mt::TempHome home;
     const fs::path d = home.path() / "alb10";
     fs::create_directories(d);
@@ -361,6 +369,7 @@ TEST(cover_track_video_mode_knows_cover_thumbnail_disk_and_fallback) {
 }
 
 TEST(a_picture_that_could_not_be_read_is_tried_again_later) {
+    if (!have_ffmpeg()) return;   // (no ffmpeg here)
     mt::TempHome home;
     const fs::path d = home.path() / "alb11";
     fs::create_directories(d);
