@@ -1785,8 +1785,9 @@ marquee.
 
 [Reduce Motion When Paused:][[Legend]]                       true = paused (or nothing playing) and untouched for
                                                   3 seconds: the screen is redrawn about 10 times a
-                                                  second (less CPU, less traffic over SSH). Any key
-                                                  brings the full rate back. 
+                                                  second, and 4 times a second once it has stood
+                                                  still for 2 seconds (less CPU, less traffic over
+                                                  SSH). Any key brings the full rate back. 
 
 [REMOTE / UPDATES:][[Header]]
 [Remote App:][[Legend]]                                       [ENTER] opens the REMOTE APP overlay (on/off, address, QR
@@ -1806,10 +1807,10 @@ marquee.
 [Check Update:][[Legend]] [ENTER] on this row asks GitHub for the newest release now
                                                   and writes the answer on this screen (needs Python 3 and
                                                   a network connection). Nothing is installed.
-
-[Media Keys:][[Legend]]                                       Windows media pop-up/keys, Linux MPRIS widgets/playerctl,
 )WIZ",
-R"WIZ(                                                  macOS Now Playing; the system media keys control Mousiki.
+R"WIZ(
+[Media Keys:][[Legend]]                                       Windows media pop-up/keys, Linux MPRIS widgets/playerctl,
+                                                  macOS Now Playing; the system media keys control Mousiki.
                                                   Has not been tested well for every OS. Feel free to
                                                   report issues on Github!
 
@@ -1917,9 +1918,9 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
 [Video Size][[Legend]] Regular / cropped / full / framed picture in the small field.
 [Video Effect][[Legend]]                                      A retro look for the picture (also in the full screen
                                                   video, with a preview here).
-[Video Contrast][[Legend]]                                    More contrast for the picture, like Cover Contrast.
 )WIZ",
-R"WIZ([Video Brightness][[Legend]]                                  50 % = as it is, lower darker, higher brighter.
+R"WIZ([Video Contrast][[Legend]]                                    More contrast for the picture, like Cover Contrast.
+[Video Brightness][[Legend]]                                  50 % = as it is, lower darker, higher brighter.
 [Video Colors][[Legend]]                                      0 = greyscale .. 100 % as they are.
 [Video Chromatic Aberration][[Legend]] Red and blue pushed apart: off / subtle / medium / strong.
 [Video Rounded Corners][[Legend]] Cut the picture's corners round, like the UI: off / on (per track in Style Option).
@@ -2002,10 +2003,10 @@ R"WIZ([Video Brightness][[Legend]]                                  50 % = as it
                                                   Folder First: the folder first (close name, then
                                                   cover.jpg and its like), the file's picture last
                                                   Within File First: inside the file; then only a closely
-                                                  named picture of the folder (no cover.jpg)
-                                                  Image in Folder Only: never looks inside the files
 )WIZ",
-R"WIZ(                                                  Within File Only: never looks in the folder
+R"WIZ(                                                  named picture of the folder (no cover.jpg)
+                                                  Image in Folder Only: never looks inside the files
+                                                  Within File Only: never looks in the folder
 
 
 [Book Cover (audio book mode):][[Legend]] Show cover or not. The gradient options is also present in
@@ -2100,10 +2101,10 @@ R"WIZ(                                                  Within File Only: never 
 [OSCI/SPECTRO SETTINGS:][[Header]]
 [Modes Share Settings:][[Legend]]                             on = the music, radio and audio book player use the same
                                                   settings for the oscilloscope/spectrogram settings; each
-                                                  modes own values are kept and come back when turned off
-                                                  again.
 )WIZ",
-R"WIZ(
+R"WIZ(                                                  modes own values are kept and come back when turned off
+                                                  again.
+
 [VIZ/LYRICS ORDER:][[Header]]      
 [Viz Order:][[Legend]]                                        1-5, the order of the views in the [,/.] cycle.
 
@@ -2231,13 +2232,13 @@ LETTERS ARE MORE OFTEN CASE SENSITIVE IN THE RADIO: [[Header]]
 
 [[New Page]]
 3.1.1 THE RADIO SCREEN AND ITS KEYS [[Header]]
-
+)WIZ",
+R"WIZ(
 FROM TOP TO BOTTOM: [[Header]]
 
 TOP PANE:[[Header]] 
 Consists of the ON AIR sign (OFF AIR while nothing is live), the station info (station, title,
-)WIZ",
-R"WIZ(artist, genre, bitrate, sampling rate, type, country), a spectrum under it and the oscilloscope,
+artist, genre, bitrate, sampling rate, type, country), a spectrum under it and the oscilloscope,
 sphere or spectrogram on the right.
 
 FREQUENCY BAND (MHz):[[Header]] 
@@ -2394,10 +2395,10 @@ from the oldest audio that is still there.
 3.3.2 RECORDING [[Header]]
 
 RECORD, INCLUDING THE MINUTES BEFORE YOU PRESSED: [[Header]]
-[y] opens the RECORD overlay. It freezes the moment you pressed, so no time is lost while you choose:
--> From now on (when this opened)
 )WIZ",
-R"WIZ(-> The last 1 / 5 / 10 / 15 / 30 minutes
+R"WIZ([y] opens the RECORD overlay. It freezes the moment you pressed, so no time is lost while you choose:
+-> From now on (when this opened)
+-> The last 1 / 5 / 10 / 15 / 30 minutes
 -> Everything buffered
 A row says "only m:ss" when the buffer does not reach that far back and then starts at the oldest audio.
 
@@ -2536,9 +2537,9 @@ CHAPTERS (right)  takes the place of the queue: the files of the open book in na
 PLAYBACK: [[Header]]
 [n] / [b]    next / previous chapter, also at the end of a chapter. 
 [m]          cycles the playpack mode: on to the next chapter / repeat the chapter / stop after it. 
-[->] / [<-]  seek: 5 seconds at first, faster and faster the longer the key is held (up to minutes), 
 )WIZ",
-R"WIZ(             so a long book can be crossed quickly. [p] pause, volume, mute and the sleep timer as always.
+R"WIZ([->] / [<-]  seek: 5 seconds at first, faster and faster the longer the key is held (up to minutes), 
+             so a long book can be crossed quickly. [p] pause, volume, mute and the sleep timer as always.
 
 PLAYBACK SPEED: [[Header]]
 [SHIFT+->] / [SHIFT+<-]  faster / slower in steps of 0.05, from 0.5x to 3.0x. The voice keeps its pitch
@@ -2653,11 +2654,11 @@ NOTES: [[Header]]
 [SHIFT+t]  sorts: chapter order with highest chapter and furthest time on top, recently edited first.
 [.] / [,]  switch the field between the notes and the visualizations. When a note is open and was just
            saved [.] puts a shown note away: the view from before comes back. [,] on a shown note (e.g. 
-           right after saving it) writes it again.
+)WIZ",
+R"WIZ(           right after saving it) writes it again.
 
 Export / import of notes is possible and use the folder <book folder>/notes.
-)WIZ",
-R"WIZ(Again, a note shows itself in the field (for 20 seconds) when playback passes its time.
+Again, a note shows itself in the field (for 20 seconds) when playback passes its time.
 
 [[New Page]]
 4.1.4 LIST OF TIME STAMPS, LIBRARY AND READING HISTORY [[Header]]

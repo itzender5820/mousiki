@@ -1197,6 +1197,7 @@ int App::run() {
     ConsoleLog::instance().log_verbose("terminal: " + std::to_string(term.rows()) + "x" + std::to_string(term.cols()) + " (rows x cols, raw ioctl)");
 
     std::string last_frame_str;
+    int still_frames = 0;                  // frames in a row that were the same as the one before (Reduce Motion When Paused: a screen that stands still is looked at less often)
     std::vector<std::string> prev_lines;   // the main screen's lines as last sent (diff_frame_lines)
     std::string last_floating;             // the overlay part of the last frame
     auto last_frame_written_at = std::chrono::steady_clock::now();
@@ -1285,6 +1286,7 @@ int App::run() {
         // (Cover Options in the meta editor: its preview is a Sixel picture too -- a whole-frame write puts the editor's text into its cells)
         const bool cov_pic = gfx_proto_ == GfxProto::Sixel && mode_ == Mode::MetaEdit && meta_->cov_open;
         const bool heal = !sty_frozen && !cov_pic && frame_now - last_frame_written_at > std::chrono::seconds(2);
+        still_frames = (frame_str == last_frame_str) ? std::min(still_frames + 1, 1000) : 0;
         if (frame_str != last_frame_str || heal) {
             // The main screen: only the lines that changed (at 120 / 165 fps the whole screen every frame would be
             // megabytes per second for the terminal). Full frames: every 2 s, after a clear, or when an overlay changed.
@@ -1436,10 +1438,15 @@ int App::run() {
             int fps = std::max(1, settings_.osci().frame_rate);
             // Reduce Motion When Paused: nothing plays (or it is paused), nobody touched a key for a few seconds and the main screen is
             // showing: about 10 frames a second are plenty for a slowly turning disk. Any key brings the full rate back (the wait below
-            // ends with it).
+            // ends with it). Measured (idle, paused): 2.3% of a core at 30 fps, 1.0% at 10, 0.5% with the 4 below.
             if (settings_.reduce_motion_paused && mode_ == Mode::Browse && (!has_track_ || player_.is_paused()) &&
                 std::chrono::steady_clock::now() - last_input_ > std::chrono::seconds(3))
                 fps = std::min(fps, 10);
+            // ... and when 20 of them in a row (2 s) were exactly the same, the screen stands still (paused, nothing moving): 4 a second are
+            // enough to notice what arrives (a cover, a lyrics result, a command of the remote app); a key or a change brings the 10 back at once.
+            const bool resting = settings_.reduce_motion_paused && mode_ == Mode::Browse && (!has_track_ || player_.is_paused()) &&
+                                 std::chrono::steady_clock::now() - last_input_ > std::chrono::seconds(3) && still_frames >= 20;
+            if (resting) fps = std::min(fps, 4);
             // A video on the screen: the screen is looked at often enough to show every picture of the film when it is due. At the lowest frame
             // rate (30) a 25 or 30 fps film beat against the screen's own rhythm and pictures were shown twice or skipped (not smooth).
             if (settings_.video_mode && (settings_.video_view || video_full_) && has_track_ && !player_.is_paused() && video_.has_video())
@@ -1458,7 +1465,7 @@ int App::run() {
                     continue;
                 }
                 const int left = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(until - now).count()) + 1;
-                if (term.wait_input(std::min(left, 40))) { woke_for_input = true; break; }   // (in slices of at most 40 ms: the terminal size is looked at in between)
+                if (term.wait_input(std::min(left, resting ? 100 : 40))) { woke_for_input = true; break; }   // (in slices of at most 40 ms: the terminal size is looked at in between)
                 false_wakes = 0;                                                               // it did wait: input does not stay signalled
                 if (term.rows() != r0 || term.cols() != c0) break;
             }

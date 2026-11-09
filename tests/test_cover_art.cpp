@@ -346,7 +346,9 @@ TEST(thumbnail_fallback_uses_the_cover_first_and_the_video_frame_only_without_on
     make_png(d / "cover.png", "red");
     set_cover_track_choice(rq.path, path_utf8(d / "cover.png"));
     rq.store_rev = cover_store_revision();
-    const CoverImage* c = wait_cover(rq);
+    // (until the new picture is read, the one of the same album stays on screen: wait for the red one)
+    const CoverImage* c = nullptr;
+    for (int i = 0; i < 400; ++i) { c = track_cover(rq); if (c && c->rgb[0] > c->rgb[1]) break; std::this_thread::sleep_for(std::chrono::milliseconds(25)); }
     CHECK(c && c->rgb[0] > c->rgb[1]);                                 // a cover: the cover, not the frame
     set_cover_track_choice(rq.path, kCoverNone);                       // "no cover" on purpose: the disk (the fallback must not use the frame there)
     rq.thumb_fallback = false; rq.snapshot_video.clear();

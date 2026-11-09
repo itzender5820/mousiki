@@ -43,9 +43,9 @@ using namespace muisc;
 using namespace muisc::radio;
 using Clock = std::chrono::steady_clock;
 
-namespace {
+namespace radio_main_detail {
 
-std::string strip_ansi(const std::string& s) {
+inline std::string strip_ansi(const std::string& s) {
     std::string o;
     for (size_t i = 0; i < s.size(); ++i) {
         if (s[i] == '\x1b' && i + 1 < s.size() && s[i + 1] == '[') {
@@ -61,7 +61,7 @@ std::string strip_ansi(const std::string& s) {
 // Longest text a search box takes (bytes), same order of magnitude as the player's boxes.
 constexpr size_t kTextMax = 200;
 
-size_t count_chars(const std::string& s) {
+inline size_t count_chars(const std::string& s) {
     size_t n = 0;
     for (unsigned char c : s) if ((c & 0xC0) != 0x80) ++n;
     return n;
@@ -69,7 +69,7 @@ size_t count_chars(const std::string& s) {
 
 // A text field limited in CHARACTERS (the editor limits bytes): a typed character into a full field is refused, a
 // paste that is too long keeps what fits. Returns true when the text changed. (Same logic as the preset name box.)
-bool edit_limited(std::string& text, EditState& e, int key, size_t max_chars, std::string* status) {
+inline bool edit_limited(std::string& text, EditState& e, int key, size_t max_chars, std::string* status) {
     const std::string before = text;
     const EditState before_edit = e;
     if (!edit_text_key(text, e, key, max_chars * 4, status)) return false;
@@ -90,7 +90,7 @@ bool edit_limited(std::string& text, EditState& e, int key, size_t max_chars, st
 
 // The text for searching: itself, and behind it its Latin spelling when it holds Kanji / kana / Cyrillic ... (translit.h, the same
 // as the music player's search): "米津玄師" is found by typing "yonezu".
-static std::string search_text(const std::string& s) { return translit_possible(s) ? with_latin_spelling(s) : s; }
+inline std::string search_text(const std::string& s) { return translit_possible(s) ? with_latin_spelling(s) : s; }
 
 struct Ui {
     std::vector<Station> stations;
@@ -242,13 +242,13 @@ struct Ui {
 };
 
 // Removes `idx` from every preset slot. Returns true if it was in one.
-bool clear_station_from_presets(std::vector<int>& presets, int idx) {
+inline bool clear_station_from_presets(std::vector<int>& presets, int idx) {
     bool any = false;
     for (auto& p : presets) if (p == idx) { p = -1; any = true; }
     return any;
 }
 
-bool check_geometry(const std::vector<std::string>& frame, const UiModel& m) {
+inline bool check_geometry(const std::vector<std::string>& frame, const UiModel& m) {
     const int want_w = std::clamp(m.cols, kUiCols, kMaxCols);
     const int want_h = std::max(m.rows, kUiRows);
     bool ok = static_cast<int>(frame.size()) == want_h;
@@ -261,15 +261,16 @@ bool check_geometry(const std::vector<std::string>& frame, const UiModel& m) {
 }
 
 // MOUSIKI_RADIO_SIZE=160x40 lets --dump / --selftest render a bigger terminal.
-void apply_test_size(UiModel& m) {
+inline void apply_test_size(UiModel& m) {
     if (const char* e = std::getenv("MOUSIKI_RADIO_SIZE")) {
         int c = 0, r = 0;
         if (std::sscanf(e, "%dx%d", &c, &r) == 2) { m.cols = c; m.rows = r; }
     }
 }
 
-void print_plain(const std::vector<std::string>& frame) {
+inline void print_plain(const std::vector<std::string>& frame) {
     for (const auto& l : frame) std::cout << strip_ansi(l) << "\n";
 }
 
-} // namespace
+} // namespace radio_main_detail
+using namespace radio_main_detail;

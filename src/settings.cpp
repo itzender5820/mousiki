@@ -829,8 +829,10 @@ struct SimpleSetting {
     bool digit_first;           // (with step) a value that does not start with a digit is ignored
     bool quoted;                // a text written between quotes (the box characters)
     const char* after;          // written after the value: the rest of the line and the comment lines ("" = just the line end)
+    const char* legacy2 = nullptr;   // a second key of older versions (also read), or nullptr
 };
 #define SIMPLE_FLAG(key, legacy, member, after) {key, legacy, [](Settings& s) -> bool& { return s.member; }, nullptr, nullptr, 0, 0, false, 0, false, false, after}
+#define SIMPLE_FLAG2(key, legacy, legacy2, member, after) {key, legacy, [](Settings& s) -> bool& { return s.member; }, nullptr, nullptr, 0, 0, false, 0, false, false, after, legacy2}
 #define SIMPLE_NUM(key, legacy, member, lo, hi, after) {key, legacy, nullptr, [](Settings& s) -> int& { return s.member; }, nullptr, lo, hi, false, 0, false, false, after}
 #define SIMPLE_COLOUR(key, legacy, member) {key, legacy, nullptr, nullptr, [](Settings& s) -> std::string& { return s.member; }, 0, 0, true, 0, false, false, "\n"}
 #define SIMPLE_TEXT(key, legacy, member, after) {key, legacy, nullptr, nullptr, [](Settings& s) -> std::string& { return s.member; }, 0, 0, false, 0, false, false, after}
@@ -924,6 +926,11 @@ const SimpleSetting kSimpleSettings[] = {
     SIMPLE_FLAG("StereoPlayback", nullptr, stereo, "\n"),
     SIMPLE_FLAG("NormalizeVolume", nullptr, normalize, "\n"),
     SIMPLE_FLAG("EqualizerEnabled", nullptr, eq_enabled, "\n"),
+    SIMPLE_FLAG2("ElimentDisk", "Eliment_disk", "Element_disk", element_disk, "\n"),
+    SIMPLE_FLAG2("ElimentQueue", "Eliment_queue", "Element_queue", element_queue, "\n"),
+    SIMPLE_FLAG2("ElimentWaveForm", "Eliment_waveform_progress_bar", "Element_waveform", element_waveform, "\n"),
+    SIMPLE_FLAG2("ElimentLyrics", "Eliment_lyrics", "Element_lyrics", element_lyrics, "\n"),
+    SIMPLE_FLAG2("Visualizer", "Eliment_visualizer", "Element_visualizer", element_visualizer, "\n"),
     SIMPLE_COLOUR("progress_timestamp_color", nullptr, progress_timestamp_color),   // (read only: never written to the file)
     SIMPLE_COLOUR("button_color", nullptr, button_color),   // (read only: never written to the file)
 };
@@ -941,7 +948,7 @@ const SimpleSetting* find_simple_setting(const std::string& key) {
 
 static bool apply_simple_setting(Settings& s, const std::string& key, const std::string& value) {
     const SimpleSetting* e = find_simple_setting(key);
-    if (!e) for (const SimpleSetting& c : kSimpleSettings) if (c.legacy && key == c.legacy) { e = &c; break; }
+    if (!e) for (const SimpleSetting& c : kSimpleSettings) if ((c.legacy && key == c.legacy) || (c.legacy2 && key == c.legacy2)) { e = &c; break; }
     if (!e) return false;
     if (e->flag) e->flag(s) = parse_bool(value);
     else if (e->num && e->step) {   // a percent value: rounded to steps of 5
@@ -1273,10 +1280,6 @@ static Settings load_from_config(const fs::path& path) {
         }
 
         // --- Element toggles ---
-        if (key == "Eliment_disk" || key == "Element_disk") { s.element_disk = parse_bool(value); continue; }
-        if (key == "Eliment_queue" || key == "Element_queue") { s.element_queue = parse_bool(value); continue; }
-        if (key == "Eliment_waveform_progress_bar" || key == "Element_waveform") { s.element_waveform = parse_bool(value); continue; }
-        if (key == "Eliment_lyrics" || key == "Element_lyrics") { s.element_lyrics = parse_bool(value); continue; }
         if (key == "video_lyrics") { s.video_lyrics = lyr_mode_parse(trim_ws(unquote(value))); continue; }
         if (key == "video_cover") { std::string v = ascii_lower_str(trim_ws(unquote(value))); s.video_cover = (v == "snapshot" || v == "thumbnail" || v == "1" || v == "true") ? 1 : (v == "disk" || v == "2") ? 2 : (v == "fallback" || v == "thumbnail fallback" || v == "3") ? 3 : 0; continue; }   // ("disk" of an older version: the cover)
         if (key == "video_size") { std::string v = ascii_lower_str(trim_ws(unquote(value))); s.video_size = (v == "cropped" || v == "crop" || v == "1") ? 1 : (v == "full" || v == "2") ? 2 : (v == "framed" || v == "3") ? 3 : 0; continue; }
@@ -1390,7 +1393,6 @@ static Settings load_from_config(const fs::path& path) {
             else s.lyrics_animation = 0; // "full" or anything unrecognized
             continue;
         }
-        if (key == "Eliment_visualizer" || key == "Element_visualizer") { s.element_visualizer = parse_bool(value); continue; }
 
         // --- Border characters ---
         if (key == "seprator" || key == "separator") { s.meta_separator = unquote(value); continue; }
@@ -2036,7 +2038,7 @@ static void write_settings(std::ostream& out, const Settings& s) {
     out << "##              PANEL 2: GENERAL\n";
     out << "##-------------------------------------------\n\n";
     auto tf = [](bool v) -> const char* { return v ? "true" : "false"; };
-    out << "ElimentDisk=" << tf(s.element_disk) << "\n";
+    write_simple_setting(out, s, "ElimentDisk");
     write_simple_setting(out, s, "ElimentDiskBorder");
     out << "LatinLetters=" << tf(s.latin_letters) << "\n## true , false -- Japanese, Korean and Chinese titles, tags and lyrics are shown in Latin letters (switch with SHIFT+' on a US keyboard, see HKeyTranslit)\n";
     out << "LyricsNameVariants=" << tf(s.lyrics_name_variants) << "\n## true , false -- a lyrics search (also the refetch) that finds nothing tries other spellings: the Latin-letters spelling, the title / artist without their Latin or without their Japanese part, the title alone\n";
@@ -2053,13 +2055,13 @@ static void write_settings(std::ostream& out, const Settings& s) {
     out << "CoverSearch=" << (s.cover_search == 1 ? "folder first" : s.cover_search == 2 ? "file first" : s.cover_search == 3 ? "folder only" : s.cover_search == 4 ? "file only" : "default")
         << "\n## default (the picture inside the file, else the closest-named picture in the folder) , folder first , file first (inside the file, else only a closely named folder picture) , folder only , file only -- every search except file only ends with any picture of the folder (the first by name) when nothing else gave one\n";
     write_simple_setting(out, s, "ElimentDummyButtons");
-    out << "ElimentQueue=" << tf(s.element_queue) << "\n";
-    out << "ElimentWaveForm=" << tf(s.element_waveform) << "\n";
+    write_simple_setting(out, s, "ElimentQueue");
+    write_simple_setting(out, s, "ElimentWaveForm");
     out << "VolumeIndicator=" << kVolIndicatorNames[std::clamp(s.volume_indicator, 0, kVolStyleCount - 1)] << "\n## # , \xE2\xA0\xB6 , \xE2\xA3\xBF , \xE2\xA1\xBE\xE2\xA3\xBD , disk -- what the VOLUME BAR is drawn with (\xE2\xA1\xBE\xE2\xA3\xBD is a fixed row that does not repeat; disk follows the braille effect of the disk)\n";
     write_simple_setting(out, s, "VolumeGradient");
     write_simple_setting(out, s, "VizLyricsField");
     out << "## false = no Viz/Lyrics field right of the meta data at all (the meta data take its width; no lyrics are fetched for it)\n";
-    out << "ElimentLyrics=" << tf(s.element_lyrics) << "\n";
+    write_simple_setting(out, s, "ElimentLyrics");
     out << "## true = the field shows the lyrics (needs UseLyrics=true), false = it shows the visual of LyricViz. The \".\" key switches it.\n";
     out << "LyricViz=" << (s.lyric_viz == 1 ? "osci" : s.lyric_viz == 2 ? "spectro" : "sphere") << "\n";
     out << "## sphere = the audio-reactive ball | osci = the oscilloscope (both drawn in the VIZ colors) | spectro = the spectrogram\n";
@@ -2124,7 +2126,7 @@ write_simple_setting(out, s, "VideoLayout");
     spectro_config_write(out, s.spectro, "##");
     spectro_profiles_write(out, s, "##");
     out << "## Tune all of these live with SHIFT+o in the main UI\n";
-    out << "Visualizer=" << tf(s.element_visualizer) << "\n";
+    write_simple_setting(out, s, "Visualizer");
     write_simple_setting(out, s, "MetaDataOnly");
     out << "## true  = the (search-)lists show embedded metadata only -- the title tag is used\n";
     out << "##         instead of the filename (files without a title tag keep their filename)\n";
@@ -2166,7 +2168,7 @@ write_simple_setting(out, s, "VideoLayout");
     out << "TerminalCols=" << s.terminal_cols << "\nTerminalRows=" << s.terminal_rows << "\n## columns and rows (default 120 x 32; at least 100 x 28, at most what fits on the screen; 0 in either = leave the terminal as it is) -- Mousiki asks the terminal for this size when it starts and when you change it in Settings -> GENERAL -> TERMINAL -> Terminal Size. Terminals decide for themselves: xterm, GNOME Terminal, iTerm2, Terminal.app and recent versions of Windows Terminal usually obey, others (Konsole, kitty, Alacritty, tmux, tiling window managers) ignore it\n";
     out << "UseTerminalSettings=" << (s.use_terminal_settings ? "true" : "false") << "\n## true , false -- true: Mousiki leaves the terminal as it is (its own window size and full screen), whatever TerminalCols / TerminalRows / FullScreen say\n";
     out << "FullScreen=" << (s.full_screen ? "true" : "false") << "\n## true , false -- ask the terminal for full screen when Mousiki starts (overrides TerminalCols / TerminalRows while on)\n";
-    out << "ReduceMotionWhenPaused=" << (s.reduce_motion_paused ? "true" : "false") << "\n## true , false (default true) -- paused (or with nothing playing) and untouched for a few seconds, the screen is redrawn only about 10 times a second (the disk turns slower, the sphere is calmer) -- much less CPU and terminal traffic; any key brings the full frame rate back at once.\n";
+    out << "ReduceMotionWhenPaused=" << (s.reduce_motion_paused ? "true" : "false") << "\n## true , false (default true) -- paused (or with nothing playing) and untouched for a few seconds, the screen is redrawn only about 10 times a second (the disk turns slower, the sphere is calmer) -- much less CPU and terminal traffic (a screen that has not changed for 2 seconds is looked at only 4 times a second); any key brings the full frame rate back at once.\n";
     out << "RateCap96=" << (s.rate_cap_96 ? "true" : "false") << "\n## true , false (default true) -- a track above 96 kHz (e.g. 176.4 / 192 kHz) is brought down to 96 kHz; false plays it at its own rate: more RAM (the decoded audio grows with the rate, see TrackBufferMB) and the audio device must accept the rate. The next track that is loaded uses it\n";
     out << "MediaKeys=" << (s.media_keys ? "true" : "false") << "\n## true , false -- the system's media controls: Windows shows Mousiki in the media pop-up and its media keys work, Linux shows it in the desktop's media widgets (MPRIS; playerctl works), macOS shows Now Playing and handles the media keys (read at the next start; player and radio)\n";
     out << "PlaybackMode=" << play_mode_name(s.play_mode) << "\n## list , loop , shuffle , stop , queue then stop\n"

@@ -685,6 +685,23 @@ TEST(settings_table_reads_old_names_clamps_numbers_and_takes_flag_spellings) {
     CHECK_EQ(read("VideoDownHeight=abc\n").video_down_height, Settings().video_down_height);   // not a number: the default stays
     CHECK_EQ(read("VideoLayout=7\n").video_layout, 3);
     CHECK(read("Eliment_vizfield=yes\n").element_vizfield);
+    // the five element switches take their name, and the two older spellings (Eliment_* / Element_*); a value that is true / false either way
+    {
+        struct E { const char* names[3]; bool Settings::*field; };
+        const E es[] = {{{"ElimentDisk", "Eliment_disk", "Element_disk"}, &Settings::element_disk},
+                        {{"ElimentQueue", "Eliment_queue", "Element_queue"}, &Settings::element_queue},
+                        {{"ElimentWaveForm", "Eliment_waveform_progress_bar", "Element_waveform"}, &Settings::element_waveform},
+                        {{"ElimentLyrics", "Eliment_lyrics", "Element_lyrics"}, &Settings::element_lyrics},
+                        {{"Visualizer", "Eliment_visualizer", "Element_visualizer"}, &Settings::element_visualizer}};
+        for (const E& e : es)
+            for (const char* n : e.names)
+                for (const bool v : {true, false}) {
+                    const Settings r = read(std::string(n) + (v ? "=true\n" : "=false\n"));
+                    CHECK_EQ(r.*(e.field), v);
+                }
+        CHECK(!read("Element_disk=0\n").element_disk);
+        CHECK(read("Element_disk=yes\n").element_disk);
+    }
     CHECK(read("VideoAuto=1\n").video_auto);
     CHECK(!read("VolumeGradient=false\n").volume_gradient);
     CHECK(read("VolumeGradient=true\n").volume_gradient);

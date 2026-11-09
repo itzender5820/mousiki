@@ -57,6 +57,7 @@
 #include "youtube_source.h"
 #include "cache_manager.h"
 #include "converter.h"
+#include "app_types.h"
 
 namespace muisc {
 namespace org { struct Theme; }   // (organigram.h)
@@ -144,12 +145,7 @@ private:
     // Search index parallel to all_local_tracks_ (rebuilt when the scan changes): the strings a local search compares,
     // already lowercased / separator-folded, and the cache key, so a keystroke does no allocation and no path conversion
     // per track. The tag fields are filled in as the background sweep resolves them (tags_seen).
-    struct SearchIdx {
-        std::string key;
-        std::string title_n, folder_artist_n;
-        std::string tag_title_n, artist_n, album_n;
-        bool tags_seen = false;
-    };
+    using SearchIdx = app_types::SearchIdx;
     mutable std::vector<SearchIdx> search_idx_;
     // scan() runs from the constructor, before ConsoleLog::instance().init()
     // is called at the top of run() -- and init() wipes the in-memory log
@@ -219,20 +215,8 @@ private:
     int vs_pane_ = 0, vs_sel_ = 0;
     fs::path vs_target_;                 // the song the download is for
     bool vs_mp3_ = true;                 // SEARCH YT: also make an mp3 of the sound (CTRL+a); on by default when no song is the target
-    struct VideoDownload {
-        bool active = false;
-        std::thread thread;
-        std::mutex m;
-        std::mutex child_m;
-        ChildProcess* child = nullptr;
-        std::string progress, file, error, title;
-        fs::path track, dir;
-        std::string base, video_id;
-        bool done = false;
-        bool want_mp3 = false;               // the sound of the video is saved as an mp3 song in the regular download folder
-        fs::path mp3_dir;
-        std::string mp3_file, mp3_error;
-    } vd_;
+    using VideoDownload = app_types::VideoDownload;
+    VideoDownload vd_;
     fs::path video_down_dir() const;     // <download folder>/video_down
     std::string video_search_default_query() const;
     void video_search_start();
@@ -246,17 +230,7 @@ private:
     std::vector<std::string> build_video_search_panel(int W) const;
     // FETCH VIDEOS (ALT+v, src/app_videofetch.cpp): a full-screen overlay like the cover fetch menu: the songs on the left, the videos found
     // for the hovered song (to choose from) and the preview of the hovered video on the right.
-    struct VFEntry {
-        fs::path path;
-        std::string label, folder, hay;
-        std::string tags;                // title / artist / album of the song as far as its tags give them (shown under "Song:"; read when the cursor rests on it)
-        double seconds = -1.0;
-        bool has_video = false;          // (only the playing song is listed with a video: it can be changed)
-        bool refetch = false;            // the re-fetch of a song with a video was confirmed (then it is searched like the others)
-        bool searched = false, searching = false, queued = false;
-        std::vector<OnlineResult> cands;
-        int choice = -1;                 // the active choice (index into cands), -1 = none
-    };
+    using VFEntry = app_types::VFEntry;
     std::unordered_map<std::string, VFEntry> vf_saved_;   // what video_fetch_state.json holds (songs that are not listed at the moment too)
     bool vf_saved_loaded_ = false;
     struct VFJob { fs::path track; std::string label, base, video_id, title; };
@@ -279,26 +253,11 @@ private:
     mutable std::chrono::steady_clock::time_point vl_marq_since_[6]{};
     mutable int vf_marq_ = -1;                             // marquee of the song under the cursor (restarts when the cursor moves)
     mutable std::chrono::steady_clock::time_point vf_marq_since_{};
-    struct VideoFetchRun {
-        std::thread thread;
-        mutable std::mutex m, child_m;
-        ChildProcess* child = nullptr;
-        std::atomic<bool> cancel{false}, linked{false};
-        bool running = false, finished = false;
-        int total = 0, done = 0, ok = 0, failed = 0;
-        std::string status, last_error;
-        std::vector<std::string> done_paths;               // songs that have their video now
-    } vf_;
+    using VideoFetchRun = app_types::VideoFetchRun;
+    VideoFetchRun vf_;
     // The second tab of FETCH VIDEOS: the VIDEO FILES (src/app_videomanage.cpp): every video file of the library (and every video a song is connected to),
     // which songs use it, delete one for good. Filters: all / coupled with a song / video only (no song uses it).
-    struct VMEntry {
-        fs::path path;
-        std::string label, folder, hay;
-        std::uintmax_t bytes = 0;
-        std::vector<std::string> songs;      // the songs that show this video (a connection by hand, or the same file name beside it)
-        bool coupled = false;
-        std::int64_t mtime = 0;              // last change of the file (seconds): newly added / downloaded files have the latest
-    };
+    using VMEntry = app_types::VMEntry;
     std::vector<VMEntry> vm_all_;
     std::vector<int> vm_view_;
     std::string vm_query_;
@@ -453,14 +412,7 @@ private:
     // folder or on a file does what `f` does in the list (show that folder's files in the LOCAL AUDIO FILES pane,
     // folder order) and closes the overlay. Like the list overlay it is a plain flag on top of Browse; it owns the
     // keys it needs and lets the playback keys fall through.
-    struct FoRow {
-        std::string path;    // folder or file path (UTF-8)
-        std::string label;
-        bool is_dir = false;
-        bool expanded = false;
-        int depth = 0;
-        int count = 0;       // tracks below a folder
-    };
+    using FoRow = app_types::FoRow;
     bool folder_overlay_open_ = false;
     bool fo_search_ = false;                 // the search field has the keyboard
     std::string fo_query_;
@@ -479,12 +431,7 @@ private:
     // minimum bitrate, hi-res only), a list of the library's files with checkboxes, and the target preset. The marked
     // files (or just the hovered one) are converted by a background ffmpeg job into the CONVERSION EXPORT PATH; the
     // originals are never touched. Like the other big overlays it is a plain flag on top of Browse.
-    struct CvFile {
-        std::string path;    // UTF-8
-        std::string name;    // file name with extension
-        std::string ext;     // lower case, with the dot
-        long long size = 0;
-    };
+    using CvFile = app_types::CvFile;
     bool convert_overlay_open_ = false;
     bool cv_search_ = false;
     std::string cv_query_;
@@ -1337,11 +1284,7 @@ private:
     int bulk_add_cursor_ = 0;
     int bulk_add_scroll_ = 0;
     static constexpr int kBulkAddVisibleRows = 9; // preview list height cap -- this is what keeps the panel "tiny"
-    struct BulkAddResult {
-        bool success = false;
-        std::string error;
-        std::vector<OnlineResult> items;
-    };
+    using BulkAddResult = app_types::BulkAddResult;
     std::thread bulk_add_thread_;
     std::mutex bulk_add_mutex_;
     std::atomic<bool> bulk_add_in_progress_{false};
@@ -1402,16 +1345,7 @@ private:
     std::vector<std::string> build_retry_lyrics_panel() const; // fixed-width, fixed-height lines for draw_floating_panel()
 
     // --- async track loading ---
-    struct PendingLoad {
-        bool success = false;
-        std::string title, artist, location_label, error;
-        fs::path path;
-        std::shared_ptr<StreamingPcm> pcm;
-        size_t total_sec = 0;
-        TrackMetadata metadata;
-        bool is_local = true;   // for snapshot/resume identity -- which of path/video_id is authoritative
-        std::string video_id;   // valid if !is_local
-    };
+    using PendingLoad = app_types::PendingLoad;
     std::thread load_thread_;
     std::mutex load_mutex_;
     std::atomic<bool> load_ready_{false};
@@ -1461,12 +1395,7 @@ private:
     std::atomic<int> device_play_pending_gen_{0};
     bool device_worker_stop_ = false;
     bool device_request_ready_ = false;
-    struct DevicePlayRequest {
-        std::shared_ptr<StreamingPcm> pcm;
-        int volume = 70;
-        double start_sec = 0.0;
-        int generation = 0;
-    };
+    using DevicePlayRequest = app_types::DevicePlayRequest;
     DevicePlayRequest device_request_;
     void device_worker_loop();       // body of device_worker_thread_, runs for the app's whole session
     void start_device_worker();      // called once, from the constructor
@@ -1633,24 +1562,7 @@ private:
     // ColorEdit cursor placement go through it (via path_display_row()), so
     // they can never disagree on where a row landed. The selectable rows
     // are numbered 0 .. path_row_count()-1.
-    struct PathRow {
-        enum class Kind { Path, AddPath, Header, Note };
-        Kind kind = Kind::Path;
-        int sel = -1;              // selectable index, -1 for headers (unselectable)
-        int path_index = -1;       // Path: index inside the owning vector
-        bool playlist_path = false; // Path/AddPath: true = playlist paths, false = local music paths
-        // Path: the single DOWNLOAD PATH field. It reads/writes
-        // settings_.download_folder instead of either vector, hence the
-        // path_index = -1 that never reaches them -- every consumer
-        // switches on this flag first.
-        bool download_folder = false;
-        bool history_folder = false;   // Path: the single HISTORY PATH field (settings_.history_path)
-        bool export_folder = false;    // Path: the single PLAYLIST EXPORT PATH field (settings_.playlist_export_path)
-        bool import_folder = false;    // Path: the single PLAYLIST IMPORT PATH field (settings_.playlist_import_path)
-        bool conversion_folder = false; // Path: the single CONVERSION EXPORT PATH field (settings_.conversion_export_path)
-        bool audiobook_folder = false;  // Path: the single AUDIO BOOK PATH field (settings_.audiobook_path)
-        const char* label = "";    // Header: section title; AddPath: "+ new path"
-    };
+    using PathRow = app_types::PathRow;
     // Every display row of the path section, in paint order, with `sel`
     // assigned over the selectable ones. Always at least one path row per
     // list even while the underlying vector is empty (an unset path is
