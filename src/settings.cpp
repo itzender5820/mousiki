@@ -909,7 +909,7 @@ const SimpleSetting kSimpleSettings[] = {
     SIMPLE_PERCENT_MAX("CoverContrast", nullptr, cover_contrast, false, 150, "\n## 0 .. 150 (percent, steps of 5) -- more contrast for the album cover (0 = the cover as it is)\n"),
     SIMPLE_PERCENT("CoverBrightness", nullptr, cover_brightness, false, "\n## 0 .. 100 (percent, steps of 5) -- the cover behind the disk: how bright its dots are lifted (0 = the picture's own range; more = brighter, like the plain disk)\n"),
     SIMPLE_PERCENT("CoverColors", nullptr, cover_colors, false, "\n## 0 .. 100 (percent, steps of 5) -- the cover behind the disk: its own colours mixed into the disk's gradient (0 = gradient only, 100 = the cover's own colours)\n"),
-    SIMPLE_PERCENT("CoverGradientSaturation", nullptr, cover_grad_sat, false, "\n## 0 .. 100 (percent, steps of 5) -- the cover looks: how vivid the disk's gradient is between its two colours (0 = the plain blend, which fades to grey in the middle; 60 = default; 100 = as saturated as a straight line between the two colours)\n"),
+    SIMPLE_PERCENT("CoverGradientSaturation", nullptr, cover_grad_sat, false, "\n## 0 .. 100 (percent, steps of 5) -- the cover looks: how vivid the disk's gradient is between its two colours (0 = the plain blend, which fades to grey in the middle; 30 = default; 100 = as saturated as a straight line between the two colours)\n"),
     SIMPLE_PERCENT("VideoContrast", "video_contrast", video_contrast, false, "\n## 0 .. 100 (percent, steps of 5) -- more contrast for the video's picture (0 = as it is)\n"),
     SIMPLE_PERCENT("VideoBrightness", "video_brightness", video_brightness, true, "\n## 0 .. 100 (percent, steps of 5) -- the brightness of the video's picture (50 = as it is, lower = darker, higher = brighter; a track can have its own: Style Option)\n"),
     SIMPLE_PERCENT("VideoColors", "video_colors", video_colors, false, "\n## 0 .. 100 (percent, steps of 5) -- the video's colours (0 = greyscale, 100 = as they are)\n"),
@@ -1281,14 +1281,16 @@ static Settings load_from_config(const fs::path& path) {
         // --- Element toggles ---
         if (key == "video_lyrics") { s.video_lyrics = lyr_mode_parse(trim_ws(unquote(value))); continue; }
         if (key == "video_cover") { std::string v = ascii_lower_str(trim_ws(unquote(value))); s.video_cover = (v == "snapshot" || v == "thumbnail" || v == "1" || v == "true") ? 1 : (v == "disk" || v == "2") ? 2 : (v == "fallback" || v == "thumbnail fallback" || v == "3") ? 3 : 0; continue; }   // ("disk" of an older version: the cover)
-        if (key == "video_size") { std::string v = ascii_lower_str(trim_ws(unquote(value))); s.video_size = (v == "cropped" || v == "crop" || v == "1") ? 1 : (v == "full" || v == "2") ? 2 : (v == "framed" || v == "3") ? 3 : 0; continue; }
+        if (key == "video_size") { std::string v = ascii_lower_str(trim_ws(unquote(value))); if (v == "regular" || v == "0") s.video_size = 0; else if (v == "cropped" || v == "crop" || v == "1") s.video_size = 1; else if (v == "full" || v == "2") s.video_size = 2; else if (v == "framed" || v == "3") s.video_size = 3; continue; }   // (a value that makes no sense leaves the default)
         if (key == "video_mp3") { s.video_mp3 = parse_bool(value) || ascii_lower_str(trim_ws(unquote(value))) == "on"; continue; }
         if (key == "video_clap") {   // text | clap | none (true / false of the first version: clap / text)
             const std::string v = ascii_lower_str(trim_ws(unquote(value)));
-            s.video_clap = (v == "none" || v == "off" || v == "nothing") ? 2 : (v == "text" || v == "text note" || v == "false") ? 0 : 1;
+            if (v == "none" || v == "off" || v == "nothing") s.video_clap = 2;
+            else if (v == "text" || v == "text note" || v == "false") s.video_clap = 0;
+            else if (v == "clap" || v == "true" || v == "on" || v == "1") s.video_clap = 1;   // (anything else leaves the default)
             continue;
         }
-        if (key == "video_round") { s.video_round = parse_bool(value) || ascii_lower_str(trim_ws(unquote(value))) == "on"; continue; }
+        if (key == "video_round") { const std::string v = ascii_lower_str(trim_ws(unquote(value))); if (v == "true" || v == "yes" || v == "1" || v == "on") s.video_round = true; else if (v == "false" || v == "no" || v == "0" || v == "off") s.video_round = false; continue; }   // (anything else leaves the default)
         if (key == "video_chroma") { s.video_chroma = chroma_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
         if (key == "cover_chroma") { s.cover_chroma = chroma_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
         if (key == "video_resolution") { s.video_res = video_res_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }

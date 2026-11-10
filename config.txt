@@ -95,8 +95,8 @@ CoverContrast=0
 CoverBrightness=50
 ## CoverColors = 0 .. 100 (percent, steps of 5): the cover behind the disk -- its own colours mixed into the disk's gradient (0 = gradient only, 100 = the cover's own colours)
 CoverColors=0
-## CoverGradientSaturation = 0 .. 100 (percent, steps of 5): the cover looks (music player) -- how vivid the disk's gradient is between its two colours (0 = the plain blend of the two, which fades to grey in the middle; 60 = default; 100 = as saturated as a straight line between the two colours). Only the colour of the dots changes, not the picture
-CoverGradientSaturation=60
+## CoverGradientSaturation = 0 .. 100 (percent, steps of 5): the cover looks (music player) -- how vivid the disk's gradient is between its two colours (0 = the plain blend of the two, which fades to grey in the middle; 30 = default; 100 = as saturated as a straight line between the two colours). Only the colour of the dots changes, not the picture
+CoverGradientSaturation=30
 ## BulkAddSave = BULK ADD (SHIFT+g): true = the tracks you add are saved in the download folder when they play (as every streamed track is); false = play only: a track that was not in the download folder before is deleted again after it has played (CTRL+s in the BULK ADD panel changes it)
 BulkAddSave=true
 ## BulkAddVideo = BULK ADD: true = the video of each added track is downloaded too, when the track plays (needs Video mode; with BulkAddSave=false it is deleted with the track; CTRL+o in the BULK ADD panel changes it)
@@ -134,7 +134,7 @@ VideoAuto=true
 ## true = a track that has a video switches the field to the video view, a track without one to the Lyrics/Viz Default view
 VideoCover=cover
 ## cover = the disk shows the track's cover; thumbnail = a frame of the track's video (the cover when it has no video); disk = a track with a video shows the plain disk (no cover, no thumbnail); fallback = the cover, a frame of the video only when the track has no cover (the cover chosen for a single track in the meta editor goes before this)
-VideoSize=regular
+VideoSize=full
 ## the video's picture in the small field: regular = the whole picture | cropped = two columns cut off each side | full = fills the field (the oscilloscope's space), cropped to fit, the lyric line as a small black box over it | framed = like full, but one row and two columns smaller on every side (an empty frame)
 VideoFx=off
 ## a retro effect on the video's picture (small field and full screen): off | scanlines | crt | vhs | glitch | quiet glitch | pixel | gradient | ...
@@ -144,11 +144,11 @@ VideoBrightness=50
 ## 0 .. 100 (percent, steps of 5) -- the brightness of the video's picture (50 = as it is, lower = darker, higher = brighter; a track can have its own: Style Option)
 VideoColors=100
 ## 0 .. 100 (percent, steps of 5) -- the video's colours (0 = greyscale, 100 = as they are)
-VideoClap=clap
+VideoClap=none
 ## Show Clap Loading: what shows while a video loads, in the small field and in the big video overlay: text note ("video: starting ...") | clap (a small clapperboard in the border colours) | none
-VideoChroma=off
+VideoChroma=subtle
 ## chromatic aberration of the video's picture (red and blue pushed apart, more towards the corners; works with every effect): off | subtle | medium | strong
-VideoRound=false
+VideoRound=true
 ## Rounded Corners: the corners of the video's picture are cut round like the corners of the UI (a track can have its own: Style Option): true | false
 VideoResolution=standard
 ## the sharpness of the video's picture: standard (up to 640 px wide, Sixel 480; the soft look) | high (1280 px, Sixel 720; Kitty in true colour) | full (1920 px, Sixel 960; Kitty in true colour). Wider pictures need more of the terminal and the processor

@@ -1224,10 +1224,10 @@ ROW[[Header]]                           WHAT IT DOES[[Header]]
 [Disk/Cover/Thumbnail][[Legend]]          What the disk shows: the cover, a frame of the video, the plain disk,
                               or the cover with the frame only as fallback. The meta editor sets it
                               for a single track.
-[Picture Size][[Legend]]                  How the picture fills the field (table below).
+[Video Size][[Legend]]                     How the picture fills the field (table below).
 [Effect][[Legend]]                        A retro look for the picture (list below).
 
-[PICTURE SIZE (also Video Size in Settings, tab ANIMA/VIZ):][[Header]]
+[VIDEO SIZE (also in Settings, tab ANIMA/VIZ):][[Header]]
 regular       The whole picture.
 cropped       Two columns are cut off on each side.
 full          Fills the field like the oscilloscope, cropped to fit. The lyric line is a small
@@ -1996,7 +1996,7 @@ R"WIZ(                                                  lyrics (default), a visu
                                                   behind Disk looks; audio book cover with the wave).
                                                   0% = the gradient only, 50% = the cover's colours shine
                                                   through, 100% = the cover in its own colours.
-[Cover Gradient Saturation:][[Legend]]                        0% .. 100% in steps of 5% (default 60%). Cover looks of
+[Cover Gradient Saturation:][[Legend]]                        0% .. 100% in steps of 5% (default 30%). Cover looks of
                                                   the music player: how vivid the disk's gradient is
                                                   between its two colours. A plain blend of two colours
                                                   fades to grey in the middle; this brings the colour

@@ -835,7 +835,7 @@ private:
     std::vector<std::string> meta_sty_preview(int prev_w, int rows, const CoverStyle& st, int album_look, int screen_w) const;
     bool meta_sty_gfx(const CoverImage& cover, int mode, int contrast, int brightness, int colors, int chroma, double angle, int col, int row, int cols, int rows, int gsat = -1) const;   // the Style preview as a picture (gfx_)
     // While the Style overlay builds its picture, these replace the playing track's own cover style (eff_cover_*)
-    mutable struct CoverOvr { bool on = false; int contrast = 0, brightness = 0, colors = 0, chroma = 0, gsat = 60; } cover_ovr_;
+    mutable struct CoverOvr { bool on = false; int contrast = 0, brightness = 0, colors = 0, chroma = 0, gsat = 30; } cover_ovr_;
     static constexpr int kMetaStyPanelWidth = 64;
     // The choice overlay (ENTER on a field with several fetched candidates).
     void meta_toggle_fetch_opt(int i);                 // tick / untick one FETCH option (the exclusivity rules apply)

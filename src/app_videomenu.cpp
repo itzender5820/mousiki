@@ -399,8 +399,8 @@ std::vector<std::string> App::build_video_menu_panel() const {
     lines.push_back(row(entry(vmenu_sel_ == kVmAutoVideo, "Auto Video (else Lyrics/Viz Default)", toggle(settings_.video_auto)), vmenu_sel_ == kVmAutoVideo));
     lines.push_back(row(entry(vmenu_sel_ == kVmCover, "Disk/Cover/Thumbnail", std::string("< ") + (settings_.video_cover == 1 ? "thumbnail" : settings_.video_cover == 2 ? "disk" : settings_.video_cover == 3 ? "thumbnail fallback" : "cover") + " >"), vmenu_sel_ == kVmCover));
     lines.push_back(row(entry(vmenu_sel_ == kVmCoverSat, "Cover Gradient Saturation", "< " + std::to_string(std::clamp(settings_.cover_grad_sat, 0, 100)) + " % >"), vmenu_sel_ == kVmCoverSat));
-    lines.push_back(section("Picture"));
-    lines.push_back(row(entry(vmenu_sel_ == kVmSize, "Picture Size", std::string("< ") + (settings_.video_size == 1 ? "cropped" : settings_.video_size == 2 ? "full" : settings_.video_size == 3 ? "framed" : "regular") + " >"), vmenu_sel_ == kVmSize));
+    lines.push_back(section("Video"));
+    lines.push_back(row(entry(vmenu_sel_ == kVmSize, "Video Size", std::string("< ") + (settings_.video_size == 1 ? "cropped" : settings_.video_size == 2 ? "full" : settings_.video_size == 3 ? "framed" : "regular") + " >"), vmenu_sel_ == kVmSize));
     lines.push_back(row(entry(vmenu_sel_ == kVmRounded, "Rounded Corners", toggle(settings_.video_round)), vmenu_sel_ == kVmRounded));
     lines.push_back(row(entry(vmenu_sel_ == kVmEffect, "Effect", std::string("< ") + video_fx_name(settings_.video_fx) + " >"), vmenu_sel_ == kVmEffect));
     {

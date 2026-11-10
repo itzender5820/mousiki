@@ -492,8 +492,12 @@ TEST(settings_video_overlay_options_round_trip) {
     CHECK_EQ(s.video_cover, 0);
     CHECK_EQ(s.video_down_height, 720);
     CHECK(s.video_auto);   // (on by default: a track with a video shows it)
-    CHECK_EQ(s.video_clap, 1);   // (Show Clap Loading: clap by default)
-    s.video_clap = 2;
+    CHECK_EQ(s.video_clap, 2);   // (Show Clap Loading: none by default)
+    CHECK_EQ(s.video_size, 2);   // (Video Size: full by default)
+    CHECK(s.video_round);        // (Rounded Corners: on by default)
+    CHECK_EQ(s.video_chroma, 1); // (Video Chromatic Aberration: subtle by default)
+    CHECK(!s.disk_border);       // (the ":  :" column: off by default)
+    s.video_clap = 1;
     s.video_auto = false;
     s.video_lyrics = false;
     s.video_cover = 2;
@@ -501,7 +505,7 @@ TEST(settings_video_overlay_options_round_trip) {
     save_settings(s);
     const Settings b = load_settings();
     CHECK(!b.video_auto);
-    CHECK_EQ(b.video_clap, 2);
+    CHECK_EQ(b.video_clap, 1);
     CHECK(!b.video_lyrics);
     CHECK_EQ(b.video_cover, 2);
     CHECK_EQ(b.video_down_height, 1080);
@@ -717,7 +721,7 @@ TEST(settings_table_reads_old_names_clamps_numbers_and_takes_flag_spellings) {
     CHECK_EQ(read("CoverContrast=400\n").cover_contrast, 150);
     CHECK_EQ(read("CoverContrast=148%\n").cover_contrast, 150);
     CHECK_EQ(read("CoverColors=250\n").cover_colors, 100);
-    CHECK_EQ(Settings().cover_grad_sat, 60);   // the default: the gradient of the cover looks stays vivid
+    CHECK_EQ(Settings().cover_grad_sat, 30);   // the default: a mild gradient on the cover looks
     CHECK_EQ(read("CoverGradientSaturation=0\n").cover_grad_sat, 0);
     CHECK_EQ(read("CoverGradientSaturation=47%\n").cover_grad_sat, 45);
     CHECK_EQ(read("CoverGradientSaturation=250\n").cover_grad_sat, 100);

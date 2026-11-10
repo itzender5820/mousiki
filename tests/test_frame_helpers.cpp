@@ -116,11 +116,14 @@ TEST(the_cover_gradient_keeps_its_colour_between_the_two_ends) {
 TEST(the_cover_gradient_strength_runs_from_the_plain_blend_to_the_full_saturation) {
     const auto plain = [](double u) { return std::array<uint8_t, 3>{static_cast<uint8_t>(std::lround(215 + (0 - 215) * u)), static_cast<uint8_t>(std::lround(95 + (135 - 95) * u)), static_cast<uint8_t>(std::lround(215 + (135 - 215) * u))}; };
     const auto sat = [](const std::array<uint8_t, 3>& c) { const int mx = std::max({c[0], c[1], c[2]}), mn = std::min({c[0], c[1], c[2]}); return mx ? double(mx - mn) / mx : 0.0; };
-    for (int i = 0; i <= 20; ++i) CHECK(gradient_step(215, 95, 215, 0, 135, 135, i / 20.0, 0.0) == plain(i / 20.0));   // strength 0: exactly the old blend
+    for (int i = 0; i <= 20; ++i) {   // strength 0: the old blend (to one step: a half-way value rounds either way when the compiler fuses multiply and add, as on Apple silicon)
+        const auto g = gradient_step(215, 95, 215, 0, 135, 135, i / 20.0, 0.0), p = plain(i / 20.0);
+        for (int k = 0; k < 3; ++k) CHECK(std::abs(int(g[k]) - int(p[k])) <= 1);
+    }
     double last = 0;
     for (double k : {0.0, 0.2, 0.4, 0.6, 0.8, 1.0}) {   // more strength, more saturation halfway (never less)
         const double s = sat(gradient_step(215, 95, 215, 0, 135, 135, 0.5, k));
-        CHECK(s + 1e-9 >= last);
+        CHECK(s + 0.01 >= last);   // (the colours are whole numbers: a rounding step may cost a hair)
         last = s;
     }
     CHECK(gradient_step(215, 95, 215, 0, 135, 135, 0.5) == gradient_step(215, 95, 215, 0, 135, 135, 0.5, 0.6));   // the default is 0.6

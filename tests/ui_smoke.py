@@ -333,7 +333,7 @@ def radio_idle_rate(binary, root, scripts):
         try:
             sess.wait_for(lambda t: "Plain Station" in t)
             sess.send(b"\x1b", 0.5)   # (a first start may show the help wizard)
-            sess.pump(5)               # quiet: no key for more than 3 s
+            sess.pump(9)               # quiet: no key for more than 3 s (with a margin: a busy runner reads the key late, and the low rate only starts 3 s after it)
             b0 = len(sess.raw); sess.pump(3); quiet = sess.raw[b0:].count(b"\x1b[?2026h")
             sess.send(b"\x1b[B", 0.0)   # a key
             b0 = len(sess.raw); sess.pump(1); after_key = sess.raw[b0:].count(b"\x1b[?2026h")
@@ -1744,11 +1744,10 @@ def disk_field_setting(binary, root, scripts):
             sess.send(b"\x1b[A", 0.2)
         sess.pump(0.8)
         t = sess.text()
-        check("Show Clap Loading" in t and "loading: clap" in t, "show clap loading: the preview shows the clap (the default)")
-        sess.send(b"\x1b[C", 0.8)
+        check("Show Clap Loading" in t and "loading: none" in t, "show clap loading: the preview shows none (the default)")
+        sess.send(b"\x1b[D", 0.8)
         t = sess.text()
-        check("loading: none" in t, "show clap loading: right arrow goes on to none")
-        sess.send(b"\x1b[D", 0.4)
+        check("loading: clap" in t, "show clap loading: left arrow goes to the clap")
         sess.send(b"\x1b[D", 0.8)
         t = sess.text()
         check("loading: text note" in t and "video: starting" in t, "show clap loading: the text note shows the message")
@@ -2099,7 +2098,7 @@ def video_overlays(binary, root, scripts):
         sess.send("Y", 1.0)
         t = sess.text()
         check("Include Lyrics" in t and "Disk/Cover/Thumbnail" in t and "Manually Couple Local Files" in t and "Quick Search/Down. YT" in t and "General Fetch Videos Menu" in t and "Delete Current Video" in t and "Refetch this Video" in t, "video overlay: the rows are listed")
-        check("Picture Size" in t and "Effect" in t and "Full Screen Video" in t, "video overlay: picture size, effect and full screen video rows are listed")
+        check("Video Size" in t and "Effect" in t and "Full Screen Video" in t, "video overlay: picture size, effect and full screen video rows are listed")
         check("Contrast" in t and "Colors" in t and "Chromatic Aberration" in t and "Resolution" in t and "Buffer" in t, "video overlay: contrast, colors, chromatic aberration, resolution and buffer rows")
         for _ in range(16):   # (to "Manually Couple Local Files", under "Full Screen Video"; Show Clap Loading is the row before it)
             sess.send(b"\x1b[B", 0.2)
@@ -2426,7 +2425,7 @@ def video_translation_tab(binary, root, scripts):
         sess.kill()
 
 def video_fullscreen_sizes(binary, root, scripts):
-    """The & overlay: Picture Size (regular / cropped / full) and Effect rows change and are remembered in config.txt; the full screen video (v)
+    """The & overlay: Video Size (regular / cropped / full) and Effect rows change and are remembered in config.txt; the full screen video (v)
     opens over a playing track with a video, UP / DOWN change the effect, TAB switches the lyric line, ESC closes; it opens without a video too."""
     import shutil, subprocess
     if not shutil.which("ffmpeg"):
@@ -2457,16 +2456,20 @@ def video_fullscreen_sizes(binary, root, scripts):
             sess.pump(0.5)
             if "Clip Song" in sess.text():
                 break
-        # the menu rows: Picture Size is the sixth row (after Cover Gradient Saturation), Rounded Corners the seventh, Effect the eighth
+        # the menu rows: Video Size is the sixth row (after Cover Gradient Saturation), Rounded Corners the seventh, Effect the eighth
         sess.send("Y", 1.0)
         for _ in range(5):   # (Cover Gradient Saturation is the row under Disk/Cover/Thumbnail)
             sess.send(b"\x1b[B", 0.2)
-        check("< regular >" in sess.text(), "video overlay: the picture size starts on regular")
+        check("< full >" in sess.text(), "video overlay: the video size starts on full (the default)")
         sess.send(b"\x1b[C", 0.5)
-        check("< cropped >" in sess.text() and "two columns cut off" in sess.text().replace("\n", " ") or "< cropped >" in sess.text(), "video overlay: RIGHT makes the size cropped")
+        check("< framed >" in sess.text(), "video overlay: RIGHT from full makes the size framed")
+        sess.send(b"\x1b[C", 0.5)
+        check("< regular >" in sess.text(), "video overlay: RIGHT again goes round to regular")
+        sess.send(b"\x1b[C", 0.5)
+        check("< cropped >" in sess.text(), "video overlay: RIGHT makes the size cropped")
         sess.send(b"\x1b[C", 0.5)
         check("< full >" in sess.text(), "video overlay: RIGHT again makes the size full")
-        sess.send(b"\x1b[B", 0.2)   # Rounded Corners (below Picture Size)
+        sess.send(b"\x1b[B", 0.2)   # Rounded Corners (below Video Size)
         sess.send(b"\x1b[B", 0.2)   # Effect
         sess.send(b"\x1b[C", 0.5)
         check("< Scanlines >" in sess.text(), "video overlay: the effect row cycles to scanlines")
@@ -2527,12 +2530,12 @@ def video_fullscreen_sizes(binary, root, scripts):
         check("VideoFx=scanlines" not in conf, "full screen video: the effect is the track's own (not the general setting)")
         # Style Option (SHIFT+s) of the playing track: the rows of its video
         sess.send("S", 1.5)
-        sess.wait_for(lambda tt: all(w in tt for w in ("Video Chromatic Aberration", "Cover Chromatic Aberration", "Video Contrast", "Video Effect", "Video Resolution", "Use mp4 audio for this song", "as in Settings (off)")), 15.0)   # (a busy machine draws the overlay a little later)
+        sess.wait_for(lambda tt: all(w in tt for w in ("Video Chromatic Aberration", "Cover Chromatic Aberration", "Video Contrast", "Video Effect", "Video Resolution", "Use mp4 audio for this song", "as in Settings (subtle)")), 15.0)   # (a busy machine draws the overlay a little later)
         t = sess.text()
         check("Video of this track" in t and "Video Size" in t and "Video Effect" in t, "style option: video on / off, size and effect rows for this track")
         check("Video Contrast" in t and "Video Colors" in t and "Video Chromatic Aberration" in t and "Cover Chromatic Aberration" in t, "style option: contrast, colors and chromatic aberration rows (video and cover)")
         check(any("Use Lyrics on Video" in ln and "none" in ln for ln in t.splitlines()), "style option: TAB in the big video overlay is this track's Use Lyrics on Video (none after lyrics -> + translation -> none)")
-        check(any("Video Chromatic Aberration" in ln and "as in Settings (off)" in ln for ln in t.splitlines()), "style option: the chromatic aberration row shows its value untruncated")
+        check(any("Video Chromatic Aberration" in ln and "as in Settings (subtle)" in ln for ln in t.splitlines()), "style option: the chromatic aberration row shows its value untruncated")
         check("Video Resolution" in t, "style option: a Video Resolution row")
         check(any("Use mp4 audio for this song" in ln and "false" in ln for ln in t.splitlines()), "style option: a song paired with a video has the row Use mp4 audio for this song (false)")
         for _ in range(8):                                   # down to the first video row: the preview shows the video instead of the disk
@@ -2575,7 +2578,7 @@ def video_fullscreen_sizes(binary, root, scripts):
         sess.send(b"\x1b[C", 0.8)
         sess.wait_for(lambda tt: "Use Video in Lyrics Field" in tt and "[ ] false" in tt.split("Use Video in Lyrics Field", 1)[1][:80], 8.0)
         check("Use Video in Lyrics Field" in sess.text() and "[ ] false" in sess.text().split("Use Video in Lyrics Field", 1)[1][:80], "video overlay: the Video mode can be switched off")
-        check("Cover Gradient Saturation" in sess.text() and "60 %" in sess.text().split("Cover Gradient Saturation", 1)[1][:30], "video overlay: Cover Gradient Saturation is a row (default 60 %)")
+        check("Cover Gradient Saturation" in sess.text() and "30 %" in sess.text().split("Cover Gradient Saturation", 1)[1][:30], "video overlay: Cover Gradient Saturation is a row (default 30 %)")
         sess.send(b"\x1b", 1.0)
         sess.send("/", 0.5)
         sess.send("clip", 1.0)

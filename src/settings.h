@@ -55,7 +55,7 @@ struct Settings : VizPrefs {
     // gradient only, 100 = the cover's own colours). config.txt: CoverBrightness= / CoverColors=
     int cover_brightness = 50;
     int cover_colors = 0;
-    int cover_grad_sat = 60;             // 0..100 in steps of 5 (%): the saturation of the disk's gradient on the cover looks (0 = the plain blend of the two disk colours, 60 = the default, 100 = full); config.txt: CoverGradientSaturation=
+    int cover_grad_sat = 30;             // 0..100 in steps of 5 (%): the saturation of the disk's gradient on the cover looks (0 = the plain blend of the two disk colours, 30 = the default, 100 = full); config.txt: CoverGradientSaturation=
     int cover_search = 0;                // 0 default (file, then folder), 1 folder first, 2 within file first, 3 image in folder only, 4 within file only
     bool element_dummy_buttons = true;
     bool element_queue = true;           // replaces the old queue_visible
@@ -114,7 +114,7 @@ struct Settings : VizPrefs {
     // video. config.txt: VideoLyrics=, VideoCover=cover|snapshot.
     int video_lyrics = 1;             // Include Lyrics (VideoLyrics=): 0 none, 1 lyrics, 2 lyrics + translation, 3 translation only (the lines under the picture)
     bool video_auto = true;           // Auto Video: a track that has a video switches the field to the video view, one without it to the Lyrics/Viz Default (VideoAuto=)
-    int video_size = 0;               // Picture Size of the small field (VideoSize=): 0 regular, 1 cropped (two columns cut off each side), 2 full field (fills the oscilloscope's space, cropped to fit), 3 framed (like full, one row and one column smaller on every side)
+    int video_size = 2;               // Video Size of the small field (VideoSize=; default full): 0 regular, 1 cropped (two columns cut off each side), 2 full field (fills the oscilloscope's space, cropped to fit), 3 framed (like full, one row and one column smaller on every side)
     int video_fx = 0;                 // Effect (VideoFx=): 0 off, 1 scanlines, 2 crt, 3 vhs, 4 glitch, 5 pixel, 6 gradient, 7 quiet glitch
     int video_brightness = 50;        // Video Brightness (VideoBrightness=): 0..100 %, steps of 5 (50 = as it is, lower darker, higher brighter)
     int video_contrast = 0;           // Video Contrast (VideoContrast=): 0..100 %, steps of 5 (0 = as it is)
@@ -122,9 +122,9 @@ struct Settings : VizPrefs {
     bool bulk_save = true;            // BULK ADD (BulkAddSave=): true = the tracks stay in the download folder once played, false = play only: each file is deleted again when the next track has started
     bool bulk_video = false;          // BULK ADD (BulkAddVideo=): the video of every track is downloaded when it plays (see Video mode)
     bool video_mp3 = true;            // yt-dlp mp3 from mp4 (VideoMp3=): a video downloaded in SEARCH YT without a target song also gets its sound as an mp3 song
-    int video_clap = 1;               // Show Clap Loading (VideoClap=): what shows while a video loads: 0 text note ("video: starting ..."), 1 clap (a small clapperboard), 2 none
-    bool video_round = false;         // Rounded Corners of the video picture (VideoRound=): the picture's corners are cut round, like the corners of the UI
-    int video_chroma = 0;             // Video Chromatic Aberration (VideoChroma=): 0 off, 1 subtle, 2 medium, 3 strong
+    int video_clap = 2;               // Show Clap Loading (VideoClap=; default none): what shows while a video loads: 0 text note ("video: starting ..."), 1 clap (a small clapperboard), 2 none
+    bool video_round = true;          // Rounded Corners of the video picture (VideoRound=): the picture's corners are cut round, like the corners of the UI
+    int video_chroma = 1;             // Video Chromatic Aberration (VideoChroma=; default subtle): 0 off, 1 subtle, 2 medium, 3 strong
     int cover_chroma = 0;             // Cover Chromatic Aberration (CoverChroma=): the same, for covers that show their own colours
     int video_res = 0;                // Video Resolution (VideoResolution=): 0 standard, 1 high, 2 full (see video_fx.h)
     int video_buffer = 32;            // Video Buffer (VideoBuffer=): MB of decoded frames the decoder keeps ahead of the picture

@@ -13,7 +13,7 @@ enum VMenuRow : int {
     kVmAutoVideo,       // Auto Video
     kVmCover,           // Cover, Disk or Thumbnail
     kVmCoverSat,        // Cover Gradient Saturation (0 .. 100 %)
-    kVmSize,            // Picture Size
+    kVmSize,            // Video Size
     kVmRounded,         // Rounded Corners
     kVmEffect,          // Effect
     kVmContrast,

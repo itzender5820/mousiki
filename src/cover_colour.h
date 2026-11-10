@@ -68,7 +68,7 @@ inline std::array<uint8_t, 3> gradient_step(int sr, int sg, int sb, int er, int 
     const double mx = std::max({c[0], c[1], c[2]}), mn = std::min({c[0], c[1], c[2]});
     const double want = sat(sr, sg, sb) + (sat(er, eg, eb) - sat(sr, sg, sb)) * u, have = mx > 0 ? (mx - mn) / mx : 0.0;
     double out[3] = {c[0], c[1], c[2]};
-    if (mx - mn > 0.5 && want - have > 1e-4) {
+    if (strength > 0.0 && mx - mn > 0.5 && want - have > 1e-4) {   // (strength 0: the plain blend, untouched)
         const double target = have + (want - have) * std::clamp(strength, 0.0, 1.0);
         const double k = (mx - mx * (1.0 - target)) / (mx - mn);   // stretch the channels away from the brightest one
         for (double& v : out) v = mx - (mx - v) * k;
