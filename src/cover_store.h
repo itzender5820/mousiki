@@ -72,7 +72,7 @@ int cover_album_look(const std::string& album, const std::string& folder);
 void set_cover_album_look(const std::string& album, const std::string& folder, int look);   // -1 removes it
 // The style of one track (meta editor -> Style Option): its own look and its own Cover Contrast / Brightness / Colors. -1 = as in Settings
 // (look: then the album's look, then Settings). It wins over everything else for that track.
-struct CoverStyle { int look = -1, contrast = -1, brightness = -1, colors = -1, chroma = -1; };   // chroma: chromatic aberration 0..3
+struct CoverStyle { int look = -1, contrast = -1, brightness = -1, colors = -1, chroma = -1, gsat = -1; };   // chroma: chromatic aberration 0..3; gsat: the saturation of the disk's gradient 0..100
 CoverStyle cover_track_style(const std::string& track_path);
 void set_cover_track_style(const std::string& track_path, const CoverStyle& st);   // all -1 removes it
 // The albums a cover fetch found nothing for (remembered, so they are not asked for again and again): the reason, "" = not on the list.

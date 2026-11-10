@@ -58,8 +58,8 @@ namespace muisc {
 void App::readlyrics_open() {
     fs::path track;
     std::string title;
-    if (has_track_ && !current_path_.empty()) {
-        track = current_path_;
+    if (has_track_ && !current_.path.empty()) {
+        track = current_.path;
         title = (metadata_.artist == "-" || metadata_.artist.empty()) ? metadata_.name : metadata_.artist + " - " + metadata_.name;
     } else if (list_source_ == ListSource::Local && selected_ >= 0 && selected_ < static_cast<int>(local_view_.size())) {
         const LocalTrack& t = local_view_[static_cast<size_t>(selected_)];
@@ -125,7 +125,7 @@ void App::readlyrics_load_version() {
 }
 
 bool App::readlyrics_track_plays() const {
-    return has_track_ && !current_path_.empty() && current_path_ == rd_->track;
+    return has_track_ && !current_.path.empty() && current_.path == rd_->track;
 }
 
 // [p]: the track of the reader starts (the library entry, or the file when it is not in the library); when it is the loaded one already
@@ -270,11 +270,11 @@ void App::readlyrics_translate() {
 
 void App::readlyrics_poll() {
     // The re-fetch overlay was used over the reader: when its fetch is done, the reader shows the lyrics now in use.
-    if (rd_->watch_epoch >= 0 && mode_ == Mode::ReadLyrics && lyrics_epoch_.load() != rd_->watch_epoch) {
+    if (rd_->watch_epoch >= 0 && mode_ == Mode::ReadLyrics && lyrics_.epoch.load() != rd_->watch_epoch) {
         bool done = false;
         {
-            std::lock_guard<std::mutex> lk(lyrics_mutex_);
-            done = lyrics_ready_ && lyrics_path_ == rd_->track;
+            std::lock_guard<std::mutex> lk(lyrics_.mutex);
+            done = lyrics_.ready && lyrics_.path == rd_->track;
         }
         if (done) {
             rd_->watch_epoch = -1;

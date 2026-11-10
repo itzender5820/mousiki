@@ -2,6 +2,8 @@
 // Part of class App (src/app.h): The keyboard: App::handle_key for the main screen.
 // Split out of app.cpp; the includes are the same as there.
 #include "app.h"
+#include "app_state_vf.h"
+#include "app_state_fo.h"
 #include "playlist_state.h"
 #include "meta_state.h"
 #include "book_state.h"
@@ -112,9 +114,9 @@ void App::handle_key(int key) {
         switch (mode_) {
             case Mode::MetaEdit: ok = !text_entry_active() || (meta_->tab == 0 && meta_->focus == 2 && !meta_->field_editing); break;
             case Mode::CoverFetch: ok = !text_entry_active(); break;
-            case Mode::VideoFetch: ok = vf_focus_ != 0; break;                       // (the filter field is focus 0; a running download does not matter)
+            case Mode::VideoFetch: ok = vfs_->focus != 0; break;                       // (the filter field is focus 0; a running download does not matter)
             case Mode::VideoLink: ok = !(key >= '0' && key <= '9') && !(key >= 'a' && key <= 'z') && !(key >= 'A' && key <= 'Z'); break;   // (typing goes into the search fields there: only a symbol key is taken)
-            case Mode::Browse: ok = folder_overlay_active() && !fo_search_; break;
+            case Mode::Browse: ok = folder_overlay_active() && !fo_->search; break;
             default: break;
         }
         if (ok) { toggle_latin_letters(); return; }
@@ -169,20 +171,20 @@ void App::handle_key(int key) {
 
     if (video_full_ && mode_ == Mode::Browse && video_full_key(key)) return;   // the full screen video: UP / DOWN effect, TAB lyrics, ESC closes
 
-    if (spectro_full_ && mode_ == Mode::Browse && last_key_was_arrow() && (key == 'A' || key == 'B' || key == 'C' || key == 'D')) {
+    if (spectro_.full && mode_ == Mode::Browse && last_key_was_arrow() && (key == 'A' || key == 'B' || key == 'C' || key == 'D')) {
         // LEFT / RIGHT: image <-> braille, UP / DOWN: spectrogram <-> waterfall (the same values as the SHIFT+i overlay)
         spectro_adjust(settings_.spectro, (key == 'C' || key == 'D') ? kSrStyle : kSrView, (key == 'C' || key == 'B') ? 1 : -1);
         settings_.spectro_sync();
         if (key == 'C' || key == 'D')
-            status_line_ = settings_.spectro.style == 1 ? (gfx_proto_ == GfxProto::None ? "spectrogram style: image (this terminal has neither Kitty graphics nor Sixel: braille is drawn)" : "spectrogram style: image")
+            status_line_ = settings_.spectro.style == 1 ? (gfxs_.proto == GfxProto::None ? "spectrogram style: image (this terminal has neither Kitty graphics nor Sixel: braille is drawn)" : "spectrogram style: image")
                                                         : "spectrogram style: braille";
         else status_line_ = settings_.spectro.view == 1 ? "spectrogram view: waterfall" : "spectrogram view: spectrogram";
         save_settings(settings_);
         force_redraw_ = true;
         return;
     }
-    if (spectro_full_ && mode_ == Mode::Browse && key == 27 && !last_key_was_arrow()) {   // ESC leaves the full screen
-        spectro_full_ = false;
+    if (spectro_.full && mode_ == Mode::Browse && key == 27 && !last_key_was_arrow()) {   // ESC leaves the full screen
+        spectro_.full = false;
         force_redraw_ = true;
         return;
     }
@@ -246,10 +248,10 @@ void App::handle_browse_key(int key) {
     }
     // Big queue overlay (SHIFT+k): same keys as the list overlay above.
     if (queue_overlay_active()) {
-        if (queue_find_edit_) { queue_find_key(key); return; }   // the caret is in the search bar: every key is for it
+        if (qst_.find_edit) { queue_find_key(key); return; }   // the caret is in the search bar: every key is for it
         if (key_is("HKeySearch", key) && !last_key_was_arrow()) {   // "/": search the queue (the bar at the bottom)
-            queue_find_edit_ = true;
-            edit_focus("queue-find", queue_find_);
+            qst_.find_edit = true;
+            edit_focus("queue-find", qst_.find);
             text_engage("queue-find");
             return;
         }
@@ -260,7 +262,7 @@ void App::handle_browse_key(int key) {
         if (!last_key_was_arrow() && key == 'S') { queue_shuffle_order(); return; }   // SHIFT+s: shuffle the order
         if (!last_key_was_arrow() && key == 'U') { queue_undo_shuffle(); return; }    // SHIFT+u: undo the shuffle
         if (key == 27) {
-            if (!queue_find_.empty()) { queue_find_.clear(); return; }   // the first ESC takes the search away
+            if (!qst_.find.empty()) { qst_.find.clear(); return; }   // the first ESC takes the search away
             queue_overlay_close();
             return;
         }

@@ -5,6 +5,7 @@
 #include "chiptune.h"
 #include "chip_meta.h"
 #include "process_util.h"
+#include "string_util.h"
 #include "path_utf8.h"
 #include "utf8_util.h"
 #include <algorithm>
@@ -75,7 +76,7 @@ static RowMeta probe_row_meta_impl(const fs::path& file) {
         if (val.empty()) continue;
 
         if (key == "duration") {
-            try { rm.duration_sec = std::stod(val); } catch (...) {}
+            if (const auto n_ = muisc::parse_double(val)) { rm.duration_sec = *n_; }
         } else if (key == "TAG:artist") {
             // First-wins: with stream_tags also requested, a file with
             // several streams (e.g. an attached-picture "video" stream

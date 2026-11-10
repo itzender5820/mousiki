@@ -1,4 +1,5 @@
 #include "radio_app.h"
+#include "string_util.h"
 #if defined(_WIN32)
 #include "win_compat.h"
 #endif
@@ -142,7 +143,7 @@ void RadioApp::stov_edit_commit() {
     int kbps = 0;
     if (!kbps_s.empty()) {
         for (char c : kbps_s) if (c < '0' || c > '9') { so.edit_error = "KBPS is a number (0 = unknown)"; so.edit_field = 6; return; }
-        kbps = std::min(99999, std::atoi(kbps_s.c_str()));
+        kbps = std::min(99999, muisc::atoi_safe(kbps_s.c_str()));
     }
     Station& st0 = ui.stations[static_cast<size_t>(so.edit_idx)];
     if (st0.name == name && st0.preset_name == pre && st0.url == url && st0.genre == genre && st0.country == country && st0.codec_hint == codec && st0.bitrate_hint == kbps) {

@@ -8,6 +8,7 @@
 #include "about_text.h"
 #include "keyboard_layout.h"
 #include "terminal_ui.h"
+#include "path_utf8.h"
 #include "settings.h"   // kModeNames, ModeConfig, read_mode_config(): the mode switch is the player's config.txt
 #include <algorithm>
 #include <cctype>
@@ -958,7 +959,7 @@ RadioSettings load_radio_settings(std::string* source_out) {
     if (auto v = get("TuneNoise")) s.tune_noise = as_bool(*v, s.tune_noise);
     if (auto v = get("MarqueeScrolling")) s.marquee = as_bool(*v, s.marquee);
     if (auto v = get("TimeshiftMinutes")) {
-        const int m = std::atoi(v->c_str());
+        const int m = muisc::atoi_safe(v->c_str());
         int best = 0;
         for (int i = 0; i < 5; ++i) if (std::abs(kTimeshiftMinutes[i] - m) < std::abs(kTimeshiftMinutes[best] - m)) best = i;
         s.timeshift_idx = best;
@@ -995,8 +996,8 @@ RadioSettings load_radio_settings(std::string* source_out) {
         cp.name = name.substr(0, kEqNameMaxBytes);
         s.eq_custom_presets.push_back(std::move(cp));
     }
-    if (auto v = get("GradientWaveSpeed")) try { s.gradient_wave_speed = std::clamp(std::stod(*v), 0.01, 1.0); } catch (...) {}
-    if (auto v = get("PulseWaveSpeed")) try { s.pulse_wave_speed = std::clamp(std::stod(*v), 0.01, 1.0); } catch (...) {}
+    if (auto v = get("GradientWaveSpeed")) if (const auto n_ = muisc::parse_double(*v)) { s.gradient_wave_speed = std::clamp(*n_, 0.01, 1.0); }
+    if (auto v = get("PulseWaveSpeed")) if (const auto n_ = muisc::parse_double(*v)) { s.pulse_wave_speed = std::clamp(*n_, 0.01, 1.0); }
     if (auto v = get("PlaybackMode")) s.playback_shuffle = ascii_lower_str(*v) != "list";
     s.start_mode = player_start_mode();
     load_player_mode_settings(s);
@@ -1261,7 +1262,7 @@ bool save_radio_settings(const RadioSettings& s, std::string* err) {
         }
     }
     write_radio_settings(o, s);
-    if (!write_text_atomic(target, o.str())) { if (err) *err = "cannot write " + target.string(); return false; }
+    if (!write_text_atomic(target, o.str())) { if (err) *err = "cannot write " + path_utf8(target); return false; }
     if (s.share_profiles) {   // the radio's edits of the shared settings go to the player's config.txt
         VizPrefs now;
         if (read_player_viz(now) && viz_text(now) != viz_text(s)) write_player_viz(s);

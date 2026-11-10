@@ -4,7 +4,6 @@ packaging/input/*.zip
 __pycache__/
 packaging/aur/out/
 *.pkg.tar.zst
-aur;C*
 .vscode/
 remote_app/android/.gradle/
 remote_app/android/build/

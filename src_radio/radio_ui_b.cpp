@@ -1,5 +1,6 @@
 // Radio mode screen (part of radio_ui.cpp, split for the build time; the helpers are declared in radio_ui_internal.h).
 #include "radio_ui_internal.h"
+#include "path_utf8.h"
 
 namespace muisc::radio {
 namespace detail {
@@ -875,7 +876,7 @@ std::vector<std::string> build_theme_io(const RadioSettings& c, const SettingsMo
         field("NAME", sm.theme_io_name, sm.theme_io_row == 0, themes::kMaxNameLen);
         field("FOLDER", sm.theme_io_dir, sm.theme_io_row == 1, fw);
         row_of({});
-        row_of({{legend, utf8_take("Exports the colors now set as one theme file: " + (std::filesystem::path(sm.theme_io_dir) / themes::file_name_for(sm.theme_io_name)).string(), inner)}});
+        row_of({{legend, utf8_take("Exports the colors now set as one theme file: " + path_utf8(std::filesystem::path(sm.theme_io_dir) / themes::file_name_for(sm.theme_io_name)), inner)}});
         row_of({{legend, "(radio and player colors are both kept in the file; import it with SHIFT+i)"}});
     } else {
         field("FOLDER", sm.theme_io_dir, sm.theme_io_row == 0, fw);
@@ -889,7 +890,7 @@ std::vector<std::string> build_theme_io(const RadioSettings& c, const SettingsMo
             const size_t nth = themes::read_theme_file(sm.theme_io_files[static_cast<size_t>(i)]).size();
             const std::string cnt = std::to_string(nth) + (nth == 1 ? " theme" : " themes");
             const bool sel = sm.theme_io_row == 1 && i == sm.theme_io_sel;
-            row_of({{sel ? "\x1b[7m" : "", pad_right(utf8_take(sm.theme_io_files[static_cast<size_t>(i)].filename().string(), inner - 12), inner - 12)}, {legend, pad_left(cnt, 12)}});
+            row_of({{sel ? "\x1b[7m" : "", pad_right(utf8_take(path_utf8(sm.theme_io_files[static_cast<size_t>(i)].filename()), inner - 12), inner - 12)}, {legend, pad_left(cnt, 12)}});
         }
         if (nf == 0) row_of({{legend, "no theme files (*.theme, *.txt) in this folder"}});
     }

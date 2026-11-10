@@ -6,6 +6,7 @@
 #include "time_util.h"
 #include "string_util.h"
 #include "app.h"
+#include "app_state_fo.h"
 #include "book_state.h"
 #include "text_edit.h"
 #include "utf8_util.h"
@@ -85,7 +86,7 @@ void App::book_marks_write(const std::string& dir, const std::vector<BookMark>& 
 // A new bookmark for the book that plays (which need not be the open one). A book may carry many; one that lies within a second of
 // an old one in the same chapter replaces it.
 void App::book_bookmark_store(const std::string& file, double sec) {
-    const std::string dir = path_utf8(current_path_.parent_path());
+    const std::string dir = path_utf8(current_.path.parent_path());
     BookMark m;
     m.file = file;
     m.sec = std::max(0.0, sec);
@@ -113,10 +114,10 @@ int App::book_mark_in_chapter(int idx) const {
 
 // SHIFT+b: a bookmark right here.
 void App::book_set_bookmark_now() {
-    if (!has_track_ || !current_is_local_) { status_line_ = "play a chapter first: a bookmark marks the place where you stopped"; return; }
+    if (!has_track_ || !current_.is_local) { status_line_ = "play a chapter first: a bookmark marks the place where you stopped"; return; }
     const double el = player_.poll_elapsed();
-    book_bookmark_store(path_utf8(current_path_.filename()), el);
-    status_line_ = "bookmark " + std::to_string(book_->marks.size()) + " set: " + stem_of(path_utf8(current_path_.filename())) + " at " + clock_text(el);
+    book_bookmark_store(path_utf8(current_.path.filename()), el);
+    status_line_ = "bookmark " + std::to_string(book_->marks.size()) + " set: " + stem_of(path_utf8(current_.path.filename())) + " at " + clock_text(el);
 }
 
 // ---------------------------------------------------------------------
@@ -124,7 +125,7 @@ void App::book_set_bookmark_now() {
 // bookmark; the audio is paused while the question is open.
 // ---------------------------------------------------------------------
 bool App::book_ask_due() const {
-    return settings_.book_ask_bookmark && has_track_ && current_is_local_ && player_.poll_elapsed() > 2.0;
+    return settings_.book_ask_bookmark && has_track_ && current_.is_local && player_.poll_elapsed() > 2.0;
 }
 
 void App::book_ask_then(const std::string& what, std::function<void()> then) {
@@ -132,7 +133,7 @@ void App::book_ask_then(const std::string& what, std::function<void()> then) {
     if (!book_ask_due()) { then(); return; }
     book_->then = std::move(then);
     book_->ask_what = what;
-    book_->ask_file = path_utf8(current_path_.filename());
+    book_->ask_file = path_utf8(current_.path.filename());
     book_->ask_sec = player_.poll_elapsed();
     book_->prompt_paused = !player_.is_paused();
     if (book_->prompt_paused) player_.pause();
@@ -273,7 +274,7 @@ bool App::book_play_file(const std::string& path) {
     if (path.empty() || !fs::exists(path_from_utf8(path), ec)) return false;
     if (!book_open_dir(path_utf8(path_from_utf8(path).parent_path()))) return false;
     for (size_t i = 0; i < chapters_.size(); ++i)
-        if (path_utf8(chapters_[i].path) == path) { queue_selected_ = static_cast<int>(i); book_fit_scroll(); book_go(static_cast<int>(i)); return true; }
+        if (path_utf8(chapters_[i].path) == path) { qst_.selected = static_cast<int>(i); book_fit_scroll(); book_go(static_cast<int>(i)); return true; }
     return false;
 }
 
@@ -379,10 +380,10 @@ std::string App::book_stamp_name(const BookStamp& s) {
 // The auto-mark of the chapter that plays: every few seconds, and when one leaves (book_ask_then). Nothing is written while the
 // position does not move (paused), and not while "leave, but keep the time stamp" holds the old one back.
 void App::book_automark_tick(bool force) {
-    if (!has_track_ || !current_is_local_ || book_->seek_pending || load_in_progress_.load()) return;
+    if (!has_track_ || !current_.is_local || book_->seek_pending || load_in_progress_.load()) return;
     const double el = player_.poll_elapsed();
     if (el <= 3.0) return;
-    const std::string file = path_utf8(current_path_.filename());
+    const std::string file = path_utf8(current_.path.filename());
     if (book_->am_hold) {
         if (file == book_->am_hold_file && el < book_->am_hold_sec) return;
         book_->am_hold = false;
@@ -390,7 +391,7 @@ void App::book_automark_tick(bool force) {
     const auto now = std::chrono::steady_clock::now();
     if (!force && now - book_->am_last < std::chrono::seconds(5)) return;
     if (file == book_->am_last_file && std::fabs(el - book_->am_last_sec) < (force ? 0.5 : 4.0)) { book_->am_last = now; return; }
-    const std::string dir = path_utf8(current_path_.parent_path());
+    const std::string dir = path_utf8(current_.path.parent_path());
     BookMark m;
     m.file = file;
     m.sec = el;
@@ -722,7 +723,7 @@ bool App::book_overlay_switch(int key) {
     }
     if (cur == None || cur == target) return false;   // (the same key closes the overlay, as before)
     // not while something is typed or asked
-    if (cur == Library && fo_search_) return false;
+    if (cur == Library && fo_->search) return false;
     if (cur == Notes && book_->notes_mode != 0) return false;
     if (cur == Stamps && book_->mmode != 0) return false;
     if (cur == Tags) {
@@ -797,7 +798,7 @@ void App::book_viz_restore() {
 }
 
 void App::book_note_new() {
-    if (!has_track_ || !current_is_local_) { status_line_ = "play a chapter first: a note belongs to a point in a chapter"; return; }
+    if (!has_track_ || !current_.is_local) { status_line_ = "play a chapter first: a note belongs to a point in a chapter"; return; }
     book_viz_remember();
     book_->note_edit = true;
     book_->note_typing = true;
@@ -805,8 +806,8 @@ void App::book_note_new() {
     book_->note_lines.assign(1, std::string());
     book_->note_row = 0;
     book_->note_replace = -1;
-    book_->note_file = path_utf8(current_path_.filename());
-    book_->note_dir = path_utf8(current_path_.parent_path());
+    book_->note_file = path_utf8(current_.path.filename());
+    book_->note_dir = path_utf8(current_.path.parent_path());
     book_->note_sec = std::floor(player_.poll_elapsed());
     book_->note_status.clear();
     book_->note_shown = false;
@@ -844,7 +845,7 @@ void App::book_note_to_overlay() {
         if (book_->note_shown)
             for (size_t i = 0; i < book_->notes.size(); ++i) if (book_->notes[i] == book_->note_view) { idx = static_cast<int>(i); break; }
         if (idx >= 0) book_note_edit_existing(idx);
-        else if (has_track_ && current_is_local_) book_note_new();
+        else if (has_track_ && current_.is_local) book_note_new();
         else { status_line_ = "play a chapter first: a note belongs to a point in a chapter"; return; }
     } else if (book_->note_dir != book_->dir) {
         status_line_ = "this note belongs to the book that plays, not to the open one: save it first";
@@ -1338,8 +1339,8 @@ std::vector<std::string> App::book_note_field_rows(int w, int h) const {
 
 // Render loop: playback went past the time of a note -> the field shows it (it goes away after 20 seconds, or with the chapter).
 void App::book_notes_follow() {
-    if (!has_track_ || !current_is_local_) return;
-    const std::string file = path_utf8(current_path_.filename());
+    if (!has_track_ || !current_.is_local) return;
+    const std::string file = path_utf8(current_.path.filename());
     if (!player_.is_paused()) {
         const double el = player_.poll_elapsed();
         const double prev = book_->prev_elapsed;
@@ -1502,7 +1503,7 @@ bool App::book_notes_key(int key) {
         return true;
     }
     if (!arrow && key == 'n') {   // a new note at the point that plays
-        if (!has_track_ || !current_is_local_) { say("play a chapter first: a note belongs to a point in a chapter"); return true; }
+        if (!has_track_ || !current_.is_local) { say("play a chapter first: a note belongs to a point in a chapter"); return true; }
         book_note_new();
         book_->notes_mode = 4;
         book_->ov_status.clear();

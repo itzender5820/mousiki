@@ -206,19 +206,19 @@ inline int local_query_scope(const std::string& query, std::string& rest) {
 // Enter is pressed — this is the "incremental search" behavior: the
 // list updates live as you type instead of only after confirming. Local
 // queries get filtered+ranked immediately via the same fuzzy logic
-// submit_search() will commit on Enter. An "s:" (online search) prefix
+// submit_search() will commit on Enter. A "y:" (online search) prefix
 // is left alone here — firing a network request on every keystroke
 // would be wasteful and slow, so online search still only fires on
 // Enter — but the view is reset back to whatever it was before '/' was
 // pressed so a stale local preview doesn't linger behind the search box
 // while an online query is being typed.
-// The online search prefixes: "s:" YouTube, "sc:" SoundCloud, "b:" Bandcamp. Returns the source (0 / 1 / 2) and the
+// The online search prefixes: "y:" YouTube, "sc:" SoundCloud, "b:" Bandcamp. Returns the source (0 / 1 / 2) and the
 // prefix length, or -1 when `buf` starts with none of them.
 inline int online_prefix(const std::string& buf, size_t& len) {
     std::string l = buf.substr(0, 3);
     for (char& c : l) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     if (l.compare(0, 3, "sc:") == 0) { len = 3; return 1; }
-    if (l.compare(0, 2, "s:") == 0) { len = 2; return 0; }
+    if (l.compare(0, 2, "y:") == 0) { len = 2; return 0; }
     if (l.compare(0, 2, "b:") == 0) { len = 2; return 2; }
     return -1;
 }

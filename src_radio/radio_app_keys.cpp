@@ -1,4 +1,5 @@
 #include "radio_app.h"
+#include "string_util.h"
 #if defined(_WIN32)
 #include "win_compat.h"
 #endif
@@ -381,7 +382,7 @@ bool RadioApp::key_overlays_b(KeyCtx& kc) {
             else if (k == 13 || k == 10) {
                 um.scope_big_color_edit = false;
                 if (um.scope_big_color_buf.empty()) cfg.scope_grid_color.clear();   // empty = the colour of inactive list elements
-                else cfg.scope_grid_color = std::to_string(std::clamp(std::atoi(um.scope_big_color_buf.c_str()), 0, 255));
+                else cfg.scope_grid_color = std::to_string(std::clamp(muisc::atoi_safe(um.scope_big_color_buf.c_str()), 0, 255));
                 settings_save();
             } else if ((k == 127 || k == 8) && !um.scope_big_color_buf.empty()) um.scope_big_color_buf.pop_back();
             else if (k >= '0' && k <= '9' && um.scope_big_color_buf.size() < 3) um.scope_big_color_buf.push_back(static_cast<char>(k));

@@ -19,6 +19,7 @@
 #include "tiny_json.h"
 #include "time_util.h"
 #include "version.h"
+#include "path_utf8.h"
 #if defined(_WIN32)
 #include "win_compat.h"
 #endif
@@ -66,7 +67,7 @@ void run_check(fs::path script) {
         if (cmd.empty()) {
             res.error = "Python 3 was not found";
         } else {
-            cmd.push_back(script.string());
+            cmd.push_back(muisc::path_utf8(script));
             const ProcResult r = run_capture(cmd, /*merge_stderr=*/false);
             tinyjson::Value answer;
             if (!tinyjson::parse_answer(r.out, answer)) {
@@ -125,7 +126,7 @@ void worker(fs::path script, State st, bool ask_network) {
         if (ask_network) {
             Args cmd = python_command();
             if (cmd.empty()) return;
-            cmd.push_back(script.string());
+            cmd.push_back(muisc::path_utf8(script));
             const ProcResult r = run_capture(cmd, /*merge_stderr=*/false);
             tinyjson::Value answer;
             if (r.exit_code != 0 || !tinyjson::parse_answer(r.out, answer) || !tinyjson::bool_field(answer, "ok")) return;

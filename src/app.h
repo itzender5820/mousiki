@@ -92,6 +92,10 @@ struct QueueItem {
     bool played = false;
     // Saved playlist this item was queued from ("" = hand-picked track): the history files the play under it (TOP PLAYLISTS).
     std::string playlist;
+    // Added with BULK ADD (not kept in the saved session): "play only" = the downloaded file is deleted again after the track, and
+    // "video" = the track's video is downloaded when it plays.
+    bool play_only = false;
+    bool want_video = false;
 };
 
 struct CoverImage;   // cover_art.h
@@ -135,7 +139,31 @@ private:
     LocalSource local_source_;
     DiskArt disk_;
     mutable Player player_;
-    fs::path lyrics_script_;
+    // lyrics_: the `lyrics_*` data of this feature, grouped (they were 10 loose members of App)
+    struct LyricsState {
+        fs::path script;
+        mutable std::chrono::steady_clock::time_point status_shown_at;
+        // --- lyrics (background-fetched) ---
+        mutable std::mutex mutex;
+        mutable LyricsResult result;
+        std::atomic<bool> ready{false};
+        std::atomic<int> epoch{0};
+        // Alt+L (kKeyAltL, fixed key): the lyrics timing overlay (Mode::LyricsEdit),
+        // a small floating panel over the live playback UI for tracks whose lyrics
+        // run early or late. The offset ("delay", seconds, + = lyrics later) lives in
+        // result.delay and is applied live by render (lyrics time = elapsed -
+        // delay), so the lyrics behind / inside the panel move while it is adjusted.
+        // Left/Right = -/+ 0.1 s, Down/Up = -/+ 0.5 s, R = back to 0, ENTER / S =
+        // save into the track's .lrc ("[offset:...]" tag, so it is remembered and
+        // read back with the lyrics), ESC / Alt+L = cancel (the value from before the
+        // overlay opened comes back). Opens only while synced lyrics are loaded.
+        double edit_orig_delay = 0.0;               // delay when the overlay opened (ESC restores it)
+        bool edit_from_reader = false;              // opened over READ LYRICS: drawn on it, closing returns to it
+        bool edit_from_karaoke = false;             // opened over the karaoke screen: it is drawn on it and closing returns to it
+        fs::path path;                              // track path the current lyrics belong to (sidecar location)
+        void lyrics_edit_adjust(double step);
+    };
+    LyricsState lyrics_;
     fs::path fast_search_script_; // empty if not found -- OnlineSource falls back to yt-dlp
 
     // --- lists / navigation ---
@@ -146,7 +174,18 @@ private:
     // already lowercased / separator-folded, and the cache key, so a keystroke does no allocation and no path conversion
     // per track. The tag fields are filled in as the background sweep resolves them (tags_seen).
     using SearchIdx = app_types::SearchIdx;
-    mutable std::vector<SearchIdx> search_idx_;
+    // search_: the `search_*` data of this feature, grouped (they were 7 loose members of App)
+    struct SearchState {
+        mutable std::vector<SearchIdx> idx;
+        std::string buffer;
+        bool nav_moved = false;   // Up/Down used in the search box: ENTER then plays the highlighted entry
+        // --- async online search ---
+        std::thread thread;
+        std::mutex mutex;
+        std::atomic<bool> ready{false};
+        std::atomic<bool> in_progress{false};
+    };
+    SearchState search_;
     // scan() runs from the constructor, before ConsoleLog::instance().init()
     // is called at the top of run() -- and init() wipes the in-memory log
     // buffer, so anything logged before it would just be discarded. This
@@ -157,7 +196,6 @@ private:
     std::vector<OnlineResult> online_view_;
     int selected_ = 0;
     int scroll_ = 0;
-    std::string search_buffer_;
     std::string last_local_query_;
     ListSource pre_search_list_source_ = ListSource::Local;
     std::string pre_search_local_query_;
@@ -179,8 +217,9 @@ private:
     // The two questions of "Delete Current Video" (stage 1, then 2) and the one of "Refetch this Video" (stage 3), drawn over the VIDEO overlay.
     int vdel_stage_ = 0, vdel_sel_ = 0;                    // vdel_sel_: 0 No, 1 Yes (always starts on No)
     std::string vdel_video_;                               // the video file in question
-    std::unordered_map<std::string, std::string> vf_replace_;   // song -> the downloaded video a refetch replaces (deleted when the new one has arrived)
-    std::string vf_auto_;                                  // the song whose refetch chooses the closest hit and downloads by itself
+    using VFEntry = app_types::VFEntry;
+    struct VfState;   // defined in app_state_vf.h (only the files that use it include that)
+    std::unique_ptr<VfState> vfs_;   // allocated in the constructor
     std::vector<std::string> build_video_delete_panel() const;
     void video_refetch_start();
     bool video_is_download(const std::string& file) const;
@@ -191,85 +230,41 @@ private:
     std::vector<std::string> build_video_menu_panel() const;
     static constexpr int kVideoMenuPanelWidth = 52;   // (narrow: most of the picture stays visible at the right while the options are changed)
     struct VLEntry { fs::path path; std::string label, folder, hay; bool video = false, has_video = false; };   // (has_video: a song with a connected / same-name video)
-    std::vector<VLEntry> vl_tracks_, vl_videos_;
-    std::vector<int> vl_tview_, vl_vview_;
-    std::string vl_tq_, vl_vq_, vl_msg_;
-    int vl_pane_ = 0, vl_tsel_ = 0, vl_vsel_ = 0, vl_filter_ = 0;
-    fs::path vl_lock_track_, vl_lock_video_;
-    bool vl_warn_ = false, vl_confirm_ = false, vl_del_confirm_ = false;   // (vl_del_confirm_: "Delete COMPLETE VIDEO FILE connected to track" waits for its second ENTER)
-    Mode vl_return_mode_ = Mode::Browse;
+    struct VlState;   // defined in app_state_vl.h (only the files that use it include that)
+    std::unique_ptr<VlState> vl_;   // allocated in the constructor
     void video_link_show_current(const fs::path& track);
     void video_link_open(const fs::path& target, Mode return_mode);
     void video_link_close();
-    void video_link_rebuild();
     void video_link_do();
     void video_link_key(int key);
     int video_link_list_rows() const;
-    std::string video_link_label(const fs::path& p) const;
     std::vector<std::string> build_video_link_panel(int W) const;
-    // SEARCH YT
-    std::string vs_query_, vs_query_for_, vs_msg_;
-    std::vector<OnlineResult> vs_results_;
-    std::future<std::vector<OnlineResult>> vs_future_;
-    bool vs_busy_ = false, vs_warn_ = false, vs_by_tags_ = false;   // vs_by_tags_: the query is "artist title" (CTRL+t), else the file name
-    int vs_pane_ = 0, vs_sel_ = 0;
-    fs::path vs_target_;                 // the song the download is for
-    bool vs_mp3_ = true;                 // SEARCH YT: also make an mp3 of the sound (CTRL+a); on by default when no song is the target
+    struct VsState;   // defined in app_state_vs.h (only the files that use it include that)
+    std::unique_ptr<VsState> vs_;   // allocated in the constructor
     using VideoDownload = app_types::VideoDownload;
     VideoDownload vd_;
     fs::path video_down_dir() const;     // <download folder>/video_down
     std::string video_search_default_query() const;
-    void video_search_start();
     void video_search_close();
     void video_download_start(const OnlineResult& r);
     void video_search_poll();
     std::vector<std::string> video_search_preview(const OnlineResult& r, int cols, int rows) const;
     void video_search_open();
-    void video_search_open(const std::string& query);   // /sv:query
+    void video_search_open(const std::string& query);   // /yv:query
     void video_search_key(int key);
     std::vector<std::string> build_video_search_panel(int W) const;
     // FETCH VIDEOS (ALT+v, src/app_videofetch.cpp): a full-screen overlay like the cover fetch menu: the songs on the left, the videos found
     // for the hovered song (to choose from) and the preview of the hovered video on the right.
-    using VFEntry = app_types::VFEntry;
-    std::unordered_map<std::string, VFEntry> vf_saved_;   // what video_fetch_state.json holds (songs that are not listed at the moment too)
-    bool vf_saved_loaded_ = false;
     struct VFJob { fs::path track; std::string label, base, video_id, title; };
-    std::vector<VFEntry> vf_all_;
-    std::vector<int> vf_view_;
-    std::string vf_query_, vf_msg_;
-    int vf_focus_ = 1, vf_sel_ = 0, vf_cand_sel_ = 0, vf_src_ = 0, vf_filter_ = 0;   // vf_filter_: 0 missing video only, 1 all songs, 2 songs with a video, 3 the songs with a chosen video; focus: 0 filter field, 1 songs, 2 videos; vf_src_: 0 file name + tags, 1 file name, 2 tags
-    mutable int vf_page_rows_ = 10;
-    mutable int vf_art_col_ = 0;                         // the screen column where the right pane starts (the preview picture)
-    bool vf_warn_ = false;
-    std::string vf_confirm_;                               // the song whose re-fetch waits for the confirmation
-    std::string vf_hover_;                                // the song the cursor rests on (for the automatic search)
-    std::chrono::steady_clock::time_point vf_hover_since_{};
-    std::deque<std::string> vf_queue_;                     // songs waiting for their search
-    std::string vf_last_queries_;                          // the texts the running / last search used (shown when it finds nothing)
-    std::string vf_searching_;                             // the song whose search runs
-    std::future<std::vector<OnlineResult>> vf_search_;
-    mutable std::string vf_pic_key_;
-    mutable int vl_marq_[6] = {-1, -1, -1, -1, -1, -1};     // marquees of the VIDEO OPTION panel: song row, video row, locked song, locked video, 'now' line, folder line
-    mutable std::chrono::steady_clock::time_point vl_marq_since_[6]{};
-    mutable int vf_marq_ = -1;                             // marquee of the song under the cursor (restarts when the cursor moves)
-    mutable std::chrono::steady_clock::time_point vf_marq_since_{};
     using VideoFetchRun = app_types::VideoFetchRun;
     VideoFetchRun vf_;
     // The second tab of FETCH VIDEOS: the VIDEO FILES (src/app_videomanage.cpp): every video file of the library (and every video a song is connected to),
     // which songs use it, delete one for good. Filters: all / coupled with a song / video only (no song uses it).
     using VMEntry = app_types::VMEntry;
-    std::vector<VMEntry> vm_all_;
-    std::vector<int> vm_view_;
-    std::string vm_query_;
-    int vf_tab_ = 0;                                       // 0 SONGS AND VIDEOS, 1 VIDEO FILES (vf_focus_: 0 filter field, 1 list)
-    int vm_sel_ = 0, vm_filter_ = 0;                       // vm_filter_: 0 all videos, 1 coupled with a song, 2 video only
-    std::string vm_confirm_;                               // the video whose deletion waits for the confirmation
-    std::future<std::pair<std::string, std::string>> vm_mp3_fut_;   // an mp3 being made from a video file: (mp3 path, error)
-    std::string vm_mp3_video_;                             // ... and the video it comes from
+    struct VmState;   // defined in app_state_vm.h (only the files that use it include that)
+    std::unique_ptr<VmState> vm_;   // allocated in the constructor
     void video_manage_make_mp3();                          // CTRL+3 (or m) in the VIDEO FILES tab: the sound of a video-only file as an mp3 song
-    mutable std::string vm_pic_key_;
     void video_manage_rebuild();
-    void video_manage_refilter();
     void video_manage_key(int key);
     std::vector<std::string> build_vm_list_panel(int w, int h) const;
     std::vector<std::string> build_vm_detail_panel(int w, int h) const;
@@ -284,16 +279,11 @@ private:
     void video_fetch_close();
     void video_fetch_key(int key);
     void video_fetch_start(bool only_current = false);   // only_current: just the song under the cursor (its chosen video)
-    void video_fetch_save_state();                       // the found videos and the choices go to video_fetch_state.json (kept until downloaded)
     void video_fetch_refilter_keep();                    // refilter, the cursor stays on its song
     void video_fetch_poll();
     void video_fetch_rebuild_list();
-    void video_fetch_refilter();
     void video_fetch_cancel_and_join();
-    void video_fetch_enqueue(const std::string& path, bool front);
     void video_fetch_clear_searches();
-    int video_fetch_nav(int selected, int total, bool up) const;
-    const VFEntry* video_fetch_hovered() const;
     void build_vf_screen(std::ostringstream& frame, int W, int target_height) const;
     std::vector<std::string> build_vf_songs_panel(int w, int h) const;
     std::vector<std::string> build_vf_choice_panel(int w, int h) const;
@@ -414,17 +404,8 @@ private:
     // keys it needs and lets the playback keys fall through.
     using FoRow = app_types::FoRow;
     bool folder_overlay_open_ = false;
-    bool fo_search_ = false;                 // the search field has the keyboard
-    std::string fo_query_;
-    int fo_sel_ = 0, fo_scroll_ = 0;
-    int fo_rows_ = kListVisibleRows;         // list rows the overlay fits; recomputed every frame
-    std::set<std::string> fo_expanded_;
-    std::set<std::string> fo_marked_;          // audio book mode: files (full paths) that carry a bookmark
-    std::vector<FoRow> fo_view_;             // the visible rows (tree walk + search filter)
-    std::map<std::string, std::vector<std::string>> fo_subdirs_;   // folder -> sorted subfolders
-    std::map<std::string, std::vector<std::string>> fo_files_;     // folder -> sorted files
-    std::map<std::string, int> fo_count_;                          // folder -> tracks at or below it
-    std::vector<std::string> fo_roots_;
+    struct FoState;   // defined in app_state_fo.h (only the files that use it include that)
+    std::unique_ptr<FoState> fo_;   // allocated in the constructor
 
     // --- file conversion overlay (HKeyConvertOverlay, SHIFT+c) -----------
     // A big floating window to turn high resolution files into MP3 / AAC / Opus: a search bar, a pre-filter (type,
@@ -433,56 +414,27 @@ private:
     // originals are never touched. Like the other big overlays it is a plain flag on top of Browse.
     using CvFile = app_types::CvFile;
     bool convert_overlay_open_ = false;
-    bool cv_search_ = false;
-    std::string cv_query_;
-    int cv_sel_ = 0, cv_scroll_ = 0;
-    int cv_rows_ = kListVisibleRows;          // file rows the overlay fits; recomputed every frame
-    int cv_type_ = 1;                         // pre-filter: 0 all, 1 lossless, 2 FLAC, 3 WAV, 4 M4A, 5 OGG, 6 OPUS, 7 AAC, 8 MP3
-    int cv_minkbps_ = 0;                      // pre-filter: index into the minimum-bitrate steps (0 = any)
-    bool cv_hires_ = false;                   // pre-filter: only more than 16 bit or 48 kHz
-    int cv_preset_ = 0;                       // target (convert_preset())
-    std::vector<CvFile> cv_files_;            // every library file outside the export folder
-    std::vector<int> cv_view_;                // indices into cv_files_: what the filters + the search leave
-    std::set<std::string> cv_marked_;
-    // Search bar modes: 0 = files ("/"), 1 = folders ("/f:"), 2 = playlists ("/p:"). In the last two the list shows the
-    // folders / playlists matching the query; ENTER on one narrows the file list to its files (the "scope").
-    int cv_pick_ = 0;
-    std::vector<FolderSummary> cv_folders_;
-    std::vector<PlaylistSummary> cv_playlists_;
-    bool cv_scope_ = false;
-    std::string cv_scope_label_;             // "folder Rock" / "playlist Road trip"
-    std::set<std::string> cv_scope_paths_;   // the files of the scope (UTF-8 paths)
-    mutable std::mutex cv_mu_;
-    std::map<std::string, AudioInfo> cv_info_;   // probe results (guarded by cv_mu_)
-    std::thread cv_probe_th_;
-    std::atomic<bool> cv_probe_stop_{false};
-    std::atomic<int> cv_probe_done_{0};       // probes finished since the overlay opened
-    int cv_probe_seen_ = -1;                  // what the last view rebuild saw
-    int cv_probe_total_ = 0;                  // files the probe thread was asked for
-    int cv_last_done_ = -1;                   // conversion progress last reported on the status line
+    struct CvState;   // defined in app_state_cv.h (only the files that use it include that)
+    std::unique_ptr<CvState> cv_;   // allocated in the constructor
     Converter converter_;
     bool convert_overlay_active() const;
     void convert_overlay_open();
     void convert_overlay_close();
     void convert_overlay_load_files();
-    void convert_overlay_probe_restart();
     void convert_overlay_rebuild_view();
     void convert_overlay_start();
     void convert_overlay_rebuild_picks();     // the folder / playlist list of the "/f:" / "/p:" modes
     void convert_overlay_pick();              // ENTER on a folder / playlist row: narrow the file list to it
-    int convert_overlay_total() const;        // rows of whatever the list shows right now (files, folders or playlists)
     void convert_overlay_poll();              // once per frame: re-filter when probes arrived, report progress
     bool convert_overlay_key(int key);        // true = consumed
     void convert_overlay_geometry(int W, int& panel_w, int& rows) const;
     std::vector<LegendRow> convert_overlay_legend(int panel_w) const;
     std::vector<std::string> build_convert_overlay_panel(int panel_w, int rows) const;
     std::string conversion_export_dir() const;
-    AudioInfo cv_info_of(const std::string& path) const;
     bool folder_overlay_active() const;
     void folder_overlay_open();
     void folder_overlay_close();
     void folder_overlay_build_tree();
-    void folder_overlay_rebuild_view();
     bool folder_overlay_key(int key);        // true = consumed
     void folder_overlay_filter();            // `f`: show the hovered folder / the folder of the hovered file in the list
     void folder_overlay_geometry(int W, int& panel_w, int& rows) const;
@@ -490,32 +442,56 @@ private:
     std::vector<LegendRow> folder_overlay_book_legend(int panel_w) const;   // the tree-table legend of the audio book library overlay
     std::vector<std::string> build_folder_overlay_panel(int panel_w, int rows) const;
 
-    // --- queue overlay (HKeyQueueOverlay, SHIFT+k) -----------------------
-    // The same idea as the list overlay above, for the QUEUE pane: a large
-    // floating copy drawn over the main UI. Also a plain flag (not a Mode),
-    // so every queue command (move, remove, bulk add, clear, playback keys)
-    // keeps working through the normal key dispatch; it shares
-    // queue_selected_/queue_scroll_ with the small pane and only the row
-    // count differs (queue_nav_rows()). The queue gets focus while it is
-    // open and gets its previous focus back on close. The two overlays are
-    // mutually exclusive: opening one closes the other.
-    bool queue_overlay_open_ = false;
-    // The search bar of the big queue overlay (at the bottom, under the queue box): the rows that match are marked and the
-    // cursor jumps to them. The queue keeps its order (it is an order), so nothing is hidden.
-    std::string queue_find_;
-    bool queue_find_edit_ = false;                 // the caret is in the bar
+    // qst_: the `queue_*` data of this feature, grouped (they were 15 loose members of App)
+    struct QueueState {
+        // --- queue overlay (HKeyQueueOverlay, SHIFT+k) -----------------------
+        // The same idea as the list overlay above, for the QUEUE pane: a large
+        // floating copy drawn over the main UI. Also a plain flag (not a Mode),
+        // so every queue command (move, remove, bulk add, clear, playback keys)
+        // keeps working through the normal key dispatch; it shares
+        // selected/scroll with the small pane and only the row
+        // count differs (queue_nav_rows()). The queue gets focus while it is
+        // open and gets its previous focus back on close. The two overlays are
+        // mutually exclusive: opening one closes the other.
+        bool overlay_open = false;
+        // The search bar of the big queue overlay (at the bottom, under the queue box): the rows that match are marked and the
+        // cursor jumps to them. The queue keeps its order (it is an order), so nothing is hidden.
+        std::string find;
+        bool find_edit = false;                 // the caret is in the bar
+        mutable std::unordered_map<std::string, std::string> all_tags;   // path -> all tag values (guarded by row_meta_mutex_)
+        std::unordered_set<std::string> all_tags_asked;                   // paths already handed to the thread (UI thread only)
+        std::atomic<bool> all_tags_busy{false};
+        bool overlay_prev_focus = false;       // focus before the overlay opened
+        int selected = 0;   // cursor/"hovering" row, only meaningful once focus has been used
+        int scroll = 0;
+        bool focus = false; // Tab toggles which panel Up/Down navigates
+        // "!" (HKeyQueueLock): a LOCKED queue (the default) keeps its tracks when
+        // they are played: the played track moves to the END of the queue (also
+        // for "n"), so the queue loops instead of draining. UNLOCKED, a played
+        // track leaves the queue. The head is always what plays next (or a random
+        // item in Shuffle). "d" and Shift+X still remove tracks: locking only
+        // stops tracks from disappearing by themselves.
+        bool locked = true;
+        // Number of tracks "a" (add as NEXT) has put in front of everything else
+        // since the queue head last moved, so pressing "a" on A, B, C plays them
+        // as A, B, C rather than C, B, A. Reset whenever the head moves / the
+        // queue is reshuffled by hand.
+        int next_run = 0;
+        // What Shift+X cleared, so Ctrl+Shift+Z can bring it back (one level).
+        std::vector<QueueItem> undo;
+        std::vector<QueueItem> shuffle_undo;   // the order before the last shuffle (one level)
+        int shuffle_undo_sel = 0;
+        void queue_after_move(int from, int to); // a manual move just ends the current "a" run
+    };
+    QueueState qst_;
     static constexpr int kQueueSearchRows = 3;     // the bar's box
     bool queue_find_match(const std::string& query, size_t idx) const;
     // Every tag of the queue's local files (also the ones no screen shows), read by ffprobe in the background once the search
     // starts; queue_find_match() looks in it as soon as a file's tags are in.
     void queue_all_tags_resolve();
-    mutable std::unordered_map<std::string, std::string> queue_all_tags_;   // path -> all tag values (guarded by row_meta_mutex_)
-    std::unordered_set<std::string> queue_all_tags_asked_;                   // paths already handed to the thread (UI thread only)
-    std::atomic<bool> queue_all_tags_busy_{false};
     void queue_find_jump(int dir);                 // dir 0: the first match from the cursor on, 1 next, -1 previous (wraps)
     int queue_find_count() const;
     void queue_find_key(int key);
-    bool queue_overlay_prev_focus_ = false;       // queue_focus_ before the overlay opened
     int overlay_queue_rows_ = kListVisibleRows;   // queue rows the overlay fits; recomputed every frame
     static constexpr int kQueueOverlayChromeRows = 2; // queue box top/bottom border
     // The menus index (HKeyMenus, "<"): a floating panel listing every menu / overlay by category with its key; ENTER opens one.
@@ -570,51 +546,27 @@ private:
 
     // --- queue ---
     std::vector<QueueItem> queue_;
-    int queue_selected_ = 0;   // cursor/"hovering" row, only meaningful once queue_focus_ has been used
-    int queue_scroll_ = 0;
-    bool search_nav_moved_ = false;   // Up/Down used in the search box: ENTER then plays the highlighted entry
-    bool queue_focus_ = false; // Tab toggles which panel Up/Down navigates
 
-    // "!" (HKeyQueueLock): a LOCKED queue (the default) keeps its tracks when
-    // they are played: the played track moves to the END of the queue (also
-    // for "n"), so the queue loops instead of draining. UNLOCKED, a played
-    // track leaves the queue. The head is always what plays next (or a random
-    // item in Shuffle). "d" and Shift+X still remove tracks: locking only
-    // stops tracks from disappearing by themselves.
-    bool queue_locked_ = true;
-    // Number of tracks "a" (add as NEXT) has put in front of everything else
-    // since the queue head last moved, so pressing "a" on A, B, C plays them
-    // as A, B, C rather than C, B, A. Reset whenever the head moves / the
-    // queue is reshuffled by hand.
-    int queue_next_run_ = 0;
-    // What Shift+X cleared, so Ctrl+Shift+Z can bring it back (one level).
-    std::vector<QueueItem> queue_undo_;
     void queue_toggle_lock();
     void queue_add_selected_end();       // "e": hovering track to the END of the queue
-    std::vector<QueueItem> queue_shuffle_undo_;   // the order before the last shuffle (one level)
-    int queue_shuffle_undo_sel_ = 0;
     bool queue_playing_is_last() const;  // locked queue: the track that plays now sits at its end and stays there
     void queue_undo_shuffle();           // SHIFT+u in the big queue overlay: the order from before the shuffle
     void queue_shuffle_order();          // SHIFT+s in the big queue overlay: the queue gets a random order
     void queue_move_to_edge(int dir);    // Shift+4 / Shift+5: dir=-1 top, +1 bottom
     void queue_reset_lap(); // clears every item's "played in this pass" flag (queue-then-stop)
-    void queue_after_move(int from, int to); // a manual move just ends the current "a" run
     void queue_undo_clear();             // Ctrl+Shift+Z
     // Ctrl+Shift+U asks first: a NEW playlist (editor, name field) or an EXISTING one (search + list of the saved
     // playlists); the queue's tracks are added to it and the editor opens, where the change still has to be saved.
     std::vector<PlaylistTrack> queue_local_tracks(int& skipped) const;
     void queue_to_playlist_apply(const std::string& existing);   // existing empty = a new playlist
     void qtp_refresh();
-    int qtp_stage_ = 0;                  // 0 = new / existing, 1 = pick the existing playlist
-    int qtp_choice_ = 0;                 // 0 = New playlist, 1 = Existing playlist
-    std::string qtp_query_;
-    std::vector<PlaylistSummary> qtp_view_;
-    int qtp_selected_ = 0;
+    struct QtpState;   // defined in app_state_qtp.h (only the files that use it include that)
+    std::unique_ptr<QtpState> qtp_;   // allocated in the constructor
     static constexpr int kQtpPanelWidth = 56;
     static constexpr int kQtpListRows = 8;
     std::vector<std::string> build_queue_to_playlist_panel() const;
     void queue_to_playlist();            // Ctrl+Shift+U: queue -> playlist editor (name field)
-    // SHIFT+a: the highlighted track of the library pane -> a playlist, with the same overlay (qtp_track_ = true). A
+    // SHIFT+a: the highlighted track of the library pane -> a playlist, with the same overlay (qtp_->track = true). A
     // new playlist asks for its name (stage 2); the playlist is saved at once, the playlist editor does not open. An
     // online track (YouTube / SoundCloud / Bandcamp) is downloaded into the download folder first, in the background,
     // and then added as the local file it has become.
@@ -622,8 +574,6 @@ private:
     void track_to_playlist_apply(const std::string& playlist);   // the chosen / typed playlist name
     void atp_add_file(const std::string& playlist, const std::string& title, const std::string& artist, const fs::path& file);
     void poll_pending_atp();
-    bool qtp_track_ = false;
-    std::string qtp_new_name_;           // stage 2: the name of a new playlist
     struct AtpTrack { std::string title, artist, video_id; fs::path path; bool is_local = true; };
     AtpTrack atp_track_;                 // the track chosen with SHIFT+a
     struct AtpJob { bool ok = false; std::string error, playlist, title, artist; fs::path file; };
@@ -635,7 +585,7 @@ private:
 
     // --- playlists (local-files-only; see playlist_manager.h) -----------
     // Main UI: results of a "/p:" search (list_source_==Playlist), i.e.
-    // browsing saved playlists the same way "/s:" browses online results.
+    // browsing saved playlists the same way "/y:" browses online results.
     // Selecting one and hitting Enter queues every (non-missing) track it
     // contains -- see playlist_add_selected_to_queue().
     std::unique_ptr<PlaylistState> playlist_;   // the playlist editor's state (src/playlist_state.h) -- allocated in the constructor
@@ -692,7 +642,6 @@ private:
     mutable unsigned paired_rev_ = 0;
     mutable bool paired_ok_ = false;
     int pl_media_ = -1;       // SHIFT+v in the playlist editor's library pane (-1 = the Video mode decides)
-    int fo_media_ = -1;       // SHIFT+v in the big folder overlay
     std::unique_ptr<MetaState> meta_;   // the meta data editor's state (src/meta_state.h) -- allocated in the constructor
     static const char* playlist_sort_name(int mode);
     // Tab 1 got a search box of its own (the same caret/selection/clipboard
@@ -761,11 +710,8 @@ private:
     void poll_name_lookup();
     // --- Japanese kanji read by pykakasi (optional package, scripts/kanji_reading.py), in batches, while the Latin letters are on
     struct KanjiJob { std::atomic<bool> done{false}; std::vector<std::string> texts; KanjiReadResult result; };
-    std::shared_ptr<KanjiJob> kanji_job_;
-    std::chrono::steady_clock::time_point kanji_next_{};
-    bool kanji_broken_ = false;
-    int kanji_fails_ = 0;
-    fs::path kanji_script_;
+    struct KanjiState;   // defined in app_state_kanji.h (only the files that use it include that)
+    std::unique_ptr<KanjiState> kanji_;   // allocated in the constructor
     void poll_kanji_reader();
     // the cover of the highlighted album and the pictures to choose from, made again when the highlight or the store changes
     void cf_open();
@@ -802,6 +748,7 @@ private:
     int eff_cover_contrast() const;
     int eff_cover_brightness() const;
     int eff_cover_colors() const;
+    int eff_cover_gsat() const;   // Cover Gradient Saturation of the playing track (its Style Option, else Settings)
     int eff_cover_chroma() const;
     const CoverStyle& track_style() const;
     mutable std::string look_cache_path_;
@@ -809,11 +756,11 @@ private:
     mutable int look_cache_val_ = -1;
     mutable CoverStyle style_cache_;
     // Sixel and Cover Colors > 0 in a Cover behind Disk look: the picture is drawn with a fixed colour palette (`direct`), see cover_fill()
-    bool cover_sixel_colours(int mode) const { return gfx_proto_ == GfxProto::Sixel && eff_cover_colors() > 0 && mode >= 2 && mode <= 4; }
+    bool cover_sixel_colours(int mode) const { return gfxs_.proto == GfxProto::Sixel && eff_cover_colors() > 0 && mode >= 2 && mode <= 4; }
     void cycle_cover_look(int dir);              // CTRL+t / CTRL+z: the plain disk and the cover looks (audio books: default picture, cover with wave, cover)
     std::vector<std::string> cover_preview_lines_img(const CoverImage& img, int cols, int rows) const;   // a picture already in memory as braille dots
     std::vector<std::string> cover_preview_lines(const std::string& file, bool embedded, int cols, int rows, const std::string& msg = "") const;
-    std::vector<std::string> album_cover_lines_for(const CoverImage& cover, int mode, int contrast, int brightness, int colors, double angle, int cols, int rows, int chroma = 0) const;   // any cover, any style (previews)
+    std::vector<std::string> album_cover_lines_for(const CoverImage& cover, int mode, int contrast, int brightness, int colors, double angle, int cols, int rows, int chroma = 0, int gsat = -1) const;   // any cover, any style (previews); gsat -1 = the playing track's
 
     // --- meta/tag editor overlay (Mode::MetaEdit, HKeyMetaEditor = Shift+M) ---
     // Deliberately shaped like the playlist editor above: same tab strip,
@@ -877,15 +824,7 @@ private:
     void meta_toggle_cover_res();
     std::vector<std::string> meta_cover_pane(int inner, int rows) const;   // the track's cover as braille lines, `rows` x `inner` columns
     static constexpr int kMetaCovPanelWidth = 86;
-    // The "Style Option" overlay (next to the Cover Options button): the look and the Cover Contrast / Brightness / Colors of one track
-    // (cover_store.h CoverStyle), and the look of its whole album. "As in Settings" = nothing of its own.
-    // Style Option preview as a real picture: 0 = none this frame, 1 = it is in gfx_, 2 = in gfx2_ (over the main screen, whose own cover
-    // picture keeps gfx_). The picture lies inside its own panel, so the panel must not crop it.
-    mutable int vl_pic_ = 0;                                       // VIDEO OPTION: the preview of the connected video is a picture in gfx_ (1) / gfx2_ (2) inside the panel, 0: none
-    void video_link_refresh_flags();
     void video_link_ask_delete(const std::string& video);
-    mutable int vs_pic_ = 0;                                       // SEARCH YT: the thumbnail is a picture in gfx_ (1) / gfx2_ (2) inside the panel, 0: braille
-    mutable std::string vs_pic_key_;
     mutable std::string sty2_key_;                                  // what the preview in gfx2_ shows
     mutable std::chrono::steady_clock::time_point sty2_at_{};
     void meta_sty_open();
@@ -894,9 +833,9 @@ private:
     std::vector<std::string> build_meta_sty_panel(int screen_w) const;
     int meta_sty_panel_width(int screen_w) const;
     std::vector<std::string> meta_sty_preview(int prev_w, int rows, const CoverStyle& st, int album_look, int screen_w) const;
-    bool meta_sty_gfx(const CoverImage& cover, int mode, int contrast, int brightness, int colors, int chroma, double angle, int col, int row, int cols, int rows) const;   // the Style preview as a picture (gfx_)
+    bool meta_sty_gfx(const CoverImage& cover, int mode, int contrast, int brightness, int colors, int chroma, double angle, int col, int row, int cols, int rows, int gsat = -1) const;   // the Style preview as a picture (gfx_)
     // While the Style overlay builds its picture, these replace the playing track's own cover style (eff_cover_*)
-    mutable struct CoverOvr { bool on = false; int contrast = 0, brightness = 0, colors = 0, chroma = 0; } cover_ovr_;
+    mutable struct CoverOvr { bool on = false; int contrast = 0, brightness = 0, colors = 0, chroma = 0, gsat = 60; } cover_ovr_;
     static constexpr int kMetaStyPanelWidth = 64;
     // The choice overlay (ENTER on a field with several fetched candidates).
     void meta_toggle_fetch_opt(int i);                 // tick / untick one FETCH option (the exclusivity rules apply)
@@ -985,10 +924,31 @@ private:
     int history_tab_ = 0;              // 0=History, 1=Top Tracks, 2=Top Playlists, 3=Habits
     static constexpr int kHistTabs = 4;
     static constexpr int kHistTabTop = 1, kHistTabPlaylists = 2, kHistTabHabits = 3;
-    // Playlist context of the track being played / loaded (see QueueItem::playlist). pending_ is set by
-    // play_next_from_queue() just before it starts the item and is consumed by start_*_track(); load_ follows the
-    // load in flight; current_ is what history_begin_current_play() files the play under.
-    std::string pending_queue_playlist_, load_playlist_ctx_, current_playlist_;
+    // current_: the `current_*` data of this feature, grouped (they were 5 loose members of App)
+    struct CurrentState {
+        // Playlist context of the track being played / loaded (see QueueItem::playlist). pending_ is set by
+        // play_next_from_queue() just before it starts the item and is consumed by start_*_track(); load_ follows the
+        // load in flight; current_ is what history_begin_current_play() files the play under.
+        std::string pending_queue_playlist, load_playlist_ctx, playlist;
+        // BULK ADD flags of the item being started (pending_), and of the load in flight (load_); see QueueItem::play_only / want_video.
+        bool pending_play_only = false, pending_video = false, load_play_only = false, load_video = false;
+        fs::path path;
+        bool is_local = true;  // for snapshot identity -- path alone is ambiguous
+                                         // (online tracks resolve to a cache path too)
+        std::string video_id;  // valid when !is_local
+        std::shared_ptr<StreamingPcm> pcm;
+    };
+    CurrentState current_;
+    // "Play only" tracks (BULK ADD without saving): the files this session made for them, deleted when the next track has started (and at
+    // quit). A file that was in the download folder before is never listed. `video` = the video downloaded for it (if any, and `had_video`
+    // = it was there before: then it stays).
+    struct TempStream { fs::path audio; std::string video_id; bool had_video = false; };
+    std::vector<TempStream> temp_streams_;
+    // A video that BULK ADD wants for the playing track, started as soon as the download slot is free (one video download at a time).
+    struct PendingBulkVideo { OnlineResult r; fs::path target; bool had_video = false; bool set = false; };
+    PendingBulkVideo bulk_video_;
+    void drop_temp_streams(const fs::path& keep, bool all = false);
+    void bulk_video_pump();
     int history_selected_ = 0;         // cursor within tabs 0/1
     int history_scroll_ = 0;           // manual scroll offset (tab 2's content)
     int history_view_top_ = 0;         // first visible list row on tabs 0/1 (window moves only when the cursor leaves it)
@@ -1031,7 +991,7 @@ private:
     // Play bookkeeping: called from poll_pending_load()/advance_track() when a
     // track starts or is handed over, and from the frame loop to accrue time.
     void history_end_current_play();   // closes the live record (no-op if none) + saves
-    void history_begin_current_play(); // opens one for current_path_/metadata_
+    void history_begin_current_play(); // opens one for current_.path/metadata_
 
     // --- now playing ---
     bool has_track_ = false;
@@ -1042,17 +1002,20 @@ private:
     // what stops the main loop re-firing advance_track() every frame on the
     // still-set finished flag.
     bool advancing_ = false;
-    fs::path current_path_;
-    bool current_is_local_ = true;  // for snapshot identity -- current_path_ alone is ambiguous
-                                     // (online tracks resolve to a cache path too)
-    std::string current_video_id_;  // valid when !current_is_local_
     TrackMetadata metadata_;
     // metadata_ with the playing file's pending meta-editor edits laid over it -- what the main screen shows.
     TrackMetadata display_metadata() const;
-    std::vector<float> waveform_envelope_;
-    std::chrono::steady_clock::time_point waveform_reveal_start_;
-    bool waveform_ready_ = false;
-    std::shared_ptr<StreamingPcm> current_pcm_;
+    // waveform_: the `waveform_*` data of this feature, grouped (they were 6 loose members of App)
+    struct WaveformState {
+        std::vector<float> envelope;
+        std::chrono::steady_clock::time_point reveal_start;
+        bool ready = false;
+        // --- deferred mini-waveform pass ---
+        std::mutex mutex;
+        std::atomic<bool> pending_ready{false};
+        std::atomic<int> epoch{0}; // incremented on each recompute; stale threads discard their result
+    };
+    WaveformState waveform_;
     const StreamingPcm* pcm_cut_noted_ = nullptr;   // the track whose "longer than its buffer" note was shown (once per track)
     size_t total_sec_ = 0;
     double angle_ = 0.0;
@@ -1066,24 +1029,27 @@ private:
     // that renderer is const and the panel's visuals are animation state.
     mutable OscilloscopeVisualizer scope_;
     mutable std::string last_lyrics_status_;
-    mutable std::chrono::steady_clock::time_point lyrics_status_shown_at_;
     mutable double viz_dt_ = 0.08;
-    // The scope as a pixel image (Settings osci_style 1): filled while the lyrics column is built, emitted by run().
-    GfxProto gfx_proto_ = GfxProto::None;
-    std::string gfx_probed_pref_;              // the protocol preference gfx_proto_ was probed for ("" = not yet)
+    // gfxs_: the `gfx_*` data of this feature, grouped (they were 7 loose members of App)
+    struct GfxState {
+        // The scope as a pixel image (Settings osci_style 1): filled while the lyrics column is built, emitted by run().
+        GfxProto proto = GfxProto::None;
+        std::string probed_pref;              // the protocol preference proto was probed for ("" = not yet)
+        mutable bool ok = false;              // the picture belongs on screen in the frame just rendered
+        mutable int last_crop = -1;
+        mutable std::vector<uint8_t> full_level;      // the audio book picture without a hole for a floating panel (see render_frame)
+        mutable int last_cut[4] = {0, 0, 0, 0};       // the hole that is cut into it now (pixels x0, y0, x1, y1)
+        bool due = true;
+    };
+    GfxState gfxs_;
     mutable GfxFrame gfx_;
     mutable GfxFrame gfx2_;                    // the big oscilloscope overlay's second picture (gfx_ is its YT picture there)
     mutable bool gfx2_shown_ = false;
-    mutable bool gfx_ok_ = false;              // the picture belongs on screen in the frame just rendered
-    mutable int gfx_last_crop_ = -1;
     mutable int gfx2_last_crop_ = -1;
-    mutable std::vector<uint8_t> gfx_full_level_;      // the audio book picture without a hole for a floating panel (see render_frame)
     mutable std::vector<uint8_t> gfx2_full_level_;     // the same for the second picture slot (the video next to the disk)
     mutable int gfx2_last_cut_[4] = {0, 0, 0, 0};
-    mutable int gfx_last_cut_[4] = {0, 0, 0, 0};       // the hole that is cut into it now (pixels x0, y0, x1, y1)
     mutable int scope_cut_last_[8] = {-1, -1, -1, -1, -1, -1, -1, -1};   // the panel cut-outs of the overlay's pictures of the last frame
     mutable int cell_w_ = 9, cell_h_ = 18;
-    bool gfx_due_ = true;
     // The "fetching lyrics ..." box laid over the bottom row of the lyrics area's visual this frame (0-based row, col,
     // width; width 0 = none) and its text with colours: the image styles keep these cells free / write it again on top.
     mutable int caption_rect_[3] = {0, 0, 0};
@@ -1097,28 +1063,27 @@ private:
     // restarts the scroll from the beginning of that row's title instead
     // of resuming wherever the previous row's animation had reached.
     std::unique_ptr<BookState> book_;   // the audio book player's state (src/book_state.h) -- allocated in the constructor
-    mutable int marquee_ch_idx_ = -1;      // the audio book's chapter pane: the row that scrolls (see build_chapter_panel)
-    mutable std::chrono::steady_clock::time_point marquee_ch_since_;
-    mutable int marquee_row_idx_ = -1;
-    mutable std::chrono::steady_clock::time_point marquee_since_;
-    // Same idea, kept separate because the playlist editor's LIBRARY and
-    // TRACKS panels are two independent lists with their own selection
-    // cursor, visible on screen at the same time -- sharing one row/clock
-    // pair between them would make switching focus between the two panels
-    // restart (or skip restarting) the wrong one's scroll.
-    mutable int marquee_pl_lib_row_idx_ = -1;
-    mutable std::chrono::steady_clock::time_point marquee_pl_lib_since_;
-    mutable int marquee_pl_track_row_idx_ = -1;
-    // --- main UI metadata block: Name / Artist / Album each stay on ONE row and scroll when too long ---
-    mutable int marquee_meta_idx_[3] = {-1, -1, -1};
-    mutable std::chrono::steady_clock::time_point marquee_meta_since_[3];
-    mutable std::chrono::steady_clock::time_point marquee_pl_track_since_;
+    // marquee_: the `marquee_*` data of this feature, grouped (they were 10 loose members of App)
+    struct MarqueeState {
+        mutable int ch_idx = -1;      // the audio book's chapter pane: the row that scrolls (see build_chapter_panel)
+        mutable std::chrono::steady_clock::time_point ch_since;
+        mutable int row_idx = -1;
+        mutable std::chrono::steady_clock::time_point since;
+        // Same idea, kept separate because the playlist editor's LIBRARY and
+        // TRACKS panels are two independent lists with their own selection
+        // cursor, visible on screen at the same time -- sharing one row/clock
+        // pair between them would make switching focus between the two panels
+        // restart (or skip restarting) the wrong one's scroll.
+        mutable int pl_lib_row_idx = -1;
+        mutable std::chrono::steady_clock::time_point pl_lib_since;
+        mutable int pl_track_row_idx = -1;
+        // --- main UI metadata block: Name / Artist / Album each stay on ONE row and scroll when too long ---
+        mutable int meta_idx[3] = {-1, -1, -1};
+        mutable std::chrono::steady_clock::time_point meta_since[3];
+        mutable std::chrono::steady_clock::time_point pl_track_since;
+    };
+    MarqueeState marquee_;
 
-    // --- lyrics (background-fetched) ---
-    mutable std::mutex lyrics_mutex_;
-    mutable LyricsResult lyrics_result_;
-    std::atomic<bool> lyrics_ready_{false};
-    std::atomic<int> lyrics_epoch_{0};
     void launch_lyrics_fetch(std::string title, std::string artist, fs::path path, bool force_network = false);
 
     std::string status_line_;
@@ -1128,8 +1093,8 @@ private:
     std::string settings_snapshot_text_;
     bool settings_dirty_ = false;
     int leave_prompt_ = 0;               // 1: "unsaved settings" question on ESC, 2: "unsaved theme" question (CREATE THEME), 3: "overwrite the theme?", 4: "delete the theme?" (CHOOSE THEME)
-    std::string theme_name_initial_;     // the NAME the creator opened with ("" for a new theme, the theme in use for [e])
-    std::string theme_draft_text_;       // the CREATE THEME draft as it was when the creator opened (to see whether anything changed)
+    struct ThemeState;   // defined in app_state_theme.h (only the files that use it include that)
+    std::unique_ptr<ThemeState> theme_;   // allocated in the constructor
     void settings_open();
     void settings_close(bool save);
     void settings_update_dirty();
@@ -1197,14 +1162,8 @@ private:
     // because build_cheatsheet_screen() is const and clamps it against the
     // rows that actually fit as it draws.
     mutable int cheatsheet_scroll_ = 0;
-    // SHIFT+s inside the cheat sheet: search the commands (help_search.h). The result list is rebuilt by every frame
-    // (it is const), so the key handler only reads which table row the selected result stands for.
-    bool cheat_searching_ = false;
-    std::string cheat_query_;
-    mutable int cheat_sel_ = 0;
-    mutable std::vector<int> cheat_result_rows_;   // the table row of each result, best first
-    mutable int cheat_first_ = 0;                  // the first result shown (the list scrolls to keep the selected one in view)
-    mutable int cheat_jump_row_ = -1;              // set by ENTER: the next frame scrolls the table to this row
+    struct CheatState;   // defined in app_state_cheat.h (only the files that use it include that)
+    std::unique_ptr<CheatState> cheat_;   // allocated in the constructor
     // Karaoke overlay (Mode::Karaoke, HKeyKaraoke = "k"): the lyrics of the
     // playing track filling the screen, the active line highlighted word by
     // word, with the karaoke braille art on the left (disk colours, a moving
@@ -1267,28 +1226,10 @@ private:
     // that also collapses the gap rather than just hiding a char in it).
     std::string autosave_indicator_glyph() const;
 
-    // --- bulk add (paste a YouTube playlist link while Queue is
-    // focused; hovering-song add on 'a' stays the List-panel behavior) --
-    // Floating panel (see draw_floating_panel()), fixed total line count
-    // across both phases -- unused rows are just blank-padded rather
-    // than the panel changing size -- so its on-screen footprint never
-    // moves/resizes frame to frame while open. Two phases:
-    //   1. Input: bulk_add_results_ready_ == false -- typing the link.
-    //   2. Results: fetch succeeded -- a compact starred checklist,
-    //      navigable with Up/Down, toggled per-row with Space. "a" adds
-    //      every fetched track regardless of star state ("ALL"); Enter
-    //      adds only the starred ones ("[SELECT]").
-    std::string bulk_add_buffer_;
-    bool bulk_add_results_ready_ = false;
-    std::vector<bool> bulk_add_selected_;   // parallel to pending_bulk_add_.items, default all-starred
-    int bulk_add_cursor_ = 0;
-    int bulk_add_scroll_ = 0;
+    struct BulkState;   // defined in app_state_bulk.h (only the files that use it include that)
+    std::unique_ptr<BulkState> bulk_;   // allocated in the constructor
     static constexpr int kBulkAddVisibleRows = 9; // preview list height cap -- this is what keeps the panel "tiny"
     using BulkAddResult = app_types::BulkAddResult;
-    std::thread bulk_add_thread_;
-    std::mutex bulk_add_mutex_;
-    std::atomic<bool> bulk_add_in_progress_{false};
-    std::atomic<bool> bulk_add_ready_{false};
     BulkAddResult pending_bulk_add_;
     void bulk_add_open();   // the bulk add panel (HKeyBulkAdd)
     void launch_bulk_add_async(const std::string& url);
@@ -1312,35 +1253,19 @@ private:
         TypeReverb, TypeSlowed, TypeUltraSlowed, TypeSpedup, TypeRemix, TypeOther,
         RemixText, OtherText,
     };
-    std::string rl_title_, rl_artist_, rl_ft_;
-    std::string rl_remix_text_, rl_other_text_;
-    // TypeSlowed/TypeUltraSlowed/TypeSpedup are mutually exclusive (a
-    // radio group -- at most one true); TypeReverb/TypeRemix/TypeOther
-    // are independent toggles, any combination.
-    bool rl_reverb_ = false, rl_slowed_ = false, rl_ultra_slowed_ = false;
-    bool rl_spedup_ = false, rl_remix_ = false, rl_other_ = false;
-    RLField rl_focus_ = RLField::Title;
-    std::vector<LyricsVersion> rl_versions_;   // what list_lyrics_versions() found for the playing track
-    int rl_src_sel_ = 0;                       // the highlighted row of that list
+    struct RlState;   // defined in app_state_rl.h (only the files that use it include that)
+    std::unique_ptr<RlState> rl_;   // allocated in the constructor
     void rl_choose_version();                  // SPACE on the list: that version is used from now on
-    int rl_src_scroll_ = 0;                    // first visible row of the list (it shows 3 at a time)
-    bool rl_confirm_delete_ = false;           // [d] asked "delete these lyrics?", waiting for y / n
-    void rl_fix_scroll();                      // keeps the highlighted row inside the 3 visible ones
     void rl_delete_version();                  // after the y: removes the highlighted saved copy
     static constexpr int kRetryLyricsPanelWidth = 72; // wide enough for the legend on the bottom border
     // The fields actually navigable right now, in on-screen order --
     // RemixText/OtherText only appear in this list once their checkbox
     // is on, which is what makes them "dynamically available".
-    std::vector<RLField> rl_visible_fields() const;
     void rl_open_from_current_track();     // pre-fill + reset state, called when 'l' opens the panel
-    bool rl_from_reader_ = false;          // opened over READ LYRICS: drawn on it, closing returns to it
-    bool rl_from_karaoke_ = false;         // opened over the karaoke screen: drawn on it, closing returns to it
     void rl_open_over_reader();            // ... over READ LYRICS (only for the track that plays)
     void rl_open_over_karaoke();           // ... over the karaoke screen
     void rl_close();                       // back to the screen it was opened from
     void rl_submit();                       // builds the override query and launches the fetch
-    bool* rl_bool_ptr(RLField f);           // nullptr for non-checkbox fields
-    std::string* rl_text_ptr(RLField f);
     static std::string rl_owner(RLField f) { return "rl-" + std::to_string(static_cast<int>(f)); }   // edit_focus() owner of one field    // nullptr for checkbox fields
     std::vector<std::string> build_retry_lyrics_panel() const; // fixed-width, fixed-height lines for draw_floating_panel()
 
@@ -1375,38 +1300,12 @@ private:
     // wasn't), that latent race needed closing rather than just getting
     // more likely to bite.
     std::mutex player_mutex_;
-    std::thread device_worker_thread_;
-    std::mutex device_request_mutex_;
-    std::condition_variable device_request_cv_;
-    std::atomic<int> device_gen_{0}; // incremented each launch; guards against a stale request read racing a newer post
-    // Generation of the device handoff currently in flight: set the moment a
-    // request is posted, cleared by the worker once player_.play() has
-    // actually swapped the new track in (0 = none in flight). While this is
-    // nonzero the main loop must NOT act on player_.finished(): until play()
-    // runs, the PREVIOUS pcm is still the installed one, so a track that
-    // already ended keeps re-latching finished_ from the audio callback every
-    // few milliseconds. clear_finished() in poll_pending_load() erases it
-    // once, but the old device immediately set it again -- which made a freshly
-    // loaded track flip straight back to "no track loaded" (advance_track() ->
-    // Stop mode -> has_track_ = false) a frame later, while its own audio
-    // started a few hundred ms after that. Pressing play again "fixed" it only
-    // because by then the installed pcm was the *playing* track, which can't
-    // latch the flag. This holds the stale flag off for the whole handoff.
-    std::atomic<int> device_play_pending_gen_{0};
-    bool device_worker_stop_ = false;
-    bool device_request_ready_ = false;
     using DevicePlayRequest = app_types::DevicePlayRequest;
-    DevicePlayRequest device_request_;
-    void device_worker_loop();       // body of device_worker_thread_, runs for the app's whole session
+    struct DeviceState;   // defined in app_state_device.h (only the files that use it include that)
+    std::unique_ptr<DeviceState> device_;   // allocated in the constructor
+    void device_worker_loop();       // body of device_->worker_thread, runs for the app's whole session
     void start_device_worker();      // called once, from the constructor
-    void stop_device_worker();       // called once, from run()'s shutdown, before joining device_worker_thread_
     void launch_device_play_async();
-    // Any other call that opens, moves or closes the audio device (Player::stop(), reopen_device()) runs on the device worker too,
-    // and the caller waits until it is done: device_run() posts `fn` and blocks until the worker has run it (under
-    // player_mutex_). When the worker is not running (yet / any more) `fn` runs right here. device_stop() = device_run() of
-    // player_.stop(), and a track switch that is still waiting for the worker is dropped (it would start the old track again).
-    std::deque<std::function<void()>> device_tasks_;   // guarded by device_request_mutex_
-    bool device_worker_running_ = false;               // guarded by device_request_mutex_
     void device_run(const std::function<void()>& fn);
     void device_stop();
 
@@ -1417,21 +1316,12 @@ private:
     static void write_load_timing_log(const std::string& title, bool is_local, double t_resolve,
                                        double t_probe, double t_total, const std::string& error);
 
-    // --- deferred mini-waveform pass ---
-    std::mutex waveform_mutex_;
-    std::atomic<bool> waveform_pending_ready_{false};
-    std::atomic<int> waveform_epoch_{0}; // incremented on each recompute; stale threads discard their result
     std::vector<float> pending_waveform_envelope_;
     void poll_pending_waveform();
 
-    // --- async online search ---
-    std::thread search_thread_;
-    std::mutex search_mutex_;
-    std::atomic<bool> search_ready_{false};
-    std::atomic<bool> search_in_progress_{false};
     std::vector<OnlineResult> pending_search_results_;
     void launch_search_async(const std::string& query, int source = 0);   // 0 YouTube, 1 SoundCloud, 2 Bandcamp
-    int last_online_source_ = 0;   // the source of the last online search (the search box shows /s:, /sc: or /b:)
+    int last_online_source_ = 0;   // the source of the last online search (the search box shows /y:, /sc: or /b:)
     void poll_pending_search();
 
     // --- settings panel (6 tabs: Colors, On/Off, Animation, Paths, Reference, About App) ---
@@ -1497,37 +1387,16 @@ private:
     std::string settings_note_;        // what enforce_visual_switches() changed on its own after the last edit of a setting
     void lyrics_view_nudge();           // fetch the lyrics of the playing track (the lyrics view has just been switched on)
 
-    // --- colour themes (Colors tab, last row: THEME | CREATE THEME) ---------
-    // theme_ui_: 0 = the plain Settings screen | 1 = pick a theme to apply | 2 = the CREATE THEME overlay |
-    // 3 = pick a template from inside the creator. All of it lives inside Mode::Settings (text editing inside
-    // the creator uses Mode::ColorEdit with theme_ui_ still set).
-    int theme_ui_ = 0;
-    bool theme_peek_ = false, peek_busy_ = false;   // SHIFT+p in the theme picker: a still copy of the main screen in the highlighted theme
     std::string peek_frame_;
     int peek_sel_ = -1, peek_cols_ = 0, peek_rows_ = 0;
-    std::vector<themes::Theme> theme_list_;
-    int theme_sel_ = 0;               // picker cursor
-    mutable int theme_page_ = 20;     // picker: rows on screen, set while drawing (SHIFT+up / down move by a page)
-    Settings theme_draft_;            // creator: the colours being edited (a copy; settings_ is untouched until saved)
-    themes::Theme theme_base_;        // creator: the template whose other keys (the radio's) the new theme keeps
-    std::string theme_name_;          // creator: name of the new theme (25 characters at most)
-    int theme_row_ = -1;              // creator: -1 = the NAME / TEMPLATE row, else the Colors row
-    int theme_col_ = 0;               // creator: 0/1 -- name|button on the top row, FG|BG on a colour row
     int theme_current_index() const;  // index of the theme settings_ matches exactly, or -1 (custom)
     void theme_open_picker();
     void theme_open_creator(bool edit_current = false);
     void theme_try_save();
     void theme_save_new();
     void theme_delete_selected();
-    // SHIFT+e / SHIFT+i on the Colors tab: theme_ui_ 4 = export the current colours as a theme file, 5 = import theme files.
-    std::string theme_io_name_;       // export: the theme's name
-    std::string theme_io_dir_;        // export / import: the folder
-    int theme_io_row_ = 0;            // export: 0 name, 1 folder | import: 0 folder, 1 file list
-    int theme_io_sel_ = 0;            // import: the hovered file
-    std::vector<std::filesystem::path> theme_io_files_;
     void theme_open_export();
     void theme_open_import();
-    void theme_io_rescan();
     void theme_import_files(const std::vector<std::filesystem::path>& files);
     void handle_theme_key(int key);
     void build_theme_screen(std::ostringstream& frame, int W, int player_h) const;
@@ -1666,7 +1535,7 @@ private:
     // -- not "S", that's shuffle's letter already).
     char play_mode_letter() const;
     void queue_add_selected_impl(bool at_end);
-    void queue_add_selected();           // "a": hovering track as NEXT (see queue_next_run_)
+    void queue_add_selected();           // "a": hovering track as NEXT (see qst_.next_run)
     void queue_remove_last();
     void queue_remove_hovering();
     // Shift+X (HKeyClearQueue): asks "Want to clear queue?" (Mode::ClearQueue,
@@ -1697,13 +1566,10 @@ private:
     // CHOOSE AUDIO DEVICE (src/app_audiodevice.cpp): a small floating panel (Mode::AudioDevice) with the sound outputs of this
     // computer; from Settings (GENERAL -> AUDIO, [ENTER]) it is drawn over the settings screen and ESC goes back there. The choice
     // is settings_.audio_device (config.txt AudioDevice=, "" = the system default); audio_device_apply() hands a changed value to
-    // the player once per frame (adev_applied_ = the value it has).
+    // the player once per frame (adev_->applied = the value it has).
     static constexpr int kAudioDevicePanelWidth = 64;
-    bool adev_from_settings_ = false;
-    int adev_sel_ = 0;                          // 0 = System Default, 1.. = adev_list_
-    std::vector<AudioOutputDevice> adev_list_;  // read when the overlay opens ([r] reads it again)
-    std::string adev_err_;
-    std::string adev_applied_;
+    struct AdevState;   // defined in app_state_adev.h (only the files that use it include that)
+    std::unique_ptr<AdevState> adev_;   // allocated in the constructor
     std::string audio_device_label() const;     // "System Default" or the chosen name (Settings row, status line)
     void audio_device_open(bool from_settings);
     void audio_device_close();
@@ -1723,19 +1589,26 @@ private:
     // Shift+9 (HKeyScopeWindow): the oscilloscope in its own window (src/scope_window.h). scope_window_sync() runs
     // every frame: it sends the current scope settings / colours / title and notices a window closed from its side.
     bool scope_win_on_ = false;
-    // Spectrogram (src/spectrogram.h): the third lyrics-area visual (LyricViz=spectro), SHIFT+i options overlay
-    // (Mode::SpectroMenu), SHIFT+u full screen. spectro_area_ = where this frame put the picture (row, col, cols, rows,
-    // 0-based; row -1 = no picture), spectro_used_ = a spectrogram was drawn this frame (else the feed is switched off).
-    mutable bool spectro_used_ = false;
-    mutable int spectro_area_[4] = {-1, 0, 0, 0};
-    SpectroGfx spectro_gfx_;
+    // spectro_: the `spectro_*` data of this feature, grouped (they were 6 loose members of App)
+    struct SpectroState {
+        // Spectrogram (src/spectrogram.h): the third lyrics-area visual (LyricViz=spectro), SHIFT+i options overlay
+        // (Mode::SpectroMenu), SHIFT+u full screen. area = where this frame put the picture (row, col, cols, rows,
+        // 0-based; row -1 = no picture), used = a spectrogram was drawn this frame (else the feed is switched off).
+        mutable bool used = false;
+        mutable int area[4] = {-1, 0, 0, 0};
+        SpectroGfx gfx;
+        bool full = false;
+        int menu_row = 0;
+        // SHIFT+8 (HKeySpectroWindow): the spectrogram in its own window, the same way as the scope window.
+        bool win_on = false;
+    };
+    SpectroState spectro_;
     // The spectrogram of the Settings preview box (settings_preview.cpp) as a picture: where this frame put it, its settings, its own picture state
     mutable int pv_spectro_area_[4] = {-1, 0, 0, 0};
     mutable bool pv_cover_pic_ = false;   // the Settings cover preview is a picture this frame (the only picture the Settings screen may show)
     mutable SpectroSettings pv_spectro_set_;
     SpectroGfx pv_spectro_gfx_;
     SpectroAnalyzer* settings_preview_spectro() const;   // nullptr until a preview was drawn
-    bool spectro_full_ = false;
     // SHIFT+0: the big oscilloscope overlay (YT left, XY right). Each picture has its own scope (own phosphor buffer) fed from
     // scope_; SHIFT+a toggles the grid, SHIFT+v the axis values, SHIFT+c asks for its colour (the digits typed so far are in scope_big_color_buf_).
     bool scope_big_ = false;
@@ -1750,7 +1623,6 @@ private:
     std::vector<std::string> build_scope_metrics_panel() const;   // the window SHIFT+p opens
     static constexpr int kScopeMetricsPanelWidth = 52;
     bool scope_big_key(int key);   // keys of the overlay itself; true = used
-    int spectro_menu_row_ = 0;
     static constexpr int kSpectroMenuPanelWidth = 52;
     std::vector<std::string> build_spectro_menu_panel() const;
     std::string build_spectro_full(int W, const char* clear_prefix) const;
@@ -1758,8 +1630,6 @@ private:
     size_t frame_main_len_ = std::string::npos;   // render_frame(): end of the main screen's lines (the overlays follow)
     void scope_window_toggle();
     void scope_window_sync(bool check_alive = true);
-    // SHIFT+8 (HKeySpectroWindow): the spectrogram in its own window, the same way as the scope window.
-    bool spectro_win_on_ = false;
     void spectro_window_toggle();
     void spectro_window_sync(bool check_alive = true);
     std::string enforce_visual_switches(int changed = -1);   // returns what it changed, for the status line
@@ -1790,31 +1660,13 @@ private:
     std::vector<std::string> build_norm_menu_panel() const;
     void norm_menu_adjust(int dir);
     void norm_apply();                 // pushes settings_ -> player_
-    // Shift+Z (HKeySleepTimer): the sleep timer overlay (Mode::SleepTimer), a
-    // small floating panel over the live playback UI. Pick 15 / 30 / 60 / 90 /
-    // 120 minutes (playback is PAUSED when it runs out, so it can be resumed),
-    // "stop after current song", or Off. Up/Down pick a row, ENTER sets it and
-    // closes, ESC / Shift+Z close without changing anything. Playback keeps
-    // running underneath. Not persisted (a sleep timer must not survive a restart).
-    //
-    // Interplay with the Stop play mode (settings_.play_mode == 3): "stop after
-    // current song" does NOT touch play_mode. It is a one-shot flag consumed in
-    // advance_track(), checked BEFORE the repeat / stop / queue logic, so it wins
-    // over Repeat and over the queue, and the play mode is exactly what it was
-    // afterwards. With Stop mode already on it is simply redundant. The minute
-    // timers and the one-shot flag are mutually exclusive (setting one clears the
-    // other); a minute timer never changes the play mode either, it only pauses.
-    int sleep_menu_row_ = 0;
-    int sleep_timer_minutes_ = 0;                       // the minute choice that is running (0 = none)
-    bool sleep_timer_active_ = false;
-    std::chrono::steady_clock::time_point sleep_timer_deadline_{};
-    bool sleep_stop_after_track_ = false;               // one-shot: end playback when the current song ends
+    struct SleepState;   // defined in app_state_sleep.h (only the files that use it include that)
+    std::unique_ptr<SleepState> sleep_;   // allocated in the constructor
     static constexpr int kSleepTimerPanelWidth = 44;
     std::vector<std::string> build_sleep_timer_panel() const;
     void sleep_timer_apply(int row);                    // row of the menu: 0..4 minutes, 5 stop after song, 6 fade out (toggle), 7 off
     void sleep_timer_cancel();
     void sleep_timer_tick();                            // once per frame
-    std::string sleep_timer_label() const;              // "" when nothing is armed, else e.g. "SLEEP 24:10"
     // ^ (HKeyCreator): the creator overlay (Mode::Creator). Turns a text or a picture into a WAV file -- either
     // oscilloscope music (left = x, right = y, the XY scope draws the picture) or a spectrogram sound (the picture is
     // the spectrogram, played as notes of a scale) -- saves it in <music folder>/creator and plays it. The work is
@@ -1848,29 +1700,11 @@ private:
     bool creator_dir_prepare();                         // creates it and marks it so the library scan skips it; true = it was not marked before
     void creator_list_refresh();
     void creator_open_file(const fs::path& wav);        // plays a created file and opens its preview
-    // Alt+L (kKeyAltL, fixed key): the lyrics timing overlay (Mode::LyricsEdit),
-    // a small floating panel over the live playback UI for tracks whose lyrics
-    // run early or late. The offset ("delay", seconds, + = lyrics later) lives in
-    // lyrics_result_.delay and is applied live by render (lyrics time = elapsed -
-    // delay), so the lyrics behind / inside the panel move while it is adjusted.
-    // Left/Right = -/+ 0.1 s, Down/Up = -/+ 0.5 s, R = back to 0, ENTER / S =
-    // save into the track's .lrc ("[offset:...]" tag, so it is remembered and
-    // read back with the lyrics), ESC / Alt+L = cancel (the value from before the
-    // overlay opened comes back). Opens only while synced lyrics are loaded.
-    double lyrics_edit_orig_delay_ = 0.0;               // delay when the overlay opened (ESC restores it)
-    bool lyrics_edit_from_reader_ = false;              // opened over READ LYRICS: drawn on it, closing returns to it
-    bool lyrics_edit_from_karaoke_ = false;             // opened over the karaoke screen: it is drawn on it and closing returns to it
     void lyrics_edit_open_over_reader();    // ... over the READ LYRICS overlay (only for the track that plays)
     void lyrics_edit_open_over_karaoke();   // the lyrics timing overlay over the karaoke screen
     void karaoke_ensure_lyrics();   // the karaoke overlay fetches the lyrics itself when the engine is off
-    // SHIFT+w (HKeyWizard): the Mousiki Plus Help Wizard (Mode::Wizard), a full-screen help book. src/wizard.{h,cpp}
-    // holds the text, the page / part / contents state and the key handling; this class only draws it (the radio draws
-    // the same pages the same way). It opens from the main screen and from every menu / overlay that does not take
-    // typed text (wizard_allowed_over_mode()), and closing it returns to the mode it was opened from. The first
-    // close also sets Settings' wizard_seen and writes config.txt, so the first-start greeting shows only once.
-    wizard::State wizard_st_;
-    Mode wizard_return_mode_ = Mode::Browse;
-    double wizard_angle_ = 0.0;       // the first page's disk, spun at 0.10 whatever is playing
+    struct WizardState;   // defined in app_state_wizard.h (only the files that use it include that)
+    std::unique_ptr<WizardState> wizard_;   // allocated in the constructor
     void wizard_open();
     void wizard_close();
     bool wizard_allowed_over_mode() const;   // false while a text field has the keyboard
@@ -1947,31 +1781,12 @@ private:
     static constexpr int kTeLegendRows = 5;
     std::vector<std::string> build_readlyrics_search_panel() const;
     void build_readlyrics_screen(std::ostringstream& frame, int W, int target_height);
-    fs::path lyrics_path_;                              // track path the current lyrics belong to (sidecar location)
     static constexpr int kLyricsEditPanelWidth = 60;
     void lyrics_edit_open();
     void lyrics_edit_close();                           // back to the main screen
-    void lyrics_edit_adjust(double step);
     std::vector<std::string> build_lyrics_edit_panel() const;
-    // Shift+E (HKeyEqualizer): the equaliser overlay (Mode::Equalizer), a
-    // floating panel over the live playback UI. Ten vertical sliders
-    // (31 Hz .. 16 kHz, +/-12 dB), a preset line and an on/off state. Left/
-    // Right pick a band, Up/Down change it by 1 dB, ,/. (or TAB) step through
-    // the presets (the built-in ones first, then the user's own), E or SPACE
-    // switches the EQ on/off, R resets to Flat, ESC / Shift+E close and save.
-    // S saves the current curve as a custom preset (a name prompt takes over
-    // the row under the sliders until ENTER / ESC), DEL or X deletes the
-    // selected custom preset after a second press. Custom presets live in
-    // settings_.eq_custom_presets and are written to config.txt right away.
-    // Touching a band or choosing a preset also turns the EQ on, so what you
-    // change is always what you hear. The values live in settings_.eq_enabled
-    // / eq_gains and reach the audio thread through Player::set_equalizer().
-    int eq_band_ = 0;                  // selected band 0..kEqBands-1
-    int eq_last_preset_ = 0;           // unified preset index (built-ins, then custom): where the cycle continues from while the gains are Custom
-    bool eq_naming_ = false;           // the "Save as:" prompt is open
-    std::string eq_name_buf_;          // its text (edit_caret_/edit_anchor_ belong to it while open)
-    std::string eq_status_;            // one-line feedback under the sliders, cleared by the next key
-    bool eq_delete_armed_ = false;     // DEL / X pressed once on a custom preset: the next press deletes it
+    struct EqState;   // defined in app_state_eq.h (only the files that use it include that)
+    std::unique_ptr<EqState> eq_;   // allocated in the constructor
     static constexpr int kEqPanelWidth = 58;
     std::vector<std::string> build_eq_panel() const;
     void eq_open();
@@ -2152,25 +1967,17 @@ private:
     // The remote app (src/remote_server.h, src/app_phone.cpp): the phone screen, built when a phone asks for it.
     void phone_publish();
     std::vector<std::string> build_phone_screen(int W, int H, std::vector<remote::net::Zone>& zones) const;
-    double phone_angle_ = 0.0;       // the phone's disk: its own turn at speed 0.10
+    // phone_: the `phone_*` data of this feature, grouped (they were 11 loose members of App)
+    struct PhonePic { bool active = false; int x = 0, y = 0, w = 0, h = 0; std::string key; };
+    struct PhoneState;   // defined in app_state_phone.h (only the files that use it include that)
+    std::unique_ptr<PhoneState> phone_;   // allocated in the constructor
     remote_ui::State remote_ov_;     // Settings -> GENERAL -> REMOTE / UPDATES -> Remote App: the REMOTE APP overlay (address, QR code, port, PIN)
     void remote_overlay_draw(std::ostringstream& frame, int W) const;
     remote_ui::Style settings_overlay_style() const;   // the colours / glyphs of the overlays over the settings screen
-    std::chrono::steady_clock::time_point phone_last_{}, phone_built_{};
-    int phone_view_ = 0;             // 0 the phone's main screen, 1 its LISTS screen
-    int phone_focus_ = 0;            // LISTS: the pane UP / DOWN page through (0 the local list, 1 the saved playlists)
-    int phone_page_ = 0;             // LISTS: the page of the local list ...
-    int phone_page2_ = 0;            // ... and of the playlists
-    // Audio book mode: LISTS shows the library as a tree (the library overlay's folders, books and chapters). phone_book_open_ holds
+    // Audio book mode: LISTS shows the library as a tree (the library overlay's folders, books and chapters). phone_->book_open holds
     // the opened folders; the rows are numbered from 1 for the commands book-open (folder) and track (chapter).
-    struct PhonePic { bool active = false; int x = 0, y = 0, w = 0, h = 0; std::string key; };
-    mutable std::string phone_cover_key_;   // music player: the key of the cover picture the phone shows
-    mutable PhonePic phone_pic_;     // audio book: where the phone draws the picture (cells) and which one
-    std::set<std::string> phone_book_open_;
     std::vector<FoRow> phone_book_rows() const;
     void phone_book_reveal();        // opens the way to the book that is open and sets the page that shows it
-    std::string phone_note_;         // its status line ("queued 12 titles from ...")
-    std::chrono::steady_clock::time_point phone_clear_armed_{};   // CLEAR QUEUE tapped once: a second tap within 5 s clears
     std::string queue_playlist(const std::string& name);   // every title of a saved playlist into the queue; the message
     void ensure_visible_row_meta();
     void recompute_waveform_for_current_track();

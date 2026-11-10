@@ -65,7 +65,7 @@ std::vector<std::string> App::meta_cover_pane(int inner, int rows) const {
         tq.thumb_fallback = vm == 3;
         tq.snapshot_video = video_source_for(path_from_utf8(path));
         if (const CoverImage* img = track_cover(tq, true)) {
-            if (cf_->full_res && gfx_proto_ != GfxProto::None && !overlay_up0 &&
+            if (cf_->full_res && gfxs_.proto != GfxProto::None && !overlay_up0 &&
                 cover_full_picture_img(img, inner, rows, meta_->pane_col + 2, 4 + kMetaFieldCount + 3)) {
                 std::vector<std::string> pic;
                 for (int r = 0; r < rows; ++r) pic.push_back(gfx_hole(inner));
@@ -83,7 +83,7 @@ std::vector<std::string> App::meta_cover_pane(int inner, int rows) const {
     }
     const CoverSource src = resolve_cover_source(rq);
     const bool overlay_up = meta_->choice_open || meta_->cov_open || meta_->sty_open || meta_->save.active;   // (a picture would be drawn over a floating panel)
-    if (cf_->full_res && gfx_proto_ != GfxProto::None && !overlay_up && !src.none && !src.file.empty()) {
+    if (cf_->full_res && gfxs_.proto != GfxProto::None && !overlay_up && !src.none && !src.file.empty()) {
         if (cover_full_picture(src.file, src.embedded, inner, rows, meta_->pane_col + 2, 4 + kMetaFieldCount + 3)) {
             std::vector<std::string> pic;
             for (int r = 0; r < rows; ++r) pic.push_back(gfx_hole(inner));
@@ -102,7 +102,7 @@ std::vector<std::string> App::meta_cover_pane(int inner, int rows) const {
 }
 
 void App::meta_toggle_cover_res() {
-    if (gfx_proto_ == GfxProto::None) { meta_->status = "this terminal shows no pictures (no Kitty / Sixel graphics): the cover stays ASCII"; return; }
+    if (gfxs_.proto == GfxProto::None) { meta_->status = "this terminal shows no pictures (no Kitty / Sixel graphics): the cover stays ASCII"; return; }
     cf_->full_res = !cf_->full_res;
     cf_->pic_key.clear();
     meta_->status = cf_->full_res ? "cover: full resolution" : "cover: ASCII";
@@ -255,9 +255,9 @@ void App::meta_sty_open() {
 // with the overlay alone on the screen; ESC closes it, [m] goes on to the meta editor on that track.
 void App::meta_open_style_playing() {
     if (audiobook_) { status_line_ = "style options: music player only"; return; }
-    if (!has_track_ || !current_is_local_ || current_path_.empty()) { status_line_ = "style options: play a track from your library first"; return; }
+    if (!has_track_ || !current_.is_local || current_.path.empty()) { status_line_ = "style options: play a track from your library first"; return; }
     meta_open();
-    const std::string cur = path_utf8(current_path_);
+    const std::string cur = path_utf8(current_.path);
     bool found = false;
     for (size_t i = 0; i < meta_->lib_view.size(); ++i)
         if (path_utf8(meta_->lib_view[i].path) == cur) { meta_->lib_selected = static_cast<int>(i); found = true; break; }
@@ -302,9 +302,10 @@ bool App::handle_meta_sty_key(int key) {
     const StyleRow sel = list[static_cast<size_t>(std::clamp(meta_->sty_sel, 0, static_cast<int>(list.size()) - 1))];
     switch (sel) {
         case kStLook: st.look = reset ? -1 : sty_step(st.look, dir, kCoverLookCount - 1, 1); break;
-        case kStCoverContrast: st.contrast = reset ? -1 : sty_step(st.contrast, dir, 100, 5); break;
+        case kStCoverContrast: st.contrast = reset ? -1 : sty_step(st.contrast, dir, 150, 5); break;
         case kStCoverBrightness: st.brightness = reset ? -1 : sty_step(st.brightness, dir, 100, 5); break;
         case kStCoverColors: st.colors = reset ? -1 : sty_step(st.colors, dir, 100, 5); break;
+        case kStCoverGradSat: st.gsat = reset ? -1 : sty_step(st.gsat, dir, 100, 5); break;
         case kStCoverChroma: st.chroma = reset ? -1 : sty_step(st.chroma, dir, kChromaLevels - 1, 1); break;
         case kStCoverOrThumb: {   // the mode of the track (the same one as in COVER OPTIONS)
             int mode = cover_track_video_mode(meta_->sty_track);   // 0 as in the settings, 1 cover, 2 thumbnail, 3 plain disk, 4 thumbnail fallback
@@ -343,7 +344,7 @@ bool App::handle_meta_sty_key(int key) {
             const int before = o.mp4audio;
             o.mp4audio = reset ? -1 : (o.mp4audio == 1 ? -1 : 1);
             set_cover_track_video_opts(meta_->sty_track, o);
-            if (o.mp4audio != before && has_track_ && meta_->sty_track == path_utf8(current_path_)) { reload_current_audio(); meta_->sty_msg = "saved: the audio is loaded again, at the same time"; }
+            if (o.mp4audio != before && has_track_ && meta_->sty_track == path_utf8(current_.path)) { reload_current_audio(); meta_->sty_msg = "saved: the audio is loaded again, at the same time"; }
             else meta_->sty_msg = "saved: applies when the song starts the next time";
             return true;
         }
@@ -364,9 +365,10 @@ int App::meta_sty_panel_width(int screen_w) const { return screen_w >= 100 && te
 // The cover of the track as it looks with the style set in the overlay (the plain disk where the look is the disk or the track has no
 // cover), prev_w x 15 cells, braille dots like the disk of the main screen. The last row names what is shown.
 // The Style preview as a real picture (Kitty / Sixel): like album_cover_gfx(), for any cover and style, at a place of the screen (0-based).
-bool App::meta_sty_gfx(const CoverImage& cover, int mode, int contrast, int brightness, int colors, int chroma, double angle, int col, int row, int cols, int rows) const {
-    if (gfx_proto_ == GfxProto::None || cols < 8 || rows < 4) return false;
+bool App::meta_sty_gfx(const CoverImage& cover, int mode, int contrast, int brightness, int colors, int chroma, double angle, int col, int row, int cols, int rows, int gsat) const {
+    if (gfxs_.proto == GfxProto::None || cols < 8 || rows < 4) return false;
     mode = std::clamp(mode, 0, 4);
+    if (gsat < 0) gsat = settings_.cover_grad_sat;
     int cw0 = 10, ch0 = 20;
     gfx_cell_pixels(settings_.cell_pixels, cw0, ch0);
     cw0 = std::max(4, cw0); ch0 = std::max(8, ch0);
@@ -379,14 +381,14 @@ bool App::meta_sty_gfx(const CoverImage& cover, int mode, int contrast, int brig
     const int want_id = second ? 1 : 0;
     std::string& pic_key = second ? sty2_key_ : cover_pic_key_;
     auto& pic_at = second ? sty2_at_ : cover_pic_at_;
-    const std::string key = "sty|" + cover.key + "|" + std::to_string(mode) + "|" + std::to_string(contrast) + "|" + std::to_string(brightness) + "|" + std::to_string(colors) + "|" + std::to_string(chroma) + "|" +
+    const std::string key = "sty|" + cover.key + "|" + std::to_string(mode) + "|" + std::to_string(contrast) + "|" + std::to_string(brightness) + "|" + std::to_string(colors) + "|" + std::to_string(gsat) + "|" + std::to_string(chroma) + "|" +
                             std::to_string(w) + "x" + std::to_string(h) + "|" + std::to_string(col) + "," + std::to_string(row) + "|" + settings_.disk_color + "|" +
                             (settings_.disk_color_gradient ? settings_.disk_color_end : std::string());
     const auto now = std::chrono::steady_clock::now();
     const bool resized = key != pic_key || !g.plain || g.w != w || g.h != h || g.level.size() != static_cast<size_t>(w) * h || g.id != want_id || g.col != col || g.cols != cols;
-    const auto gap = std::chrono::milliseconds(gfx_proto_ == GfxProto::Sixel ? 110 : 40);
+    const auto gap = std::chrono::milliseconds(gfxs_.proto == GfxProto::Sixel ? 110 : 40);
     const bool due = resized || (mode >= 1 && now - pic_at >= gap);
-    cover_ovr_ = {true, contrast, brightness, colors, chroma};   // (cover_fill and cover_sixel_colours read the style through eff_cover_*)
+    cover_ovr_ = {true, contrast, brightness, colors, chroma, gsat};   // (cover_fill and cover_sixel_colours read the style through eff_cover_*)
     g.plain = true; g.truecolor = false;
     g.direct = mode == 0 || cover_sixel_colours(mode);
     g.scale = 1;
@@ -415,6 +417,7 @@ std::vector<std::string> App::meta_sty_preview(int prev_w, int rows, const Cover
     const int contrast = st.contrast >= 0 ? st.contrast : settings_.cover_contrast;
     const int brightness = st.brightness >= 0 ? st.brightness : settings_.cover_brightness;
     const int colors = st.colors >= 0 ? st.colors : settings_.cover_colors;
+    const int gsat = st.gsat >= 0 ? st.gsat : settings_.cover_grad_sat;
     const int chroma = st.chroma >= 0 ? st.chroma : settings_.cover_chroma;
     const double angle = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count() * 0.6;
     const int dw = disk_.width(), dh = disk_.height();
@@ -437,7 +440,7 @@ std::vector<std::string> App::meta_sty_preview(int prev_w, int rows, const Cover
     const std::string vshown = video_rows ? video_shown_for(trk) : std::string();
     bool vdone = false;
     if (!vshown.empty()) {
-        const bool is_playing = has_track_ && path_utf8(current_path_) == meta_->sty_track;
+        const bool is_playing = has_track_ && path_utf8(current_.path) == meta_->sty_track;
         const auto now = std::chrono::steady_clock::now();
         VideoPlayer* vp = nullptr;
         double vt = 0.0;
@@ -459,7 +462,7 @@ std::vector<std::string> App::meta_sty_preview(int prev_w, int rows, const Cover
             static_cast<int>(vr.size()) == dh) {
             disk = std::move(vr);
             note = "the video of this track";
-            if (gfx_proto_ != GfxProto::None && (second ? gfx2_ : gfx_).active) { meta_->sty_pic = second ? 2 : 1; note += "  (image)"; }
+            if (gfxs_.proto != GfxProto::None && (second ? gfx2_ : gfx_).active) { meta_->sty_pic = second ? 2 : 1; note += "  (image)"; }
             vdone = true;
         }
     }
@@ -498,13 +501,13 @@ std::vector<std::string> App::meta_sty_preview(int prev_w, int rows, const Cover
             const int start_col = 1 + std::max(0, (screen_w - W) / 2);
             const int start_row = std::clamp(1 + std::max(0, (term_rows_ - panel_h) / 2 - kFloatingPanelUpShift + 1), 1, std::max(1, term_rows_ - panel_h));   // (the panel stands one row lower than the other floating panels)
             const int top0 = std::max(0, (rows - 1 - dh) / 2);   // the disk is centred in the rows above the note
-            if (cf_->full_res && m <= 4 && meta_sty_gfx(*img, m, contrast, brightness, colors, chroma, angle, (start_col - 1) + 1 + (kMetaStyPanelWidth - 2) + 1 + lpad0, start_row + top0, dw, dh)) {
+            if (cf_->full_res && m <= 4 && meta_sty_gfx(*img, m, contrast, brightness, colors, chroma, angle, (start_col - 1) + 1 + (kMetaStyPanelWidth - 2) + 1 + lpad0, start_row + top0, dw, dh, gsat)) {
                 for (int r = 0; r < dh; ++r) disk.push_back(gfx_hole(dw));
                 note += "  (image)";
             } else {
-                disk = album_cover_lines_for(*img, m >= 5 ? m - 5 : m, contrast, brightness, colors, angle, dw, dh, chroma);
+                disk = album_cover_lines_for(*img, m >= 5 ? m - 5 : m, contrast, brightness, colors, angle, dw, dh, chroma, gsat);
                 if (disk.empty()) plain_disk();
-                else if (gfx_proto_ != GfxProto::None) note += "  (braille)";
+                else if (gfxs_.proto != GfxProto::None) note += "  (braille)";
             }
         } else {
             plain_disk();
@@ -551,6 +554,7 @@ std::vector<std::string> App::build_meta_sty_panel(int screen_w) const {
             case kStCoverContrast: return {"Cover Contrast", pct(st.contrast, settings_.cover_contrast)};
             case kStCoverBrightness: return {"Cover Brightness", pct(st.brightness, settings_.cover_brightness)};
             case kStCoverColors: return {"Cover Colors", pct(st.colors, settings_.cover_colors)};
+            case kStCoverGradSat: return {"Cover Gradient Saturation", pct(st.gsat, settings_.cover_grad_sat)};
             case kStCoverChroma: return {"Cover Chromatic Aberration", st.chroma >= 0 ? std::string(chroma_name(st.chroma)) : std::string("as in Settings (") + chroma_name(settings_.cover_chroma) + ")"};
             case kStCoverOrThumb: {   // the same choice as COVER OPTIONS (this track) and the VIDEO overlay (the default of all tracks)
                 const int own = cover_track_video_mode(meta_->sty_track);
@@ -792,7 +796,7 @@ std::vector<std::string> App::build_meta_cov_panel(int screen_w) const {
         bool drawn = false;
         const CoverImage* vimg = vframe.empty() ? nullptr : preview_video_frame(vframe);
         if (!vframe.empty() && !vimg) msg = preview_video_frame_loading(vframe) ? "reading a frame of the video ..." : "(no frame of the video can be read)";
-        if (cf_->full_res && gfx_proto_ != GfxProto::None && (!file.empty() || vimg)) {
+        if (cf_->full_res && gfxs_.proto != GfxProto::None && (!file.empty() || vimg)) {
             // where the floating panel stands (the same arithmetic as draw_floating_panel()); the preview is right of the list
             const int panel_h = rows + 4;
             const int start_col = 1 + std::max(0, (screen_w - W) / 2);

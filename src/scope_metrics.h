@@ -3,6 +3,7 @@
 // divisions the grid has and which extra measurement the picture's name shows -- separately for the YT and the XY picture.
 // Header only and shared by the player and the radio (their settings, config files and overlays all use this one description).
 
+#include "string_util.h"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -90,11 +91,11 @@ inline bool scope_metric_parse(ScopeMetrics& m, const std::string& key, const st
     auto pick = [&](int& v, std::initializer_list<const char*> names) {   // by name or by index
         int i = 0;
         for (const char* n : names) { if (l == n) { v = i; return; } ++i; }
-        const int idx = std::atoi(l.c_str());
+        const int idx = muisc::atoi_safe(l.c_str());
         if (!l.empty() && l[0] >= '0' && l[0] <= '9' && idx >= 0 && idx < i) v = idx;
     };
     auto div = [&](int& v, int row) {
-        const int d = std::atoi(l.c_str());
+        const int d = muisc::atoi_safe(l.c_str());
         for (int c : scope_div_choices(row)) if (c == d) v = d;
     };
     if (key == "ScopeYtTimeUnit") pick(m.yt_time_unit, {"ms", "samples", "div"});

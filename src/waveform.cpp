@@ -4,6 +4,7 @@
 #include "path_utf8.h"
 #include "process_util.h"
 #include "miniaudio.h"
+#include "string_util.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -500,7 +501,7 @@ int native_sample_rate(const fs::path& file_path, const std::string& sampling_hi
         rate = static_cast<int>(decoder.outputSampleRate);
         ma_decoder_uninit(&decoder);
     }
-    if (rate <= 0) rate = std::atoi(sampling_hint.c_str());   // ffprobe's figure ("48000KHz"), e.g. for Opus
+    if (rate <= 0) rate = muisc::atoi_safe(sampling_hint.c_str());   // ffprobe's figure ("48000KHz"), e.g. for Opus
     if (rate < 8000 || rate > 768000) return 44100;
     // Above 96 kHz it is brought down to that, which is still far beyond hearing and the scope. (Long tracks keep
     // their own rate too: they are held a window at a time -- see StreamingPcm's windowed mode.)

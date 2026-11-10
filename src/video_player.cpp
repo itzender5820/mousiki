@@ -4,6 +4,7 @@
 
 #include "console_log.h"
 #include "path_utf8.h"
+#include "string_util.h"
 
 #include <algorithm>
 #include <cmath>
@@ -113,7 +114,7 @@ template <class F>
 void par_rows(int h, F&& fn) {
     // threads for the looks: half of the cores, at most 4 (the decoder, the audio and the screen need some too); MOUSIKI_FX_THREADS=1 turns it off
     static const int automatic = [] {
-        if (const char* e = std::getenv("MOUSIKI_FX_THREADS")) { const int v = std::atoi(e); if (v >= 1) return std::min(v, 16); }
+        if (const char* e = std::getenv("MOUSIKI_FX_THREADS")) { const int v = muisc::atoi_safe(e); if (v >= 1) return std::min(v, 16); }
         return std::clamp(static_cast<int>(std::max(1u, std::thread::hardware_concurrency())) / 2, 1, 4);
     }();
     const int forced = g_fx_threads.load(std::memory_order_relaxed);

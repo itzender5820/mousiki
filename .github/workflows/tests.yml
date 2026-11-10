@@ -23,14 +23,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: Linux,   os: ubuntu-24.04 }
+          - { name: Linux,   os: ubuntu-24.04, werror: "-DMOUSIKI_WERROR=ON" }   # warnings in Mousiki's own sources fail the Linux build (GCC); the other legs only warn
           - { name: macOS,   os: macos-latest }
           - { name: Windows, os: windows-latest }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMOUSIKI_BUILD_TESTS=ON
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMOUSIKI_BUILD_TESTS=ON ${{ matrix.werror }}
 
       # the player itself too: the UI smoke test (tests/ui_smoke.py) runs it in a pseudo terminal (Linux / macOS)
       - name: Build the tests and the player

@@ -377,6 +377,9 @@ TEST(settings_cover_brightness_colors_and_volume_default) {
     CHECK_EQ(load_settings().cover_colors, 45);
     CHECK(set_config_value("CoverBrightness", "250"));
     CHECK_EQ(load_settings().cover_brightness, 100);
+    s.cover_contrast = 135;   // a contrast beyond 100 % is written and read back
+    save_settings(s);
+    CHECK_EQ(load_settings().cover_contrast, 135);
 }
 
 TEST(settings_cover_look_keys_are_ctrl_t_and_ctrl_z) {
@@ -710,7 +713,18 @@ TEST(settings_table_reads_old_names_clamps_numbers_and_takes_flag_spellings) {
     CHECK_EQ(read("CoverBrightness=47%\n").cover_brightness, 45);
     CHECK_EQ(read("CoverBrightness=48\n").cover_brightness, 50);
     CHECK_EQ(read("CoverContrast=\"33\"\n").cover_contrast, 35);
+    CHECK_EQ(read("CoverContrast=150\n").cover_contrast, 150);   // up to 150 %, the other cover percents stop at 100
+    CHECK_EQ(read("CoverContrast=400\n").cover_contrast, 150);
+    CHECK_EQ(read("CoverContrast=148%\n").cover_contrast, 150);
     CHECK_EQ(read("CoverColors=250\n").cover_colors, 100);
+    CHECK_EQ(Settings().cover_grad_sat, 60);   // the default: the gradient of the cover looks stays vivid
+    CHECK_EQ(read("CoverGradientSaturation=0\n").cover_grad_sat, 0);
+    CHECK_EQ(read("CoverGradientSaturation=47%\n").cover_grad_sat, 45);
+    CHECK_EQ(read("CoverGradientSaturation=250\n").cover_grad_sat, 100);
+    CHECK(Settings().bulk_save && !Settings().bulk_video);   // BULK ADD: saved as before, no video
+    CHECK(!read("BulkAddSave=false\n").bulk_save);
+    CHECK(read("BulkAddVideo=true\n").bulk_video);
+    CHECK(read("BulkAddSave=true\nBulkAddVideo=false\n").bulk_save);
     CHECK_EQ(read("VideoContrast=33\n").video_contrast, 35);
     CHECK_EQ(read("video_colors=12\n").video_colors, 10);
     CHECK_EQ(read("VideoBrightness=abc\n").video_brightness, Settings().video_brightness);

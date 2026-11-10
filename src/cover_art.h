@@ -60,7 +60,7 @@ struct CoverScaled {
 void quantize_colours(const std::vector<unsigned char>& rgb, const std::vector<unsigned char>& alpha, int n,
                       std::array<std::array<uint8_t, 3>, 256>& pal, std::vector<unsigned char>& hue);
 // The cover fitted into max_w x max_h pixels (proportions kept). `key_id` names the cover (a new id = a new scaling).
-// `contrast` 0..100 (%): 0 = the cover as it is; more pushes the brightnesses (the colours) away from the middle grey.
+// `contrast` 0..150 (%): 0 = the cover as it is; more pushes the brightnesses (the colours) away from the middle grey.
 const CoverScaled& cover_scaled(const CoverImage& c, int max_w, int max_h, bool colour, int contrast = 0, int chroma = 0);   // chroma: chromatic aberration 0..3 (colour pictures)
 // The cover fitted into max_w x max_h in its own colours, unquantised: `rgb` (3 bytes a pixel) and `alpha`, w x h (the same size
 // cover_scaled() gives for these arguments). A cache of its own, so the grey and the colour version of the same cover can be used

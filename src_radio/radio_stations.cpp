@@ -2,6 +2,7 @@
 // station streams.
 #include "radio_stations.h"
 #include "string_util.h"
+#include "path_utf8.h"
 #include "settings.h"   // write_text_atomic()
 #include <algorithm>
 #include <cctype>
@@ -169,7 +170,7 @@ static std::vector<Station> parse_file(const fs::path& p) {
         if (f.size() < 6 || f[0].empty() || f[5].empty()) continue;
         Station s;
         s.name = f[0]; s.genre = f[1]; s.country = f[2]; s.codec_hint = f[3];
-        s.bitrate_hint = std::atoi(f[4].c_str());
+        s.bitrate_hint = muisc::atoi_safe(f[4].c_str());
         s.url = f[5];
         s.favorite = f.size() > 6 && f[6] == "*";
         s.dial_mhz = (f.size() > 7 && !f[7].empty()) ? std::atof(f[7].c_str()) : dial_for_name(s.name);
@@ -229,7 +230,7 @@ bool append_station_to_file(const Station& st, const std::vector<Station>& all, 
             if (in && in.tellg() > 0) { in.seekg(-1, std::ios::end); char last = 0; in.get(last); if (last != '\n') tail = "\n"; }
         }
         std::ofstream out(c, std::ios::app);
-        if (!out) { if (err) *err = "cannot write " + c.string(); return false; }
+        if (!out) { if (err) *err = "cannot write " + path_utf8(c); return false; }
         out << tail << station_line(st) << "\n";
         if (where) *where = c.string();
         return static_cast<bool>(out);
@@ -239,7 +240,7 @@ bool append_station_to_file(const Station& st, const std::vector<Station>& all, 
     std::error_code ec;
     if (target.has_parent_path()) fs::create_directories(target.parent_path(), ec);
     std::ofstream out(target);
-    if (!out) { if (err) *err = "cannot write " + target.string(); return false; }
+    if (!out) { if (err) *err = "cannot write " + path_utf8(target); return false; }
     out << "# Mousiki radio mode -- station list (written by the radio; see radio/stations.txt for the format)\n"
            "# name | genre | country | codec | kbps | url | [*] favorite\n";
     for (const auto& s : all) out << station_line(s) << "\n";
@@ -274,16 +275,17 @@ bool save_all_stations(const std::vector<Station>& all, std::string* where, std:
                "# name | genre | country | codec | kbps | url | [*] favorite\n";
     std::error_code ec;
     if (target.has_parent_path()) fs::create_directories(target.parent_path(), ec);
-    const fs::path tmp = fs::path(target.string() + ".tmp");
+    fs::path tmp = target;
+    tmp += ".tmp";   // appended to the native path: no round trip through the ANSI code page
     {
         std::ofstream out(tmp, std::ios::binary);
-        if (!out) { if (err) *err = "cannot write " + target.string(); return false; }
+        if (!out) { if (err) *err = "cannot write " + path_utf8(target); return false; }
         out << head;
         for (const auto& st : all) out << station_line(st) << "\n";
-        if (!out) { if (err) *err = "cannot write " + target.string(); return false; }
+        if (!out) { if (err) *err = "cannot write " + path_utf8(target); return false; }
     }
     fs::rename(tmp, target, ec);
-    if (ec) { fs::remove(tmp, ec); if (err) *err = "cannot write " + target.string(); return false; }
+    if (ec) { fs::remove(tmp, ec); if (err) *err = "cannot write " + path_utf8(target); return false; }
     if (where) *where = target.string();
     return true;
 }

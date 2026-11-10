@@ -16,6 +16,7 @@
 #include "scope_window.h"
 #include "scope_sdl.h"
 #include "oscilloscope_visualizer.h"
+#include "string_util.h"
 
 #include <algorithm>
 #include <atomic>
@@ -270,7 +271,7 @@ int scope_window_main() {
     if (!create(A, R, gpu, ow, oh)) { write_error(std::string("scope window: cannot create textures: ") + A.GetError()); destroy(A, gpu); A.DestroyRenderer(R); A.DestroyWindow(win); A.Quit(); return 6; }
 
     const char* shot_path = std::getenv("MOUSIKI_SCOPE_SHOT");   // tests: save frame N as a PPM picture
-    const int shot_frame = std::getenv("MOUSIKI_SCOPE_SHOT_FRAME") ? std::atoi(std::getenv("MOUSIKI_SCOPE_SHOT_FRAME")) : 120;
+    const int shot_frame = std::getenv("MOUSIKI_SCOPE_SHOT_FRAME") ? muisc::atoi_safe(std::getenv("MOUSIKI_SCOPE_SHOT_FRAME")) : 120;
     const bool shot_exit = std::getenv("MOUSIKI_SCOPE_SHOT_EXIT") != nullptr;
 
     ScopeWinConfig cfg;

@@ -89,12 +89,18 @@ AlbumCover=false
 ## behind the turning disk; the disk's dots are pinholes that let it shine through at full brightness, they stay on a fixed grid and only
 ## the pattern turns | disk2 = the same, the dots themselves turn | full = the same with the disk's full animation: its dots are rounded to the dot grid as it turns, so some come and go
 CoverMode=disk
-## CoverContrast = 0 .. 100 (percent, steps of 5): more contrast for the album cover (0 = the cover as it is)
+## CoverContrast = 0 .. 150 (percent, steps of 5): more contrast for the album cover (0 = the cover as it is, 100 = 2.5 times the distance from the middle grey, 150 = 3.25 times)
 CoverContrast=0
 ## CoverBrightness = 0 .. 100 (percent, steps of 5): the cover behind the disk -- how bright its dots are lifted (0 = the picture's own range; more = brighter, like the plain disk)
 CoverBrightness=50
 ## CoverColors = 0 .. 100 (percent, steps of 5): the cover behind the disk -- its own colours mixed into the disk's gradient (0 = gradient only, 100 = the cover's own colours)
 CoverColors=0
+## CoverGradientSaturation = 0 .. 100 (percent, steps of 5): the cover looks (music player) -- how vivid the disk's gradient is between its two colours (0 = the plain blend of the two, which fades to grey in the middle; 60 = default; 100 = as saturated as a straight line between the two colours). Only the colour of the dots changes, not the picture
+CoverGradientSaturation=60
+## BulkAddSave = BULK ADD (SHIFT+g): true = the tracks you add are saved in the download folder when they play (as every streamed track is); false = play only: a track that was not in the download folder before is deleted again after it has played (CTRL+s in the BULK ADD panel changes it)
+BulkAddSave=true
+## BulkAddVideo = BULK ADD: true = the video of each added track is downloaded too, when the track plays (needs Video mode; with BulkAddSave=false it is deleted with the track; CTRL+o in the BULK ADD panel changes it)
+BulkAddVideo=false
 ## CoverSearch = where the cover is looked for (every search except "file only" ends with any picture of the folder, the first by name, when nothing else gave one):
 CoverChroma=off
 ## chromatic aberration of a cover that shows its own colours (Just Cover, Cover Colors above 0, the ASCII looks): off | subtle | medium | strong

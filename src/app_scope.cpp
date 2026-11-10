@@ -2,6 +2,7 @@
 // Part of class App (src/app.h): The oscilloscope / spectrogram windows and full screens, and their option panels.
 // Split out of app.cpp; the includes are the same as there.
 #include "app.h"
+#include "string_util.h"
 #include "text_edit.h"
 #include "overlay_common.h"
 #include "remote_server.h"
@@ -128,15 +129,15 @@ void App::scope_window_sync(bool check_alive) {
 void App::spectro_window_toggle() {
     if (spectro_window_running()) {
         spectro_window_close();
-        spectro_win_on_ = false;
+        spectro_.win_on = false;
         status_line_ = "spectrogram window closed";
         return;
     }
     std::string err;
-    spectro_win_on_ = true;
+    spectro_.win_on = true;
     spectro_window_sync(false);   // the settings are there before the first sample
     if (!spectro_window_open(&err)) {
-        spectro_win_on_ = false;
+        spectro_.win_on = false;
         status_line_ = err;
         return;
     }
@@ -144,10 +145,10 @@ void App::spectro_window_toggle() {
 }
 
 void App::spectro_window_sync(bool check_alive) {
-    if (!spectro_win_on_ && check_alive && spectro_window_running()) spectro_win_on_ = true;   // opened in the radio
-    if (!spectro_win_on_) return;
+    if (!spectro_.win_on && check_alive && spectro_window_running()) spectro_.win_on = true;   // opened in the radio
+    if (!spectro_.win_on) return;
     if (check_alive && !spectro_window_running()) {   // closed from its side (its X, ESC, q) or failed
-        spectro_win_on_ = false;
+        spectro_.win_on = false;
         const std::string e = spectro_window_take_error();
         status_line_ = e.empty() ? "spectrogram window closed" : e;
         return;
@@ -210,12 +211,12 @@ void App::lyrics_view_nudge() {
     if (!has_track_ || !settings_.lyrics_on()) return;
     const std::string artist = (metadata_.artist == "-") ? "" : metadata_.artist;
     last_lyrics_status_.clear();   // a fresh caption window, not a leftover from before the lyrics were off
-    launch_lyrics_fetch(metadata_.name, artist, current_path_);
+    launch_lyrics_fetch(metadata_.name, artist, current_.path);
 }
 
 // ---- Spectrogram (SHIFT+i options, SHIFT+u full screen) ----------------------------------------------------------
 void App::spectro_menu_adjust(int dir) {
-    const int row = std::clamp(spectro_menu_row_, static_cast<int>(kSrView), kSpectroRowCount - 1);
+    const int row = std::clamp(spectro_.menu_row, static_cast<int>(kSrView), kSpectroRowCount - 1);
     if (row == kSrDisplay) {   // what the lyrics area shows: sphere -> osci -> spectro
         settings_.lyric_viz = settings_.viz_step(settings_.lyric_viz, dir > 0 ? 1 : -1, true);
         if (settings_.element_lyrics && settings_.lyric_viz == 2) status_line_ = "the spectrogram shows when there are no lyrics (. switches)";
@@ -248,11 +249,11 @@ std::vector<std::string> App::build_spectro_menu_panel() const {
     const bool lay = video_layout_menu();
     const SpectroSettings shown = lay ? layout_spectro_view() : settings_.spectro;
     for (const int r : spectro_visible_rows(shown)) {
-        const bool sel = r == spectro_menu_row_;
+        const bool sel = r == spectro_.menu_row;
         std::string val = spectro_row_value(shown, r);
         if (lay && r == kSrView && settings_.vl_spec_view < 0) val += " (default)";
         if (lay && r == kSrStyle && settings_.vl_spec_style < 0) val += " (default)";
-        if (r == kSrStyle && shown.style == 1 && gfx_proto_ == GfxProto::None) val = "image (no Sixel/Kitty here)";
+        if (r == kSrStyle && shown.style == 1 && gfxs_.proto == GfxProto::None) val = "image (no Sixel/Kitty here)";
         lines.push_back(row(std::string(sel ? "> " : "  ") + pad_right(spectro_row_label(r), 22) + pad_left(val, inner - 24), sel));
     }
     lines.push_back(row("", false));
@@ -269,7 +270,7 @@ std::vector<std::string> App::build_spectro_menu_panel() const {
 // The full-screen spectrogram: a frame with the track as its title, the frequency labels on the left (like
 // Audacity's ruler), a time ruler on top and the picture (or braille) filling the rest.
 std::string App::build_spectro_full(int W, const char* clear_prefix) const {
-    spectro_used_ = true;
+    spectro_.used = true;
     spectro_gradient_from(settings_);
     SpectroAnalyzer& a = spectro();
     a.update(settings_.spectro);
@@ -283,7 +284,7 @@ std::string App::build_spectro_full(int W, const char* clear_prefix) const {
     const std::string legend = ansi_for(settings_.legend_color, false);
     const std::string R = "\x1b[0m";
     const std::string bar = border + settings_.box_vertical + R;
-    const bool image = sp.style == 1 && gfx_proto_ != GfxProto::None;
+    const bool image = sp.style == 1 && gfxs_.proto != GfxProto::None;
     int cw = 10, chh = 20;
     if (image) gfx_cell_pixels(settings_.cell_pixels, cw, chh);
     const int unit = image ? std::max(1, chh) : 4;
@@ -318,10 +319,10 @@ std::string App::build_spectro_full(int W, const char* clear_prefix) const {
     }
     std::vector<std::string> body;
     if (image) {
-        spectro_area_[0] = 2;
-        spectro_area_[1] = 1 + label_w + 1;
-        spectro_area_[2] = cols;
-        spectro_area_[3] = rows;
+        spectro_.area[0] = 2;
+        spectro_.area[1] = 1 + label_w + 1;
+        spectro_.area[2] = cols;
+        spectro_.area[3] = rows;
     } else body = a.braille(sp, cols, rows);
     for (int r = 0; r < rows; ++r) {
         const std::string l = sp.labels ? lab[static_cast<size_t>(r)] : std::string();
@@ -349,7 +350,7 @@ bool App::scope_big_key(int key) {
         else if (key == '\r' || key == '\n') {
             scope_big_color_edit_ = false;
             if (scope_big_color_buf_.empty()) settings_.scope_grid_color.clear();   // empty = the colour of inactive list elements
-            else settings_.scope_grid_color = std::to_string(std::clamp(std::atoi(scope_big_color_buf_.c_str()), 0, 255));
+            else settings_.scope_grid_color = std::to_string(std::clamp(muisc::atoi_safe(scope_big_color_buf_.c_str()), 0, 255));
             save_settings(settings_);
         } else if ((key == 127 || key == 8) && !scope_big_color_buf_.empty()) scope_big_color_buf_.pop_back();
         else if (key >= '0' && key <= '9' && scope_big_color_buf_.size() < 3) scope_big_color_buf_.push_back(static_cast<char>(key));
@@ -367,7 +368,7 @@ bool App::scope_big_key(int key) {
     if (arrow) {
         if (key == 'C' || key == 'D') {   // LEFT / RIGHT: image <-> braille
             osci_adjust(settings_, kOrStyle, key == 'C' ? 1 : -1);
-            status_line_ = settings_.osci_style == 1 ? (gfx_proto_ == GfxProto::None ? "oscilloscope style: image (this terminal has neither Kitty graphics nor Sixel: braille is drawn)" : "oscilloscope style: image")
+            status_line_ = settings_.osci_style == 1 ? (gfxs_.proto == GfxProto::None ? "oscilloscope style: image (this terminal has neither Kitty graphics nor Sixel: braille is drawn)" : "oscilloscope style: image")
                                                      : "oscilloscope style: braille";
             save_settings(settings_);
             return true;
@@ -408,7 +409,7 @@ std::string App::build_scope_big(int W, const char* clear_prefix) const {
     // (braille characters, or -- Osci style "image" on a terminal with Kitty graphics / Sixel -- real pixel pictures)
     scope_big_xy_.copy_ring_from(scope_);
     scope_big_yt_.copy_ring_from(scope_);
-    const bool image = settings_.osci_style == 1 && gfx_proto_ != GfxProto::None && g.cols > 0 && g.rows > 0;
+    const bool image = settings_.osci_style == 1 && gfxs_.proto != GfxProto::None && g.cols > 0 && g.rows > 0;
     OscilloscopeVisualizer::Params px = osci_scope_params(settings_, viz_dt_, image ? 1 : 0);
     px.mode = 0;
     OscilloscopeVisualizer::Params py = px;
@@ -462,7 +463,7 @@ std::string App::build_scope_big(int W, const char* clear_prefix) const {
             else F.grid.clear();
             F.grid_rgb = {static_cast<uint8_t>(gr), static_cast<uint8_t>(gg2), static_cast<uint8_t>(gb)};
             F.active = true;
-            F.fresh = gfx_due_;
+            F.fresh = gfxs_.due;
         }
         left.assign(static_cast<size_t>(g.rows), gfx_hole(g.cols));
         right = left;
@@ -544,7 +545,7 @@ std::vector<std::string> App::build_scope_color_panel() const {
     const std::string bar = border + settings_.box_vertical + R;
     auto row = [&](const std::string& plain) { return bar + " " + pad_right(truncate_str(plain, inner), inner) + " " + bar; };
     const std::string shown = scope_big_color_buf_.empty() ? (settings_.scope_grid_color.empty() ? settings_.list_color : settings_.scope_grid_color)
-                                                           : std::to_string(std::clamp(std::atoi(scope_big_color_buf_.c_str()), 0, 255));
+                                                           : std::to_string(std::clamp(muisc::atoi_safe(scope_big_color_buf_.c_str()), 0, 255));
     std::vector<std::string> lines;
     lines.push_back(box_top("Grid color", W, border));
     lines.push_back(row("Color (0-255): " + scope_big_color_buf_ + "█"));

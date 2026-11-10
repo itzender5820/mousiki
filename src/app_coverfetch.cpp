@@ -5,6 +5,7 @@
 // Why an overlay of its own and not a tab of the meta editor: MusicBrainz is poor at recognising album titles from loose files,
 // so fetching covers is a deliberate step on a list the user has looked at -- not something that runs along while tags are edited.
 #include "app.h"
+#include "app_state_vs.h"
 #include "meta_state.h"
 #include "coverfetch_state.h"
 #include "text_edit.h"
@@ -433,7 +434,9 @@ void App::cf_start_fetch() {
                         std::error_code ec;
                         const fs::path dir = path_from_utf8(f) / kFetchedCoversDir;
                         fs::create_directories(dir, ec);
-                        fs::copy_file(have, dir / (cover_file_name(it.album) + have.extension().string()), fs::copy_options::overwrite_existing, ec);
+                        fs::path dst = dir / path_from_utf8(cover_file_name(it.album));
+                        dst += have.extension();   // the native extension as it is: no round trip through the ANSI code page
+                        fs::copy_file(have, dst, fs::copy_options::overwrite_existing, ec);
                         if (!ec) ++copies;
                     }
                     if (copies) state += ", copied to " + std::to_string(copies) + " more folder" + (copies == 1 ? "" : "s");
@@ -615,7 +618,7 @@ void App::handle_cf_key(int key) {
         return;
     }
     if (key == 't' && !arrow && cf_->focus != 0) {   // [t] the cover as ASCII (braille dots) / in full resolution
-        if (gfx_proto_ == GfxProto::None) { cf_->status = "this terminal shows no pictures (no Kitty / Sixel graphics): the cover stays ASCII"; return; }
+        if (gfxs_.proto == GfxProto::None) { cf_->status = "this terminal shows no pictures (no Kitty / Sixel graphics): the cover stays ASCII"; return; }
         cf_->full_res = !cf_->full_res;
         cf_->pic_key.clear();
         cf_->status = cf_->full_res ? "cover: full resolution" : "cover: ASCII";
@@ -796,7 +799,7 @@ bool App::cover_full_picture_img(const CoverImage* img, int pcols, int preview_r
     const int w = pcols * cws, h = preview_rows * chs;
     const std::string key = img->key + "|" + std::to_string(w) + "x" + std::to_string(h) + "|" + std::to_string(scr_col);
     GfxFrame& g = second ? gfx2_ : gfx_;
-    std::string& pic_key = second ? vs_pic_key_ : cf_->pic_key;
+    std::string& pic_key = second ? vs_->pic_key : cf_->pic_key;
     if (key != pic_key || g.level.size() != static_cast<size_t>(w) * h || g.id != (second ? 1 : 0)) {
         pic_key = key;
         const CoverScaled& cs = cover_scaled(*img, w, h, true, 0);
@@ -878,7 +881,7 @@ std::vector<std::string> App::build_cf_art_panel(int total_width, int height) co
     std::vector<std::string> pv;
     gfx_.active = false;
     bool as_picture = false;
-    if (cf_->full_res && gfx_proto_ != GfxProto::None && !pfile.empty() && pmsg.empty()) {
+    if (cf_->full_res && gfxs_.proto != GfxProto::None && !pfile.empty() && pmsg.empty()) {
         // full resolution: the picture itself (Kitty / Sixel) over the preview cells; the text frame holds placeholders there
         if (cover_full_picture(pfile, pemb, inner, preview_rows, cf_->art_col + 2, 6)) {   // (below the border, the album and the artist line)
             pcols = inner;

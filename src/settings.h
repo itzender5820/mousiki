@@ -48,13 +48,14 @@ struct Settings : VizPrefs {
     bool latin_letters = false;          // Japanese / Korean / Chinese text is shown in Latin letters (HKeyTranslit, SHIFT+')
     bool album_cover = false;            // the cover of the playing track is shown in the disk's place (the disk where there is none)
     int cover_mode = 2;                  // 0 = just the cover, 1 = cover with the disk's gradient, 2 = cover behind the disk (the disk's dots are pinholes; the dot grid stays, the pattern turns), 3 = v2 (the dots themselves turn), 4 = full animation (dots that come and go), 5 = Cover ASCII (braille dots in the cover's colours), 6 = Cover ASCII with Gradient
-    int cover_contrast = 0;              // 0..100 in steps of 5 (%): more contrast for the cover
+    int cover_contrast = 0;              // 0..150 in steps of 5 (%): more contrast for the cover
     // The cover behind the disk (Cover Modes 2-4, and their braille looks): Cover Brightness 0..100 % (steps of 5) -- how far the cover's
     // brightness is stretched up, so the disk's dots shine like the plain disk's (0 = only the full range of the picture, more = a
     // brighter floor for every dot); Cover Colors 0..100 % -- the cover's own colours mixed into the disk's gradient (0 = the
     // gradient only, 100 = the cover's own colours). config.txt: CoverBrightness= / CoverColors=
     int cover_brightness = 50;
     int cover_colors = 0;
+    int cover_grad_sat = 60;             // 0..100 in steps of 5 (%): the saturation of the disk's gradient on the cover looks (0 = the plain blend of the two disk colours, 60 = the default, 100 = full); config.txt: CoverGradientSaturation=
     int cover_search = 0;                // 0 default (file, then folder), 1 folder first, 2 within file first, 3 image in folder only, 4 within file only
     bool element_dummy_buttons = true;
     bool element_queue = true;           // replaces the old queue_visible
@@ -118,6 +119,8 @@ struct Settings : VizPrefs {
     int video_brightness = 50;        // Video Brightness (VideoBrightness=): 0..100 %, steps of 5 (50 = as it is, lower darker, higher brighter)
     int video_contrast = 0;           // Video Contrast (VideoContrast=): 0..100 %, steps of 5 (0 = as it is)
     int video_colors = 100;           // Video Colors (VideoColors=): 0..100 %, steps of 5 (0 = greyscale, 100 = the video's own colours)
+    bool bulk_save = true;            // BULK ADD (BulkAddSave=): true = the tracks stay in the download folder once played, false = play only: each file is deleted again when the next track has started
+    bool bulk_video = false;          // BULK ADD (BulkAddVideo=): the video of every track is downloaded when it plays (see Video mode)
     bool video_mp3 = true;            // yt-dlp mp3 from mp4 (VideoMp3=): a video downloaded in SEARCH YT without a target song also gets its sound as an mp3 song
     int video_clap = 1;               // Show Clap Loading (VideoClap=): what shows while a video loads: 0 text note ("video: starting ..."), 1 clap (a small clapperboard), 2 none
     bool video_round = false;         // Rounded Corners of the video picture (VideoRound=): the picture's corners are cut round, like the corners of the UI

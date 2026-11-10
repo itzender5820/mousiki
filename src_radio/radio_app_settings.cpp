@@ -1,4 +1,5 @@
 #include "radio_app.h"
+#include "path_utf8.h"
 #if defined(_WIN32)
 #include "win_compat.h"
 #endif
@@ -6,7 +7,7 @@
 void RadioApp::settings_save() {
     SettingsModel& sm = ui.model.settings;
     std::string err;
-    if (save_radio_settings(cfg, &err)) { sm.status = "Saved " + radio_config_path().string(); sm.dirty = false; }
+    if (save_radio_settings(cfg, &err)) { sm.status = "Saved " + muisc::path_utf8(radio_config_path()); sm.dirty = false; }
     else sm.status = "Could not save: " + err;
 }
 

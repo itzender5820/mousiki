@@ -9,6 +9,7 @@
 
 #include "settings.h"
 #include "utf8_util.h"
+#include "string_util.h"
 
 namespace muisc::media {
 
@@ -39,7 +40,7 @@ Info info_from_status(const std::vector<std::pair<std::string, std::string>>& kv
     if (const std::string* v = get("station")) station = *v;
     if (const std::string* v = get("position_sec")) i.position = std::max(0.0, std::atof(v->c_str()));
     if (const std::string* v = get("duration_sec")) i.duration = std::max(0.0, std::atof(v->c_str()));
-    if (const std::string* v = get("volume")) i.volume = std::clamp(std::atoi(v->c_str()), 0, 100);
+    if (const std::string* v = get("volume")) i.volume = std::clamp(muisc::atoi_safe(v->c_str()), 0, 100);
     i.title = clean_tag_text(i.title);   // well-formed UTF-8, no control characters: D-Bus and macOS reject anything else
     i.artist = clean_tag_text(i.artist);
     i.album = clean_tag_text(i.album);

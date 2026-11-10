@@ -97,9 +97,9 @@ static void chroma_planes(std::vector<unsigned char>& red, std::vector<unsigned 
 
 const CoverScaled& cover_scaled(const CoverImage& c, int max_w, int max_h, bool colour, int contrast, int chroma) {
     static SizeCache<CoverScaled, 4> cache;
-    contrast = std::clamp(contrast, 0, 100);
+    contrast = std::clamp(contrast, 0, 150);
     const std::string key = c.key + "|" + std::to_string(max_w) + "x" + std::to_string(max_h) + (colour ? "c" : "g") + std::to_string(contrast) + (colour && chroma > 0 ? "x" + std::to_string(chroma) : std::string());
-    // more contrast: values move away from the middle (0 % = unchanged, 100 % = 2.5 times the distance from the middle grey)
+    // more contrast: values move away from the middle (0 % = unchanged, 100 % = 2.5 times the distance from the middle grey, 150 % = 3.25 times)
     const double factor = 1.0 + contrast / 100.0 * 1.5;
     auto punch = [&](unsigned char v) { return static_cast<unsigned char>(std::clamp(static_cast<int>(std::lround((v - 127.5) * factor + 127.5)), 0, 255)); };
     if (const CoverScaled* hit = cache.find(key)) return *hit;
@@ -133,7 +133,7 @@ const CoverScaled& cover_scaled(const CoverImage& c, int max_w, int max_h, bool 
 
 const CoverRgb& cover_scaled_rgb(const CoverImage& c, int max_w, int max_h, int contrast, int chroma) {
     static SizeCache<CoverRgb, 3> cache;
-    contrast = std::clamp(contrast, 0, 100);
+    contrast = std::clamp(contrast, 0, 150);
     const std::string key = c.key + "|" + std::to_string(max_w) + "x" + std::to_string(max_h) + "|" + std::to_string(contrast) + (chroma > 0 ? "x" + std::to_string(chroma) : std::string());
     if (const CoverRgb* hit = cache.find(key)) return *hit;
     const double factor = 1.0 + contrast / 100.0 * 1.5;

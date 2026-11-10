@@ -2,6 +2,7 @@
 // Part of class App (src/app.h): The equalizer overlay.
 // Split out of app.cpp; the includes are the same as there.
 #include "app.h"
+#include "app_state_eq.h"
 #include "text_edit.h"
 #include "overlay_common.h"
 #include "remote_server.h"
@@ -89,8 +90,8 @@ std::string App::eq_preset_name(int index) const {
 int App::eq_current_preset() const {
     const int n = eq_preset_count();
     const EqGains& g = settings_.eq_gains;
-    if (eq_last_preset_ >= 0 && eq_last_preset_ < n && eq_gains_equal(eq_preset_gains(eq_last_preset_), g))
-        return eq_last_preset_;
+    if (eq_->last_preset >= 0 && eq_->last_preset < n && eq_gains_equal(eq_preset_gains(eq_->last_preset), g))
+        return eq_->last_preset;
     for (int i = 0; i < n; ++i) {
         if (eq_gains_equal(eq_preset_gains(i), g)) return i;
     }
@@ -99,11 +100,11 @@ int App::eq_current_preset() const {
 
 void App::eq_open() {
     const int m = eq_current_preset();
-    if (m >= 0) eq_last_preset_ = m;
-    eq_naming_ = false;
-    eq_name_buf_.clear();
-    eq_status_.clear();
-    eq_delete_armed_ = false;
+    if (m >= 0) eq_->last_preset = m;
+    eq_->naming = false;
+    eq_->name_buf.clear();
+    eq_->status.clear();
+    eq_->delete_armed = false;
     mode_ = Mode::Equalizer;
 }
 
@@ -123,11 +124,11 @@ void App::eq_set_gain(int band, float db) {
 void App::eq_select_preset(int dir) {
     const int n = eq_preset_count();
     const int cur = eq_current_preset();
-    const int base = cur >= 0 ? cur : std::clamp(eq_last_preset_, 0, n - 1);
+    const int base = cur >= 0 ? cur : std::clamp(eq_->last_preset, 0, n - 1);
     const int next = ((base + dir) % n + n) % n;
     settings_.eq_gains = eq_preset_gains(next);
     settings_.eq_enabled = true;
-    eq_last_preset_ = next;
+    eq_->last_preset = next;
     eq_apply();
 }
 
@@ -135,13 +136,13 @@ void App::eq_select_preset(int dir) {
 // custom preset the prompt starts with that preset's name, so ENTER alone
 // updates it; otherwise it starts empty.
 void App::eq_begin_naming() {
-    eq_name_buf_.clear();
+    eq_->name_buf.clear();
     const int builtin = static_cast<int>(kEqPresets.size());
-    if (eq_current_preset() < 0 && eq_last_preset_ >= builtin && eq_last_preset_ < eq_preset_count())
-        eq_name_buf_ = eq_preset_name(eq_last_preset_);
-    eq_naming_ = true;
+    if (eq_current_preset() < 0 && eq_->last_preset >= builtin && eq_->last_preset < eq_preset_count())
+        eq_->name_buf = eq_preset_name(eq_->last_preset);
+    eq_->naming = true;
     edit_owner_ = "eq-name"; // claim the shared caret -- see edit_focus()
-    edit_caret_ = edit_anchor_ = eq_name_buf_.size();
+    edit_caret_ = edit_anchor_ = eq_->name_buf.size();
 }
 
 // ENTER in the prompt: stores the current curve under the typed name. A name
@@ -150,7 +151,7 @@ void App::eq_begin_naming() {
 // at once, so a preset survives even if the program is closed abruptly.
 void App::eq_commit_name() {
     std::string name;
-    for (char c : eq_name_buf_) {
+    for (char c : eq_->name_buf) {
         const unsigned char u = static_cast<unsigned char>(c);
         if (u < 32 || u == 127) continue;                   // control characters
         name.push_back((c == '=' || c == '{' || c == '}') ? '-' : c); // would confuse the config parser
@@ -159,15 +160,15 @@ void App::eq_commit_name() {
     while (!name.empty() && name.back() == ' ') name.pop_back();
 
     if (name.empty()) {
-        eq_status_ = "Nothing saved: the name is empty";
-        eq_naming_ = false;
-        eq_name_buf_.clear();
+        eq_->status = "Nothing saved: the name is empty";
+        eq_->naming = false;
+        eq_->name_buf.clear();
         return;
     }
     if (eq_name_reserved(name)) {
-        eq_status_ = "\"" + name + "\" is a built-in name, pick another";
-        eq_naming_ = false;
-        eq_name_buf_.clear();
+        eq_->status = "\"" + name + "\" is a built-in name, pick another";
+        eq_->naming = false;
+        eq_->name_buf.clear();
         return;
     }
 
@@ -179,23 +180,23 @@ void App::eq_commit_name() {
     if (existing >= 0) {
         settings_.eq_custom_presets[existing].name = name;
         settings_.eq_custom_presets[existing].gains = settings_.eq_gains;
-        eq_last_preset_ = builtin + existing;
-        eq_status_ = "Updated \"" + name + "\"";
+        eq_->last_preset = builtin + existing;
+        eq_->status = "Updated \"" + name + "\"";
     } else if (settings_.eq_custom_presets.size() >= kEqMaxCustomPresets) {
-        eq_status_ = "Limit of " + std::to_string(kEqMaxCustomPresets) + " custom presets reached";
-        eq_naming_ = false;
-        eq_name_buf_.clear();
+        eq_->status = "Limit of " + std::to_string(kEqMaxCustomPresets) + " custom presets reached";
+        eq_->naming = false;
+        eq_->name_buf.clear();
         return;
     } else {
         EqCustomPreset cp;
         cp.name = name;
         cp.gains = settings_.eq_gains;
         settings_.eq_custom_presets.push_back(std::move(cp));
-        eq_last_preset_ = builtin + static_cast<int>(settings_.eq_custom_presets.size()) - 1;
-        eq_status_ = "Saved \"" + name + "\"";
+        eq_->last_preset = builtin + static_cast<int>(settings_.eq_custom_presets.size()) - 1;
+        eq_->status = "Saved \"" + name + "\"";
     }
-    eq_naming_ = false;
-    eq_name_buf_.clear();
+    eq_->naming = false;
+    eq_->name_buf.clear();
     save_settings(settings_);
 }
 
@@ -207,18 +208,18 @@ void App::eq_delete_custom(bool confirmed) {
     const int builtin = static_cast<int>(kEqPresets.size());
     const int cur = eq_current_preset();
     if (cur < builtin) {
-        eq_status_ = cur < 0 ? "Select a custom preset to delete it" : "Built-in presets cannot be deleted";
+        eq_->status = cur < 0 ? "Select a custom preset to delete it" : "Built-in presets cannot be deleted";
         return;
     }
     const std::string name = eq_preset_name(cur);
     if (!confirmed) {
-        eq_delete_armed_ = true;
-        eq_status_ = "Press DEL / X again to delete \"" + name + "\"";
+        eq_->delete_armed = true;
+        eq_->status = "Press DEL / X again to delete \"" + name + "\"";
         return;
     }
     settings_.eq_custom_presets.erase(settings_.eq_custom_presets.begin() + (cur - builtin));
-    eq_last_preset_ = cur - 1;
-    eq_status_ = "Deleted \"" + name + "\"";
+    eq_->last_preset = cur - 1;
+    eq_->status = "Deleted \"" + name + "\"";
     save_settings(settings_);
 }
 
@@ -296,7 +297,7 @@ std::vector<std::string> App::build_eq_panel() const {
         std::string content = axis;
         for (int b = 0; b < kEqBands; ++b) {
             const float v = g[b];
-            const bool sel = b == eq_band_;
+            const bool sel = b == eq_->band;
             const std::string colour = sel ? head : (on ? std::string() : dim);
             std::string glyph;
             if (L == 0) {
@@ -322,25 +323,25 @@ std::vector<std::string> App::build_eq_panel() const {
         std::snprintf(num, sizeof num, "%+d", static_cast<int>(std::lround(g[b])));
         const std::string v = centre(g[b] == 0.0f ? "0" : num);
         const std::string n = centre(kEqLabels[b]);
-        vals += b == eq_band_ ? HI + v + R : v;
-        names += b == eq_band_ ? HI + n + R : n;
+        vals += b == eq_->band ? HI + v + R : v;
+        names += b == eq_->band ? HI + n + R : n;
     }
     lines.push_back(framed(vals));
     lines.push_back(framed(names));
 
     // One row for the "Save as:" prompt or the last action's feedback. It is
     // always present (blank when idle) so the panel keeps the same height.
-    if (eq_naming_) {
+    if (eq_->naming) {
         const std::string prefix = "Save as: ";
-        const EditPaint p = paint_edit_field(eq_name_buf_, edit_caret_, edit_anchor_,
+        const EditPaint p = paint_edit_field(eq_->name_buf, edit_caret_, edit_anchor_,
                                              std::max(1, inner - display_width(prefix) - 1), "", true);
         const int fill = std::max(0, inner - display_width(prefix) - p.cols);
         lines.push_back(framed(prefix + p.s + std::string(fill, ' ')));
     } else {
-        lines.push_back(plain_row(eq_status_));
+        lines.push_back(plain_row(eq_->status));
     }
 
-    if (eq_naming_) {
+    if (eq_->naming) {
         push_legend_block(lines, W, border_bottom, {"Type a name (max " + std::to_string(kEqNameMaxBytes) + " characters)", "An existing custom name is replaced", "[ENTER] save  [ESC] cancel"}, legend_row, legend_bottom);
     } else {
         push_legend_block(lines, W, border_bottom, {"[</>] band  [UP/DOWN] gain  [,/.] preset  [0] zero", "[S] save preset  [DEL/X] delete preset", "[SPACE] on/off  [R] flat  [" + hotkey_text("HKeyEqualizer", "E") + " / ESC] close"}, legend_row, legend_bottom);

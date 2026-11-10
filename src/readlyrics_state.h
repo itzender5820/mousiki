@@ -42,7 +42,7 @@ struct ReadLyricsState {
     int exp_choice = 0;                             // what the export holds: bit 1 = the translation, bit 2 = the Latin spelling
     std::string exp_msg;                            // what the last export did (shown in the overlay, which stays open)
     bool exp_warn = false;
-    int watch_epoch = -1;                           // the lyrics fetch the reader waits for after the re-fetch overlay (lyrics_epoch_ at that time), -1 = none
+    int watch_epoch = -1;                           // the lyrics fetch the reader waits for after the re-fetch overlay (lyrics_.epoch at that time), -1 = none
     bool exp_wait = false;                          // the last ENTER only said "the kanji reader is still working": the next one exports anyway
     bool show = false;                              // translation visible
     bool same = false;                              // the lyrics already are in the target language

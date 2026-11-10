@@ -3,6 +3,7 @@
 #include "themes.h"
 #include "utf8_util.h"
 #include "string_util.h"
+#include "path_utf8.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -430,7 +431,7 @@ bool write_theme_file(const fs::path& file, const Theme& t, std::string& err) {
     std::error_code ec;
     if (file.has_parent_path()) fs::create_directories(file.parent_path(), ec);
     std::ofstream out(file, std::ios::trunc);
-    if (!out) { err = "cannot write " + file.string(); return false; }
+    if (!out) { err = "cannot write " + muisc::path_utf8(file); return false; }
     out << "# format: 9\n# A Mousiki colour theme. Import it with SHIFT+i on the Colors tab of the settings.\n\n";
     write_theme(out, t);
     return true;
@@ -453,12 +454,12 @@ std::vector<fs::path> list_theme_files(const fs::path& dir) {
     std::error_code ec;
     for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
         if (!it->is_regular_file(ec)) continue;
-        const std::string ext = ascii_lower_str(it->path().extension().string());
+        const std::string ext = ascii_lower_str(muisc::path_utf8(it->path().extension()));
         if (ext != ".theme" && ext != ".txt") continue;
         if (it->path() == file_path()) continue;   // the theme store itself
         if (!read_theme_file(it->path()).empty()) out.push_back(it->path());
     }
-    std::sort(out.begin(), out.end(), [](const fs::path& a, const fs::path& b) { return ascii_lower_str(a.filename().string()) < ascii_lower_str(b.filename().string()); });
+    std::sort(out.begin(), out.end(), [](const fs::path& a, const fs::path& b) { return ascii_lower_str(muisc::path_utf8(a.filename())) < ascii_lower_str(muisc::path_utf8(b.filename())); });
     return out;
 }
 
@@ -507,7 +508,7 @@ bool save_theme(const Theme& in_theme, std::string& err) {
     for (const Theme& b : all) if (b.builtin) write_theme(buf, b);
     for (const Theme& e : existing) if (!is_builtin_name(e.name)) write_theme(buf, e);
     std::ofstream out(path, std::ios::trunc);
-    if (!out) { err = "cannot write " + path.string(); return false; }
+    if (!out) { err = "cannot write " + muisc::path_utf8(path); return false; }
     out << buf.str();
     return true;
 }
@@ -527,14 +528,14 @@ bool delete_theme(const std::string& name_in, std::string& err) {
         if (ascii_lower_str(e.name) == ascii_lower_str(name)) { found = true; continue; }
         keep.push_back(e);
     }
-    if (!found) { err = "\"" + name + "\" is not in " + path.string(); return false; }
+    if (!found) { err = "\"" + name + "\" is not in " + muisc::path_utf8(path); return false; }
     const std::vector<Theme> all = load_all();
     std::ostringstream buf;
     buf << kHeader;
     for (const Theme& b : all) if (b.builtin) write_theme(buf, b);
     for (const Theme& e : keep) if (!is_builtin_name(e.name)) write_theme(buf, e);
     std::ofstream out(path, std::ios::trunc);
-    if (!out) { err = "cannot write " + path.string(); return false; }
+    if (!out) { err = "cannot write " + muisc::path_utf8(path); return false; }
     out << buf.str();
     return true;
 }

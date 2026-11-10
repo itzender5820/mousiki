@@ -29,6 +29,7 @@
 #include "disk_art.h"      // the help wizard's welcome page
 #include "wizard.h"        // its text, shared with the music player
 #include "radio_ui_internal.h"
+#include "string_util.h"
 
 namespace muisc::radio {
 
@@ -409,7 +410,7 @@ std::vector<std::string> build_scope_color_panel(const Style& s, const UiModel& 
         return bar + " " + x + spaces(inner - display_width(x)) + " " + bar;
     };
     const std::string shown = m.scope_big_color_buf.empty() ? (c.scope_grid_color.empty() ? c.list_fg : c.scope_grid_color)
-                                                            : std::to_string(std::clamp(std::atoi(m.scope_big_color_buf.c_str()), 0, 255));
+                                                            : std::to_string(std::clamp(muisc::atoi_safe(m.scope_big_color_buf.c_str()), 0, 255));
     std::vector<std::string> lines;
     lines.push_back(box_top(s, W, "Grid color", s.border));
     lines.push_back(row("Color (0-255): " + m.scope_big_color_buf + "█"));
@@ -710,7 +711,7 @@ std::vector<std::string> render_radio_frame_inner(const UiModel& m, const RadioS
         std::vector<std::string> panel;
         panel.push_back(box_top(s, W, "MENUS & OVERLAYS", s.border));
         for (const auto& r : body) panel.push_back(box_line(s, r, s.border));
-        panel.push_back(box_bottom(s, W, std::string("[\u2190\u2192] Neighbours  [\u2191] Back  [\u2193] In  [ENTER] Open  [SHIFT+T] Classic  [ESC / ") + menus_key_label(s.c, "Menus") + "] Close", s.border_bottom));
+        panel.push_back(box_bottom(s, W, std::string("[\u2190\u2192] Neighbours  [\u2191] Back  [\u2193] In  [ENTER] Open  [SHIFT+T] Classic  ") + "[ESC / " + menus_key_label(s.c, "Menus") + "] Close", s.border_bottom));
         for (size_t i = 0; i < panel.size() && i < out.size(); ++i) out[i] = panel[i];
         m.spectro_skip[0] = 0; m.spectro_skip[1] = 0; m.spectro_skip[2] = static_cast<int>(out.size()); m.spectro_skip[3] = W;
         if (m.gfx.active) m.gfx.crop = scope_w;   // (the whole screen is the organigram: no picture under it)

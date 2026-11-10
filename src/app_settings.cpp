@@ -1,6 +1,7 @@
 // The Settings screen: its tabs, the colour themes (picker, creator, import / export) and the PATHS and REFERENCE rows.
 // Split out of app.cpp. Member functions of App (declared in app.h); the tables are in app_settings_tables.h.
 #include "app.h"
+#include "app_state_theme.h"
 #include "text_edit.h"
 #include "overlay_common.h"
 #include "terminal_font.h"
@@ -54,6 +55,7 @@
 #include <mach-o/dyld.h>
 #endif
 #include "app_internal.h"
+#include "string_util.h"
 
 namespace muisc {
 
@@ -63,8 +65,8 @@ void App::settings_open() {
     settings_snapshot_text_ = settings_to_text(settings_);
     settings_dirty_ = false;
     leave_prompt_ = 0;
-    theme_ui_ = 0;
-    theme_list_ = themes::load_all();
+    theme_->ui = 0;
+    theme_->list = themes::load_all();
 }
 
 void App::settings_update_dirty() {
@@ -100,7 +102,7 @@ void App::settings_close(bool save) {
         status_line_.clear();
     }
     settings_dirty_ = false;
-    theme_ui_ = 0;
+    theme_->ui = 0;
     remote_ov_ = remote_ui::State{};
     mode_ = Mode::Browse;
     remote_app_apply();   // a discarded Remote App switch is undone here
@@ -445,45 +447,45 @@ void apply_book_default_theme(Settings& s) {
 
 int App::theme_current_index() const {
     // a theme of your own wins over a built-in one with exactly the same colours (a renamed copy keeps its new name)
-    for (size_t i = 0; i < theme_list_.size(); ++i) if (!theme_list_[i].builtin && theme_matches(settings_, theme_list_[i])) return static_cast<int>(i);
-    for (size_t i = 0; i < theme_list_.size(); ++i) if (theme_matches(settings_, theme_list_[i])) return static_cast<int>(i);
+    for (size_t i = 0; i < theme_->list.size(); ++i) if (!theme_->list[i].builtin && theme_matches(settings_, theme_->list[i])) return static_cast<int>(i);
+    for (size_t i = 0; i < theme_->list.size(); ++i) if (theme_matches(settings_, theme_->list[i])) return static_cast<int>(i);
     return -1;
 }
 
 void App::theme_open_picker() {
-    theme_list_ = themes::load_all();
-    theme_sel_ = std::max(0, theme_current_index());
-    theme_ui_ = 1;
+    theme_->list = themes::load_all();
+    theme_->sel = std::max(0, theme_current_index());
+    theme_->ui = 1;
     force_redraw_ = true;
 }
 
 // edit_current (key [e]): the creator opens on the colours in use. If they are a theme of your own, its name is already in the
 // NAME field and saving overwrites it (after a question); a built-in theme (or colours that match no theme) needs a new name.
 void App::theme_open_creator(bool edit_current) {
-    theme_list_ = themes::load_all();
+    theme_->list = themes::load_all();
     const int cur = theme_current_index();
-    theme_base_ = theme_list_[static_cast<size_t>(cur >= 0 ? cur : 0)];
-    theme_draft_ = settings_;
-    theme_draft_text_ = settings_to_text(theme_draft_);
+    theme_->base = theme_->list[static_cast<size_t>(cur >= 0 ? cur : 0)];
+    theme_->draft = settings_;
+    theme_->draft_text = settings_to_text(theme_->draft);
     leave_prompt_ = 0;
-    theme_name_.clear();
+    theme_->name.clear();
     status_line_.clear();
     if (edit_current) {
-        if (cur >= 0 && !theme_list_[static_cast<size_t>(cur)].builtin) theme_name_ = theme_list_[static_cast<size_t>(cur)].name;
-        else status_line_ = cur >= 0 ? "\"" + theme_list_[static_cast<size_t>(cur)].name + "\" is built in and cannot be overwritten: give your edit a new name"
+        if (cur >= 0 && !theme_->list[static_cast<size_t>(cur)].builtin) theme_->name = theme_->list[static_cast<size_t>(cur)].name;
+        else status_line_ = cur >= 0 ? "\"" + theme_->list[static_cast<size_t>(cur)].name + "\" is built in and cannot be overwritten: give your edit a new name"
                                      : "these colors are not a saved theme: give them a name";
     }
-    theme_name_initial_ = theme_name_;
-    theme_row_ = -1;
-    theme_col_ = 0;
-    theme_ui_ = 2;
+    theme_->name_initial = theme_->name;
+    theme_->row = -1;
+    theme_->col = 0;
+    theme_->ui = 2;
     force_redraw_ = true;
 }
 
 // [s] in the creator: a name is needed, a built-in theme cannot be overwritten, and overwriting a theme of your own is asked first
 // (leave_prompt_ 3; [y] then calls theme_save_new()).
 void App::theme_try_save() {
-    const std::string name = themes::sanitize_name(theme_name_);
+    const std::string name = themes::sanitize_name(theme_->name);
     if (name.empty()) { status_line_ = "give the theme a name first (NAME row), then [s]"; force_redraw_ = true; return; }
     const std::vector<themes::Theme> all = themes::load_all();
     const int at = themes::find_name(all, name);
@@ -498,23 +500,23 @@ void App::theme_try_save() {
 }
 
 void App::theme_delete_selected() {
-    if (theme_sel_ < 0 || theme_sel_ >= static_cast<int>(theme_list_.size())) return;
-    const std::string name = theme_list_[static_cast<size_t>(theme_sel_)].name;
+    if (theme_->sel < 0 || theme_->sel >= static_cast<int>(theme_->list.size())) return;
+    const std::string name = theme_->list[static_cast<size_t>(theme_->sel)].name;
     std::string err;
     if (!themes::delete_theme(name, err)) { status_line_ = err; return; }
-    theme_list_ = themes::load_all();
-    theme_sel_ = std::clamp(theme_sel_, 0, std::max(0, static_cast<int>(theme_list_.size()) - 1));
+    theme_->list = themes::load_all();
+    theme_->sel = std::clamp(theme_->sel, 0, std::max(0, static_cast<int>(theme_->list.size()) - 1));
     status_line_ = "THEME \"" + name + "\" DELETED";
 }
 
 void App::theme_save_new() {
-    themes::Theme t = theme_capture(theme_draft_, theme_base_);
-    t.name = themes::sanitize_name(theme_name_);
+    themes::Theme t = theme_capture(theme_->draft, theme_->base);
+    t.name = themes::sanitize_name(theme_->name);
     std::string err;
     if (!themes::save_theme(t, err)) { status_line_ = err; return; }
-    theme_list_ = themes::load_all();
+    theme_->list = themes::load_all();
     theme_apply(settings_, t);
-    theme_ui_ = 0;
+    theme_->ui = 0;
     status_line_ = "THEME \"" + t.name + "\" SAVED AND APPLIED (s saves the settings)";
     force_redraw_ = true;
 }
@@ -529,27 +531,27 @@ std::filesystem::path theme_dir_path(std::string dir) {
 }
 
 void App::theme_open_export() {
-    theme_list_ = themes::load_all();
+    theme_->list = themes::load_all();
     const int cur = theme_current_index();
-    theme_io_name_ = cur >= 0 ? theme_list_[static_cast<size_t>(cur)].name : std::string("My Theme");
-    if (theme_io_dir_.empty()) theme_io_dir_ = themes::exchange_dir().string();
-    theme_io_row_ = 0;
-    theme_ui_ = 4;
+    theme_->io_name = cur >= 0 ? theme_->list[static_cast<size_t>(cur)].name : std::string("My Theme");
+    if (theme_->io_dir.empty()) theme_->io_dir = themes::exchange_dir().string();
+    theme_->io_row = 0;
+    theme_->ui = 4;
     force_redraw_ = true;
 }
 
-void App::theme_io_rescan() {
-    theme_io_files_ = themes::list_theme_files(theme_dir_path(theme_io_dir_));
-    theme_io_sel_ = std::clamp(theme_io_sel_, 0, std::max(0, static_cast<int>(theme_io_files_.size()) - 1));
+void App::ThemeState::theme_io_rescan() {
+    io_files = themes::list_theme_files(theme_dir_path(io_dir));
+    io_sel = std::clamp(io_sel, 0, std::max(0, static_cast<int>(io_files.size()) - 1));
 }
 
 void App::theme_open_import() {
-    theme_list_ = themes::load_all();
-    if (theme_io_dir_.empty()) theme_io_dir_ = themes::exchange_dir().string();
-    theme_io_sel_ = 0;
-    theme_io_rescan();
-    theme_io_row_ = theme_io_files_.empty() ? 0 : 1;
-    theme_ui_ = 5;
+    theme_->list = themes::load_all();
+    if (theme_->io_dir.empty()) theme_->io_dir = themes::exchange_dir().string();
+    theme_->io_sel = 0;
+    theme_->theme_io_rescan();
+    theme_->io_row = theme_->io_files.empty() ? 0 : 1;
+    theme_->ui = 5;
     force_redraw_ = true;
 }
 
@@ -561,94 +563,94 @@ void App::theme_import_files(const std::vector<std::filesystem::path>& files) {
             const std::string name = themes::import_theme(t, err);
             if (!name.empty()) { ++n; last = name; }
         }
-    theme_list_ = themes::load_all();
-    theme_ui_ = 0;
+    theme_->list = themes::load_all();
+    theme_->ui = 0;
     status_line_ = n == 0 ? (err.empty() ? std::string("no theme found in that file") : err)
                           : "IMPORTED " + std::to_string(n) + " THEME" + (n == 1 ? "" : "S") + (n == 1 ? ": " + last : std::string()) + " -- pick it in the THEME row";
     force_redraw_ = true;
 }
 
 void App::handle_theme_key(int key) {
-    const int n = static_cast<int>(theme_list_.size());
-    if (theme_ui_ == 4) { // export the current colours as a theme file
-        if (key == 27 || key == 'q' || key == 'Q') { theme_ui_ = 0; status_line_.clear(); force_redraw_ = true; return; }
-        if (key == 'A') { theme_io_row_ = 0; return; }
-        if (key == 'B') { theme_io_row_ = 1; return; }
+    const int n = static_cast<int>(theme_->list.size());
+    if (theme_->ui == 4) { // export the current colours as a theme file
+        if (key == 27 || key == 'q' || key == 'Q') { theme_->ui = 0; status_line_.clear(); force_redraw_ = true; return; }
+        if (key == 'A') { theme_->io_row = 0; return; }
+        if (key == 'B') { theme_->io_row = 1; return; }
         if (key == '\r' || key == '\n') {
-            color_edit_buffer_ = theme_io_row_ == 0 ? theme_io_name_ : theme_io_dir_;
+            color_edit_buffer_ = theme_->io_row == 0 ? theme_->io_name : theme_->io_dir;
             edit_caret_ = edit_anchor_ = color_edit_buffer_.size();
             edit_owner_ = "settings";
             mode_ = Mode::ColorEdit;
             return;
         }
         if (key == 's' || key == 'S' || key == kKeyCtrlS) {
-            const std::string name = themes::sanitize_name(theme_io_name_);
+            const std::string name = themes::sanitize_name(theme_->io_name);
             if (name.empty()) { status_line_ = "give the theme a name first"; return; }
             const int cur = theme_current_index();
-            themes::Theme t = theme_capture(settings_, theme_list_[static_cast<size_t>(cur >= 0 ? cur : 0)]);
+            themes::Theme t = theme_capture(settings_, theme_->list[static_cast<size_t>(cur >= 0 ? cur : 0)]);
             t.name = name;
-            const std::filesystem::path file = theme_dir_path(theme_io_dir_) / themes::file_name_for(name);
+            const std::filesystem::path file = theme_dir_path(theme_->io_dir) / themes::file_name_for(name);
             std::string err;
             if (!themes::write_theme_file(file, t, err)) { status_line_ = err; return; }
-            theme_ui_ = 0;
-            status_line_ = "EXPORTED " + file.string();
+            theme_->ui = 0;
+            status_line_ = "EXPORTED " + path_utf8(file);
             force_redraw_ = true;
         }
         return;
     }
-    if (theme_ui_ == 5) { // import theme files from a folder
-        const int nf = static_cast<int>(theme_io_files_.size());
-        if (key == 27 || key == 'q' || key == 'Q') { theme_ui_ = 0; status_line_.clear(); force_redraw_ = true; return; }
-        if (key == 'A') { if (theme_io_row_ == 1 && theme_io_sel_ > 0) --theme_io_sel_; else theme_io_row_ = 0; return; }
+    if (theme_->ui == 5) { // import theme files from a folder
+        const int nf = static_cast<int>(theme_->io_files.size());
+        if (key == 27 || key == 'q' || key == 'Q') { theme_->ui = 0; status_line_.clear(); force_redraw_ = true; return; }
+        if (key == 'A') { if (theme_->io_row == 1 && theme_->io_sel > 0) --theme_->io_sel; else theme_->io_row = 0; return; }
         if (key == 'B') {
-            if (theme_io_row_ == 0) { if (nf > 0) theme_io_row_ = 1; }
-            else if (theme_io_sel_ < nf - 1) ++theme_io_sel_;
+            if (theme_->io_row == 0) { if (nf > 0) theme_->io_row = 1; }
+            else if (theme_->io_sel < nf - 1) ++theme_->io_sel;
             return;
         }
         if (key == '\r' || key == '\n') {
-            if (theme_io_row_ == 0) {
-                color_edit_buffer_ = theme_io_dir_;
+            if (theme_->io_row == 0) {
+                color_edit_buffer_ = theme_->io_dir;
                 edit_caret_ = edit_anchor_ = color_edit_buffer_.size();
                 edit_owner_ = "settings";
                 mode_ = Mode::ColorEdit;
-            } else if (theme_io_sel_ >= 0 && theme_io_sel_ < nf) {
-                theme_import_files({theme_io_files_[static_cast<size_t>(theme_io_sel_)]});
+            } else if (theme_->io_sel >= 0 && theme_->io_sel < nf) {
+                theme_import_files({theme_->io_files[static_cast<size_t>(theme_->io_sel)]});
             }
             return;
         }
-        if (key == 'a' || key == kKeyCtrlS) { if (nf > 0) theme_import_files(theme_io_files_); return; }
+        if (key == 'a' || key == kKeyCtrlS) { if (nf > 0) theme_import_files(theme_->io_files); return; }
         return;
     }
-    if (theme_ui_ == 1 || theme_ui_ == 3) {
-        if (theme_peek_) { theme_peek_ = false; peek_frame_.clear(); force_redraw_ = true; return; }   // any key closes the preview
-        if (key == 'P' && !last_key_was_arrow() && theme_sel_ >= 0 && theme_sel_ < n) { theme_peek_ = true; peek_frame_.clear(); force_redraw_ = true; return; }
-        if (key == 27 || key == 'q' || key == 'Q') { theme_ui_ = (theme_ui_ == 3) ? 2 : 0; return; }
+    if (theme_->ui == 1 || theme_->ui == 3) {
+        if (theme_->peek) { theme_->peek = false; peek_frame_.clear(); force_redraw_ = true; return; }   // any key closes the preview
+        if (key == 'P' && !last_key_was_arrow() && theme_->sel >= 0 && theme_->sel < n) { theme_->peek = true; peek_frame_.clear(); force_redraw_ = true; return; }
+        if (key == 27 || key == 'q' || key == 'Q') { theme_->ui = (theme_->ui == 3) ? 2 : 0; return; }
         if ((key == 'A' || key == 'B') && last_key_was_arrow() && last_key_was_shifted()) {   // SHIFT+up / down: a page
-            const int page = std::max(1, theme_page_ - 1);
-            theme_sel_ = std::clamp(theme_sel_ + (key == 'A' ? -page : page), 0, std::max(0, n - 1));
+            const int page = std::max(1, theme_->page - 1);
+            theme_->sel = std::clamp(theme_->sel + (key == 'A' ? -page : page), 0, std::max(0, n - 1));
             return;
         }
-        if (key == 'A') { if (theme_sel_ > 0) --theme_sel_; return; }
-        if (key == 'B') { if (theme_sel_ < n - 1) ++theme_sel_; return; }
-        if (key == kKeyHome) { theme_sel_ = 0; return; }
-        if (key == kKeyEnd) { theme_sel_ = std::max(0, n - 1); return; }
-        if (theme_ui_ == 1 && key == 'D' && !last_key_was_arrow() && theme_sel_ >= 0 && theme_sel_ < n) {   // SHIFT+d: delete a theme of your own
-            const themes::Theme& t = theme_list_[static_cast<size_t>(theme_sel_)];
+        if (key == 'A') { if (theme_->sel > 0) --theme_->sel; return; }
+        if (key == 'B') { if (theme_->sel < n - 1) ++theme_->sel; return; }
+        if (key == kKeyHome) { theme_->sel = 0; return; }
+        if (key == kKeyEnd) { theme_->sel = std::max(0, n - 1); return; }
+        if (theme_->ui == 1 && key == 'D' && !last_key_was_arrow() && theme_->sel >= 0 && theme_->sel < n) {   // SHIFT+d: delete a theme of your own
+            const themes::Theme& t = theme_->list[static_cast<size_t>(theme_->sel)];
             if (t.builtin) status_line_ = "\"" + t.name + "\" is a built-in theme and cannot be deleted";
             else leave_prompt_ = 4;   // "Do you want to delete theme?" ([y] calls theme_delete_selected())
             force_redraw_ = true;
             return;
         }
-        if ((key == '\r' || key == '\n') && theme_sel_ >= 0 && theme_sel_ < n) {
-            const themes::Theme& t = theme_list_[static_cast<size_t>(theme_sel_)];
-            if (theme_ui_ == 1) {
+        if ((key == '\r' || key == '\n') && theme_->sel >= 0 && theme_->sel < n) {
+            const themes::Theme& t = theme_->list[static_cast<size_t>(theme_->sel)];
+            if (theme_->ui == 1) {
                 theme_apply(settings_, t);
-                theme_ui_ = 0;
+                theme_->ui = 0;
                 status_line_ = "THEME: " + t.name + " (s saves the settings)";
             } else {
-                theme_apply(theme_draft_, t);
-                theme_base_ = t;
-                theme_ui_ = 2;
+                theme_apply(theme_->draft, t);
+                theme_->base = t;
+                theme_->ui = 2;
                 status_line_ = "template: " + t.name;
             }
             force_redraw_ = true;
@@ -658,30 +660,30 @@ void App::handle_theme_key(int key) {
     // --- the CREATE THEME overlay ---
     if (key == 27 || key == 'q' || key == 'Q') {
         // anything made here is lost on ESC: ask first (the theme is only kept by [s])
-        if (theme_name_ != theme_name_initial_ || settings_to_text(theme_draft_) != theme_draft_text_) { leave_prompt_ = 2; force_redraw_ = true; return; }
-        theme_ui_ = 0; status_line_.clear(); force_redraw_ = true; return;
+        if (theme_->name != theme_->name_initial || settings_to_text(theme_->draft) != theme_->draft_text) { leave_prompt_ = 2; force_redraw_ = true; return; }
+        theme_->ui = 0; status_line_.clear(); force_redraw_ = true; return;
     }
     if (key == 's' || key == 'S' || key == kKeyCtrlS) { theme_try_save(); return; }
     if (key == 'A') {
-        if (theme_row_ >= 0) { --theme_row_; if (theme_row_ < 0) theme_col_ = 0; }
+        if (theme_->row >= 0) { --theme_->row; if (theme_->row < 0) theme_->col = 0; }
         return;
     }
     if (key == 'B') {
-        if (theme_row_ < 20) { ++theme_row_; if (theme_col_ == 1 && !color_cell(theme_draft_, theme_row_, 1)) theme_col_ = 0; }
+        if (theme_->row < 20) { ++theme_->row; if (theme_->col == 1 && !color_cell(theme_->draft, theme_->row, 1)) theme_->col = 0; }
         return;
     }
     if (key == 'C') {
-        if (theme_row_ < 0) theme_col_ = 1;
-        else if (color_cell(theme_draft_, theme_row_, 1)) theme_col_ = 1;
+        if (theme_->row < 0) theme_->col = 1;
+        else if (color_cell(theme_->draft, theme_->row, 1)) theme_->col = 1;
         return;
     }
-    if (key == 'D') { theme_col_ = 0; return; }
+    if (key == 'D') { theme_->col = 0; return; }
     if (key == '\r' || key == '\n') {
-        if (theme_row_ < 0 && theme_col_ == 1) { theme_ui_ = 3; theme_sel_ = 0;
-            for (int i = 0; i < n; ++i) if (theme_list_[static_cast<size_t>(i)].name == theme_base_.name) theme_sel_ = i;
+        if (theme_->row < 0 && theme_->col == 1) { theme_->ui = 3; theme_->sel = 0;
+            for (int i = 0; i < n; ++i) if (theme_->list[static_cast<size_t>(i)].name == theme_->base.name) theme_->sel = i;
             return; }
-        if (theme_row_ < 0) color_edit_buffer_ = theme_name_;
-        else { std::string* c = color_cell(theme_draft_, theme_row_, theme_col_); color_edit_buffer_ = c ? *c : ""; }
+        if (theme_->row < 0) color_edit_buffer_ = theme_->name;
+        else { std::string* c = color_cell(theme_->draft, theme_->row, theme_->col); color_edit_buffer_ = c ? *c : ""; }
         edit_caret_ = edit_anchor_ = color_edit_buffer_.size();
         edit_owner_ = "settings";
         mode_ = Mode::ColorEdit;
@@ -760,7 +762,7 @@ std::string App::settings_get_value(int row, int col) const {
             case kSidVideoCover: return settings_.video_cover == 1 ? "thumbnail" : settings_.video_cover == 2 ? "disk" : settings_.video_cover == 3 ? "thumbnail fallback" : "cover";
             case kSidVideoClap: return settings_.video_clap == 2 ? "none" : settings_.video_clap == 0 ? "text note" : "clap";
             case kSidCoverChroma: return chroma_name(settings_.cover_chroma);
-            case kSidVideoRes: return video_res_label(settings_.video_res, gfx_proto_ == GfxProto::Sixel);
+            case kSidVideoRes: return video_res_label(settings_.video_res, gfxs_.proto == GfxProto::Sixel);
             case kSidVideoBuffer: return std::to_string(settings_.video_buffer) + " MB";
             case kSidVideoMp3: return settings_.video_mp3 ? "true" : "false";
             case kSidUseVideo: v = settings_.video_mode; break;
@@ -771,9 +773,10 @@ std::string App::settings_get_value(int row, int col) const {
             case kSidBookAsk: v = settings_.book_ask_bookmark; break;
             case kSidAlbumCover: v = settings_.album_cover; break;
             case kSidCoverMode: return settings_.cover_mode == 0 ? "Just Cover" : settings_.cover_mode == 1 ? "Cover with Gradient" : settings_.cover_mode == 4 ? "Cover behind Disk (Full Anima)" : settings_.cover_mode == 5 ? "Cover ASCII" : settings_.cover_mode == 6 ? "Cover ASCII with Gradient" : settings_.cover_mode == 3 ? "Cover behind Disk v2" : "Cover behind Disk";
-            case kSidCoverContrast: return std::to_string(std::clamp(settings_.cover_contrast, 0, 100)) + "%";
+            case kSidCoverContrast: return std::to_string(std::clamp(settings_.cover_contrast, 0, 150)) + "%";
             case kSidCoverBrightness: return std::to_string(std::clamp(settings_.cover_brightness, 0, 100)) + "%";
             case kSidCoverColors: return std::to_string(std::clamp(settings_.cover_colors, 0, 100)) + "%";
+            case kSidCoverGradSat: return std::to_string(std::clamp(settings_.cover_grad_sat, 0, 100)) + "%";
             case kSidCoverSearch: {
                 static const char* names[] = {"Default", "Folder First", "Within File First", "Image in Folder Only", "Within File Only"};
                 return names[std::clamp(settings_.cover_search, 0, 4)];
@@ -902,7 +905,7 @@ std::vector<std::string> App::settings_options_for(int tab, int row) const {
             case kSidVideoRound: return {"off", "on"};
             case kSidVideoCover: return {"cover", "thumbnail", "disk", "thumbnail fallback"};
             case kSidVideoClap: return {"text note", "clap", "none"};
-            case kSidVideoRes: return {video_res_label(0, gfx_proto_ == GfxProto::Sixel), video_res_label(1, gfx_proto_ == GfxProto::Sixel), video_res_label(2, gfx_proto_ == GfxProto::Sixel)};
+            case kSidVideoRes: return {video_res_label(0, gfxs_.proto == GfxProto::Sixel), video_res_label(1, gfxs_.proto == GfxProto::Sixel), video_res_label(2, gfxs_.proto == GfxProto::Sixel)};
             case kSidVideoMp3: return {"false", "true"};
             case kSidVideoBuffer: { std::vector<std::string> o; for (int c : kVideoBufferChoices) o.push_back(std::to_string(c) + " MB"); return o; }
             case kSidOrder1: case kSidOrder2: case kSidOrder3: case kSidOrder4: case kSidOrder5: return {"sphere", "osci", "spectro", viz_row_name(3), "video"};
@@ -915,8 +918,8 @@ std::vector<std::string> App::settings_options_for(int tab, int row) const {
             }
             case kSidVolIndicator: return {kVolIndicatorNames[0], kVolIndicatorNames[1], kVolIndicatorNames[2], kVolIndicatorNames[3], kVolIndicatorNames[4]};
             case kSidCoverMode: return {"Just Cover", "Cover with Gradient", "Cover behind Disk", "Cover behind Disk v2", "Cover behind Disk (Full Anima)", "Cover ASCII", "Cover ASCII with Gradient"};
-            case kSidCoverBrightness: case kSidCoverColors:
-            case kSidCoverContrast: { std::vector<std::string> o; for (int i = 0; i <= 100; i += 5) o.push_back(std::to_string(i) + "%"); return o; }
+            case kSidCoverBrightness: case kSidCoverColors: case kSidCoverGradSat: { std::vector<std::string> o; for (int i = 0; i <= 100; i += 5) o.push_back(std::to_string(i) + "%"); return o; }
+            case kSidCoverContrast: { std::vector<std::string> o; for (int i = 0; i <= 150; i += 5) o.push_back(std::to_string(i) + "%"); return o; }
             case kSidCoverSearch: return {"Default", "Folder First", "Within File First", "Image in Folder Only", "Within File Only"};
             case kSidTrackBuffer: return {};   // a number (ENTER types it) and a "Set back to default" button (RIGHT, then ENTER)
             case kSidRemoteApp: return {};   // not a switch: ENTER / LEFT / RIGHT open the REMOTE APP overlay
@@ -972,11 +975,11 @@ void App::settings_commit_edit_impl() {
     const std::string& buf = color_edit_buffer_;
     auto to_lower = [](std::string v) { for (char& c : v) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); return v; };
 
-    if (theme_ui_ == 4) { if (theme_io_row_ == 0) theme_io_name_ = themes::sanitize_name(buf); else theme_io_dir_ = buf; return; }
-    if (theme_ui_ == 5) { theme_io_dir_ = buf; theme_io_rescan(); theme_io_sel_ = 0; theme_io_row_ = theme_io_files_.empty() ? 0 : 1; return; }
-    if (theme_ui_ == 2) { // the CREATE THEME overlay edits its own draft
-        if (theme_row_ < 0) theme_name_ = themes::sanitize_name(buf);
-        else if (std::string* c = color_cell(theme_draft_, theme_row_, theme_col_)) *c = buf;
+    if (theme_->ui == 4) { if (theme_->io_row == 0) theme_->io_name = themes::sanitize_name(buf); else theme_->io_dir = buf; return; }
+    if (theme_->ui == 5) { theme_->io_dir = buf; theme_->theme_io_rescan(); theme_->io_sel = 0; theme_->io_row = theme_->io_files.empty() ? 0 : 1; return; }
+    if (theme_->ui == 2) { // the CREATE THEME overlay edits its own draft
+        if (theme_->row < 0) theme_->name = themes::sanitize_name(buf);
+        else if (std::string* c = color_cell(theme_->draft, theme_->row, theme_->col)) *c = buf;
         return;
     }
     if (settings_tab_ == 0) {
@@ -994,7 +997,7 @@ void App::settings_commit_edit_impl() {
         if (id == kSidVideoContrast || id == kSidVideoBrightness || id == kSidVideoColors) {
             std::string d = v;
             if (!d.empty() && d.back() == '%') d.pop_back();
-            (id == kSidVideoContrast ? settings_.video_contrast : id == kSidVideoBrightness ? settings_.video_brightness : settings_.video_colors) = std::clamp((std::atoi(d.c_str()) + 2) / 5 * 5, 0, 100);
+            (id == kSidVideoContrast ? settings_.video_contrast : id == kSidVideoBrightness ? settings_.video_brightness : settings_.video_colors) = std::clamp((muisc::atoi_safe(d.c_str()) + 2) / 5 * 5, 0, 100);
             video_pic_key_.clear();
             return;
         }
@@ -1009,7 +1012,7 @@ void App::settings_commit_edit_impl() {
         if (id == kSidCoverChroma) { settings_.cover_chroma = chroma_from(v); cover_pic_key_.clear(); return; }
         if (id == kSidVideoRes) { settings_.video_res = video_res_from(v); video_pic_key_.clear(); return; }
         if (id == kSidVideoMp3) { settings_.video_mp3 = v == "true"; return; }
-        if (id == kSidVideoBuffer) { const int mb = std::atoi(v.c_str()); int best = kVideoBufferChoices[0]; for (int c : kVideoBufferChoices) if (mb >= c) best = c; settings_.video_buffer = best; return; }
+        if (id == kSidVideoBuffer) { const int mb = muisc::atoi_safe(v.c_str()); int best = kVideoBufferChoices[0]; for (int c : kVideoBufferChoices) if (mb >= c) best = c; settings_.video_buffer = best; return; }
         if (id == kSidNoVideoViz) {
             if (v == "lyrics") settings_.novideo_viz = 4;
             else if (v == "sphere") settings_.novideo_viz = 0;
@@ -1076,13 +1079,13 @@ void App::settings_commit_edit_impl() {
             case kSidCoverContrast: {
                 std::string d = v;
                 if (!d.empty() && d.back() == '%') d.pop_back();
-                settings_.cover_contrast = std::clamp((std::atoi(d.c_str()) + 2) / 5 * 5, 0, 100);
+                settings_.cover_contrast = std::clamp((muisc::atoi_safe(d.c_str()) + 2) / 5 * 5, 0, 150);
                 return;
             }
-            case kSidCoverBrightness: case kSidCoverColors: {   // behind the disk: brightness floor / the cover's own colours
+            case kSidCoverBrightness: case kSidCoverColors: case kSidCoverGradSat: {   // behind the disk: brightness floor / the cover's own colours / the gradient's saturation
                 std::string d = v;
                 if (!d.empty() && d.back() == '%') d.pop_back();
-                (id == kSidCoverBrightness ? settings_.cover_brightness : settings_.cover_colors) = std::clamp((std::atoi(d.c_str()) + 2) / 5 * 5, 0, 100);
+                (id == kSidCoverBrightness ? settings_.cover_brightness : id == kSidCoverColors ? settings_.cover_colors : settings_.cover_grad_sat) = std::clamp((muisc::atoi_safe(d.c_str()) + 2) / 5 * 5, 0, 100);
                 return;
             }
             case kSidCoverSearch:
@@ -1128,7 +1131,7 @@ void App::settings_commit_edit_impl() {
             case kSidVolIndicator:
                 settings_.volume_indicator = std::max(0, volume_style_from_name(v));
                 return;
-            case kSidVisFluidity: try { settings_.bar_fluidity() = std::clamp(std::stoi(buf), 1, 10); } catch (...) {} return;
+            case kSidVisFluidity: if (const auto n_ = muisc::parse_int(buf)) { settings_.bar_fluidity() = std::clamp(*n_, 1, 10); } return;
             case kSidBarBehavior: for (int i = 0; i < 4; ++i) if (v == kBarsPresets[i].name) {
                 settings_.bar_fluidity() = kBarsPresets[i].fluidity; settings_.bar_degradation() = kBarsPresets[i].degradation; settings_.bar_viscosity() = kBarsPresets[i].viscosity; }
                 return;
@@ -1141,9 +1144,9 @@ void App::settings_commit_edit_impl() {
             case kSidHifiAdapt: settings_.hifi_adapt = v == "on" ? 1 : 0; return;
             case kSidHifiSplit: settings_.hifi_split = v == "remove" ? 0 : 1; return;
             case kSidHifiFScale: settings_.hifi_fscale = v == "linear" ? 0 : v == "logarithmic" ? 1 : v == "bark" ? 3 : v == "erb" ? 4 : 2; return;
-            case kSidHifiGain: try { settings_.hifi_gain = std::clamp(std::stoi(v), -20, 20); } catch (...) {} return;
-            case kSidHifiRange: try { settings_.hifi_range = std::clamp(std::stoi(v), 40, 100); } catch (...) {} return;
-            case kSidDiskSpeed: try { settings_.disk_rotation_speed = std::stod(buf); } catch (...) {} return;
+            case kSidHifiGain: if (const auto n_ = muisc::parse_int(v)) { settings_.hifi_gain = std::clamp(*n_, -20, 20); } return;
+            case kSidHifiRange: if (const auto n_ = muisc::parse_int(v)) { settings_.hifi_range = std::clamp(*n_, 40, 100); } return;
+            case kSidDiskSpeed: if (const auto n_ = muisc::parse_double(buf)) { settings_.disk_rotation_speed = *n_; } return;
             case kSidTrackBuffer: {   // typed MB; the next track that is loaded uses it
                 try {
                     const int mb = std::stoi(buf);
@@ -1154,8 +1157,8 @@ void App::settings_commit_edit_impl() {
                 } catch (...) { status_line_ = "track buffer: type a number of MB"; }
                 return;
             }
-            case kSidVisDegr: try { settings_.bar_degradation() = std::clamp(std::stoi(buf), 1, 10); } catch (...) {} return;
-            case kSidVisVisc: try { settings_.bar_viscosity() = std::clamp(std::stoi(buf), 0, 10); } catch (...) {} return;
+            case kSidVisDegr: if (const auto n_ = muisc::parse_int(buf)) { settings_.bar_degradation() = std::clamp(*n_, 1, 10); } return;
+            case kSidVisVisc: if (const auto n_ = muisc::parse_int(buf)) { settings_.bar_viscosity() = std::clamp(*n_, 0, 10); } return;
             case kSidDisk: if (v == "show disk / cover" || v == "true") settings_.element_disk = true; else if (v == "remove field" || v == "false") settings_.element_disk = false; return;
             case kSidLyrAlign: settings_.lyrics_alignment = (v == "left") ? 1 : (v == "right") ? 2 : 0; return;
             case kSidLyrAnim:
@@ -1417,9 +1420,10 @@ void App::settings_cycle(int dir) {
     if (id == kSidVideoClap) status_line_ = settings_.video_clap == 1 ? "show clap loading: clap -- a small clapperboard shows while a video loads" : settings_.video_clap == 0 ? "show clap loading: text note -- the text \"video: starting ...\" shows while a video loads" : "show clap loading: none -- nothing shows while a video loads";
     if (id == kSidVideoRound) status_line_ = settings_.video_round ? "video rounded corners: on -- the corners of the picture are cut round like the corners of the UI" : "video rounded corners: off";
     if (id == kSidVideoChroma) status_line_ = std::string("video chromatic aberration: ") + chroma_name(settings_.video_chroma) + " -- red and blue are pushed apart, more towards the corners; works with every effect" + note;
+    if (id == kSidCoverGradSat) status_line_ = "cover gradient saturation: " + std::to_string(settings_.cover_grad_sat) + "% -- how vivid the disk's gradient is between its two colours (0 = the plain blend, which fades to grey in the middle); the picture itself stays as it is" + note;
     if (id == kSidCoverChroma) status_line_ = std::string("cover chromatic aberration: ") + chroma_name(settings_.cover_chroma) + " -- for a cover that shows its own colours (Just Cover, Cover Colors above 0, the ASCII looks)" + note;
-    if (id == kSidVideoRes) status_line_ = std::string("video resolution: ") + video_res_label(settings_.video_res, gfx_proto_ == GfxProto::Sixel) + (settings_.video_res == 0 ? " -- the soft look, light on the terminal" : gfx_proto_ == GfxProto::Kitty ? " -- a sharper picture in true colour; needs more of the terminal and the processor" : " -- a wider picture (Sixel has at most 256 colours)") + note;
-    if (id == kSidVideoBuffer) status_line_ = "video buffer: " + std::to_string(settings_.video_buffer) + " MB of decoded frames kept ahead (about " + std::to_string(video_buffer_seconds(settings_.video_buffer, settings_.video_res, gfx_proto_ == GfxProto::Sixel)) + " s of a 16:9 picture at this resolution)" + note;
+    if (id == kSidVideoRes) status_line_ = std::string("video resolution: ") + video_res_label(settings_.video_res, gfxs_.proto == GfxProto::Sixel) + (settings_.video_res == 0 ? " -- the soft look, light on the terminal" : gfxs_.proto == GfxProto::Kitty ? " -- a sharper picture in true colour; needs more of the terminal and the processor" : " -- a wider picture (Sixel has at most 256 colours)") + note;
+    if (id == kSidVideoBuffer) status_line_ = "video buffer: " + std::to_string(settings_.video_buffer) + " MB of decoded frames kept ahead (about " + std::to_string(video_buffer_seconds(settings_.video_buffer, settings_.video_res, gfxs_.proto == GfxProto::Sixel)) + " s of a 16:9 picture at this resolution)" + note;
     if (id == kSidVideoMp3) status_line_ = settings_.video_mp3 ? "yt-dlp mp3 from mp4: true -- SEARCH YT also saves the sound of a video as an mp3 song when no song is the target (CTRL+o in SEARCH YT changes it for one download)" : "yt-dlp mp3 from mp4: false -- SEARCH YT downloads only the video (CTRL+o in SEARCH YT asks for the mp3 for one download; CTRL+3 in FETCH VIDEOS -> VIDEO FILES makes one from a file)";
     if (id == kSidVideoFx) status_line_ = std::string("video effect: ") + video_fx_name(settings_.video_fx) + note;
     if (id == kSidNoVideoViz) {
@@ -1442,7 +1446,7 @@ void App::settings_cycle(int dir) {
         // A track that was decoded as mono can't become stereo without being
         // decoded again, so switching stereo ON only applies from the next
         // track. Switching it OFF is immediate.
-        if (settings_.stereo && has_track_ && current_pcm_ && current_pcm_->channels == 1)
+        if (settings_.stereo && has_track_ && current_.pcm && current_.pcm->channels == 1)
             status_line_ = "stereo: on -- applies from the next track";
         else
             status_line_ = settings_.stereo ? "stereo: on" : "stereo: off";
@@ -1593,10 +1597,10 @@ void App::handle_settings_key(int key) {
         if (kind == 4) { if (key == 'y' || key == 'Y') theme_delete_selected(); return; }   // "delete the theme?": only y says yes   // "overwrite the theme?": only y says yes
         if (kind == 1) { if (save) settings_close(true); else if (discard) settings_close(false); }
         else if (save) theme_try_save();   // may ask once more (overwriting a theme of your own)
-        else if (discard) { theme_ui_ = 0; status_line_.clear(); }
+        else if (discard) { theme_->ui = 0; status_line_.clear(); }
         return;
     }
-    if (theme_ui_ != 0 && mode_ != Mode::ColorEdit) { handle_theme_key(key); return; }
+    if (theme_->ui != 0 && mode_ != Mode::ColorEdit) { handle_theme_key(key); return; }
     if (remote_ov_.open) {   // the REMOTE APP overlay has the keys
         remote_ui::Values v{settings_.remote_app, settings_.remote_port, settings_.remote_pin};
         bool close = false;
@@ -1731,8 +1735,8 @@ void App::handle_settings_key(int key) {
         if (key == kKeyCtrlV) {
             // A path gets far more room than a color/hotkey field does --
             // the same cap typing enforces below.
-            const int limit = ((theme_ui_ == 2 && theme_row_ < 0) || (theme_ui_ == 4 && theme_io_row_ == 0)) ? themes::kMaxNameLen
-                              : (theme_ui_ == 4 || theme_ui_ == 5) ? 240
+            const int limit = ((theme_->ui == 2 && theme_->row < 0) || (theme_->ui == 4 && theme_->io_row == 0)) ? themes::kMaxNameLen
+                              : (theme_->ui == 4 || theme_->ui == 5) ? 240
                               : (settings_tab_ == 3 && path_row_is_text(settings_row_)) ? 240
                               : (settings_tab_ == 1 && settings_item_id(1, settings_row_) == kSidTrackBuffer) ? 6 : 18;
             le_paste(color_edit_buffer_, edit_caret_, edit_anchor_, clipboard_get(), static_cast<size_t>(limit));
@@ -1756,8 +1760,8 @@ void App::handle_settings_key(int key) {
             return;
         }
         // A path needs far more room than a color/hotkey field does.
-        const int edit_limit = ((theme_ui_ == 2 && theme_row_ < 0) || (theme_ui_ == 4 && theme_io_row_ == 0)) ? themes::kMaxNameLen
-                             : (theme_ui_ == 4 || theme_ui_ == 5) ? 240
+        const int edit_limit = ((theme_->ui == 2 && theme_->row < 0) || (theme_->ui == 4 && theme_->io_row == 0)) ? themes::kMaxNameLen
+                             : (theme_->ui == 4 || theme_->ui == 5) ? 240
                              : (settings_tab_ == 3 && path_row_is_text(settings_row_)) ? 240
                              : (settings_tab_ == 1 && settings_item_id(1, settings_row_) == kSidTrackBuffer) ? 6 : 18;   // Track Buffer (MB): 6 digits at most
         if (is_text_key(key)) {

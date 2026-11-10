@@ -2,6 +2,10 @@
 // Part of class App (src/app.h): Small menus and floating panels: retry lyrics, oscilloscope / normalization options, lyrics timing, sleep timer, MENUS index, ...
 // Split out of app.cpp; the includes are the same as there.
 #include "app.h"
+#include "app_state_rl.h"
+#include "app_state_sleep.h"
+#include "app_state_device.h"
+#include "app_state_qtp.h"
 #include "readlyrics_state.h"
 #include "text_edit.h"
 #include "overlay_common.h"
@@ -65,38 +69,38 @@ namespace muisc {
 // Retry Lyrics (HKeyRetryLyrics, 'l') -- manual title/artist override
 // ---------------------------------------------------------------------
 
-std::vector<App::RLField> App::rl_visible_fields() const {
+std::vector<App::RLField> App::RlState::rl_visible_fields() const {
     std::vector<RLField> f;
     f.insert(f.end(), {
         RLField::Title, RLField::Artist, RLField::Ft,
         RLField::TypeReverb, RLField::TypeSlowed, RLField::TypeUltraSlowed,
         RLField::TypeSpedup, RLField::TypeRemix, RLField::TypeOther,
     });
-    if (rl_remix_) f.push_back(RLField::RemixText);
-    if (rl_other_) f.push_back(RLField::OtherText);
-    if (!rl_versions_.empty()) f.push_back(RLField::Source);   // the list sits at the bottom of the overlay
+    if (remix) f.push_back(RLField::RemixText);
+    if (other) f.push_back(RLField::OtherText);
+    if (!versions.empty()) f.push_back(RLField::Source);   // the list sits at the bottom of the overlay
     return f;
 }
 
-bool* App::rl_bool_ptr(RLField f) {
+bool* App::RlState::rl_bool_ptr(RLField f) {
     switch (f) {
-        case RLField::TypeReverb: return &rl_reverb_;
-        case RLField::TypeSlowed: return &rl_slowed_;
-        case RLField::TypeUltraSlowed: return &rl_ultra_slowed_;
-        case RLField::TypeSpedup: return &rl_spedup_;
-        case RLField::TypeRemix: return &rl_remix_;
-        case RLField::TypeOther: return &rl_other_;
+        case RLField::TypeReverb: return &reverb;
+        case RLField::TypeSlowed: return &slowed;
+        case RLField::TypeUltraSlowed: return &ultra_slowed;
+        case RLField::TypeSpedup: return &spedup;
+        case RLField::TypeRemix: return &remix;
+        case RLField::TypeOther: return &other;
         default: return nullptr;
     }
 }
 
-std::string* App::rl_text_ptr(RLField f) {
+std::string* App::RlState::rl_text_ptr(RLField f) {
     switch (f) {
-        case RLField::Title: return &rl_title_;
-        case RLField::Artist: return &rl_artist_;
-        case RLField::Ft: return &rl_ft_;
-        case RLField::RemixText: return &rl_remix_text_;
-        case RLField::OtherText: return &rl_other_text_;
+        case RLField::Title: return &title;
+        case RLField::Artist: return &artist;
+        case RLField::Ft: return &ft;
+        case RLField::RemixText: return &remix_text;
+        case RLField::OtherText: return &other_text;
         default: return nullptr;
     }
 }
@@ -107,9 +111,9 @@ std::string* App::rl_text_ptr(RLField f) {
 // from last time.
 void App::rl_open_from_current_track() {
     edit_owner_.clear();   // fresh fields: the caret starts at the end of the one in focus
-    rl_title_ = metadata_.name;
-    rl_artist_ = (metadata_.artist == "-") ? "" : metadata_.artist;
-    rl_ft_.clear();
+    rl_->title = metadata_.name;
+    rl_->artist = (metadata_.artist == "-") ? "" : metadata_.artist;
+    rl_->ft.clear();
 
     // Best-effort ft./feat. split: if the title itself carries a
     // "feat."/"ft." tag, pull it out into its own field rather than
@@ -120,25 +124,25 @@ void App::rl_open_from_current_track() {
     for (const auto& marker : markers) {
         size_t pos = lower_title.find(marker);
         if (pos != std::string::npos) {
-            rl_title_ = metadata_.name.substr(0, pos);
-            rl_ft_ = metadata_.name.substr(pos + marker.size());
+            rl_->title = metadata_.name.substr(0, pos);
+            rl_->ft = metadata_.name.substr(pos + marker.size());
             // trim a trailing ')' if the split landed inside "(feat. X)"
-            if (!rl_ft_.empty() && rl_ft_.back() == ')') rl_ft_.pop_back();
-            while (!rl_title_.empty() && (rl_title_.back() == ' ' || rl_title_.back() == '(')) rl_title_.pop_back();
+            if (!rl_->ft.empty() && rl_->ft.back() == ')') rl_->ft.pop_back();
+            while (!rl_->title.empty() && (rl_->title.back() == ' ' || rl_->title.back() == '(')) rl_->title.pop_back();
             break;
         }
     }
 
-    rl_remix_text_.clear();
-    rl_other_text_.clear();
-    rl_reverb_ = rl_slowed_ = rl_ultra_slowed_ = rl_spedup_ = rl_remix_ = rl_other_ = false;
-    rl_focus_ = RLField::Title;
-    rl_versions_ = list_lyrics_versions(current_path_);
-    rl_src_sel_ = 0;
-    for (size_t i = 0; i < rl_versions_.size(); ++i) if (rl_versions_[i].active) { rl_src_sel_ = static_cast<int>(i); break; }
-    rl_confirm_delete_ = false;
-    rl_src_scroll_ = 0;
-    rl_fix_scroll();
+    rl_->remix_text.clear();
+    rl_->other_text.clear();
+    rl_->reverb = rl_->slowed = rl_->ultra_slowed = rl_->spedup = rl_->remix = rl_->other = false;
+    rl_->focus = RLField::Title;
+    rl_->versions = list_lyrics_versions(current_.path);
+    rl_->src_sel = 0;
+    for (size_t i = 0; i < rl_->versions.size(); ++i) if (rl_->versions[i].active) { rl_->src_sel = static_cast<int>(i); break; }
+    rl_->confirm_delete = false;
+    rl_->src_scroll = 0;
+    rl_->rl_fix_scroll();
 }
 
 // Over READ LYRICS and over the karaoke screen: the same overlay, for the track that plays (the lyrics engine belongs to it).
@@ -146,58 +150,58 @@ void App::rl_open_from_current_track() {
 void App::rl_open_over_reader() {
     if (!readlyrics_track_plays()) { rd_->status = "re-fetch: only for the track that plays -- start it with [p]"; rd_->status_warn = true; return; }
     rl_open_from_current_track();
-    rl_from_reader_ = true;
-    rl_from_karaoke_ = false;
-    rd_->watch_epoch = lyrics_epoch_.load();
+    rl_->from_reader = true;
+    rl_->from_karaoke = false;
+    rd_->watch_epoch = lyrics_.epoch.load();
     mode_ = Mode::RetryLyrics;
 }
 
 void App::rl_open_over_karaoke() {
     if (!has_track_) return;
     rl_open_from_current_track();
-    rl_from_reader_ = false;
-    rl_from_karaoke_ = true;
+    rl_->from_reader = false;
+    rl_->from_karaoke = true;
     mode_ = Mode::RetryLyrics;
 }
 
 void App::rl_close() {
-    mode_ = rl_from_reader_ ? Mode::ReadLyrics : rl_from_karaoke_ ? Mode::Karaoke : Mode::Browse;
-    rl_from_reader_ = false;
-    rl_from_karaoke_ = false;
+    mode_ = rl_->from_reader ? Mode::ReadLyrics : rl_->from_karaoke ? Mode::Karaoke : Mode::Browse;
+    rl_->from_reader = false;
+    rl_->from_karaoke = false;
     force_redraw_ = true;
 }
 
-void App::rl_fix_scroll() {
-    const int n = static_cast<int>(rl_versions_.size());
-    rl_src_sel_ = std::clamp(rl_src_sel_, 0, std::max(0, n - 1));
-    rl_src_scroll_ = std::clamp(rl_src_scroll_, 0, std::max(0, n - 3));
-    if (rl_src_sel_ < rl_src_scroll_) rl_src_scroll_ = rl_src_sel_;
-    if (rl_src_sel_ > rl_src_scroll_ + 2) rl_src_scroll_ = rl_src_sel_ - 2;
+void App::RlState::rl_fix_scroll() {
+    const int n = static_cast<int>(versions.size());
+    src_sel = std::clamp(src_sel, 0, std::max(0, n - 1));
+    src_scroll = std::clamp(src_scroll, 0, std::max(0, n - 3));
+    if (src_sel < src_scroll) src_scroll = src_sel;
+    if (src_sel > src_scroll + 2) src_scroll = src_sel - 2;
 }
 
 // [d] + y on the list: the highlighted saved copy is deleted. When it was the copy in use, the lyrics are reloaded
 // without the network (the lyrics embedded in the file if there are any, otherwise none) -- a deliberate delete must
 // not bring the same lyrics straight back.
 void App::rl_delete_version() {
-    if (rl_src_sel_ < 0 || rl_src_sel_ >= static_cast<int>(rl_versions_.size())) return;
-    const LyricsVersion v = rl_versions_[static_cast<size_t>(rl_src_sel_)];
+    if (rl_->src_sel < 0 || rl_->src_sel >= static_cast<int>(rl_->versions.size())) return;
+    const LyricsVersion v = rl_->versions[static_cast<size_t>(rl_->src_sel)];
     if (!delete_lyrics_version(v)) { status_line_ = "could not delete those lyrics"; return; }
-    rl_versions_ = list_lyrics_versions(current_path_);
-    rl_fix_scroll();
+    rl_->versions = list_lyrics_versions(current_.path);
+    rl_->rl_fix_scroll();
     if (v.active) {
         bool embedded = false;
-        for (const auto& x : rl_versions_) if (x.kind == LyricsVersion::Kind::Embedded) embedded = true;
+        for (const auto& x : rl_->versions) if (x.kind == LyricsVersion::Kind::Embedded) embedded = true;
         if (embedded) {
             std::string artist = (metadata_.artist == "-") ? "" : metadata_.artist;
-            launch_lyrics_fetch(metadata_.name, artist, current_path_);
+            launch_lyrics_fetch(metadata_.name, artist, current_.path);
         } else {
-            ++lyrics_epoch_;
-            std::lock_guard<std::mutex> lock(lyrics_mutex_);
-            lyrics_result_ = LyricsResult();
-            lyrics_result_.status = LyricsStatus::NotFound;
-            lyrics_result_.message = "no lyrics";
-            lyrics_path_ = current_path_;
-            lyrics_ready_ = true;
+            ++lyrics_.epoch;
+            std::lock_guard<std::mutex> lock(lyrics_.mutex);
+            lyrics_.result = LyricsResult();
+            lyrics_.result.status = LyricsStatus::NotFound;
+            lyrics_.result.message = "no lyrics";
+            lyrics_.path = current_.path;
+            lyrics_.ready = true;
         }
     }
     status_line_ = "lyrics deleted";
@@ -207,16 +211,16 @@ void App::rl_delete_version() {
 // SPACE on the version list: the highlighted version becomes the one that loads for this track. The copy that was in use
 // is put aside as an older version, so every switch can be undone.
 void App::rl_choose_version() {
-    if (rl_src_sel_ < 0 || rl_src_sel_ >= static_cast<int>(rl_versions_.size())) return;
-    const LyricsVersion v = rl_versions_[static_cast<size_t>(rl_src_sel_)];
+    if (rl_->src_sel < 0 || rl_->src_sel >= static_cast<int>(rl_->versions.size())) return;
+    const LyricsVersion v = rl_->versions[static_cast<size_t>(rl_->src_sel)];
     if (v.active) { status_line_ = "those lyrics are in use already"; return; }
-    if (!activate_lyrics_version(current_path_, v)) { status_line_ = "could not switch the lyrics (is the lyrics folder writable?)"; return; }
-    rl_versions_ = list_lyrics_versions(current_path_);
-    rl_src_sel_ = 0;
-    for (size_t i = 0; i < rl_versions_.size(); ++i) if (rl_versions_[i].active) { rl_src_sel_ = static_cast<int>(i); break; }
-    rl_fix_scroll();
+    if (!activate_lyrics_version(current_.path, v)) { status_line_ = "could not switch the lyrics (is the lyrics folder writable?)"; return; }
+    rl_->versions = list_lyrics_versions(current_.path);
+    rl_->src_sel = 0;
+    for (size_t i = 0; i < rl_->versions.size(); ++i) if (rl_->versions[i].active) { rl_->src_sel = static_cast<int>(i); break; }
+    rl_->rl_fix_scroll();
     std::string artist = (metadata_.artist == "-") ? "" : metadata_.artist;
-    launch_lyrics_fetch(metadata_.name, artist, current_path_);   // loads whatever is in use now (no network)
+    launch_lyrics_fetch(metadata_.name, artist, current_.path);   // loads whatever is in use now (no network)
     log_event("lyrics: using " + v.label);
 }
 
@@ -225,21 +229,21 @@ void App::rl_choose_version() {
 // query into fetch_synced_lyrics() instead of the track's real
 // metadata, for tracks whose auto-fetched lyrics are wrong/missing.
 void App::rl_submit() {
-    std::string query = rl_title_;
-    if (!rl_ft_.empty()) query += " ft. " + rl_ft_;
+    std::string query = rl_->title;
+    if (!rl_->ft.empty()) query += " ft. " + rl_->ft;
 
     // Tags go after the title (per your note: "you usually need to place
     // them after title in url"). Slowed/Ultra Slowed/Spedup are mutually
     // exclusive so at most one of these three contributes; Reverb/Remix/
     // Other are independent and can stack with it and each other.
-    if (rl_slowed_) query += " slowed";
-    else if (rl_ultra_slowed_) query += " ultra slowed";
-    else if (rl_spedup_) query += " sped up";
-    if (rl_reverb_) query += " reverb";
-    if (rl_remix_) query += rl_remix_text_.empty() ? " remix" : (" " + rl_remix_text_ + " remix");
-    if (rl_other_ && !rl_other_text_.empty()) query += " " + rl_other_text_;
+    if (rl_->slowed) query += " slowed";
+    else if (rl_->ultra_slowed) query += " ultra slowed";
+    else if (rl_->spedup) query += " sped up";
+    if (rl_->reverb) query += " reverb";
+    if (rl_->remix) query += rl_->remix_text.empty() ? " remix" : (" " + rl_->remix_text + " remix");
+    if (rl_->other && !rl_->other_text.empty()) query += " " + rl_->other_text;
 
-    launch_lyrics_fetch(query, rl_artist_, current_path_, /*force_network=*/true);
+    launch_lyrics_fetch(query, rl_->artist, current_.path, /*force_network=*/true);
     log_event("retrying lyrics: \"" + query + "\"");
 
     rl_close();
@@ -417,14 +421,14 @@ std::vector<std::string> App::build_norm_menu_panel() const {
 // Lyrics timing overlay (Alt+L) -- see app.h for the design.
 // ---------------------------------------------------------------------
 void App::lyrics_edit_open() {
-    std::lock_guard<std::mutex> lk(lyrics_mutex_);
-    if (!settings_.lyrics_on() || !has_track_ || !lyrics_ready_ || lyrics_result_.lines.empty()) {
+    std::lock_guard<std::mutex> lk(lyrics_.mutex);
+    if (!settings_.lyrics_on() || !has_track_ || !lyrics_.ready || lyrics_.result.lines.empty()) {
         status_line_ = "lyrics timing: no synced lyrics are loaded for this track";
         return;
     }
-    lyrics_edit_orig_delay_ = lyrics_result_.delay;
-    lyrics_edit_from_karaoke_ = false;
-    lyrics_edit_from_reader_ = false;
+    lyrics_.edit_orig_delay = lyrics_.result.delay;
+    lyrics_.edit_from_karaoke = false;
+    lyrics_.edit_from_reader = false;
     mode_ = Mode::LyricsEdit;
 }
 
@@ -433,44 +437,44 @@ void App::lyrics_edit_open() {
 void App::lyrics_edit_open_over_reader() {
     if (!readlyrics_track_plays()) { rd_->status = "lyrics timing: only for the track that plays -- start it with [p]"; rd_->status_warn = true; return; }
     karaoke_ensure_lyrics();
-    std::lock_guard<std::mutex> lk(lyrics_mutex_);
-    if (!lyrics_ready_ || lyrics_path_ != current_path_ || lyrics_result_.lines.empty()) {
+    std::lock_guard<std::mutex> lk(lyrics_.mutex);
+    if (!lyrics_.ready || lyrics_.path != current_.path || lyrics_.result.lines.empty()) {
         rd_->status = "lyrics timing: no synced lyrics are loaded for this track (yet)";
         rd_->status_warn = true;
         return;
     }
-    lyrics_edit_orig_delay_ = lyrics_result_.delay;
-    lyrics_edit_from_karaoke_ = false;
-    lyrics_edit_from_reader_ = true;
+    lyrics_.edit_orig_delay = lyrics_.result.delay;
+    lyrics_.edit_from_karaoke = false;
+    lyrics_.edit_from_reader = true;
     mode_ = Mode::LyricsEdit;
 }
 
 // Over the karaoke screen. The karaoke overlay runs the lyrics engine itself, so the lyrics field of the main screen may be off.
 void App::lyrics_edit_open_over_karaoke() {
-    std::lock_guard<std::mutex> lk(lyrics_mutex_);
-    if (!has_track_ || !lyrics_ready_ || lyrics_path_ != current_path_ || lyrics_result_.lines.empty()) {
+    std::lock_guard<std::mutex> lk(lyrics_.mutex);
+    if (!has_track_ || !lyrics_.ready || lyrics_.path != current_.path || lyrics_.result.lines.empty()) {
         status_line_ = "lyrics timing: no synced lyrics are loaded for this track";
         return;
     }
-    lyrics_edit_orig_delay_ = lyrics_result_.delay;
-    lyrics_edit_from_karaoke_ = true;
-    lyrics_edit_from_reader_ = false;
+    lyrics_.edit_orig_delay = lyrics_.result.delay;
+    lyrics_.edit_from_karaoke = true;
+    lyrics_.edit_from_reader = false;
     mode_ = Mode::LyricsEdit;
 }
 
 // Back to the screen it was opened from: the main screen, or the karaoke screen.
 void App::lyrics_edit_close() {
-    mode_ = lyrics_edit_from_reader_ ? Mode::ReadLyrics : lyrics_edit_from_karaoke_ ? Mode::Karaoke : Mode::Browse;
-    lyrics_edit_from_karaoke_ = false;
-    lyrics_edit_from_reader_ = false;
+    mode_ = lyrics_.edit_from_reader ? Mode::ReadLyrics : lyrics_.edit_from_karaoke ? Mode::Karaoke : Mode::Browse;
+    lyrics_.edit_from_karaoke = false;
+    lyrics_.edit_from_reader = false;
     force_redraw_ = true;
 }
 
-void App::lyrics_edit_adjust(double step) {
-    std::lock_guard<std::mutex> lk(lyrics_mutex_);
+void App::LyricsState::lyrics_edit_adjust(double step) {
+    std::lock_guard<std::mutex> lk(mutex);
     // Round to hundredths so repeated presses never accumulate float drift.
-    const double next = std::round((lyrics_result_.delay + step) * 100.0) / 100.0;
-    lyrics_result_.delay = std::clamp(next, -120.0, 120.0);
+    const double next = std::round((result.delay + step) * 100.0) / 100.0;
+    result.delay = std::clamp(next, -120.0, 120.0);
 }
 
 std::vector<std::string> App::build_lyrics_edit_panel() const {
@@ -488,9 +492,9 @@ std::vector<std::string> App::build_lyrics_edit_panel() const {
     std::vector<LyricLine> lines;
     double delay = 0.0;
     {
-        std::lock_guard<std::mutex> lk(lyrics_mutex_);
-        lines = lyrics_result_.lines;
-        delay = lyrics_result_.delay;
+        std::lock_guard<std::mutex> lk(lyrics_.mutex);
+        lines = lyrics_.result.lines;
+        delay = lyrics_.result.delay;
         latinize_lyrics(lines);
     }
     const double elapsed = has_track_ ? player_.poll_elapsed() : 0.0;
@@ -538,9 +542,9 @@ std::string fmt_countdown(long long secs) {
 
 void App::sleep_timer_cancel() {
     player_.set_fade(1.0f);
-    sleep_timer_active_ = false;
-    sleep_timer_minutes_ = 0;
-    sleep_stop_after_track_ = false;
+    sleep_->timer_active = false;
+    sleep_->timer_minutes = 0;
+    sleep_->stop_after_track = false;
 }
 
 void App::sleep_timer_apply(int row) {
@@ -548,16 +552,16 @@ void App::sleep_timer_apply(int row) {
     // replaced (picking the running minute entry again simply restarts it).
     sleep_timer_cancel();
     if (row >= 0 && row < 5) {
-        sleep_timer_minutes_ = kSleepMinutes[row];
-        sleep_timer_deadline_ = std::chrono::steady_clock::now() + std::chrono::minutes(sleep_timer_minutes_);
-        sleep_timer_active_ = true;
-        status_line_ = "sleep timer: playback pauses in " + std::to_string(sleep_timer_minutes_) + " min";
+        sleep_->timer_minutes = kSleepMinutes[row];
+        sleep_->timer_deadline = std::chrono::steady_clock::now() + std::chrono::minutes(sleep_->timer_minutes);
+        sleep_->timer_active = true;
+        status_line_ = "sleep timer: playback pauses in " + std::to_string(sleep_->timer_minutes) + " min";
     } else if (row == 5) {
         if (!has_track_) {
             status_line_ = "sleep timer: nothing is playing, so there is no current song to stop after";
             return;
         }
-        sleep_stop_after_track_ = true;
+        sleep_->stop_after_track = true;
         status_line_ = settings_.play_mode == 3
             ? "sleep timer: stops after this song (Stop mode is on as well)"
             : "sleep timer: stops after this song";
@@ -573,40 +577,40 @@ void App::sleep_timer_tick() {
     // A pending "stop after song" with nothing playing (and nothing about to
     // start) has no song left to wait for -- drop it rather than letting it
     // hit whatever track is started next.
-    if (sleep_stop_after_track_ && !has_track_ && !advancing_ && !load_in_progress_.load())
-        sleep_stop_after_track_ = false;
-    if (!sleep_timer_active_) return;
-    if (std::chrono::steady_clock::now() < sleep_timer_deadline_) {
-        const double left = std::chrono::duration<double>(sleep_timer_deadline_ - std::chrono::steady_clock::now()).count();
-        const double len = sleep_fade_seconds(sleep_timer_minutes_);
+    if (sleep_->stop_after_track && !has_track_ && !advancing_ && !load_in_progress_.load())
+        sleep_->stop_after_track = false;
+    if (!sleep_->timer_active) return;
+    if (std::chrono::steady_clock::now() < sleep_->timer_deadline) {
+        const double left = std::chrono::duration<double>(sleep_->timer_deadline - std::chrono::steady_clock::now()).count();
+        const double len = sleep_fade_seconds(sleep_->timer_minutes);
         if (settings_.sleep_fade && left < len) { const double t = left / len; player_.set_fade(static_cast<float>(t * t)); }
         else player_.set_fade(1.0f);
         return;
     }
-    if (has_track_ && !advancing_ && device_play_pending_gen_.load() == 0) {
+    if (has_track_ && !advancing_ && device_->play_pending_gen.load() == 0) {
         // Pause, not stop: the position survives and one press of play resumes.
         if (!player_.is_paused()) player_.pause();
         player_.set_fade(1.0f);   // the next press of play comes back at the normal volume
-        sleep_timer_active_ = false;
-        sleep_timer_minutes_ = 0;
+        sleep_->timer_active = false;
+        sleep_->timer_minutes = 0;
         status_line_ = "sleep timer: playback paused";
     } else if (!has_track_ && !advancing_ && !load_in_progress_.load()) {
         // Nothing is playing any more (Stop mode, end of the list, ...).
-        sleep_timer_active_ = false;
-        sleep_timer_minutes_ = 0;
+        sleep_->timer_active = false;
+        sleep_->timer_minutes = 0;
         status_line_ = "sleep timer: finished";
     }
     // else: a track is loading / being handed over -- try again next frame, so
     // the pause lands on the new track instead of racing its start.
 }
 
-std::string App::sleep_timer_label() const {
-    if (sleep_timer_active_) {
+std::string App::SleepState::sleep_timer_label() const {
+    if (timer_active) {
         const auto left = std::chrono::duration_cast<std::chrono::seconds>(
-            sleep_timer_deadline_ - std::chrono::steady_clock::now()).count();
+            timer_deadline - std::chrono::steady_clock::now()).count();
         return "SLEEP " + fmt_countdown(left);
     }
-    if (sleep_stop_after_track_) return "SLEEP after song";
+    if (stop_after_track) return "SLEEP after song";
     return "";
 }
 
@@ -629,19 +633,19 @@ std::vector<std::string> App::build_sleep_timer_panel() const {
     };
 
     long long left_secs = 0;
-    if (sleep_timer_active_)
-        left_secs = std::chrono::duration_cast<std::chrono::seconds>(sleep_timer_deadline_ - std::chrono::steady_clock::now()).count();
+    if (sleep_->timer_active)
+        left_secs = std::chrono::duration_cast<std::chrono::seconds>(sleep_->timer_deadline - std::chrono::steady_clock::now()).count();
 
     std::vector<std::string> lines;
     lines.push_back(box_top("Sleep Timer", W, border));
     for (int i = 0; i < 5; ++i) {
-        const bool running = sleep_timer_active_ && sleep_timer_minutes_ == kSleepMinutes[i];
-        lines.push_back(row(two(i == sleep_menu_row_, std::to_string(kSleepMinutes[i]) + " minutes",
-                                running ? fmt_countdown(left_secs) + " left" : ""), i == sleep_menu_row_));
+        const bool running = sleep_->timer_active && sleep_->timer_minutes == kSleepMinutes[i];
+        lines.push_back(row(two(i == sleep_->menu_row, std::to_string(kSleepMinutes[i]) + " minutes",
+                                running ? fmt_countdown(left_secs) + " left" : ""), i == sleep_->menu_row));
     }
-    lines.push_back(row(two(sleep_menu_row_ == 5, "Stop after current song", sleep_stop_after_track_ ? "on" : ""), sleep_menu_row_ == 5));
-    lines.push_back(row(two(sleep_menu_row_ == 6, "Fade out", settings_.sleep_fade ? "on" : "off"), sleep_menu_row_ == 6));
-    lines.push_back(row(two(sleep_menu_row_ == 7, "Off", (!sleep_timer_active_ && !sleep_stop_after_track_) ? "(no timer)" : ""), sleep_menu_row_ == 7));
+    lines.push_back(row(two(sleep_->menu_row == 5, "Stop after current song", sleep_->stop_after_track ? "on" : ""), sleep_->menu_row == 5));
+    lines.push_back(row(two(sleep_->menu_row == 6, "Fade out", settings_.sleep_fade ? "on" : "off"), sleep_->menu_row == 6));
+    lines.push_back(row(two(sleep_->menu_row == 7, "Off", (!sleep_->timer_active && !sleep_->stop_after_track) ? "(no timer)" : ""), sleep_->menu_row == 7));
     lines.push_back(row(settings_.sleep_fade ? "Volume glides down over the last 10 % of" : "Playback is paused when the time is up.", false));
     lines.push_back(row(settings_.sleep_fade ? "the time (30 s - 10 min), then it pauses." : "Minute timers pause, they do not stop.", false));
     lines.push_back(centred_bottom(settings_, W, "[UP/DOWN] [ENTER] set  [ESC] close", border_bottom));
@@ -802,9 +806,9 @@ std::vector<std::string> App::build_queue_to_playlist_panel() const {
         return bar + " " + t + std::string(static_cast<size_t>(std::max(0, inner - display_width(t))), ' ') + " " + bar;
     };
     int skipped = 0;
-    const int n = qtp_track_ ? 1 : static_cast<int>(queue_local_tracks(skipped).size());
+    const int n = qtp_->track ? 1 : static_cast<int>(queue_local_tracks(skipped).size());
     std::vector<std::string> lines;
-    if (qtp_stage_ == 2) {   // SHIFT+a, a new playlist: its name
+    if (qtp_->stage == 2) {   // SHIFT+a, a new playlist: its name
         lines.push_back(box_top("New playlist", W, border));
         lines.push_back(row(""));
         lines.push_back(row("Add \"" + atp_track_.title + "\" to a new playlist."));
@@ -812,15 +816,15 @@ std::vector<std::string> App::build_queue_to_playlist_panel() const {
         {
             const std::string prefix = "Name: ";
             const int field_w = std::max(1, inner - static_cast<int>(prefix.size()));
-            const bool typed = !qtp_new_name_.empty();
-            EditPaint p = paint_edit_field(qtp_new_name_, edit_caret_, edit_anchor_, field_w, typed ? search_sgr(settings_) : search_idle_sgr(settings_), true);
+            const bool typed = !qtp_->new_name.empty();
+            EditPaint p = paint_edit_field(qtp_->new_name, edit_caret_, edit_anchor_, field_w, typed ? search_sgr(settings_) : search_idle_sgr(settings_), true);
             lines.push_back(box_line_field(prefix, search_run(settings_, p.s, typed), p.cols, W, border, search_idle_sgr(settings_)));
         }
         lines.push_back(row(""));
         lines.push_back(box_bottom(W, "[ENTER] Add + save  [ESC] Back", border_bottom));
         return lines;
     }
-    if (qtp_stage_ == 0) {
+    if (qtp_->stage == 0) {
         auto centred = [&](const std::string& plain) {
             const int fill = std::max(0, inner - display_width(plain));
             return bar + " " + std::string(static_cast<size_t>(fill / 2), ' ') + plain + std::string(static_cast<size_t>(fill - fill / 2), ' ') + " " + bar;
@@ -828,13 +832,13 @@ std::vector<std::string> App::build_queue_to_playlist_panel() const {
         const std::string a = "  New playlist  ", b = "  Existing playlist  ", gap = "    ";
         const int btn_w = display_width(a) + display_width(gap) + display_width(b);
         const int fill = std::max(0, inner - btn_w);
-        lines.push_back(box_top(qtp_track_ ? "Track to playlist" : "Queue to playlist", W, border));
+        lines.push_back(box_top(qtp_->track ? "Track to playlist" : "Queue to playlist", W, border));
         lines.push_back(centred(""));
-        lines.push_back(centred(qtp_track_ ? truncate_str("Add \"" + atp_track_.title + "\" to:", inner)
+        lines.push_back(centred(qtp_->track ? truncate_str("Add \"" + atp_track_.title + "\" to:", inner)
                                            : "Add the " + std::to_string(n) + " track" + (n == 1 ? "" : "s") + " of the queue to:"));
         lines.push_back(centred(""));
-        lines.push_back(bar + " " + std::string(static_cast<size_t>(fill / 2), ' ') + (qtp_choice_ == 0 ? HI + a + R : a) + gap
-                        + (qtp_choice_ == 1 ? HI + b + R : b) + std::string(static_cast<size_t>(fill - fill / 2), ' ') + " " + bar);
+        lines.push_back(bar + " " + std::string(static_cast<size_t>(fill / 2), ' ') + (qtp_->choice == 0 ? HI + a + R : a) + gap
+                        + (qtp_->choice == 1 ? HI + b + R : b) + std::string(static_cast<size_t>(fill - fill / 2), ' ') + " " + bar);
         lines.push_back(centred(""));
         lines.push_back(box_bottom(W, "[n / e]  [ENTER] choose  [ESC] Close", border_bottom));
         return lines;
@@ -843,20 +847,20 @@ std::vector<std::string> App::build_queue_to_playlist_panel() const {
     {
         const std::string prefix = "Search: ";
         const int field_w = std::max(1, inner - static_cast<int>(prefix.size()));
-        const bool typed = !qtp_query_.empty();
-        EditPaint p = paint_edit_field(qtp_query_, edit_caret_, edit_anchor_, field_w, typed ? search_sgr(settings_) : search_idle_sgr(settings_), true);
+        const bool typed = !qtp_->query.empty();
+        EditPaint p = paint_edit_field(qtp_->query, edit_caret_, edit_anchor_, field_w, typed ? search_sgr(settings_) : search_idle_sgr(settings_), true);
         lines.push_back(box_line_field(prefix, search_run(settings_, p.s, typed), p.cols, W, border, search_idle_sgr(settings_)));
     }
-    const int total = static_cast<int>(qtp_view_.size());
-    const int scroll = std::clamp(qtp_selected_ - kQtpListRows / 2, 0, std::max(0, total - kQtpListRows));
+    const int total = static_cast<int>(qtp_->view.size());
+    const int scroll = std::clamp(qtp_->selected - kQtpListRows / 2, 0, std::max(0, total - kQtpListRows));
     for (int r = 0; r < kQtpListRows; ++r) {
         const int idx = scroll + r;
         if (idx >= total) { lines.push_back(row(total == 0 && r == 0 ? "(no saved playlists match)" : "")); continue; }
-        const std::string cnt = std::to_string(qtp_view_[static_cast<size_t>(idx)].track_count) + " tracks";
+        const std::string cnt = std::to_string(qtp_->view[static_cast<size_t>(idx)].track_count) + " tracks";
         const int name_w = std::max(1, inner - display_width(cnt) - 2);
-        std::string content = pad_right(truncate_str(qtp_view_[static_cast<size_t>(idx)].name, name_w), name_w) + "  " + cnt;
+        std::string content = pad_right(truncate_str(qtp_->view[static_cast<size_t>(idx)].name, name_w), name_w) + "  " + cnt;
         content = pad_right(truncate_str(content, inner), inner);
-        if (idx == qtp_selected_) lines.push_back(bar + " " + cursor_sgr(settings_.list_cursor_color, settings_.list_cursor_bg_color) + content + R + " " + bar);
+        if (idx == qtp_->selected) lines.push_back(bar + " " + cursor_sgr(settings_.list_cursor_color, settings_.list_cursor_bg_color) + content + R + " " + bar);
         else lines.push_back(bar + " " + content + " " + bar);
     }
     lines.push_back(box_bottom(W, total > kQtpListRows ? std::to_string(total) + " playlists  [\u2191\u2193] [ENTER] Add  [ESC] Back" : "[\u2191\u2193] [ENTER] Add  [ESC] Back", border_bottom));
@@ -916,7 +920,7 @@ std::vector<std::string> App::build_retry_lyrics_panel() const {
     auto text_field = [&](RLField f, const std::string& lbl, const std::string& value,
                            const std::string& placeholder, std::vector<std::string>& out) {
         out.push_back(wrap(blank_label(), box_top("", box_w, border)));
-        bool focused = (rl_focus_ == f);
+        bool focused = (rl_->focus == f);
         if (focused) {   // caret, marked range and block cursor from the shared single-line editor
             const bool mine = edit_owner_ == rl_owner(f);
             const size_t cc = mine ? std::min(edit_caret_, value.size()) : value.size();
@@ -937,9 +941,9 @@ std::vector<std::string> App::build_retry_lyrics_panel() const {
         lines.push_back(obar + border + pad_right(" RETRY WITH ANOTHER TITLE / ARTIST", inner) + "\x1b[0m" + obar);
     }
 
-    text_field(RLField::Title, "SONG TITLE", rl_title_, "", lines);
-    text_field(RLField::Artist, "ARTIST NAME", rl_artist_, "", lines);
-    text_field(RLField::Ft, "FT  ( opt )", rl_ft_, "", lines);
+    text_field(RLField::Title, "SONG TITLE", rl_->title, "", lines);
+    text_field(RLField::Artist, "ARTIST NAME", rl_->artist, "", lines);
+    text_field(RLField::Ft, "FT  ( opt )", rl_->ft, "", lines);
 
     // TYPE: two rows of plain (non-boxed) checkbox-style toggles.
     // Slowed/Ultra Slowed/Spedup are a radio group (only one can show
@@ -960,7 +964,7 @@ std::vector<std::string> App::build_retry_lyrics_panel() const {
         int focus_start = -1, focus_len = 0;
         for (const auto& [f, checked, word] : opts) {
             std::string s = opt_plain(checked, word);
-            if (rl_focus_ == f) { focus_start = static_cast<int>(plain.size()); focus_len = static_cast<int>(s.size()); }
+            if (rl_->focus == f) { focus_start = static_cast<int>(plain.size()); focus_len = static_cast<int>(s.size()); }
             plain += s;
             plain += " ";
         }
@@ -972,17 +976,17 @@ std::vector<std::string> App::build_retry_lyrics_panel() const {
         return padded;
     };
     lines.push_back(wrap(label("TYPE"),
-        type_row({{RLField::TypeReverb, rl_reverb_, "reverb"},
-                  {RLField::TypeSlowed, rl_slowed_, "slowed"},
-                  {RLField::TypeUltraSlowed, rl_ultra_slowed_, "ultra slowed"}})));
+        type_row({{RLField::TypeReverb, rl_->reverb, "reverb"},
+                  {RLField::TypeSlowed, rl_->slowed, "slowed"},
+                  {RLField::TypeUltraSlowed, rl_->ultra_slowed, "ultra slowed"}})));
     lines.push_back(wrap(blank_label(),
-        type_row({{RLField::TypeSpedup, rl_spedup_, "spedup"},
-                  {RLField::TypeRemix, rl_remix_, "remix"},
-                  {RLField::TypeOther, rl_other_, "other /pls specify"}})));
+        type_row({{RLField::TypeSpedup, rl_->spedup, "spedup"},
+                  {RLField::TypeRemix, rl_->remix, "remix"},
+                  {RLField::TypeOther, rl_->other, "other /pls specify"}})));
 
     // REMIX / OTHER: only present while their TYPE toggle is on (the panel grows and shrinks with them).
-    if (rl_remix_) text_field(RLField::RemixText, "REMIX", rl_remix_text_, "NOT SELECTED", lines);
-    if (rl_other_) text_field(RLField::OtherText, "OTHER", rl_other_text_, "NOT SELECTED", lines);
+    if (rl_->remix) text_field(RLField::RemixText, "REMIX", rl_->remix_text, "NOT SELECTED", lines);
+    if (rl_->other) text_field(RLField::OtherText, "OTHER", rl_->other_text, "NOT SELECTED", lines);
 
     // One empty line, then the note (two columns of air on each side). While [d] waits for its y / n the same two rows
     // carry the warning instead.
@@ -992,8 +996,8 @@ std::vector<std::string> App::build_retry_lyrics_panel() const {
             return obar + std::string(2, ' ') + sgr + pad_right(truncate_str(text, inner - 4), inner - 4) + "\x1b[0m" + std::string(2, ' ') + obar;
         };
         lines.push_back(obar + std::string(inner, ' ') + obar);
-        if (rl_confirm_delete_ && rl_src_sel_ >= 0 && rl_src_sel_ < static_cast<int>(rl_versions_.size())) {
-            const LyricsVersion& v = rl_versions_[static_cast<size_t>(rl_src_sel_)];
+        if (rl_->confirm_delete && rl_->src_sel >= 0 && rl_->src_sel < static_cast<int>(rl_->versions.size())) {
+            const LyricsVersion& v = rl_->versions[static_cast<size_t>(rl_->src_sel)];
             lines.push_back(note_row("\x1b[1;31m", "Delete \"" + v.label + "\" for good? This cannot be undone."));
             lines.push_back(note_row("\x1b[1;31m", "[y] yes, delete it    any other key: keep it"));
         } else {
@@ -1014,25 +1018,25 @@ std::vector<std::string> App::build_retry_lyrics_panel() const {
         };
         lines.push_back(heading("LYRICS IN USE"));
         constexpr int kShown = 3;
-        const int n = static_cast<int>(rl_versions_.size());
-        const int first = std::clamp(rl_src_scroll_, 0, std::max(0, n - kShown));
+        const int n = static_cast<int>(rl_->versions.size());
+        const int first = std::clamp(rl_->src_scroll, 0, std::max(0, n - kShown));
         for (int r = 0; r < kShown; ++r) {
             const int i = first + r;
             std::string plain;
             if (n == 0 && r == 0) plain = "   none yet -- [ENTER] fetches them";
             else if (i < n) {
-                const LyricsVersion& v = rl_versions_[static_cast<size_t>(i)];
+                const LyricsVersion& v = rl_->versions[static_cast<size_t>(i)];
                 plain = std::string(v.active ? " (o) " : " ( ) ") + v.label + (v.detail.empty() ? "" : "  " + v.detail);
             }
             std::string row = pad_right(truncate_str(plain, inner - 2), inner - 2);
-            if (rl_focus_ == RLField::Source && i == rl_src_sel_ && i < n) row = "\x1b[7m" + row + "\x1b[0m";
+            if (rl_->focus == RLField::Source && i == rl_->src_sel && i < n) row = "\x1b[7m" + row + "\x1b[0m";
             const bool more_up = (r == 0 && first > 0), more_down = (r == kShown - 1 && first + kShown < n);
             const std::string mark = more_up ? "\u25b2" : more_down ? "\u25bc" : " ";
             lines.push_back(obar + row + " " + (more_up || more_down ? border + mark + "\x1b[0m" : mark) + obar);
         }
     }
 
-    lines.push_back(box_bottom(W, rl_confirm_delete_ ? "[y] delete  [n] keep" : "[SPACE] choose  [d] delete  [CTRL+n] Add manually  [ENTER] Refetch  [ESC] cancel", border));
+    lines.push_back(box_bottom(W, rl_->confirm_delete ? "[y] delete  [n] keep" : "[SPACE] choose  [d] delete  [CTRL+n] Add manually  [ENTER] Refetch  [ESC] cancel", border));
     return lines;
 }
 

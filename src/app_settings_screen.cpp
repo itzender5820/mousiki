@@ -1,6 +1,7 @@
 // The Settings screen: its tabs, the colour themes (picker, creator, import / export) and the PATHS and REFERENCE rows.
 // Split out of app.cpp. Member functions of App (declared in app.h); the tables are in app_settings_tables.h.
 #include "app.h"
+#include "app_state_theme.h"
 #include "text_edit.h"
 #include "overlay_common.h"
 #include "terminal_font.h"
@@ -111,8 +112,8 @@ void App::build_theme_screen(std::ostringstream& frame, int W, int player_h) con
     };
     auto bottom_border = [&](int y) { pos(y, 1, B(y) + "└" + repeat("─", W - 2) + "┘" + R); };
 
-    if (theme_ui_ == 4 || theme_ui_ == 5) {   // export / import overlays
-        top_border(theme_ui_ == 4 ? "EXPORT THEME" : "IMPORT THEMES");
+    if (theme_->ui == 4 || theme_->ui == 5) {   // export / import overlays
+        top_border(theme_->ui == 4 ? "EXPORT THEME" : "IMPORT THEMES");
         const bool editing_io = (mode_ == Mode::ColorEdit);
         int cursor_y = 0, cursor_x = 0;
         auto field = [&](int y, const char* label, const std::string& value, bool sel, int width) {
@@ -131,23 +132,23 @@ void App::build_theme_screen(std::ostringstream& frame, int W, int player_h) con
         };
         for (int y = 2; y < MAX_Y; ++y) box_row(y);
         const int fw = std::max(20, W - 24);
-        if (theme_ui_ == 4) {
-            field(3, "NAME", theme_io_name_, theme_io_row_ == 0, themes::kMaxNameLen);
-            field(4, "FOLDER", theme_io_dir_, theme_io_row_ == 1, fw);
-            const std::string file = (theme_dir_path(theme_io_dir_) / themes::file_name_for(theme_io_name_)).string();
+        if (theme_->ui == 4) {
+            field(3, "NAME", theme_->io_name, theme_->io_row == 0, themes::kMaxNameLen);
+            field(4, "FOLDER", theme_->io_dir, theme_->io_row == 1, fw);
+            const std::string file = (theme_dir_path(theme_->io_dir) / themes::file_name_for(theme_->io_name)).string();
             pos(6, 3, legend_sgr(settings_) + truncate_str("Exports the colors now set as one theme file: " + file, W - 5) + R);
             pos(7, 3, legend_sgr(settings_) + "(player and radio colors are both kept in the file; import it with SHIFT+i)" + R);
         } else {
-            field(3, "FOLDER", theme_io_dir_, theme_io_row_ == 0, fw);
-            pos(5, 3, header_sgr(settings_) + "Theme files found (" + std::to_string(theme_io_files_.size()) + ")" + R);
-            const int nf = static_cast<int>(theme_io_files_.size());
+            field(3, "FOLDER", theme_->io_dir, theme_->io_row == 0, fw);
+            pos(5, 3, header_sgr(settings_) + "Theme files found (" + std::to_string(theme_->io_files.size()) + ")" + R);
+            const int nf = static_cast<int>(theme_->io_files.size());
             const int visible = std::max(1, MAX_Y - 7);
-            const int scroll = std::clamp(theme_io_sel_ - visible / 2, 0, std::max(0, nf - visible));
+            const int scroll = std::clamp(theme_->io_sel - visible / 2, 0, std::max(0, nf - visible));
             for (int r = 0; r < visible && scroll + r < nf; ++r) {
                 const int i = scroll + r;
-                const std::string name = theme_io_files_[static_cast<size_t>(i)].filename().string();
-                const size_t nthemes = themes::read_theme_file(theme_io_files_[static_cast<size_t>(i)]).size();
-                const bool sel = (theme_io_row_ == 1 && i == theme_io_sel_);
+                const std::string name = path_utf8(theme_->io_files[static_cast<size_t>(i)].filename());
+                const size_t nthemes = themes::read_theme_file(theme_->io_files[static_cast<size_t>(i)]).size();
+                const bool sel = (theme_->io_row == 1 && i == theme_->io_sel);
                 pos(6 + r, 3, (sel ? HI : std::string()) + pad(truncate_str(name, W - 20), W - 20) + R);
                 pos(6 + r, W - 14, legend_sgr(settings_) + std::to_string(nthemes) + (nthemes == 1 ? " theme" : " themes") + R);
             }
@@ -155,25 +156,25 @@ void App::build_theme_screen(std::ostringstream& frame, int W, int player_h) con
         }
         bottom_border(MAX_Y);
         pos(MAX_Y + 1, 1, legend_colored(settings_, std::string(editing_io ? "[ENTER] Apply  [ESC] Cancel  [\u2190\u2192] Cursor  [Ctrl+C/X/V] Copy/Cut/Paste"
-            : theme_ui_ == 4 ? "[\u2191\u2193] Field  [ENTER] Edit  [s] Export  [ESC] Cancel"
+            : theme_->ui == 4 ? "[\u2191\u2193] Field  [ENTER] Edit  [s] Export  [ESC] Cancel"
                              : "[\u2191\u2193] Select  [ENTER] Import the file (or edit the folder)  [a] Import all  [ESC] Cancel")) + R);
         if (!status_line_.empty()) pos(MAX_Y + 2, 1, "\x1b[38;5;246m" + truncate_str(status_line_, W - 2) + R);
         if (editing_io && cursor_y > 0) frame << "\x1b[" << cursor_y << ";" << cursor_x << "H\x1b[?25h";
         return;
     }
 
-    if (theme_ui_ == 1 || theme_ui_ == 3) {
-        top_border(theme_ui_ == 1 ? "CHOOSE THEME" : "CHOOSE THEME AS TEMPLATE");
-        const int n = static_cast<int>(theme_list_.size());
+    if (theme_->ui == 1 || theme_->ui == 3) {
+        top_border(theme_->ui == 1 ? "CHOOSE THEME" : "CHOOSE THEME AS TEMPLATE");
+        const int n = static_cast<int>(theme_->list.size());
         const int visible = std::max(1, MAX_Y - 3);
-        const int scroll = std::clamp(theme_sel_ - visible / 2, 0, std::max(0, n - visible));
+        const int scroll = std::clamp(theme_->sel - visible / 2, 0, std::max(0, n - visible));
         // the marker: the theme in use (picker), or the one the draft matches / is based on (template picker)
         int cur = -1;
-        if (theme_ui_ == 1) cur = theme_current_index();
+        if (theme_->ui == 1) cur = theme_current_index();
         else {
-            for (int k = 0; k < n && cur < 0; ++k) if (!theme_list_[static_cast<size_t>(k)].builtin && theme_matches(theme_draft_, theme_list_[static_cast<size_t>(k)])) cur = k;
-            for (int k = 0; k < n && cur < 0; ++k) if (theme_matches(theme_draft_, theme_list_[static_cast<size_t>(k)])) cur = k;
-            for (int k = 0; k < n && cur < 0; ++k) if (theme_list_[static_cast<size_t>(k)].name == theme_base_.name) cur = k;
+            for (int k = 0; k < n && cur < 0; ++k) if (!theme_->list[static_cast<size_t>(k)].builtin && theme_matches(theme_->draft, theme_->list[static_cast<size_t>(k)])) cur = k;
+            for (int k = 0; k < n && cur < 0; ++k) if (theme_matches(theme_->draft, theme_->list[static_cast<size_t>(k)])) cur = k;
+            for (int k = 0; k < n && cur < 0; ++k) if (theme_->list[static_cast<size_t>(k)].name == theme_->base.name) cur = k;
         }
         // swatches: (key, is background)
         static const struct { const char* key; bool bg; } kSw[] = {
@@ -185,11 +186,11 @@ void App::build_theme_screen(std::ostringstream& frame, int W, int player_h) con
             box_row(y);
             const int i = scroll + r;
             if (i >= n) continue;
-            const themes::Theme& t = theme_list_[static_cast<size_t>(i)];
+            const themes::Theme& t = theme_->list[static_cast<size_t>(i)];
             std::string name = pad(truncate_str(t.name, themes::kMaxNameLen), themes::kMaxNameLen);
             pos(y, 3, (i == cur ? header_sgr(settings_) + "●" + R : " "));
             // your own themes (not built in) are named in the header colour
-            pos(y, 5, (t.builtin ? std::string() : header_sgr(settings_)) + (i == theme_sel_ ? HI : std::string()) + name + R);
+            pos(y, 5, (t.builtin ? std::string() : header_sgr(settings_)) + (i == theme_->sel ? HI : std::string()) + name + R);
             std::string sw;
             for (const auto& k : kSw) {
                 const std::string* v = t.get(k.key, false);
@@ -200,7 +201,7 @@ void App::build_theme_screen(std::ostringstream& frame, int W, int player_h) con
         }
         while (y < MAX_Y) { box_row(y); ++y; }
         // more themes than rows: a scrollbar in the last column, in the colour of the border gradient at that row
-        theme_page_ = visible;
+        theme_->page = visible;
         if (overlay::Thumb th; overlay::scroll_thumb(scroll, visible, n, th)) {
             for (int r = 0; r < visible && 2 + r < MAX_Y; ++r) {
                 const bool on = r >= th.at && r < th.at + th.len;
@@ -208,10 +209,10 @@ void App::build_theme_screen(std::ostringstream& frame, int W, int player_h) con
             }
         }
         bottom_border(MAX_Y);
-        if (leave_prompt_ == 4 && theme_sel_ >= 0 && theme_sel_ < n)
-            pos(MAX_Y + 1, 1, "\x1b[1;7m" + pad(" Do you want to delete theme \"" + truncate_str(theme_list_[static_cast<size_t>(theme_sel_)].name, themes::kMaxNameLen) + "\"? [y] Yes, delete  [n / ESC] No, keep it", W - 1) + R);
+        if (leave_prompt_ == 4 && theme_->sel >= 0 && theme_->sel < n)
+            pos(MAX_Y + 1, 1, "\x1b[1;7m" + pad(" Do you want to delete theme \"" + truncate_str(theme_->list[static_cast<size_t>(theme_->sel)].name, themes::kMaxNameLen) + "\"? [y] Yes, delete  [n / ESC] No, keep it", W - 1) + R);
         else
-        pos(MAX_Y + 1, 1, legend_colored(settings_, std::string(theme_ui_ == 1
+        pos(MAX_Y + 1, 1, legend_colored(settings_, std::string(theme_->ui == 1
             ? "[↑↓] Select  [SHIFT+↑↓] Page  [SHIFT+p] Preview  [ENTER] Apply  [SHIFT+d] Delete your own theme  [ESC] Back"
             : "[↑↓] Select  [SHIFT+↑↓] Page  [SHIFT+p] Preview  [ENTER] Use as template  [ESC] Back")) + R);
         if (!status_line_.empty()) pos(MAX_Y + 2, 1, "\x1b[38;5;246m" + truncate_str(status_line_, W - 2) + R);
@@ -242,7 +243,7 @@ void App::build_theme_screen(std::ostringstream& frame, int W, int player_h) con
     box_row(2);
     pos(2, 3, header_sgr(settings_) + pad("NAME", 15) + R); pos(2, 18, ":");
     {
-        const bool sel = (theme_row_ < 0 && theme_col_ == 0);
+        const bool sel = (theme_->row < 0 && theme_->col == 0);
         const bool ed = sel && editing;
         const int fw = themes::kMaxNameLen + 1;
         std::string v;
@@ -253,19 +254,19 @@ void App::build_theme_screen(std::ostringstream& frame, int W, int player_h) con
             cursor_x = 20 + paint_edit_field(color_edit_buffer_, std::min(edit_caret_, color_edit_buffer_.size()),
                                              std::min(edit_anchor_, color_edit_buffer_.size()), fw, "", false).caret;
         } else {
-            v = pad(theme_name_.empty() ? std::string("(type a name)") : theme_name_, fw);
+            v = pad(theme_->name.empty() ? std::string("(type a name)") : theme_->name, fw);
         }
-        pos(2, 20, (sel && !ed ? HI : std::string()) + (!ed && theme_name_.empty() ? legend_sgr(settings_) : std::string()) + v + R);
+        pos(2, 20, (sel && !ed ? HI : std::string()) + (!ed && theme_->name.empty() ? legend_sgr(settings_) : std::string()) + v + R);
     }
     {
-        const bool sel = (theme_row_ < 0 && theme_col_ == 1);
+        const bool sel = (theme_->row < 0 && theme_->col == 1);
         pos(2, 49, (sel ? HI : std::string()) + " CHOOSE THEME AS TEMPLATE " + R);
-        pos(2, 77, legend_sgr(settings_) + truncate_str("based on " + theme_base_.name, std::max(1, W - 78)) + R);
+        pos(2, 77, legend_sgr(settings_) + truncate_str("based on " + theme_->base.name, std::max(1, W - 78)) + R);
     }
     pos(3, 1, B(3) + "├" + repeat("─", W - 2) + "┤" + R);
 
     const int visible = std::max(1, MAX_Y - 4);
-    const int scroll = (theme_row_ < 0) ? 0 : std::clamp(theme_row_ - visible / 2, 0, std::max(0, 21 - visible));
+    const int scroll = (theme_->row < 0) ? 0 : std::clamp(theme_->row - visible / 2, 0, std::max(0, 21 - visible));
     int y = 4;
     for (int r = 0; r < visible && y < MAX_Y; ++r, ++y) {
         box_row(y);
@@ -273,9 +274,9 @@ void App::build_theme_screen(std::ostringstream& frame, int W, int player_h) con
         if (i >= 21) continue;
         pos(y, 3, header_sgr(settings_) + pad(grp[i], 15) + R); pos(y, 18, ":");
         pos(y, 20, pad(l1n[i], 14, false)); pos(y, 35, ":");
-        const std::string v0 = [&] { const std::string* c = color_cell(const_cast<Settings&>(theme_draft_), i, 0); return c ? *c : std::string(); }();
+        const std::string v0 = [&] { const std::string* c = color_cell(const_cast<Settings&>(theme_->draft), i, 0); return c ? *c : std::string(); }();
         {
-            const bool sel = (i == theme_row_ && theme_col_ == 0);
+            const bool sel = (i == theme_->row && theme_->col == 0);
             const bool ed = sel && editing;
             std::string v = ed ? edit_paint(7).s : pad(v0, 7);
             if (ed) { cursor_y = y; cursor_x = 38 + paint_edit_field(color_edit_buffer_, std::min(edit_caret_, color_edit_buffer_.size()),
@@ -284,10 +285,10 @@ void App::build_theme_screen(std::ostringstream& frame, int W, int player_h) con
         }
         pos(y, 46, ansi_for(v0, false) + "██" + R);
         if (l2n[i][0]) {
-            const std::string* c1 = color_cell(const_cast<Settings&>(theme_draft_), i, 1);
+            const std::string* c1 = color_cell(const_cast<Settings&>(theme_->draft), i, 1);
             const std::string v1 = c1 ? *c1 : std::string();
             pos(y, 50, pad(l2n[i], 7, false)); pos(y, 58, ":");
-            const bool sel = (i == theme_row_ && theme_col_ == 1);
+            const bool sel = (i == theme_->row && theme_->col == 1);
             const bool ed = sel && editing;
             std::string v = ed ? edit_paint(7).s : pad(v1, 7);
             if (ed) { cursor_y = y; cursor_x = 61 + paint_edit_field(color_edit_buffer_, std::min(edit_caret_, color_edit_buffer_.size()),
@@ -297,7 +298,7 @@ void App::build_theme_screen(std::ostringstream& frame, int W, int player_h) con
             pos(y, 69, is_bg ? bg_ansi_for(v1) + "  " + R : ansi_for(v1, false) + "██" + R);
         }
         // a live sample of the row, drawn from the draft
-        const Settings& d = theme_draft_;
+        const Settings& d = theme_->draft;
         std::string rt;
         const std::string a0 = v0;
         const std::string* c1p = color_cell(const_cast<Settings&>(d), i, 1);
@@ -316,7 +317,7 @@ void App::build_theme_screen(std::ostringstream& frame, int W, int player_h) con
     while (y < MAX_Y) { box_row(y); ++y; }
     bottom_border(MAX_Y);
     if (leave_prompt_ == 3)
-        pos(MAX_Y + 1, 1, "\x1b[1;7m" + pad(" Do you want to overwrite theme \"" + truncate_str(themes::sanitize_name(theme_name_), themes::kMaxNameLen) + "\"? [y] Yes, overwrite  [n / ESC] No, keep editing", W - 1) + R);
+        pos(MAX_Y + 1, 1, "\x1b[1;7m" + pad(" Do you want to overwrite theme \"" + truncate_str(themes::sanitize_name(theme_->name), themes::kMaxNameLen) + "\"? [y] Yes, overwrite  [n / ESC] No, keep editing", W - 1) + R);
     else if (leave_prompt_ == 2)
         pos(MAX_Y + 1, 1, "\x1b[1;7m" + pad(" Unsaved theme! [s] Save it  [d] Discard it  [ESC] Keep editing", W - 1) + R);
     else
@@ -385,7 +386,7 @@ void App::settings_tab_colors(SettingsPaint& c) const {
         pos(y, 1, B(y) + "\u2502" + R); pos(y, W, B(y) + "\u2502" + R);
         pos(y, 3, header_sgr(settings_) + pad("THEME", 15) + R); pos(y, 18, ":");
         const int ci = theme_current_index();
-        const std::string tn = ci >= 0 ? theme_list_[static_cast<size_t>(ci)].name : std::string("(custom)");
+        const std::string tn = ci >= 0 ? theme_->list[static_cast<size_t>(ci)].name : std::string("(custom)");
         const bool sel0 = (settings_row_ == 0 && settings_col_ == 0);
         const bool sel1 = (settings_row_ == 0 && settings_col_ == 1);
         pos(y, 20, (sel0 ? HI : "") + pad(truncate_str(tn, themes::kMaxNameLen), themes::kMaxNameLen + 1) + R);
@@ -793,7 +794,7 @@ void App::build_settings_screen(std::ostringstream& frame, int W, int player_h) 
     // preview formulas, same bottom hint/status lines, same cursor
     // placement formula. Deliberately not "improved" or restructured.
     if (W < 80) W = 80;
-    if (theme_ui_ != 0) { build_theme_screen(frame, W, player_h); return; }
+    if (theme_->ui != 0) { build_theme_screen(frame, W, player_h); return; }
     const std::string R = "\x1b[0m", HI = "\x1b[7m";
     // MAX_Y is the row of this panel's own bottom border; the hint line
     // and status line render below it (rows MAX_Y+1, MAX_Y+2), so the

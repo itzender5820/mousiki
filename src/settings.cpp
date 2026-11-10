@@ -199,10 +199,7 @@ std::string parse_ansi256_brightness(const std::string& value) {
     // base index and drops the brightness scaling.
     auto comma = value.find(',');
     if (comma == std::string::npos) return value;
-    try {
-        int idx = std::stoi(value.substr(0, comma));
-        if (idx >= 0 && idx <= 255) return std::to_string(idx);
-    } catch (...) {}
+    if (const auto idx = muisc::parse_int(value.substr(0, comma)); idx && *idx >= 0 && *idx <= 255) return std::to_string(*idx);
     return value;
 }
 
@@ -499,8 +496,8 @@ void apply_default_hotkeys(Settings& s) {
         // and no longer written back (see save_settings()'s hkey_order), so
         // the next save removes the line from config.txt for good.
         s.hotkeys.erase("HKeyResetPreference");
-        // The three search prefixes (/s: /p: /f:) were listed as hotkeys but typing them was never configurable (the
-        // search box parses s: p: f: r: a: sc: b: itself); the lines are dropped so config.txt does not promise anything.
+        // The three search prefixes (/y: /p: /f:) were listed as hotkeys but typing them was never configurable (the
+        // search box parses y: p: f: r: a: sc: b: itself); the lines are dropped so config.txt does not promise anything.
         s.hotkeys.erase("HKeySearchOnline");
         s.hotkeys.erase("HKeySearchPlaylist");
         s.hotkeys.erase("HKeySearchFolder");
@@ -837,8 +834,11 @@ struct SimpleSetting {
 #define SIMPLE_COLOUR(key, legacy, member) {key, legacy, nullptr, nullptr, [](Settings& s) -> std::string& { return s.member; }, 0, 0, true, 0, false, false, "\n"}
 #define SIMPLE_TEXT(key, legacy, member, after) {key, legacy, nullptr, nullptr, [](Settings& s) -> std::string& { return s.member; }, 0, 0, false, 0, false, false, after}
 #define SIMPLE_QUOTED(key, legacy, member, after) {key, legacy, nullptr, nullptr, [](Settings& s) -> std::string& { return s.member; }, 0, 0, false, 0, false, true, after}
+#define SIMPLE_PERCENT_MAX(key, legacy, member, digit_first, hi, after) {key, legacy, nullptr, [](Settings& s) -> int& { return s.member; }, nullptr, 0, hi, false, 5, digit_first, false, after}
 #define SIMPLE_PERCENT(key, legacy, member, digit_first, after) {key, legacy, nullptr, [](Settings& s) -> int& { return s.member; }, nullptr, 0, 100, false, 5, digit_first, false, after}
 const SimpleSetting kSimpleSettings[] = {
+    SIMPLE_FLAG("BulkAddSave", nullptr, bulk_save, "\n## true = BULK ADD: the tracks you add are saved in the download folder when they play (as every streamed track is) , false = play only: a track that was not in the download folder before is deleted again after it has played (CTRL+s in the BULK ADD panel changes it)\n"),
+    SIMPLE_FLAG("BulkAddVideo", nullptr, bulk_video, "\n## true = BULK ADD: the video of each added track is downloaded too, when the track plays (needs Video mode; with BulkAddSave=false it is deleted with the track; CTRL+o in the BULK ADD panel changes it)\n"),
     SIMPLE_FLAG("VolumeGradient", nullptr, volume_gradient, "\n## true = the filled part of the VOLUME BAR is coloured with the VIZ gradient from left to right (like the oscilloscope), false = one colour\n"),
     SIMPLE_FLAG("UseModePlayer", nullptr, use_mode[0], "\n"),
     SIMPLE_FLAG("UseModeRadio", nullptr, use_mode[1], "\n"),
@@ -906,9 +906,10 @@ const SimpleSetting kSimpleSettings[] = {
     SIMPLE_TEXT("RemoteAppPin", nullptr, remote_pin, "\n## 4 - 8 digits -- the PIN the app needs; made when the remote app is switched on (mousiki --remote-info shows it)\n"),
     SIMPLE_NUM("HifiGain", "hifi_gain", hifi_gain, -20, 20, "\n## -20 to 20 dB -- Hi-Fi: moves the levels up or down\n"),
     SIMPLE_NUM("HifiRange", "hifi_range", hifi_range, 40, 100, "\n## 40 to 100 dB -- Hi-Fi: the range from the bottom to the top of the bars (smaller = steeper)\n"),
-    SIMPLE_PERCENT("CoverContrast", nullptr, cover_contrast, false, "\n## 0 .. 100 (percent, steps of 5) -- more contrast for the album cover (0 = the cover as it is)\n"),
+    SIMPLE_PERCENT_MAX("CoverContrast", nullptr, cover_contrast, false, 150, "\n## 0 .. 150 (percent, steps of 5) -- more contrast for the album cover (0 = the cover as it is)\n"),
     SIMPLE_PERCENT("CoverBrightness", nullptr, cover_brightness, false, "\n## 0 .. 100 (percent, steps of 5) -- the cover behind the disk: how bright its dots are lifted (0 = the picture's own range; more = brighter, like the plain disk)\n"),
     SIMPLE_PERCENT("CoverColors", nullptr, cover_colors, false, "\n## 0 .. 100 (percent, steps of 5) -- the cover behind the disk: its own colours mixed into the disk's gradient (0 = gradient only, 100 = the cover's own colours)\n"),
+    SIMPLE_PERCENT("CoverGradientSaturation", nullptr, cover_grad_sat, false, "\n## 0 .. 100 (percent, steps of 5) -- the cover looks: how vivid the disk's gradient is between its two colours (0 = the plain blend, which fades to grey in the middle; 60 = default; 100 = as saturated as a straight line between the two colours)\n"),
     SIMPLE_PERCENT("VideoContrast", "video_contrast", video_contrast, false, "\n## 0 .. 100 (percent, steps of 5) -- more contrast for the video's picture (0 = as it is)\n"),
     SIMPLE_PERCENT("VideoBrightness", "video_brightness", video_brightness, true, "\n## 0 .. 100 (percent, steps of 5) -- the brightness of the video's picture (50 = as it is, lower = darker, higher = brighter; a track can have its own: Style Option)\n"),
     SIMPLE_PERCENT("VideoColors", "video_colors", video_colors, false, "\n## 0 .. 100 (percent, steps of 5) -- the video's colours (0 = greyscale, 100 = as they are)\n"),
@@ -953,9 +954,9 @@ static bool apply_simple_setting(Settings& s, const std::string& key, const std:
     if (e->flag) e->flag(s) = parse_bool(value);
     else if (e->num && e->step) {   // a percent value: rounded to steps of 5
         const std::string v = trim_ws(unquote(value));
-        if (!(e->digit_first && (v.empty() || !std::isdigit(static_cast<unsigned char>(v[0]))))) e->num(s) = std::clamp((std::atoi(v.c_str()) + e->step / 2) / e->step * e->step, e->lo, e->hi);
+        if (!(e->digit_first && (v.empty() || !std::isdigit(static_cast<unsigned char>(v[0]))))) e->num(s) = std::clamp((muisc::atoi_safe(v.c_str()) + e->step / 2) / e->step * e->step, e->lo, e->hi);
     }
-    else if (e->num) { try { e->num(s) = std::clamp(std::stoi(trim_ws(unquote(value))), e->lo, e->hi); } catch (...) {} }
+    else if (e->num) { if (const auto n_ = muisc::parse_int(trim_ws(unquote(value)))) { e->num(s) = std::clamp(*n_, e->lo, e->hi); } }
     else if (e->colour) { if (!value.empty()) e->str(s) = normalize_color_value(value); }
     else if (e->quoted) e->str(s) = unquote(value);
     else e->str(s) = trim_ws(unquote(value));
@@ -1125,10 +1126,8 @@ static Settings load_from_config(const fs::path& path) {
         }
         if (key == "TerminalFont") { const std::string v = trim_ws(unquote(value)); if (!v.empty()) s.terminal_font = v; continue; }
         if (key == "BookSpeed") {   // 0.5 .. 3.0, rounded to the 0.05 steps of the setting
-            try {
-                const double v = std::stod(trim_ws(unquote(value)));
-                s.book_speed = std::clamp(std::round(v / Settings::kBookSpeedStep) * Settings::kBookSpeedStep, 0.5, 3.0);
-            } catch (...) {}
+            if (const auto v = muisc::parse_double(trim_ws(unquote(value))))
+                s.book_speed = std::clamp(std::round(*v / Settings::kBookSpeedStep) * Settings::kBookSpeedStep, 0.5, 3.0);
             continue;
         }
         if (key == "BookCoverWave") {
@@ -1213,11 +1212,11 @@ static Settings load_from_config(const fs::path& path) {
             continue;
         }
         if (key == "TrackBufferMB") {
-            try { s.track_buffer_mb = std::clamp(std::stoi(trim_ws(unquote(value))), Settings::kTrackBufferMinMB, Settings::kTrackBufferMaxMB); } catch (...) {}
+            if (const auto n_ = muisc::parse_int(trim_ws(unquote(value)))) { s.track_buffer_mb = std::clamp(*n_, Settings::kTrackBufferMinMB, Settings::kTrackBufferMaxMB); }
             continue;
         }
         if (key == "TerminalCols" || key == "TerminalRows") {
-            try { (key == "TerminalCols" ? s.terminal_cols : s.terminal_rows) = std::max(0, std::min(2000, std::stoi(trim_ws(unquote(value))))); } catch (...) {}
+            if (const auto n_ = muisc::parse_int(trim_ws(unquote(value)))) { (key == "TerminalCols" ? s.terminal_cols : s.terminal_rows) = std::max(0, std::min(2000, *n_)); }
             continue;
         }
         if (key == "FullScreen" || key == "UseTerminalSettings") {
@@ -1250,7 +1249,7 @@ static Settings load_from_config(const fs::path& path) {
             s.remote_app = (v == "true" || v == "1" || v == "on" || v == "yes");
             continue;
         }
-        if (key == "RemoteAppPort") { const int pt = std::atoi(trim_ws(unquote(value)).c_str()); if (pt >= 1024 && pt <= 65535) s.remote_port = pt; continue; }
+        if (key == "RemoteAppPort") { const int pt = muisc::atoi_safe(trim_ws(unquote(value)).c_str()); if (pt >= 1024 && pt <= 65535) s.remote_port = pt; continue; }
         if (key == "StartMode") {
             std::string v = trim_ws(unquote(value));
             for (char& c : v) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -1293,7 +1292,7 @@ static Settings load_from_config(const fs::path& path) {
         if (key == "video_chroma") { s.video_chroma = chroma_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
         if (key == "cover_chroma") { s.cover_chroma = chroma_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
         if (key == "video_resolution") { s.video_res = video_res_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
-        if (key == "video_buffer") { int mb = std::atoi(trim_ws(unquote(value)).c_str()); int best = 32; for (int c : kVideoBufferChoices) if (mb >= c) best = c; if (mb < kVideoBufferChoices[0]) best = kVideoBufferChoices[0]; s.video_buffer = best; continue; }
+        if (key == "video_buffer") { int mb = muisc::atoi_safe(trim_ws(unquote(value)).c_str()); int best = 32; for (int c : kVideoBufferChoices) if (mb >= c) best = c; if (mb < kVideoBufferChoices[0]) best = kVideoBufferChoices[0]; s.video_buffer = best; continue; }
         if (key == "video_fx") { std::string v = ascii_lower_str(trim_ws(unquote(value))); s.video_fx = video_fx_from(v); continue; }
         if (key == "video_full_lyrics") continue;   // (older versions: the lyrics of the big video overlay are the track's "Use Lyrics on Video" now)
         if (key == "VideoFullTranslation") continue;   // (older versions: see above)
@@ -1398,9 +1397,9 @@ static Settings load_from_config(const fs::path& path) {
         if (key == "seprator" || key == "separator") { s.meta_separator = unquote(value); continue; }
 
         // --- Visualizer tuning ---
-        if (key == "viz_style") { try { s.viz_style = std::stoi(value); } catch (...) {} continue; }
-        if (key == "viz_bands") { try { s.viz_bands = std::clamp(std::stoi(value), 8, 64); } catch (...) {} continue; }
-        if (key == "viz_density") { try { s.viz_density = std::clamp(std::stoi(value), 1, 5); } catch (...) {} continue; }
+        if (key == "viz_style") { if (const auto n_ = muisc::parse_int(value)) { s.viz_style = *n_; } continue; }
+        if (key == "viz_bands") { if (const auto n_ = muisc::parse_int(value)) { s.viz_bands = std::clamp(*n_, 8, 64); } continue; }
+        if (key == "viz_density") { if (const auto n_ = muisc::parse_int(value)) { s.viz_density = std::clamp(*n_, 1, 5); } continue; }
 
         // --- Colors (ANSI 256,brightness format) ---
         auto set_color = [&](const std::string& k, const std::string& v, std::string& field) {
@@ -1428,7 +1427,7 @@ static Settings load_from_config(const fs::path& path) {
 
         // --- Extended color fields (direct name=value for compatibility) ---
         if (key == "disk_color_gradient") { s.disk_color_gradient = parse_bool(value); continue; }
-        if (key == "disk_rotation_speed") { try { s.disk_rotation_speed = std::clamp(std::stod(value), 0.01, 1.00); } catch (...) {} continue; }
+        if (key == "disk_rotation_speed") { if (const auto n_ = muisc::parse_double(value)) { s.disk_rotation_speed = std::clamp(*n_, 0.01, 1.00); } continue; }
         if (key == "focus_color") { if (!value.empty()) { s.focus_color = normalize_color_value(value); focus_color_set = true; } continue; }
         if (key == "BorderGradient" || key == "border_gradient") { { std::string v = value; for (char& ch : v) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch))); s.border_smooth = (v != "rough"); } continue; }
         if (key == "search_bg_color") { s.search_bg_color = value.empty() ? std::string() : normalize_color_value(value); continue; }   // empty = no colour (a theme may have none)
@@ -1443,7 +1442,7 @@ static Settings load_from_config(const fs::path& path) {
         if (key == "hifi_split") { const std::string v = trim_ws(unquote(value)); s.hifi_split = (v == "remove" || v == "0") ? 0 : 1; continue; }
         if (key == "hifi_color") { const std::string v = trim_ws(unquote(value)); s.hifi_color = (v == "corresponding" || v == "1") ? 1 : 0; continue; }
         if (key == "theme_name") { s.theme_name = value; continue; }
-        if (key == "play_mode") { try { s.play_mode = std::clamp(std::stoi(value), 0, 4); } catch (...) {} continue; }
+        if (key == "play_mode") { if (const auto n_ = muisc::parse_int(value)) { s.play_mode = std::clamp(*n_, 0, 4); } continue; }
         if (key == "waveform_smooth") { s.waveform_smooth = parse_bool(value); continue; }
 
         // --- Console logging -------------------------------------------
@@ -1460,8 +1459,8 @@ static Settings load_from_config(const fs::path& path) {
         // --- Stereo ------------------------------------------------------
 
         // --- Loudness normalisation -------------------------------------
-        if (key == "NormalizeTargetLufs") { try { s.normalize_target_lufs = std::clamp(std::stod(value), -40.0, 0.0); } catch (...) {} continue; }
-        if (key == "NormalizeMaxBoostDb") { try { s.normalize_max_boost_db = std::clamp(std::stod(value), 0.0, 24.0); } catch (...) {} continue; }
+        if (key == "NormalizeTargetLufs") { if (const auto n_ = muisc::parse_double(value)) { s.normalize_target_lufs = std::clamp(*n_, -40.0, 0.0); } continue; }
+        if (key == "NormalizeMaxBoostDb") { if (const auto n_ = muisc::parse_double(value)) { s.normalize_max_boost_db = std::clamp(*n_, 0.0, 24.0); } continue; }
 
         // --- Equaliser ---------------------------------------------------
         if (key == "EqualizerBands") {
@@ -1512,11 +1511,11 @@ static Settings load_from_config(const fs::path& path) {
 
         // --- Autosave / session snapshot --------------------------------
         if (key == "SidPlayLength") {
-            try { s.sid_play_length = std::clamp(std::stoi(trim_ws(unquote(value))), 10, 1800); } catch (...) {}
+            if (const auto n_ = muisc::parse_int(trim_ws(unquote(value)))) { s.sid_play_length = std::clamp(*n_, 10, 1800); }
             continue;
         }
         if (key == "KaraokeLyricsSize") {
-            try { s.karaoke_lyrics_size = std::clamp(std::stoi(trim_ws(unquote(value))), 1, 5); } catch (...) {}
+            if (const auto n_ = muisc::parse_int(trim_ws(unquote(value)))) { s.karaoke_lyrics_size = std::clamp(*n_, 1, 5); }
             continue;
         }
         if (key == "TranslateService") {
@@ -1533,7 +1532,7 @@ static Settings load_from_config(const fs::path& path) {
             continue;
         }
         if (key == "TranslateUrl" || key == "TranslateKey") continue;   // retired with LibreTranslate: old configs may still hold them
-        if (key == "AutoSaveDelayInSec") { try { s.autosave_delay_sec = std::max(1, std::stoi(value)); } catch (...) {} continue; }
+        if (key == "AutoSaveDelayInSec") { if (const auto n_ = muisc::parse_int(value)) { s.autosave_delay_sec = std::max(1, *n_); } continue; }
         if (key == "AutoSaveChr") {
             // Only one character allowed: keep just the first UTF-8
             // codepoint of whatever was typed there, not the first byte
@@ -1686,8 +1685,8 @@ static Settings load_from_legacy(const fs::path& path) {
     }
 
     auto get = [&](const char* key, std::string& field) { if (kv.count(key)) field = kv[key]; };
-    auto get_int = [&](const char* key, int& field) { if (kv.count(key)) { try { field = std::stoi(kv[key]); } catch (...) {} } };
-    auto get_dbl = [&](const char* key, double& field) { if (kv.count(key)) { try { field = std::stod(kv[key]); } catch (...) {} } };
+    auto get_int = [&](const char* key, int& field) { if (kv.count(key)) { if (const auto n_ = muisc::parse_int(kv[key])) { field = *n_; } } };
+    auto get_dbl = [&](const char* key, double& field) { if (kv.count(key)) { if (const auto n_ = muisc::parse_double(kv[key])) { field = *n_; } } };
 
     get_int("visualizer_fluidity", s.visualizer_fluidity);
     get("disk_color", s.disk_color);
@@ -1762,7 +1761,7 @@ RemoteAppConfig read_remote_app() {
             for (char& ch : v) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
             rc.enabled = v == "true" || v == "1" || v == "on" || v == "yes";
         } else if (k == "RemoteAppPort") {
-            const int pt = std::atoi(v.c_str());
+            const int pt = muisc::atoi_safe(v.c_str());
             if (pt >= 1024 && pt <= 65535) rc.port = pt;
         } else if (k == "RemoteAppPin") rc.pin = v;
     }
@@ -2051,6 +2050,9 @@ static void write_settings(std::ostream& out, const Settings& s) {
     write_simple_setting(out, s, "CoverContrast");
     write_simple_setting(out, s, "CoverBrightness");
     write_simple_setting(out, s, "CoverColors");
+    write_simple_setting(out, s, "CoverGradientSaturation");
+    write_simple_setting(out, s, "BulkAddSave");
+    write_simple_setting(out, s, "BulkAddVideo");
     out << "CoverChroma=" << chroma_name(s.cover_chroma) << "\n## chromatic aberration of a cover that shows its own colours (Just Cover, Cover Colors above 0, the ASCII looks): off | subtle | medium | strong\n";
     out << "CoverSearch=" << (s.cover_search == 1 ? "folder first" : s.cover_search == 2 ? "file first" : s.cover_search == 3 ? "folder only" : s.cover_search == 4 ? "file only" : "default")
         << "\n## default (the picture inside the file, else the closest-named picture in the folder) , folder first , file first (inside the file, else only a closely named folder picture) , folder only , file only -- every search except file only ends with any picture of the folder (the first by name) when nothing else gave one\n";

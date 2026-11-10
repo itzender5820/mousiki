@@ -4,6 +4,9 @@
 // one into <download folder>/video_down. The downloaded file is named like the song and connected to it at once (video_links.h).
 // Search and download run in the background (yt-dlp); the overlay can be closed while a download runs.
 #include "app.h"
+#include "app_state_vf.h"
+#include "app_state_vs.h"
+#include "app_state_vm.h"
 #include "app_internal.h"
 #include "console_log.h"
 #include "cover_art.h"
@@ -51,16 +54,16 @@ std::string vs_clock_text(double sec) {
 
 fs::path App::video_down_dir() const { return cache_.download_dir() / "video_down"; }
 
-// The start of the search: the file name of the song (without its track number), or -- vs_by_tags_ -- "artist title" from its tags.
+// The start of the search: the file name of the song (without its track number), or -- vs_->by_tags -- "artist title" from its tags.
 std::string App::video_search_default_query() const {
-    if (!has_track_ || current_path_.empty()) return std::string();
-    if (vs_by_tags_) {
+    if (!has_track_ || current_.path.empty()) return std::string();
+    if (vs_->by_tags) {
         const TrackMetadata md = display_metadata();
         const std::string artist = (md.artist == "-") ? std::string() : md.artist;
         const std::string title = (md.name == "-") ? std::string() : md.name;
         if (!title.empty()) return artist.empty() ? title : artist + " " + title;
     }
-    return without_track_number(path_utf8(current_path_.stem()));
+    return without_track_number(path_utf8(current_.path.stem()));
 }
 
 // The yt-dlp command for a download (a function of its own: tested without a network).
@@ -74,45 +77,45 @@ std::vector<std::string> video_download_args(const std::string& id, const fs::pa
             "https://www.youtube.com/watch?v=" + id};
 }
 
-void App::video_search_start() {
-    if (vs_busy_) return;
-    const std::string q = trim_ws(vs_query_);
-    if (q.empty()) { vs_msg_ = "type what to search for"; vs_warn_ = true; return; }
-    vs_busy_ = true;
-    vs_warn_ = false;
-    vs_msg_ = "searching ...";
-    vs_results_.clear();
-    vs_sel_ = 0;
-    vs_future_ = std::async(std::launch::async, [q]() { OnlineSource src; return src.search_videos(q, 10); });
+void App::VsState::video_search_start() {
+    if (busy) return;
+    const std::string q = trim_ws(query);
+    if (q.empty()) { msg = "type what to search for"; warn = true; return; }
+    busy = true;
+    warn = false;
+    msg = "searching ...";
+    results.clear();
+    sel = 0;
+    future = std::async(std::launch::async, [q]() { OnlineSource src; return src.search_videos(q, 10); });
 }
 
 void App::video_search_open() {
-    if (vs_query_.empty() || vs_query_for_ != path_utf8(current_path_)) {
-        vs_query_ = video_search_default_query();
-        vs_query_for_ = path_utf8(current_path_);
+    if (vs_->query.empty() || vs_->query_for != path_utf8(current_.path)) {
+        vs_->query = video_search_default_query();
+        vs_->query_for = path_utf8(current_.path);
     }
     edit_owner_.clear();   // (the caret of the text field goes to the end of the text)
-    vs_target_ = has_track_ ? current_path_ : fs::path();
-    vs_mp3_ = settings_.video_mp3 && vs_target_.empty();   // (with a song as the target the video is for that song: no extra mp3 unless CTRL+o asks for it)
-    vs_pane_ = 0;
+    vs_->target = has_track_ ? current_.path : fs::path();
+    vs_->mp3 = settings_.video_mp3 && vs_->target.empty();   // (with a song as the target the video is for that song: no extra mp3 unless CTRL+o asks for it)
+    vs_->pane = 0;
     mode_ = Mode::VideoSearch;
     force_redraw_ = true;
-    if (vs_results_.empty() && !vs_busy_ && !vs_query_.empty()) video_search_start();
+    if (vs_->results.empty() && !vs_->busy && !vs_->query.empty()) vs_->video_search_start();
 }
 
-// /sv:query -- the SEARCH YT overlay with that text, searched at once
+// /yv:query -- the SEARCH YT overlay with that text, searched at once
 void App::video_search_open(const std::string& query) {
-    vs_query_ = query;
-    vs_query_for_ = path_utf8(current_path_);
+    vs_->query = query;
+    vs_->query_for = path_utf8(current_.path);
     edit_owner_.clear();
-    vs_target_ = has_track_ ? current_path_ : fs::path();
-    vs_mp3_ = settings_.video_mp3 && vs_target_.empty();
-    vs_pane_ = 0;
-    vs_results_.clear();
-    vs_busy_ = false;
+    vs_->target = has_track_ ? current_.path : fs::path();
+    vs_->mp3 = settings_.video_mp3 && vs_->target.empty();
+    vs_->pane = 0;
+    vs_->results.clear();
+    vs_->busy = false;
     mode_ = Mode::VideoSearch;
     force_redraw_ = true;
-    if (!vs_query_.empty()) { video_search_start(); vs_pane_ = 1; }
+    if (!vs_->query.empty()) { vs_->video_search_start(); vs_->pane = 1; }
 }
 
 void App::video_search_close() {
@@ -164,28 +167,28 @@ std::string video_make_mp3_file(const std::string& video, const fs::path& dir, c
 }
 
 void App::video_download_start(const OnlineResult& r) {
-    if (vd_.active) { vs_msg_ = "a download is running already"; vs_warn_ = true; return; }
+    if (vd_.active) { vs_->msg = "a download is running already"; vs_->warn = true; return; }
     {   // this video was downloaded before (by Mousiki or by down_vid) and the file is still there: no second copy, just connect it
         const fs::path have = cache_.find_video_download(r.video_id);
-        if (!have.empty() && !vs_mp3_) {
-            if (!vs_target_.empty()) {
-                VideoLinks::get().set(path_utf8(vs_target_), path_utf8(have));
+        if (!have.empty() && !vs_->mp3) {
+            if (!vs_->target.empty()) {
+                VideoLinks::get().set(path_utf8(vs_->target), path_utf8(have));
                 ++video_rev_;
                 video_for_track_.clear();
             }
             if (settings_.video_mode) rescan_now();
-            vs_msg_ = "already downloaded: " + path_utf8(have) + (vs_target_.empty() ? std::string() : " -- connected to the song, nothing was fetched again");
-            vs_warn_ = false;
-            status_line_ = vs_msg_;
-            log_event(vs_msg_);
+            vs_->msg = "already downloaded: " + path_utf8(have) + (vs_->target.empty() ? std::string() : " -- connected to the song, nothing was fetched again");
+            vs_->warn = false;
+            status_line_ = vs_->msg;
+            log_event(vs_->msg);
             return;
         }
     }
     const fs::path dir = video_down_dir();
     std::error_code ec;
     fs::create_directories(dir, ec);
-    if (ec) { vs_msg_ = "cannot create " + path_utf8(dir) + ": " + ec.message(); vs_warn_ = true; return; }
-    std::string base = vs_target_.empty() ? safe_file_name(r.title) : safe_file_name(path_utf8(vs_target_.stem()));
+    if (ec) { vs_->msg = "cannot create " + path_utf8(dir) + ": " + ec.message(); vs_->warn = true; return; }
+    std::string base = vs_->target.empty() ? safe_file_name(r.title) : safe_file_name(path_utf8(vs_->target.stem()));
     if (base.empty()) base = r.video_id;
     {
         std::lock_guard<std::mutex> lk(vd_.m);
@@ -199,12 +202,12 @@ void App::video_download_start(const OnlineResult& r) {
     vd_.base = base;
     vd_.title = r.title;
     vd_.video_id = r.video_id;
-    vd_.track = vs_target_;
-    vd_.want_mp3 = vs_mp3_;
+    vd_.track = vs_->target;
+    vd_.want_mp3 = vs_->mp3;
     vd_.mp3_dir = cache_.download_dir();
     vd_.mp3_file.clear();
     vd_.mp3_error.clear();
-    const fs::path have_file = vs_mp3_ ? cache_.find_video_download(r.video_id) : fs::path();   // (downloaded before: only the mp3 is still missing)
+    const fs::path have_file = vs_->mp3 ? cache_.find_video_download(r.video_id) : fs::path();   // (downloaded before: only the mp3 is still missing)
     const std::vector<std::string> args = video_download_args(r.video_id, dir, base, settings_.video_down_height);
     ConsoleLog::instance().log_basic("video download: " + command_text(args));
     vd_.thread = std::thread([this, args, have_file]() {
@@ -279,30 +282,30 @@ void App::video_download_start(const OnlineResult& r) {
 
 // Once per frame: a finished search fills the list, a finished download is connected to its song.
 void App::video_search_poll() {
-    if (vm_mp3_fut_.valid() && vm_mp3_fut_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {   // an mp3 made in the VIDEO FILES tab
-        const auto res = vm_mp3_fut_.get();
+    if (vm_->mp3_fut.valid() && vm_->mp3_fut.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {   // an mp3 made in the VIDEO FILES tab
+        const auto res = vm_->mp3_fut.get();
         std::string msg;
         bool warn = false;
         if (res.first.empty()) { msg = res.second.empty() ? std::string("the mp3 could not be made") : res.second; warn = true; }
         else {
-            VideoLinks::get().set(res.first, vm_mp3_video_);   // (the new song shows this video)
+            VideoLinks::get().set(res.first, vm_->mp3_video);   // (the new song shows this video)
             ++video_rev_;
             video_for_track_.clear();
             rescan_now();
-            msg = "mp3 saved: " + res.first + " -- connected to " + path_utf8(path_from_utf8(vm_mp3_video_).filename());
-            if (mode_ == Mode::VideoFetch && vf_tab_ == 1) { video_manage_rebuild(); video_fetch_rebuild_list(); }
+            msg = "mp3 saved: " + res.first + " -- connected to " + path_utf8(path_from_utf8(vm_->mp3_video).filename());
+            if (mode_ == Mode::VideoFetch && vfs_->tab == 1) { video_manage_rebuild(); video_fetch_rebuild_list(); }
         }
         status_line_ = msg;
         log_event(msg);
-        if (mode_ == Mode::VideoFetch) { vf_msg_ = msg; vf_warn_ = warn; }
+        if (mode_ == Mode::VideoFetch) { vfs_->msg = msg; vfs_->warn = warn; }
         force_redraw_ = true;
     }
-    if (vs_busy_ && vs_future_.valid() && vs_future_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-        vs_results_ = vs_future_.get();
-        vs_busy_ = false;
-        vs_sel_ = 0;
-        vs_warn_ = vs_results_.empty();
-        vs_msg_ = vs_results_.empty() ? "no videos found (is yt-dlp installed, and the computer online?)" : std::to_string(vs_results_.size()) + " videos found -- [ENTER] downloads the highlighted one";
+    if (vs_->busy && vs_->future.valid() && vs_->future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        vs_->results = vs_->future.get();
+        vs_->busy = false;
+        vs_->sel = 0;
+        vs_->warn = vs_->results.empty();
+        vs_->msg = vs_->results.empty() ? "no videos found (is yt-dlp installed, and the computer online?)" : std::to_string(vs_->results.size()) + " videos found -- [ENTER] downloads the highlighted one";
         force_redraw_ = true;
     }
     if (vd_.active) {
@@ -311,7 +314,7 @@ void App::video_search_poll() {
             std::lock_guard<std::mutex> lk(vd_.m);
             done = vd_.done;
         }
-        if (!done) { if (mode_ == Mode::VideoSearch) { std::lock_guard<std::mutex> lk(vd_.m); vs_msg_ = vd_.title + ": " + vd_.progress; vs_warn_ = false; } return; }
+        if (!done) { if (mode_ == Mode::VideoSearch) { std::lock_guard<std::mutex> lk(vd_.m); vs_->msg = vd_.title + ": " + vd_.progress; vs_->warn = false; } return; }
         if (vd_.thread.joinable()) vd_.thread.join();
         vd_.active = false;
         std::string file, err, mp3, mp3_err;
@@ -344,60 +347,78 @@ void App::video_search_poll() {
             msg = "downloaded to " + file + (!mp3.empty() ? "; the sound is saved as " + mp3 + " and connected to the video" : vd_.track.empty() ? "" : " -- connected to the song");
             if (vd_.want_mp3 && mp3.empty()) { msg += " (" + (mp3_err.empty() ? std::string("no mp3 was made") : mp3_err) + ")"; warn = true; }
         }
-        if (mode_ == Mode::VideoSearch) { vs_msg_ = msg; vs_warn_ = warn; }
+        if (mode_ == Mode::VideoSearch) { vs_->msg = msg; vs_->warn = warn; }
         status_line_ = msg;
         log_event(msg);
         force_redraw_ = true;
     }
+    bulk_video_pump();
+}
+
+// BULK ADD with video: the video of the playing track is downloaded as soon as the download slot is free (the one of the SEARCH YT overlay:
+// one video at a time). A track that is not the playing one any more is not fetched.
+void App::bulk_video_pump() {
+    if (!bulk_video_.set || vd_.active) return;
+    if (!has_track_ || current_.path != bulk_video_.target) { bulk_video_.set = false; return; }
+    const OnlineResult r = bulk_video_.r;
+    bulk_video_.set = false;
+    const fs::path keep_target = vs_->target;
+    const bool keep_mp3 = vs_->mp3;
+    vs_->target = bulk_video_.target;
+    vs_->mp3 = false;
+    if (!settings_.video_mode) status_line_ = "bulk add: video mode is off, the video is downloaded but not shown (open the video overlay to switch it on)";
+    video_download_start(r);
+    vs_->target = keep_target;
+    vs_->mp3 = keep_mp3;
 }
 
 void App::video_search_key(int key) {
     const bool arrow = last_key_was_arrow();
     if (key == 27) { video_search_close(); return; }
-    if (!arrow && key == '\t') { vs_pane_ = vs_pane_ == 0 ? 1 : 0; if (vs_pane_ == 1) text_disengage(); return; }
-    if (key == kKeyCtrlC && vd_.active && vs_pane_ == 1) {   // (in the search field CTRL+c copies, as in every text field)
+    if (!arrow && key == '\t') { vs_->pane = vs_->pane == 0 ? 1 : 0; if (vs_->pane == 1) text_disengage(); return; }
+    if (key == kKeyCtrlC && vd_.active && vs_->pane == 1) {   // (in the search field CTRL+c copies, as in every text field)
         std::lock_guard<std::mutex> lk(vd_.child_m);
         if (vd_.child) vd_.child->kill();
-        vs_msg_ = "download cancelled";
-        vs_warn_ = true;
+        vs_->msg = "download cancelled";
+        vs_->warn = true;
         return;
     }
     if (key == kKeyCtrlO) {   // CTRL+o: also make an mp3 of the sound (a song of its own in the download folder)
-        vs_mp3_ = !vs_mp3_;
-        vs_msg_ = vs_mp3_ ? "the sound is saved as an mp3 song too (in the download folder); the video is connected to it" : "only the video is downloaded";
-        vs_warn_ = false;
+        vs_->mp3 = !vs_->mp3;
+        vs_->msg = vs_->mp3 ? "the sound is saved as an mp3 song too (in the download folder); the video is connected to it" : "only the video is downloaded";
+        vs_->warn = false;
         return;
     }
-    if (vs_pane_ == 0) {
-        if (key == '\r' || key == '\n') { text_disengage(); video_search_start(); if (!vs_results_.empty() || vs_busy_) vs_pane_ = 1; return; }
-        if (arrow && key == 'B') { if (!vs_results_.empty()) { text_disengage(); vs_pane_ = 1; } return; }
+    if (vs_->pane == 0) {
+        if (key == '\r' || key == '\n') { text_disengage(); vs_->video_search_start(); if (!vs_->results.empty() || vs_->busy) vs_->pane = 1; return; }
+        if (arrow && key == 'B') { if (!vs_->results.empty()) { text_disengage(); vs_->pane = 1; } return; }
         if (key == kKeyCtrlT) {   // the query from the file name <-> from the tags (artist + title), in the search field
-            vs_by_tags_ = !vs_by_tags_;
-            vs_query_ = video_search_default_query();
+            vs_->by_tags = !vs_->by_tags;
+            vs_->query = video_search_default_query();
             edit_owner_.clear();
-            edit_focus("vs-search", vs_query_);
-            vs_msg_ = vs_by_tags_ ? "search text: artist + title from the tags" : "search text: the file name";
-            vs_warn_ = false;
+            edit_focus("vs-search", vs_->query);
+            vs_->msg = vs_->by_tags ? "search text: artist + title from the tags" : "search text: the file name";
+            vs_->warn = false;
             return;
         }
         // a regular text field: caret, selection, copy / cut / paste, undo (CTRL+z / CTRL+y), HOME / END, word jumps
-        edit_focus("vs-search", vs_query_);
+        edit_focus("vs-search", vs_->query);
         text_engage("vs-search");
         std::string note;
-        edit_text_key(vs_query_, edit_caret_, edit_anchor_, key, 300, &note);
-        if (!note.empty()) { vs_msg_ = note; vs_warn_ = false; }
+        edit_text_key(vs_->query, edit_caret_, edit_anchor_, key, 300, &note);
+        if (!note.empty()) { vs_->msg = note; vs_->warn = false; }
         return;
     }
-    const int n = static_cast<int>(vs_results_.size());
-    if (arrow && key == 'A') { if (vs_sel_ == 0) vs_pane_ = 0; else --vs_sel_; return; }
-    if (arrow && key == 'B') { vs_sel_ = std::min(std::max(0, n - 1), vs_sel_ + 1); return; }
+    const int n = static_cast<int>(vs_->results.size());
+    if (arrow && key == 'A') { if (vs_->sel == 0) vs_->pane = 0; else --vs_->sel; return; }
+    if (arrow && key == 'B') { vs_->sel = std::min(std::max(0, n - 1), vs_->sel + 1); return; }
     if (key == '\r' || key == '\n') {
         if (n == 0) return;
-        video_download_start(vs_results_[static_cast<size_t>(vs_sel_)]);
+        video_download_start(vs_->results[static_cast<size_t>(vs_->sel)]);
         return;
     }
     if (!arrow && (key == 'o' || key == 'O') && n > 0) {   // the page in the browser
-        open_url("https://www.youtube.com/watch?v=" + vs_results_[static_cast<size_t>(vs_sel_)].video_id);
+        open_url("https://www.youtube.com/watch?v=" + vs_->results[static_cast<size_t>(vs_->sel)].video_id);
         return;
     }
 }
@@ -455,40 +476,40 @@ std::vector<std::string> App::build_video_search_panel(int W) const {
     const std::string leg = legend_sgr(settings_);
     auto line = [&](const std::string& content, int used) { return bar + " " + content + std::string(static_cast<size_t>(std::max(0, inner - used)), ' ') + " " + bar; };
     std::vector<std::string> out;
-    out.push_back(box_top(std::string("SEARCH YT") + (vs_pane_ == 0 ? focus_indicator(settings_, border) : std::string()), PW, border));
+    out.push_back(box_top(std::string("SEARCH YT") + (vs_->pane == 0 ? focus_indicator(settings_, border) : std::string()), PW, border));
     {   // the query field: a regular text field (caret, selection, copy / paste, undo)
         const std::string label = "Search: ";
         const int room = std::max(1, inner - display_width(label) - 1);
-        if (vs_pane_ == 0) {
-            const EditPaint p = paint_edit_field(vs_query_, edit_owner_ == "vs-search" ? edit_caret_ : vs_query_.size(),
-                                                 edit_owner_ == "vs-search" ? edit_anchor_ : vs_query_.size(), room,
-                                                 vs_query_.empty() ? search_idle_sgr(settings_) : search_sgr(settings_), true);
-            out.push_back(line(search_idle_sgr(settings_) + label + search_run(settings_, p.s, !vs_query_.empty()) + R, display_width(label) + p.cols));
+        if (vs_->pane == 0) {
+            const EditPaint p = paint_edit_field(vs_->query, edit_owner_ == "vs-search" ? edit_caret_ : vs_->query.size(),
+                                                 edit_owner_ == "vs-search" ? edit_anchor_ : vs_->query.size(), room,
+                                                 vs_->query.empty() ? search_idle_sgr(settings_) : search_sgr(settings_), true);
+            out.push_back(line(search_idle_sgr(settings_) + label + search_run(settings_, p.s, !vs_->query.empty()) + R, display_width(label) + p.cols));
         } else {
-            const std::string shown = truncate_str(vs_query_, room);
-            out.push_back(line(search_idle_sgr(settings_) + label + search_run(settings_, shown, !vs_query_.empty()) + R, display_width(label) + display_width(shown)));
+            const std::string shown = truncate_str(vs_->query, room);
+            out.push_back(line(search_idle_sgr(settings_) + label + search_run(settings_, shown, !vs_->query.empty()) + R, display_width(label) + display_width(shown)));
         }
     }
     out.push_back(box_bottom(PW, "", border));
-    const int n = static_cast<int>(vs_results_.size());
-    const int sel = std::clamp(vs_sel_, 0, std::max(0, n - 1));
-    const OnlineResult* cur = n > 0 ? &vs_results_[static_cast<size_t>(sel)] : nullptr;
+    const int n = static_cast<int>(vs_->results.size());
+    const int sel = std::clamp(vs_->sel, 0, std::max(0, n - 1));
+    const OnlineResult* cur = n > 0 ? &vs_->results[static_cast<size_t>(sel)] : nullptr;
     // The thumbnail is a real picture (Kitty / Sixel) over the preview cells; braille dots only when the terminal has neither.
-    vs_pic_ = 0;
+    vs_->pic = 0;
     std::vector<std::string> prev;
-    if (cur && gfx_proto_ != GfxProto::None) {
+    if (cur && gfxs_.proto != GfxProto::None) {
         const int panel_h = 19;   // (constant: the search box 3, the RESULTS pane 11, the SELECTED box 5)
         const int start_col = 1 + std::max(0, (W - PW) / 2);
         const int start_row = std::clamp(1 + std::max(0, (term_rows_ - panel_h) / 2 - kFloatingPanelUpShift), 1, std::max(1, term_rows_ - panel_h));
         const bool second = gfx_.active;   // the main screen's cover stays (the panel covers part of it): the thumbnail takes the second slot
         const std::string url = "https://i.ytimg.com/vi/" + cur->video_id + "/mqdefault.jpg";
         if (cover_full_picture(url, false, prev_w, prev_rows, (start_col - 1) + list_w + 3, (start_row - 1) + 4, second)) {
-            vs_pic_ = second ? 2 : 1;
+            vs_->pic = second ? 2 : 1;
             prev.assign(static_cast<size_t>(prev_rows), gfx_hole(prev_w));
         }
     }
-    if (vs_pic_ == 0 && cur) prev = video_search_preview(*cur, prev_w, prev_rows);
-    out.push_back(box_top(std::string("RESULTS") + (vs_pane_ == 1 ? focus_indicator(settings_, border) : std::string()), PW, border));
+    if (vs_->pic == 0 && cur) prev = video_search_preview(*cur, prev_w, prev_rows);
+    out.push_back(box_top(std::string("RESULTS") + (vs_->pane == 1 ? focus_indicator(settings_, border) : std::string()), PW, border));
     for (int r = 0; r < prev_rows; ++r) {
         int first = 0;
         if (sel >= prev_rows) first = sel - prev_rows + 1;
@@ -496,15 +517,15 @@ std::vector<std::string> App::build_video_search_panel(int W) const {
         std::string l;
         int used = 0;
         if (i < n) {
-            const OnlineResult& it = vs_results_[static_cast<size_t>(i)];
+            const OnlineResult& it = vs_->results[static_cast<size_t>(i)];
             const std::string dur = vs_clock_text(it.duration_sec);
             const std::string right = (dur.empty() ? "" : " " + dur);
-            const std::string text = truncate_str((i == sel && vs_pane_ == 1 ? "> " : "  ") + it.title + "  - " + it.uploader, std::max(4, list_w - display_width(right)));
+            const std::string text = truncate_str((i == sel && vs_->pane == 1 ? "> " : "  ") + it.title + "  - " + it.uploader, std::max(4, list_w - display_width(right)));
             std::string padded = pad_right(text, list_w - display_width(right)) + right;
             used = list_w;
-            l = (i == sel && vs_pane_ == 1) ? cursor_sgr(settings_.list_cursor_color, settings_.list_cursor_bg_color) + padded + R : (i == sel ? hdr + padded + R : padded);
+            l = (i == sel && vs_->pane == 1) ? cursor_sgr(settings_.list_cursor_color, settings_.list_cursor_bg_color) + padded + R : (i == sel ? hdr + padded + R : padded);
         } else if (r == 0 && n == 0) {
-            const std::string t = vs_busy_ ? "searching ..." : "no results yet -- press [ENTER] in the search field";
+            const std::string t = vs_->busy ? "searching ..." : "no results yet -- press [ENTER] in the search field";
             l = pad_right(truncate_str(t, list_w), list_w);
             used = list_w;
         } else {
@@ -522,7 +543,7 @@ std::vector<std::string> App::build_video_search_panel(int W) const {
         out.push_back(line(hdr + info + R, display_width(info)));
         const fs::path dir = video_down_dir();
         const std::string head = "Video to ";
-        const std::string tail = std::string(vs_target_.empty() ? "" : "  as  " + safe_file_name(path_utf8(vs_target_.stem())) + ".mp4") + (vs_mp3_ ? "  | mp3 too [CTRL+o]: on" : "  | mp3 too [CTRL+o]: off");
+        const std::string tail = std::string(vs_->target.empty() ? "" : "  as  " + safe_file_name(path_utf8(vs_->target.stem())) + ".mp4") + (vs_->mp3 ? "  | mp3 too [CTRL+o]: on" : "  | mp3 too [CTRL+o]: off");
         std::string where = path_utf8(dir);
         // a path too long for the panel loses its beginning, not its end (the folder's name is what matters)
         const int room = std::max(8, inner - display_width(head) - display_width(tail));
@@ -539,8 +560,8 @@ std::vector<std::string> App::build_video_search_panel(int W) const {
         out.push_back(line(leg + d + R, display_width(d)));
     }
     {
-        const std::string m = truncate_str(vs_msg_, inner);
-        out.push_back(line((vs_warn_ ? std::string("\x1b[31m") : leg) + m + R, display_width(m)));
+        const std::string m = truncate_str(vs_->msg, inner);
+        out.push_back(line((vs_->warn ? std::string("\x1b[31m") : leg) + m + R, display_width(m)));
     }
     out.push_back(centred_bottom(settings_, PW, "[ENTER] search / download  [TAB] field/list  [o] open page  [CTRL+t] file name / artist+title  [CTRL+o] mp3 too  [CTRL+c] copy / cancel download  [ESC] close", border_bottom));
     return out;

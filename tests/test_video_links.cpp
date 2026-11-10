@@ -220,3 +220,16 @@ TEST(video_links_several_tracks_can_share_one_video) {
     CHECK_EQ(L.video_for("/m/a2.mp3"), std::string("/v/renamed.mp4"));
     CHECK_EQ(L.video_for("/m/c.mp3"), std::string("/v/renamed.mp4"));
 }
+
+TEST(online_search_prefixes_are_y_sc_b) {
+    size_t len = 0;
+    CHECK_EQ(online_prefix("y:queen", len), 0);       // YouTube (was "s:")
+    CHECK_EQ(len, static_cast<size_t>(2));
+    CHECK_EQ(online_prefix("Y:queen", len), 0);       // (upper case works too)
+    CHECK_EQ(online_prefix("sc:queen", len), 1);
+    CHECK_EQ(len, static_cast<size_t>(3));
+    CHECK_EQ(online_prefix("b:queen", len), 2);
+    CHECK_EQ(online_prefix("s:queen", len), -1);      // "s:" is a plain search text now
+    CHECK_EQ(online_prefix("yv:queen", len), -1);     // "yv:" is the video search, not a YouTube music search
+    CHECK_EQ(online_prefix("queen", len), -1);
+}

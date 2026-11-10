@@ -2,6 +2,13 @@
 // Part of class App (src/app.h): the key handlers of the overlays, one function per mode (split out of App::handle_key).
 // Split out of app.cpp; the includes are the same as there.
 #include "app.h"
+#include "app_state_rl.h"
+#include "app_state_sleep.h"
+#include "app_state_eq.h"
+#include "app_state_qtp.h"
+#include "app_state_bulk.h"
+#include "app_state_wizard.h"
+#include "app_state_cheat.h"
 #include "playlist_state.h"
 #include "readlyrics_state.h"
 #include "bars_rows.h"
@@ -95,22 +102,22 @@ void App::handle_update_notice_key(int key) {
 void App::handle_qtp_key(int key) {
     const bool arrow = last_key_was_arrow();
     force_redraw_ = true;
-    if (qtp_stage_ == 0) {   // New playlist | Existing playlist
-        if (!arrow && key == 27) { mode_ = Mode::Browse; qtp_track_ = false; return; }
-        if ((arrow && (key == 'C' || key == 'D')) || (!arrow && key == 9)) { qtp_choice_ ^= 1; return; }
-        if (!arrow && (key == 'n' || key == 'N')) { qtp_choice_ = 0; key = '\r'; }
-        else if (!arrow && (key == 'e' || key == 'E')) { qtp_choice_ = 1; key = '\r'; }
+    if (qtp_->stage == 0) {   // New playlist | Existing playlist
+        if (!arrow && key == 27) { mode_ = Mode::Browse; qtp_->track = false; return; }
+        if ((arrow && (key == 'C' || key == 'D')) || (!arrow && key == 9)) { qtp_->choice ^= 1; return; }
+        if (!arrow && (key == 'n' || key == 'N')) { qtp_->choice = 0; key = '\r'; }
+        else if (!arrow && (key == 'e' || key == 'E')) { qtp_->choice = 1; key = '\r'; }
         if (!arrow && (key == '\r' || key == '\n')) {
-            if (qtp_choice_ == 0 && qtp_track_) { qtp_stage_ = 2; qtp_new_name_.clear(); edit_owner_.clear(); }
-            else if (qtp_choice_ == 0) { mode_ = Mode::Browse; queue_to_playlist_apply(""); }
-            else { qtp_stage_ = 1; qtp_query_.clear(); qtp_selected_ = 0; edit_owner_.clear(); qtp_refresh(); }
+            if (qtp_->choice == 0 && qtp_->track) { qtp_->stage = 2; qtp_->new_name.clear(); edit_owner_.clear(); }
+            else if (qtp_->choice == 0) { mode_ = Mode::Browse; queue_to_playlist_apply(""); }
+            else { qtp_->stage = 1; qtp_->query.clear(); qtp_->selected = 0; edit_owner_.clear(); qtp_refresh(); }
         }
         return;
     }
-    if (qtp_stage_ == 2) {   // SHIFT+a, new playlist: its name
-        if (!arrow && key == 27) { qtp_stage_ = 0; return; }
+    if (qtp_->stage == 2) {   // SHIFT+a, new playlist: its name
+        if (!arrow && key == 27) { qtp_->stage = 0; return; }
         if (!arrow && (key == '\r' || key == '\n')) {
-            std::string name = qtp_new_name_;
+            std::string name = qtp_->new_name;
             while (!name.empty() && name.front() == ' ') name.erase(name.begin());
             while (!name.empty() && name.back() == ' ') name.pop_back();
             if (name.empty()) { status_line_ = "type a name first"; return; }
@@ -118,26 +125,26 @@ void App::handle_qtp_key(int key) {
             return;
         }
         std::string st;
-        edit_focus("track-to-playlist-name", qtp_new_name_);
-        edit_text_key(qtp_new_name_, edit_caret_, edit_anchor_, key, 80, &st);
+        edit_focus("track-to-playlist-name", qtp_->new_name);
+        edit_text_key(qtp_->new_name, edit_caret_, edit_anchor_, key, 80, &st);
         return;
     }
     // stage 1: the search field (typing filters) and the list of saved playlists
-    if (!arrow && key == 27) { qtp_stage_ = 0; return; }
-    const int total = static_cast<int>(qtp_view_.size());
-    if (arrow && key == 'A') { if (qtp_selected_ > 0) --qtp_selected_; return; }
-    if (arrow && key == 'B') { if (qtp_selected_ < total - 1) ++qtp_selected_; return; }
+    if (!arrow && key == 27) { qtp_->stage = 0; return; }
+    const int total = static_cast<int>(qtp_->view.size());
+    if (arrow && key == 'A') { if (qtp_->selected > 0) --qtp_->selected; return; }
+    if (arrow && key == 'B') { if (qtp_->selected < total - 1) ++qtp_->selected; return; }
     if (!arrow && (key == '\r' || key == '\n')) {
         if (total > 0) {
-            const std::string name = qtp_view_[static_cast<size_t>(std::clamp(qtp_selected_, 0, total - 1))].name;
-            if (qtp_track_) track_to_playlist_apply(name);
+            const std::string name = qtp_->view[static_cast<size_t>(std::clamp(qtp_->selected, 0, total - 1))].name;
+            if (qtp_->track) track_to_playlist_apply(name);
             else { mode_ = Mode::Browse; queue_to_playlist_apply(name); }
         }
         return;
     }
     std::string st;
-    edit_focus("queue-to-playlist-search", qtp_query_);
-    if (edit_text_key(qtp_query_, edit_caret_, edit_anchor_, key, 80, &st)) qtp_refresh();
+    edit_focus("queue-to-playlist-search", qtp_->query);
+    if (edit_text_key(qtp_->query, edit_caret_, edit_anchor_, key, 80, &st)) qtp_refresh();
     return;
 }
 
@@ -168,10 +175,10 @@ void App::handle_spectro_menu_key(int key) {
     if (arrow && (key == 'A' || key == 'B')) {   // only the rows of the view in use (the waterfall has others than the spectrogram)
         const std::vector<int> vis = spectro_visible_rows(video_layout_menu() ? layout_spectro_view() : settings_.spectro);
         int at = 0;
-        for (size_t i = 0; i < vis.size(); ++i) if (vis[i] <= spectro_menu_row_) at = static_cast<int>(i);
+        for (size_t i = 0; i < vis.size(); ++i) if (vis[i] <= spectro_.menu_row) at = static_cast<int>(i);
         const int n = static_cast<int>(vis.size());
         at = key == 'A' ? (at + n - 1) % n : (at + 1) % n;
-        spectro_menu_row_ = vis[static_cast<size_t>(at)];
+        spectro_.menu_row = vis[static_cast<size_t>(at)];
         return;
     }
     if (arrow && key == 'D') { spectro_menu_adjust(-1); return; }
@@ -186,15 +193,15 @@ void App::handle_spectro_menu_key(int key) {
     if (video_full_ && (act == "HKeySpectroFull" || act == "HKeyScopeBig")) return;   // (not out of the video layout)
     if (video_full_ && act == "HKeyOscMenu") { if (!vl_has_osci(settings_.video_layout)) return; save_settings(settings_); osci_menu_row_ = 0; mode_ = Mode::OsciMenu; force_redraw_ = true; return; }
     if (!arrow && act == "HKeySpectroFull") {
-        spectro_full_ = !spectro_full_; if (spectro_full_) scope_big_ = false; force_redraw_ = true; return;
+        spectro_.full = !spectro_.full; if (spectro_.full) scope_big_ = false; force_redraw_ = true; return;
     }
     if (!arrow && act == "HKeyScopeWindow") { scope_window_toggle(); return; }     // the windows: always
     if (!arrow && act == "HKeySpectroWindow") { spectro_window_toggle(); return; }
     // the oscilloscope's overlays take over without closing this one first
-    if (!arrow && act == "HKeyOscMenu") { save_settings(settings_); spectro_full_ = false; osci_menu_row_ = 0; mode_ = Mode::OsciMenu; force_redraw_ = true; return; }
+    if (!arrow && act == "HKeyOscMenu") { save_settings(settings_); spectro_.full = false; osci_menu_row_ = 0; mode_ = Mode::OsciMenu; force_redraw_ = true; return; }
     if (!arrow && act == "HKeyScopeBig") {
         save_settings(settings_);
-        scope_big_ = true; spectro_full_ = false; scope_big_color_edit_ = false; scope_metrics_open_ = false;
+        scope_big_ = true; spectro_.full = false; scope_big_color_edit_ = false; scope_metrics_open_ = false;
         osci_menu_row_ = 0; mode_ = Mode::OsciMenu; force_redraw_ = true; return;
     }
     if (!arrow && (key == 27 || act == "HKeySpectroMenu")) {
@@ -223,16 +230,16 @@ void App::handle_osci_menu_key(int key) {
     if (osc_action.empty() && key >= 'a' && key <= 'z') osc_action = resolve_hotkey_action(key - 32);
     if (osc_action.empty() && key >= 'A' && key <= 'Z') osc_action = resolve_hotkey_action(key + 32);
     if (video_full_ && (osc_action == "HKeyScopeBig" || osc_action == "HKeySpectroFull")) return;   // (not out of the video layout)
-    if (video_full_ && osc_action == "HKeySpectroMenu") { if (vl_has_spectro(settings_.video_layout)) { save_settings(settings_); spectro_menu_row_ = kSrView; mode_ = Mode::SpectroMenu; force_redraw_ = true; } return; }
+    if (video_full_ && osc_action == "HKeySpectroMenu") { if (vl_has_spectro(settings_.video_layout)) { save_settings(settings_); spectro_.menu_row = kSrView; mode_ = Mode::SpectroMenu; force_redraw_ = true; } return; }
     if (!arrow && osc_action == "HKeyScopeWindow") { scope_window_toggle(); return; }     // the windows: always
     if (!arrow && osc_action == "HKeySpectroWindow") { spectro_window_toggle(); return; }
-    if (!arrow && osc_action == "HKeyScopeBig") { scope_big_ = !scope_big_; spectro_full_ = false; scope_big_color_edit_ = false; scope_metrics_open_ = false; force_redraw_ = true; return; }
+    if (!arrow && osc_action == "HKeyScopeBig") { scope_big_ = !scope_big_; spectro_.full = false; scope_big_color_edit_ = false; scope_metrics_open_ = false; force_redraw_ = true; return; }
     // the spectrogram's overlays take over without closing this one first
-    if (!arrow && osc_action == "HKeySpectroMenu") { save_settings(settings_); scope_big_ = false; spectro_menu_row_ = kSrView; mode_ = Mode::SpectroMenu; force_redraw_ = true; return; }
+    if (!arrow && osc_action == "HKeySpectroMenu") { save_settings(settings_); scope_big_ = false; spectro_.menu_row = kSrView; mode_ = Mode::SpectroMenu; force_redraw_ = true; return; }
     if (!arrow && osc_action == "HKeySpectroFull") {
         save_settings(settings_);
-        spectro_full_ = true; scope_big_ = false;
-        spectro_menu_row_ = kSrView; mode_ = Mode::SpectroMenu; force_redraw_ = true; return;
+        spectro_.full = true; scope_big_ = false;
+        spectro_.menu_row = kSrView; mode_ = Mode::SpectroMenu; force_redraw_ = true; return;
     }
     if (!arrow && (key == 27 || osc_action == "HKeyOscMenu")) {
         mode_ = Mode::Browse;
@@ -305,33 +312,33 @@ void App::handle_lyrics_edit_key(int key) {
     // Lyrics timing. Playback keeps running underneath; only this overlay
     // takes keys. Unknown keys are ignored (the footer lists every key).
     const bool arrow = last_key_was_arrow();
-    if (arrow && key == 'C') { lyrics_edit_adjust(+0.1); return; } // right: lyrics later
-    if (arrow && key == 'D') { lyrics_edit_adjust(-0.1); return; } // left: lyrics earlier
-    if (arrow && key == 'A') { lyrics_edit_adjust(+0.5); return; } // up
-    if (arrow && key == 'B') { lyrics_edit_adjust(-0.5); return; } // down
+    if (arrow && key == 'C') { lyrics_.lyrics_edit_adjust(+0.1); return; } // right: lyrics later
+    if (arrow && key == 'D') { lyrics_.lyrics_edit_adjust(-0.1); return; } // left: lyrics earlier
+    if (arrow && key == 'A') { lyrics_.lyrics_edit_adjust(+0.5); return; } // up
+    if (arrow && key == 'B') { lyrics_.lyrics_edit_adjust(-0.5); return; } // down
     // SHIFT+Left/Right seek the running track (5 s, like the normal seek keys) so a line can be heard again
     // while it is being re-timed.
     if (key == kKeyShiftLeft)  { if (has_track_) player_.seek_relative(-5.0); return; }
     if (key == kKeyShiftRight) { if (has_track_) player_.seek_relative(5.0);  return; }
     if (arrow) return;
     if (key == 'r' || key == 'R') {
-        std::lock_guard<std::mutex> lk(lyrics_mutex_);
-        lyrics_result_.delay = 0.0;
+        std::lock_guard<std::mutex> lk(lyrics_.mutex);
+        lyrics_.result.delay = 0.0;
         return;
     }
     if (key == '\r' || key == '\n' || key == 's' || key == 'S') {
         double d = 0.0;
-        { std::lock_guard<std::mutex> lk(lyrics_mutex_); d = lyrics_result_.delay; }
+        { std::lock_guard<std::mutex> lk(lyrics_.mutex); d = lyrics_.result.delay; }
         char num[24];
         std::snprintf(num, sizeof num, "%+.1f s", d);
-        if (lyrics_edit_from_reader_) rd_->delay = d;   // (the reader's lines keep the new offset)
-        if (save_lyrics_delay(lyrics_path_, d)) status_line_ = std::string("lyrics timing saved: ") + num;
+        if (lyrics_.edit_from_reader) rd_->delay = d;   // (the reader's lines keep the new offset)
+        if (save_lyrics_delay(lyrics_.path, d)) status_line_ = std::string("lyrics timing saved: ") + num;
         else status_line_ = std::string("lyrics timing ") + num + " applied, but could not be saved (no lyrics file for this track)";
         lyrics_edit_close();
         return;
     }
     if (key == 27 || key_is("HKeyLyricsTiming", key)) { // cancel: the value from before the overlay opened comes back
-        { std::lock_guard<std::mutex> lk(lyrics_mutex_); lyrics_result_.delay = lyrics_edit_orig_delay_; }
+        { std::lock_guard<std::mutex> lk(lyrics_.mutex); lyrics_.result.delay = lyrics_.edit_orig_delay; }
         lyrics_edit_close();
     }
     return;
@@ -342,16 +349,16 @@ void App::handle_sleep_timer_key(int key) {
     // keys. Unknown keys are ignored (the footer lists every key).
     const int rows = 8; // 15 / 30 / 60 / 90 / 120 min, stop after song, fade out, off
     const bool arrow = last_key_was_arrow();
-    if (arrow && key == 'A') { sleep_menu_row_ = (sleep_menu_row_ + rows - 1) % rows; return; } // up
-    if (arrow && key == 'B') { sleep_menu_row_ = (sleep_menu_row_ + 1) % rows; return; }        // down
-    if (!arrow && (key == '\r' || key == '\n') && sleep_menu_row_ == 6) {   // Fade out: a toggle, the overlay stays open
+    if (arrow && key == 'A') { sleep_->menu_row = (sleep_->menu_row + rows - 1) % rows; return; } // up
+    if (arrow && key == 'B') { sleep_->menu_row = (sleep_->menu_row + 1) % rows; return; }        // down
+    if (!arrow && (key == '\r' || key == '\n') && sleep_->menu_row == 6) {   // Fade out: a toggle, the overlay stays open
         settings_.sleep_fade = !settings_.sleep_fade;
         if (!settings_.sleep_fade) player_.set_fade(1.0f);
         save_settings(settings_);
         return;
     }
     if (!arrow && (key == '\r' || key == '\n')) {
-        sleep_timer_apply(sleep_menu_row_);
+        sleep_timer_apply(sleep_->menu_row);
         mode_ = Mode::Browse;
         return;
     }
@@ -371,30 +378,30 @@ void App::handle_equalizer_key(int key) {
 
     // The "Save as:" prompt owns every key until ENTER or ESC: typing,
     // caret, marking and clipboard come from the shared single-line editor.
-    if (eq_naming_) {
+    if (eq_->naming) {
         if (!arrow && key == 27) { // cancel the prompt only, the overlay stays open
-            eq_naming_ = false;
-            eq_name_buf_.clear();
-            eq_status_ = "Save cancelled";
+            eq_->naming = false;
+            eq_->name_buf.clear();
+            eq_->status = "Save cancelled";
             return;
         }
         if (!arrow && (key == '\r' || key == '\n')) { eq_commit_name(); return; }
-        edit_focus("eq-name", eq_name_buf_);
-        edit_text_key(eq_name_buf_, edit_caret_, edit_anchor_, key, kEqNameMaxBytes, nullptr);
+        edit_focus("eq-name", eq_->name_buf);
+        edit_text_key(eq_->name_buf, edit_caret_, edit_anchor_, key, kEqNameMaxBytes, nullptr);
         return;
     }
 
-    const bool delete_was_armed = eq_delete_armed_; // a second DEL / X right after the first confirms
-    eq_delete_armed_ = false;
-    eq_status_.clear();
+    const bool delete_was_armed = eq_->delete_armed; // a second DEL / X right after the first confirms
+    eq_->delete_armed = false;
+    eq_->status.clear();
 
-    if (arrow && key == 'C') { eq_band_ = (eq_band_ + 1) % kEqBands; return; }               // right
-    if (arrow && key == 'D') { eq_band_ = (eq_band_ + kEqBands - 1) % kEqBands; return; }    // left
-    if (arrow && key == 'A') { eq_set_gain(eq_band_, settings_.eq_gains[eq_band_] + 1.0f); return; } // up
-    if (arrow && key == 'B') { eq_set_gain(eq_band_, settings_.eq_gains[eq_band_] - 1.0f); return; } // down
+    if (arrow && key == 'C') { eq_->band = (eq_->band + 1) % kEqBands; return; }               // right
+    if (arrow && key == 'D') { eq_->band = (eq_->band + kEqBands - 1) % kEqBands; return; }    // left
+    if (arrow && key == 'A') { eq_set_gain(eq_->band, settings_.eq_gains[eq_->band] + 1.0f); return; } // up
+    if (arrow && key == 'B') { eq_set_gain(eq_->band, settings_.eq_gains[eq_->band] - 1.0f); return; } // down
     if (!arrow && (key == ',' || key == '<')) { eq_select_preset(-1); return; }
     if (!arrow && (key == '.' || key == '>' || key == 9)) { eq_select_preset(+1); return; }
-    if (!arrow && key == '0') { eq_set_gain(eq_band_, 0.0f); return; }
+    if (!arrow && key == '0') { eq_set_gain(eq_->band, 0.0f); return; }
     if (!arrow && key == ' ') {
         settings_.eq_enabled = !settings_.eq_enabled;
         eq_apply();
@@ -402,7 +409,7 @@ void App::handle_equalizer_key(int key) {
     }
     if (!arrow && (key == 'r' || key == 'R')) { // back to Flat; the on/off state is left alone
         settings_.eq_gains = kEqPresets[0].gains;
-        eq_last_preset_ = 0;
+        eq_->last_preset = 0;
         eq_apply();
         return;
     }
@@ -473,24 +480,24 @@ void App::handle_karaoke_key(int key) {
 
 void App::handle_cheatsheet_key(int key) {
     const bool arrow = last_key_was_arrow();
-    if (cheat_searching_) {   // SHIFT+s: the search field has the keyboard
-        const int n = static_cast<int>(cheat_result_rows_.size());
+    if (cheat_->searching) {   // SHIFT+s: the search field has the keyboard
+        const int n = static_cast<int>(cheat_->result_rows.size());
         if (!arrow && key == 27) {   // ESC clears the query first, then leaves the search
-            if (!cheat_query_.empty()) { cheat_query_.clear(); cheat_sel_ = 0; cheat_first_ = 0; edit_owner_.clear(); }
-            else cheat_searching_ = false;
+            if (!cheat_->query.empty()) { cheat_->query.clear(); cheat_->sel = 0; cheat_->first = 0; edit_owner_.clear(); }
+            else cheat_->searching = false;
         } else if (arrow && (key == 'A' || key == 'B')) {
             const int step = last_key_was_shifted() ? 5 : 1;
-            cheat_sel_ = std::clamp(cheat_sel_ + (key == 'B' ? step : -step), 0, std::max(0, n - 1));
+            cheat_->sel = std::clamp(cheat_->sel + (key == 'B' ? step : -step), 0, std::max(0, n - 1));
         } else if (!arrow && (key == '\r' || key == '\n')) {
-            if (n > 0) cheat_jump_row_ = cheat_result_rows_[static_cast<size_t>(std::clamp(cheat_sel_, 0, n - 1))];
-            cheat_searching_ = false;
+            if (n > 0) cheat_->jump_row = cheat_->result_rows[static_cast<size_t>(std::clamp(cheat_->sel, 0, n - 1))];
+            cheat_->searching = false;
         } else {
-            edit_focus("cheat-search", cheat_query_);
-            if (edit_text_key(cheat_query_, edit_caret_, edit_anchor_, key, 80, nullptr)) { cheat_sel_ = 0; cheat_first_ = 0; }
+            edit_focus("cheat-search", cheat_->query);
+            if (edit_text_key(cheat_->query, edit_caret_, edit_anchor_, key, 80, nullptr)) { cheat_->sel = 0; cheat_->first = 0; }
         }
         return;
     }
-    if (!arrow && key_is("HKeySearch", key)) { cheat_searching_ = true; cheat_query_.clear(); cheat_sel_ = 0; cheat_first_ = 0; edit_owner_.clear(); }
+    if (!arrow && key_is("HKeySearch", key)) { cheat_->searching = true; cheat_->query.clear(); cheat_->sel = 0; cheat_->first = 0; edit_owner_.clear(); }
     else if (key == 27 || key_is("HKeyCheatsheet", key)) mode_ = Mode::Browse;
     else if (key == 'A') cheatsheet_scroll_ -= (last_key_was_shifted() ? 10 : 1); // up (SHIFT / PgUp: a page) -- the table is longer than the screen
     else if (key == 'B') cheatsheet_scroll_ += (last_key_was_shifted() ? 10 : 1); // down (clamped while rendering)
@@ -502,7 +509,7 @@ void App::handle_wizard_key(int key) {
     // Nothing reaches the player underneath: the wizard is a full-screen view like the cheat sheet, and playback
     // simply keeps running.
     const bool arrow = last_key_was_arrow();
-    if (wizard_st_.searching) { wizard::search_key(wizard_st_, key, arrow, arrow && last_key_was_shifted()); return; }   // SHIFT+s: the query has the keyboard
+    if (wizard_->st.searching) { wizard::search_key(wizard_->st, key, arrow, arrow && last_key_was_shifted()); return; }   // SHIFT+s: the query has the keyboard
     wizard::Key wk = wizard::Key::None;
     if (arrow) {
         const bool shifted = last_key_was_shifted();
@@ -516,7 +523,7 @@ void App::handle_wizard_key(int key) {
     else if (key == 't' || key == 'T') wk = wizard::Key::Contents;
     else if (key_is("HKeySearch", key)) wk = wizard::Key::Search;         // the search key ("/", SHIFT+7 on a German keyboard): search the whole text
     else if (key_is("HKeyWizard", key)) wk = wizard::Key::Close;
-    if (wizard::handle_key(wizard_st_, wk)) wizard_close();
+    if (wizard::handle_key(wizard_->st, wk)) wizard_close();
     return;
 }
 
@@ -524,29 +531,43 @@ void App::handle_bulk_add_key(int key) {
     if (key == 27) { // cancel entirely -- discard buffer, results, and selection state
         mode_ = Mode::Browse;
         status_line_.clear();
-        bulk_add_buffer_.clear();
-        bulk_add_results_ready_ = false;
+        bulk_->add_buffer.clear();
+        bulk_->add_results_ready = false;
         pending_bulk_add_ = BulkAddResult{};
-        bulk_add_selected_.clear();
+        bulk_->add_selected.clear();
         return;
     }
 
-    if (bulk_add_results_ready_) {
+    // The two options, in both phases (they apply to what is added next; both are settings: BulkAddSave=, BulkAddVideo=).
+    if (key == kKeyCtrlS) {
+        settings_.bulk_save = !settings_.bulk_save;
+        status_line_ = settings_.bulk_save ? "bulk add: the tracks are saved in the download folder when they play"
+                                           : "bulk add: play only -- a downloaded file is deleted again after the track";
+        return;
+    }
+    if (key == kKeyCtrlO) {
+        settings_.bulk_video = !settings_.bulk_video;
+        status_line_ = settings_.bulk_video ? (settings_.video_mode ? "bulk add: the video of each track is downloaded when it plays"
+                                                                    : "bulk add: with video -- but video mode is off (video overlay), so it will not be shown")
+                                            : "bulk add: no videos";
+        return;
+    }
+    if (bulk_->add_results_ready) {
         // --- Phase 2: navigate/star the fetched checklist. ---
         int total = static_cast<int>(pending_bulk_add_.items.size());
         if (key == 'A' && total > 0) { // up
-            bulk_add_cursor_ = std::max(0, bulk_add_cursor_ - 1);
-            if (bulk_add_cursor_ < bulk_add_scroll_) bulk_add_scroll_ = bulk_add_cursor_;
+            bulk_->add_cursor = std::max(0, bulk_->add_cursor - 1);
+            if (bulk_->add_cursor < bulk_->add_scroll) bulk_->add_scroll = bulk_->add_cursor;
             return;
         }
         if (key == 'B' && total > 0) { // down
-            bulk_add_cursor_ = std::min(total - 1, bulk_add_cursor_ + 1);
-            if (bulk_add_cursor_ >= bulk_add_scroll_ + kBulkAddVisibleRows) bulk_add_scroll_ = bulk_add_cursor_ - kBulkAddVisibleRows + 1;
+            bulk_->add_cursor = std::min(total - 1, bulk_->add_cursor + 1);
+            if (bulk_->add_cursor >= bulk_->add_scroll + kBulkAddVisibleRows) bulk_->add_scroll = bulk_->add_cursor - kBulkAddVisibleRows + 1;
             return;
         }
         if (key == ' ' && total > 0) { // toggle star on the hovered row
-            if (bulk_add_cursor_ < static_cast<int>(bulk_add_selected_.size())) {
-                bulk_add_selected_[bulk_add_cursor_] = !bulk_add_selected_[bulk_add_cursor_];
+            if (bulk_->add_cursor < static_cast<int>(bulk_->add_selected.size())) {
+                bulk_->add_selected[bulk_->add_cursor] = !bulk_->add_selected[bulk_->add_cursor];
             }
             return;
         }
@@ -557,75 +578,75 @@ void App::handle_bulk_add_key(int key) {
 
     // --- Phase 1: typing the link. ---
     if (key == '\r' || key == '\n') {
-        if (!bulk_add_buffer_.empty() && !bulk_add_in_progress_.load()) {
+        if (!bulk_->add_buffer.empty() && !bulk_->add_in_progress.load()) {
             status_line_ = "fetching playlist ...";
-            launch_bulk_add_async(bulk_add_buffer_);
+            launch_bulk_add_async(bulk_->add_buffer);
         }
         return; // stays open -- poll_pending_bulk_add() moves to phase 2 once the fetch resolves
     }
     // The shared single-line editor: caret, SHIFT+arrows marking, HOME / END, DEL, CTRL+C / X / V. It also tells
     // a typed A-D from an arrow key (arrows collapse to those letters).
-    edit_focus("bulk-add", bulk_add_buffer_);
-    edit_text_key(bulk_add_buffer_, edit_caret_, edit_anchor_, key, 200, &status_line_);
+    edit_focus("bulk-add", bulk_->add_buffer);
+    edit_text_key(bulk_->add_buffer, edit_caret_, edit_anchor_, key, 200, &status_line_);
     return;
 }
 
 void App::handle_retry_lyrics_key(int key) {
-    if (rl_confirm_delete_) {   // "delete these lyrics for good?" -- only y confirms, anything else backs out
-        if (key == 'y' || key == 'Y') { rl_confirm_delete_ = false; rl_delete_version(); }
-        else rl_confirm_delete_ = false;
+    if (rl_->confirm_delete) {   // "delete these lyrics for good?" -- only y confirms, anything else backs out
+        if (key == 'y' || key == 'Y') { rl_->confirm_delete = false; rl_delete_version(); }
+        else rl_->confirm_delete = false;
         return;
     }
     if (key == 27) { rl_close(); return; } // cancel entirely, nothing submitted
     if (key == kKeyCtrlN) { readlyrics_add_open_from_playing(); return; }   // CTRL+n: add a lyrics file by hand (plain letters go into the text fields)
 
-    std::vector<RLField> fields = rl_visible_fields();
-    auto cur_pos = std::find(fields.begin(), fields.end(), rl_focus_);
+    std::vector<RLField> fields = rl_->rl_visible_fields();
+    auto cur_pos = std::find(fields.begin(), fields.end(), rl_->focus);
     int idx = (cur_pos != fields.end()) ? static_cast<int>(cur_pos - fields.begin()) : 0;
 
-    const int nver = static_cast<int>(rl_versions_.size());
-    if (rl_focus_ == RLField::Source) {   // the version list: up / down walk the rows, SPACE picks one, d deletes one
-        if (key == 'B' && last_key_was_arrow() && rl_src_sel_ < nver - 1) { ++rl_src_sel_; rl_fix_scroll(); return; }
-        if (key == 'A' && last_key_was_arrow() && rl_src_sel_ > 0) { --rl_src_sel_; rl_fix_scroll(); return; }
+    const int nver = static_cast<int>(rl_->versions.size());
+    if (rl_->focus == RLField::Source) {   // the version list: up / down walk the rows, SPACE picks one, d deletes one
+        if (key == 'B' && last_key_was_arrow() && rl_->src_sel < nver - 1) { ++rl_->src_sel; rl_->rl_fix_scroll(); return; }
+        if (key == 'A' && last_key_was_arrow() && rl_->src_sel > 0) { --rl_->src_sel; rl_->rl_fix_scroll(); return; }
         if (key == ' ') { rl_choose_version(); return; }
         if (key == 'd' && !last_key_was_arrow()) {
-            if (rl_src_sel_ < 0 || rl_src_sel_ >= nver) return;
-            if (rl_versions_[static_cast<size_t>(rl_src_sel_)].kind == LyricsVersion::Kind::Embedded) {
+            if (rl_->src_sel < 0 || rl_->src_sel >= nver) return;
+            if (rl_->versions[static_cast<size_t>(rl_->src_sel)].kind == LyricsVersion::Kind::Embedded) {
                 status_line_ = "lyrics embedded in the file cannot be deleted here";
                 return;
             }
-            rl_confirm_delete_ = true;
+            rl_->confirm_delete = true;
             return;
         }
     }
     if (key == 9 || (key == 'B' && last_key_was_arrow())) { // Tab / down -- next field (a typed capital B goes into the text)
         idx = (idx + 1) % static_cast<int>(fields.size());
-        rl_focus_ = fields[idx];
-        if (rl_focus_ == RLField::Source) { rl_src_sel_ = 0; rl_fix_scroll(); }
+        rl_->focus = fields[idx];
+        if (rl_->focus == RLField::Source) { rl_->src_sel = 0; rl_->rl_fix_scroll(); }
         return;
     }
     if (key == 'A' && last_key_was_arrow()) { // up -- previous field
         idx = (idx - 1 + static_cast<int>(fields.size())) % static_cast<int>(fields.size());
-        rl_focus_ = fields[idx];
-        if (rl_focus_ == RLField::Source) { rl_src_sel_ = std::max(0, nver - 1); rl_fix_scroll(); }   // arrived from below: the last row
+        rl_->focus = fields[idx];
+        if (rl_->focus == RLField::Source) { rl_->src_sel = std::max(0, nver - 1); rl_->rl_fix_scroll(); }   // arrived from below: the last row
         return;
     }
     if (key == '\r' || key == '\n') { rl_submit(); return; } // [ENTER] Refetch, works from any field (the old copy is kept)
-    if (rl_focus_ == RLField::Source) return;                // nothing to type into the list
+    if (rl_->focus == RLField::Source) return;                // nothing to type into the list
 
-    if (bool* b = rl_bool_ptr(rl_focus_)) {
+    if (bool* b = rl_->rl_bool_ptr(rl_->focus)) {
         if (key == ' ') { // toggle -- checkboxes are the only thing Space does anything to
             bool new_val = !*b;
             // Enforce the radio group: turning one of
             // slowed/ultra-slowed/spedup on clears the other two.
             // Reverb/remix/other stay independent of this and of
             // each other.
-            if (rl_focus_ == RLField::TypeSlowed || rl_focus_ == RLField::TypeUltraSlowed || rl_focus_ == RLField::TypeSpedup) {
-                rl_slowed_ = rl_ultra_slowed_ = rl_spedup_ = false;
+            if (rl_->focus == RLField::TypeSlowed || rl_->focus == RLField::TypeUltraSlowed || rl_->focus == RLField::TypeSpedup) {
+                rl_->slowed = rl_->ultra_slowed = rl_->spedup = false;
             }
             *b = new_val;
             // Turning RemixText/OtherText off (unchecking) drops
-            // them from rl_visible_fields() -- if focus was sitting
+            // them from rl_->rl_visible_fields() -- if focus was sitting
             // on one of those now-hidden text fields, land back on
             // the checkbox that just hid it instead of a field that
             // no longer exists in the nav order.
@@ -634,9 +655,9 @@ void App::handle_retry_lyrics_key(int key) {
         return; // typing/backspace do nothing on a checkbox field
     }
 
-    if (std::string* t = rl_text_ptr(rl_focus_)) {
+    if (std::string* t = rl_->rl_text_ptr(rl_->focus)) {
         // Caret, SHIFT+arrows marking, HOME / END, DEL, CTRL+C / X / V as in every other text box.
-        edit_focus(rl_owner(rl_focus_), *t);
+        edit_focus(rl_owner(rl_->focus), *t);
         edit_text_key(*t, edit_caret_, edit_anchor_, key, 200, &status_line_);
         return;
     }
@@ -658,21 +679,21 @@ void App::handle_search_key(int key) {
         // Moved through the results with Up/Down while typing: ENTER plays the highlighted entry right away (the
         // search is kept as the list filter, the list keeps the focus and the highlight). Without that it only
         // commits the search, as before.
-        const bool picked = search_nav_moved_;
+        const bool picked = search_.nav_moved;
         const int sel = selected_, scr = scroll_;
         const ListSource src = list_source_;
         submit_search();
-        if (mode_ == Mode::Search) mode_ = Mode::Browse;   // ("/sv:" opened SEARCH YT: that stays)
+        if (mode_ == Mode::Search) mode_ = Mode::Browse;   // ("/yv:" opened SEARCH YT: that stays)
         const size_t len = (list_source_ == ListSource::Local) ? local_view_.size()
                          : (list_source_ == ListSource::Folder) ? folder_view_.size()
                          : (list_source_ == ListSource::Playlist) ? playlist_->view.size() : 0;
         if (picked && list_source_ == src && sel >= 0 && static_cast<size_t>(sel) < len) {
             selected_ = sel;
             scroll_ = std::clamp(scr, std::max(0, sel - list_nav_rows() + 1), sel);
-            queue_focus_ = false;
+            qst_.focus = false;
             play_selected();
         }
-        search_nav_moved_ = false;
+        search_.nav_moved = false;
         return;
     }
     // Up/Down navigate the live preview below the box -- claimed before
@@ -682,7 +703,7 @@ void App::handle_search_key(int key) {
     // a second way to do nothing. Left/Right are the caret keys in this box (they do not seek), since a
     // text field needs them more and seek still works from Browse.
     if (last_key_was_arrow() && (key == 'A' || key == 'B')) { // up / down
-        search_nav_moved_ = true;
+        search_.nav_moved = true;
         // SHIFT+Up/Down: whole page at a time while the big list overlay is open.
         if (list_overlay_active() && last_key_was_shifted()) { list_overlay_page(key == 'A' ? -1 : 1); return; }
         if (key == 'A') {
@@ -701,9 +722,9 @@ void App::handle_search_key(int key) {
         if (selected_ >= scroll_ + list_nav_rows()) scroll_ = selected_ - list_nav_rows() + 1;
         return;
     }
-    edit_focus("browse-search", search_buffer_);
-    const bool search_changed = edit_text_key(search_buffer_, edit_caret_, edit_anchor_, key, 120, &status_line_);
-    if (search_changed) { update_live_search_preview(); search_nav_moved_ = false; }
+    edit_focus("browse-search", search_.buffer);
+    const bool search_changed = edit_text_key(search_.buffer, edit_caret_, edit_anchor_, key, 120, &status_line_);
+    if (search_changed) { update_live_search_preview(); search_.nav_moved = false; }
     return;
 }
 

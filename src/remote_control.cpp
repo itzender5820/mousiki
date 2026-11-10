@@ -24,6 +24,7 @@
 #include "remote_server.h"
 #include "settings.h"
 #include "version.h"
+#include "path_utf8.h"
 
 namespace muisc::remote {
 
@@ -53,7 +54,8 @@ fs::path status_file() { return dir() / "status"; }
 // Writes `text` to a temporary name and renames it over `target`: a reader never sees half a file.
 bool write_atomic(const fs::path& target, const std::string& text) {
     std::error_code ec;
-    const fs::path tmp = target.string() + ".tmp";
+    fs::path tmp = target;
+    tmp += ".tmp";   // appended to the native path: no round trip through the ANSI code page
     {
         std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
         if (!f) return false;
@@ -288,7 +290,7 @@ int client_main(int argc, char** argv) {
     char name[64];
     std::snprintf(name, sizeof name, "%013lld-%08lld-%04d.cmd", ms, static_cast<long long>(MOUSIKI_GETPID()), serial++ % 10000);
     if (!write_atomic(dir() / name, c.name + (c.arg.empty() ? "" : " " + c.arg) + "\n")) {
-        std::cerr << "mousiki: cannot write to " << dir().string() << "\n";
+        std::cerr << "mousiki: cannot write to " << path_utf8(dir()) << "\n";
         return 1;
     }
     return 0;

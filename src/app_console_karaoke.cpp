@@ -353,7 +353,7 @@ void App::build_karaoke_screen(std::ostringstream& frame, int W, int H) {
     // --- title: what is playing ---
     std::string title = "KARAOKE";
     if (has_track_) {
-        std::string name = metadata_.name.empty() || metadata_.name == "-" ? path_utf8(current_path_.stem()) : metadata_.name;
+        std::string name = metadata_.name.empty() || metadata_.name == "-" ? path_utf8(current_.path.stem()) : metadata_.name;
         title += " · " + name;
         if (!metadata_.artist.empty() && metadata_.artist != "-") title += " – " + metadata_.artist;
     }
@@ -368,9 +368,9 @@ void App::build_karaoke_screen(std::ostringstream& frame, int W, int H) {
     // about 50 columns are left, which holds two or three letters per row, so the lyrics take the whole width then.
     bool wide_script = false;
     if (settings_.karaoke_lyrics_size >= 4) {
-        std::lock_guard<std::mutex> lock(lyrics_mutex_);
-        if (lyrics_ready_ && lyrics_path_ == current_path_) {
-            for (const auto& l : lyrics_result_.lines) {
+        std::lock_guard<std::mutex> lock(lyrics_.mutex);
+        if (lyrics_.ready && lyrics_.path == current_.path) {
+            for (const auto& l : lyrics_.result.lines) {
                 for (char32_t cp : karaoke_codepoints(shown_text(l.full_text))) {
                     if (cp >= 0x1100 && !karaoke_glyph(cp) && (cp <= 0x11FF || (cp >= 0x2E80 && cp <= 0xD7FF) || (cp >= 0xF900 && cp <= 0xFFEF))) { wide_script = true; break; }
                 }
@@ -428,18 +428,18 @@ void App::build_karaoke_screen(std::ostringstream& frame, int W, int H) {
     double delay = 0.0;
     std::string message;
     {
-        std::lock_guard<std::mutex> lock(lyrics_mutex_);
-        if (lyrics_ready_ && lyrics_path_ == current_path_) {   // the lyrics engine runs for the overlay in any case
-            lines = lyrics_result_.lines;
+        std::lock_guard<std::mutex> lock(lyrics_.mutex);
+        if (lyrics_.ready && lyrics_.path == current_.path) {   // the lyrics engine runs for the overlay in any case
+            lines = lyrics_.result.lines;
             latinize_lyrics(lines);
-            delay = lyrics_result_.delay;
-            message = lyrics_result_.message;
+            delay = lyrics_.result.delay;
+            message = lyrics_.result.message;
         }
     }
     const double elapsed = has_track_ ? player_.poll_elapsed() : 0.0;
     if (!has_track_) {
         message = "Nothing is playing -- start a track and the lyrics appear here.";
-    } else if (!lyrics_ready_ || lyrics_path_ != current_path_) {
+    } else if (!lyrics_.ready || lyrics_.path != current_.path) {
         message = "fetching lyrics ...";
     } else if (lines.empty() && message.empty()) {
         message = "No lyrics found for this track.";

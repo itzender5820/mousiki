@@ -2,6 +2,9 @@
 // Part of class App (src/app.h): Loading and playing a track: the load worker, search, play next / previous, the queue and its playlists.
 // Split out of app.cpp; the includes are the same as there.
 #include "app.h"
+#include "app_state_sleep.h"
+#include "app_state_device.h"
+#include "app_state_qtp.h"
 #include "playlist_state.h"
 #include "hifi_bars.h"
 #include "text_edit.h"
@@ -145,6 +148,7 @@ void App::launch_load_async(fs::path local_path, std::string title, std::string 
                 return;
             }
             path = resolved->cached_path;
+            pl.fresh = !resolved->from_cache;
             pl.title = resolved->title;
             pl.artist = resolved->artist;
         }
@@ -236,9 +240,9 @@ void App::launch_load_async(fs::path local_path, std::string title, std::string 
                     if (!abandoned() && !keep->env_sumsq.empty()) {
                         auto envelope = WaveformQuantizer::envelope_from_bins(keep->env_sumsq, StreamingPcm::kEnvGran,
                                                                               keep->total_frames.load(), 4096, waveform_smooth);
-                        std::lock_guard<std::mutex> lk(waveform_mutex_);
+                        std::lock_guard<std::mutex> lk(waveform_.mutex);
                         pending_waveform_envelope_ = std::move(envelope);
-                        waveform_pending_ready_ = true;
+                        waveform_.pending_ready = true;
                     }
                     keep->internal_refs.fetch_sub(1);   // before `keep` itself goes (never counted low)
                 });
@@ -259,9 +263,9 @@ void App::launch_load_async(fs::path local_path, std::string title, std::string 
                 // playback started, because it doubled the working-set
                 // size and stalled the RMS pass behind a large memcpy.
                 auto envelope = WaveformQuantizer::generate_high_res_envelope(pcm->data, 4096, waveform_smooth, pcm->channels);
-                std::lock_guard<std::mutex> lk(waveform_mutex_);
+                std::lock_guard<std::mutex> lk(waveform_.mutex);
                 pending_waveform_envelope_ = std::move(envelope);
-                waveform_pending_ready_ = true;
+                waveform_.pending_ready = true;
             }
         });
       });
@@ -291,25 +295,25 @@ void App::launch_load_async(fs::path local_path, std::string title, std::string 
 // lyrics. Shared by the initial per-track fetch (poll_pending_load) and
 // the manual retry hotkey (handle_key's 'l' case).
 void App::launch_lyrics_fetch(std::string title, std::string artist, fs::path path, bool force_network) {
-    lyrics_ready_ = false;
-    lyrics_path_ = path;
-    int my_epoch = ++lyrics_epoch_;
+    lyrics_.ready = false;
+    lyrics_.path = path;
+    int my_epoch = ++lyrics_.epoch;
     const double track_secs = static_cast<double>(total_sec_);
     spawn_bg("lyrics fetch", [this, title, artist, path, force_network, my_epoch, track_secs]() {
-        LyricsResult r = fetch_synced_lyrics(title, artist, path_utf8(lyrics_script_), path, force_network, track_secs);
-        std::lock_guard<std::mutex> lock(lyrics_mutex_);
-        if (my_epoch != lyrics_epoch_.load()) return; // a newer/retried fetch has since started — discard
-        lyrics_result_ = std::move(r);
-        lyrics_ready_ = true;
+        LyricsResult r = fetch_synced_lyrics(title, artist, path_utf8(lyrics_.script), path, force_network, track_secs);
+        std::lock_guard<std::mutex> lock(lyrics_.mutex);
+        if (my_epoch != lyrics_.epoch.load()) return; // a newer/retried fetch has since started — discard
+        lyrics_.result = std::move(r);
+        lyrics_.ready = true;
     });
 }
 
 // The audio of the song that plays is loaded again (the choice "Use mp4 audio for this song" changed) and goes on at the time the old one had
 // reached; the pause stays. The listening history, the lyrics and the video view are not touched: it is the same play.
 void App::reload_current_audio() {
-    if (!has_track_ || !current_is_local_ || current_path_.empty()) return;
+    if (!has_track_ || !current_.is_local || current_.path.empty()) return;
     if (load_in_progress_.load()) { status_line_ = "still loading -- the audio choice applies when the song starts the next time"; return; }
-    const fs::path path = current_path_;
+    const fs::path path = current_.path;
     const double pos = player_.poll_elapsed();
     const bool paused = player_.is_paused();
     launch_load_async(path, path_utf8(path.stem()), "", path_utf8(path.parent_path().filename()) + "/", /*is_local=*/true, /*video_id=*/"");
@@ -322,7 +326,7 @@ void App::poll_pending_load() {
         sty_video_.stop();
         sty_video_src_.clear();
     }
-    if (swap_repause_ && device_play_pending_gen_.load() == 0) { swap_repause_ = false; player_.pause(); }   // (the new audio is in: a paused song stays paused)
+    if (swap_repause_ && device_->play_pending_gen.load() == 0) { swap_repause_ = false; player_.pause(); }   // (the new audio is in: a paused song stays paused)
     if (!load_ready_.load()) return;
     PendingLoad pl;
     {
@@ -357,15 +361,15 @@ void App::poll_pending_load() {
         return;
     }
 
-    if (swap_pending_ && pl.is_local && pl.path == swap_path_ && pl.path == current_path_) {   // the same song, other audio: nothing else changes
+    if (swap_pending_ && pl.is_local && pl.path == swap_path_ && pl.path == current_.path) {   // the same song, other audio: nothing else changes
         swap_pending_ = false;
-        current_pcm_ = pl.pcm;
+        current_.pcm = pl.pcm;
         total_sec_ = pl.total_sec;
         resume_start_sec_ = swap_pos_;
-        waveform_envelope_.clear();
-        waveform_ready_ = false;
-        waveform_pending_ready_ = false;
-        ++waveform_epoch_;
+        waveform_.envelope.clear();
+        waveform_.ready = false;
+        waveform_.pending_ready = false;
+        ++waveform_.epoch;
         hifi().reset();
         fft_.reset();
         scope_.reset();
@@ -381,15 +385,27 @@ void App::poll_pending_load() {
     // first step, so no separate explicit stop() call is needed here —
     // and doing it inside play() (below, off the main thread) is what
     // lets this whole switch never touch the main thread.
-    current_pcm_ = pl.pcm;
+    current_.pcm = pl.pcm;
     total_sec_ = pl.total_sec;
     metadata_ = pl.metadata;
-    current_path_ = pl.path;
-    current_is_local_ = pl.is_local;
+    current_.path = pl.path;
+    current_.is_local = pl.is_local;
+    // BULK ADD "play only": what the tracks before this one left behind goes now (their sound is decoded, nothing needs the files);
+    // this track's own file is listed when this load made it. "Video": the video of this track is fetched (video_search_poll()).
+    drop_temp_streams(pl.path);
+    if (!pl.is_local && current_.load_play_only && pl.fresh) temp_streams_.push_back({pl.path, pl.video_id, false});
+    bulk_video_ = PendingBulkVideo{};
+    if (!pl.is_local && current_.load_video && pl.video_id.find("://") == std::string::npos) {
+        bulk_video_.r = OnlineResult{pl.video_id, pl.title, pl.artist};
+        bulk_video_.target = pl.path;
+        bulk_video_.had_video = !cache_.find_video_download(pl.video_id).empty();
+        bulk_video_.set = true;
+        if (current_.load_play_only && pl.fresh) temp_streams_.back().had_video = bulk_video_.had_video;
+    }
     // Edits left pending by an earlier run belong on this screen too (display_metadata()), not only in the editor.
     if (pl.is_local) meta_ensure_session_loaded();
-    current_video_id_ = pl.video_id;
-    current_playlist_ = load_playlist_ctx_;
+    current_.video_id = pl.video_id;
+    current_.playlist = current_.load_playlist_ctx;
     has_track_ = true;
     // Listening history, in this exact order: the play that just ended is
     // closed BEFORE clear_finished() (its "was it heard to the end?" verdict
@@ -400,10 +416,10 @@ void App::poll_pending_load() {
     history_end_current_play();
     player_.clear_finished(); // see clear_finished()'s comment — closes the race that caused the double-skip bug
     history_begin_current_play();
-    waveform_envelope_.clear();
-    waveform_ready_ = false;
-    waveform_pending_ready_ = false;
-    ++waveform_epoch_; // any waveform still being computed for the previous track is now stale
+    waveform_.envelope.clear();
+    waveform_.ready = false;
+    waveform_.pending_ready = false;
+    ++waveform_.epoch; // any waveform still being computed for the previous track is now stale
     last_lyrics_status_.clear();
     hifi().reset();
     fft_.reset(); // don't let the previous track's spectrum tail linger into this one's first frame
@@ -420,11 +436,11 @@ void App::poll_pending_load() {
     } else {
         // nothing fetched for this track: the lyrics of the last one must not count as its own (the karaoke
         // overlay fetches them itself when it opens, see karaoke_ensure_lyrics())
-        std::lock_guard<std::mutex> lock(lyrics_mutex_);
-        ++lyrics_epoch_;   // a fetch still running for the last track is discarded
-        lyrics_path_.clear();
-        lyrics_result_ = LyricsResult{};
-        lyrics_ready_ = false;
+        std::lock_guard<std::mutex> lock(lyrics_.mutex);
+        ++lyrics_.epoch;   // a fetch still running for the last track is discarded
+        lyrics_.path.clear();
+        lyrics_.result = LyricsResult{};
+        lyrics_.ready = false;
     }
 
     // This is the whole point of the redesign: play() is handed a
@@ -438,12 +454,12 @@ void App::poll_pending_load() {
 }
 
 void App::launch_device_play_async() {
-    int my_gen = ++device_gen_;
+    int my_gen = ++device_->gen;
     // Raise the handoff guard BEFORE the request is visible to the worker:
     // from here until player_.play() returns, finished_ still describes the
-    // old track and must not drive advance_track() (see device_play_pending_gen_).
-    device_play_pending_gen_.store(my_gen);
-    auto pcm = current_pcm_;
+    // old track and must not drive advance_track() (see device_->play_pending_gen).
+    device_->play_pending_gen.store(my_gen);
+    auto pcm = current_.pcm;
     int vol = player_.volume() > 0 ? player_.volume() : 70;
     // One-shot resume position from a restored snapshot -- consumed
     // here exactly once, then zeroed so every subsequent track change
@@ -464,31 +480,31 @@ void App::launch_device_play_async() {
     // enforced by construction instead of by a check the stale thread had
     // to remember to perform.
     {
-        std::lock_guard<std::mutex> lk(device_request_mutex_);
-        device_request_.pcm = std::move(pcm);
-        device_request_.volume = vol;
-        device_request_.start_sec = start_sec;
-        device_request_.generation = my_gen;
-        device_request_ready_ = true;
+        std::lock_guard<std::mutex> lk(device_->request_mutex);
+        device_->request.pcm = std::move(pcm);
+        device_->request.volume = vol;
+        device_->request.start_sec = start_sec;
+        device_->request.generation = my_gen;
+        device_->request_ready = true;
     }
-    device_request_cv_.notify_one();
+    device_->request_cv.notify_one();
 }
 
 void App::start_device_worker() {
     {
-        std::lock_guard<std::mutex> lk(device_request_mutex_);
-        device_worker_running_ = true;
+        std::lock_guard<std::mutex> lk(device_->request_mutex);
+        device_->worker_running = true;
     }
-    device_worker_thread_ = std::thread(&App::device_worker_loop, this);
+    device_->worker_thread = std::thread(&App::device_worker_loop, this);
 }
 
 void App::device_run(const std::function<void()>& fn) {
     auto done = std::make_shared<std::promise<void>>();
     std::future<void> fut = done->get_future();
     {
-        std::lock_guard<std::mutex> lk(device_request_mutex_);
-        if (device_worker_running_ && !device_worker_stop_) {
-            device_tasks_.push_back([fn, done] {
+        std::lock_guard<std::mutex> lk(device_->request_mutex);
+        if (device_->worker_running && !device_->worker_stop) {
+            device_->tasks.push_back([fn, done] {
                 run_guarded("audio device", fn);
                 done->set_value();
             });
@@ -501,28 +517,28 @@ void App::device_run(const std::function<void()>& fn) {
         run_guarded("audio device", fn);
         return;
     }
-    device_request_cv_.notify_one();
+    device_->request_cv.notify_one();
     fut.wait();
 }
 
 void App::device_stop() {
     {   // a switch that has not reached the worker yet would start the track that is being stopped again
-        std::lock_guard<std::mutex> lk(device_request_mutex_);
-        if (device_request_ready_) {
-            device_request_ready_ = false;
-            device_request_.pcm.reset();
-            device_play_pending_gen_.store(0);
+        std::lock_guard<std::mutex> lk(device_->request_mutex);
+        if (device_->request_ready) {
+            device_->request_ready = false;
+            device_->request.pcm.reset();
+            device_->play_pending_gen.store(0);
         }
     }
     device_run([this] { player_.stop(); });
 }
 
-void App::stop_device_worker() {
+void App::DeviceState::stop_device_worker() {
     {
-        std::lock_guard<std::mutex> lk(device_request_mutex_);
-        device_worker_stop_ = true;
+        std::lock_guard<std::mutex> lk(request_mutex);
+        worker_stop = true;
     }
-    device_request_cv_.notify_one();
+    request_cv.notify_one();
 }
 
 void App::device_worker_loop() {
@@ -530,15 +546,15 @@ void App::device_worker_loop() {
         DevicePlayRequest req;
         std::function<void()> task;
         {
-            std::unique_lock<std::mutex> lk(device_request_mutex_);
-            device_request_cv_.wait(lk, [this] { return device_request_ready_ || device_worker_stop_ || !device_tasks_.empty(); });
-            if (!device_tasks_.empty()) {   // a stop / device move first (also on the way out: the caller waits for it)
-                task = std::move(device_tasks_.front());
-                device_tasks_.pop_front();
+            std::unique_lock<std::mutex> lk(device_->request_mutex);
+            device_->request_cv.wait(lk, [this] { return device_->request_ready || device_->worker_stop || !device_->tasks.empty(); });
+            if (!device_->tasks.empty()) {   // a stop / device move first (also on the way out: the caller waits for it)
+                task = std::move(device_->tasks.front());
+                device_->tasks.pop_front();
             } else {
-                if (device_worker_stop_) { device_worker_running_ = false; return; }   // quitting -- don't start one more track on the way out
-                req = device_request_;
-                device_request_ready_ = false;
+                if (device_->worker_stop) { device_->worker_running = false; return; }   // quitting -- don't start one more track on the way out
+                req = device_->request;
+                device_->request_ready = false;
             }
         }
         if (task) {
@@ -547,9 +563,9 @@ void App::device_worker_loop() {
             continue;
         }
         // Defensive only: with a single overwritable slot rather than a
-        // real queue, req.generation should already equal device_gen_ by
+        // real queue, req.generation should already equal device_->gen by
         // construction every time this fires.
-        if (req.generation != device_gen_.load()) continue;
+        if (req.generation != device_->gen.load()) continue;
         // Guarded like every other worker: this loop lives for the whole
         // session, and an exception escaping it would take the process with
         // it rather than just failing one track.
@@ -562,54 +578,54 @@ void App::device_worker_loop() {
         // clear if no newer handoff has been posted meanwhile -- that one is
         // still in flight and owns the guard now.
         int expected = req.generation;
-        device_play_pending_gen_.compare_exchange_strong(expected, 0);
+        device_->play_pending_gen.compare_exchange_strong(expected, 0);
     }
 }
 
 void App::poll_pending_waveform() {
-    if (!waveform_pending_ready_.load()) return;
+    if (!waveform_.pending_ready.load()) return;
     std::vector<float> envelope;
     {
-        std::lock_guard<std::mutex> lk(waveform_mutex_);
+        std::lock_guard<std::mutex> lk(waveform_.mutex);
         envelope = std::move(pending_waveform_envelope_);
     }
-    waveform_pending_ready_ = false;
-    waveform_envelope_ = std::move(envelope);
-    waveform_ready_ = true;
-    waveform_reveal_start_ = std::chrono::steady_clock::now(); // starts the 700ms left-to-right reveal
+    waveform_.pending_ready = false;
+    waveform_.envelope = std::move(envelope);
+    waveform_.ready = true;
+    waveform_.reveal_start = std::chrono::steady_clock::now(); // starts the 700ms left-to-right reveal
 }
 
 void App::launch_search_async(const std::string& query, int source) {
-    if (search_thread_.joinable()) search_thread_.join();
-    search_in_progress_ = true;
-    search_ready_ = false;
+    if (search_.thread.joinable()) search_.thread.join();
+    search_.in_progress = true;
+    search_.ready = false;
     static const char* const kWhere[3] = {"YouTube", "SoundCloud", "Bandcamp"};
     status_line_ = std::string("searching ") + kWhere[std::clamp(source, 0, 2)] + " for \"" + query + "\" ...";
     const std::string bc_script = path_utf8(locate_script("bandcamp_search.py"));
 
-    search_thread_ = std::thread([this, query, source, bc_script]() { run_guarded("online search", [&] {
+    search_.thread = std::thread([this, query, source, bc_script]() { run_guarded("online search", [&] {
         auto results = source == 1 ? online_.search_soundcloud(query, 15)
                      : source == 2 ? online_.search_bandcamp(query, 15, bc_script)
                      : online_.search(query, /*count=*/15, path_utf8(fast_search_script_));
-        std::lock_guard<std::mutex> lk(search_mutex_);
+        std::lock_guard<std::mutex> lk(search_.mutex);
         pending_search_results_ = std::move(results);
     }); 
         // Set outside the guard: poll_pending_search() waits on this flag,
         // so it has to be raised even when the search threw, or the UI sits
         // on "searching ..." forever.
-        search_ready_ = true;
+        search_.ready = true;
     });
 }
 
 void App::poll_pending_search() {
-    if (!search_ready_.load()) return;
+    if (!search_.ready.load()) return;
     std::vector<OnlineResult> results;
     {
-        std::lock_guard<std::mutex> lk(search_mutex_);
+        std::lock_guard<std::mutex> lk(search_.mutex);
         results = std::move(pending_search_results_);
     }
-    search_ready_ = false;
-    search_in_progress_ = false;
+    search_.ready = false;
+    search_.in_progress = false;
 
     online_view_ = std::move(results);
     selected_ = 0;
@@ -635,15 +651,15 @@ int App::current_track_list_index() const {
     if (!has_track_) return -1;
     if (list_source_ == ListSource::Playlist || list_source_ == ListSource::Folder) return -1; // no "now playing" identity in a list of playlist/folder names
     if (list_source_ == ListSource::Local) {
-        if (!current_is_local_) return -1; // playing an online track while browsing the local list
+        if (!current_.is_local) return -1; // playing an online track while browsing the local list
         for (size_t i = 0; i < local_view_.size(); ++i) {
-            if (local_view_[i].path == current_path_) return static_cast<int>(i);
+            if (local_view_[i].path == current_.path) return static_cast<int>(i);
         }
         return -1;
     } else {
-        if (current_is_local_) return -1; // playing a local track while browsing online results
+        if (current_.is_local) return -1; // playing a local track while browsing online results
         for (size_t i = 0; i < online_view_.size(); ++i) {
-            if (online_view_[i].video_id == current_video_id_) return static_cast<int>(i);
+            if (online_view_[i].video_id == current_.video_id) return static_cast<int>(i);
         }
         return -1;
     }
@@ -702,8 +718,8 @@ void App::play_next_from_queue(bool random) {
     // the first item not flagged yet, and advance_track() stops playback once
     // none is left (the order is then back to what it was).
     int idx = 0;
-    queue_next_run_ = 0; // the head is moving: "a" starts a fresh run
-    const bool queue_once = settings_.play_mode == 4 && queue_locked_;
+    qst_.next_run = 0; // the head is moving: "a" starts a fresh run
+    const bool queue_once = settings_.play_mode == 4 && qst_.locked;
     if (queue_once) {
         auto first = std::find_if(queue_.begin(), queue_.end(), [](const QueueItem& q) { return !q.played; });
         if (first == queue_.end()) {   // a manual skip after the pass was over: start a new pass
@@ -726,23 +742,25 @@ void App::play_next_from_queue(bool random) {
 // with `move_along` (SHIFT+ENTER) the items in front of it move to the end of the queue first).
 void App::play_queue_item(int idx, bool move_along) {
     if (idx < 0 || idx >= static_cast<int>(queue_.size())) return;
-    const bool queue_once = settings_.play_mode == 4 && queue_locked_;
+    const bool queue_once = settings_.play_mode == 4 && qst_.locked;
     if (move_along && idx > 0) {   // SHIFT+ENTER: the items in front of it are passed over -- they go to the end in their order (as if they had been played)
         std::rotate(queue_.begin(), queue_.begin() + idx, queue_.end());
         for (size_t i = queue_.size() - static_cast<size_t>(idx); i < queue_.size(); ++i) queue_[i].played = queue_once;
         idx = 0;
-        queue_selected_ = 0;
+        qst_.selected = 0;
     }
     QueueItem item = queue_[idx];
     queue_.erase(queue_.begin() + idx);
-    if (queue_locked_) {                       // played track -> end of the list
+    if (qst_.locked) {                       // played track -> end of the list
         QueueItem back = item;
         back.played = queue_once;
         queue_.push_back(std::move(back));
     }
-    if (queue_selected_ >= idx && queue_selected_ > 0) --queue_selected_; // index shifted down by the erase
+    if (qst_.selected >= idx && qst_.selected > 0) --qst_.selected; // index shifted down by the erase
     clamp_queue_selected();
-    pending_queue_playlist_ = item.playlist;   // consumed by start_*_track() below; any other start leaves it empty
+    current_.pending_queue_playlist = item.playlist;   // consumed by start_*_track() below; any other start leaves it empty
+    current_.pending_play_only = item.play_only && !item.is_local;
+    current_.pending_video = item.want_video && !item.is_local;
     if (item.is_local) {
         LocalTrack t{path_utf8(item.local_path.stem()), item.local_path, item.artist};
         start_local_track(t);
@@ -772,8 +790,8 @@ void App::advance_track() {
     // everything else so it beats Repeat and the queue. It is NOT the Stop play
     // mode -- play_mode is left exactly as it was -- it just ends playback the
     // same way Stop mode does and clears itself.
-    if (sleep_stop_after_track_) {
-        sleep_stop_after_track_ = false;
+    if (sleep_->stop_after_track) {
+        sleep_->stop_after_track = false;
         has_track_ = false;
         history_end_current_play(); // playback really ends here: nothing follows it
         status_line_ = "sleep timer: stopped after the song";
@@ -804,7 +822,7 @@ void App::advance_track() {
     // is flagged as played.
     if (settings_.play_mode == 4) {
         bool pass_over = queue_.empty();
-        if (!pass_over && queue_locked_) {
+        if (!pass_over && qst_.locked) {
             pass_over = std::none_of(queue_.begin(), queue_.end(), [](const QueueItem& q) { return !q.played; });
         }
         if (pass_over) {
@@ -854,7 +872,7 @@ char App::play_mode_letter() const {
 
 // "a" -- the hovering track goes in as NEXT: the front of the queue (the head
 // is always what plays next, locked or not). Consecutive presses
-// keep their order (queue_next_run_), so A, B, C play as A, B, C.
+// keep their order (qst_.next_run), so A, B, C play as A, B, C.
 void App::queue_add_selected() { queue_add_selected_impl(false); }
 
 // "e" -- the hovering track goes to the END of the queue.
@@ -878,12 +896,12 @@ void App::queue_add_selected_impl(bool at_end) {
     if (at_end) {
         queue_.push_back(std::move(item));
     } else {
-        const int pos = std::clamp(queue_next_run_, 0, static_cast<int>(queue_.size()));
+        const int pos = std::clamp(qst_.next_run, 0, static_cast<int>(queue_.size()));
         queue_.insert(queue_.begin() + pos, std::move(item));
-        ++queue_next_run_;
+        ++qst_.next_run;
     }
     clamp_queue_selected();
-    queue_reveal(at_end ? static_cast<int>(queue_.size()) - 1 : std::clamp(queue_next_run_ - 1, 0, static_cast<int>(queue_.size()) - 1));
+    queue_reveal(at_end ? static_cast<int>(queue_.size()) - 1 : std::clamp(qst_.next_run - 1, 0, static_cast<int>(queue_.size()) - 1));
 }
 
 // Main UI: Enter (or "a") on a playlist row while list_source_==Playlist.
@@ -911,7 +929,7 @@ std::string App::queue_playlist(const std::string& name) {
 
 void App::queue_remove_last() {
     if (!queue_.empty()) queue_.pop_back();
-    queue_next_run_ = 0;
+    qst_.next_run = 0;
     clamp_queue_selected();
 }
 
@@ -921,38 +939,38 @@ void App::queue_reveal(int idx) {
     if (queue_.empty()) return;
     idx = std::clamp(idx, 0, static_cast<int>(queue_.size()) - 1);
     const int rows = std::max(1, queue_nav_rows());
-    if (idx < queue_scroll_) queue_scroll_ = idx;
-    else if (idx >= queue_scroll_ + rows) queue_scroll_ = idx - rows + 1;
-    queue_scroll_ = std::clamp(queue_scroll_, 0, std::max(0, static_cast<int>(queue_.size()) - rows));
+    if (idx < qst_.scroll) qst_.scroll = idx;
+    else if (idx >= qst_.scroll + rows) qst_.scroll = idx - rows + 1;
+    qst_.scroll = std::clamp(qst_.scroll, 0, std::max(0, static_cast<int>(queue_.size()) - rows));
 }
 
 void App::clamp_queue_selected() {
-    if (queue_.empty()) { queue_selected_ = 0; queue_scroll_ = 0; return; }
-    queue_selected_ = std::clamp(queue_selected_, 0, static_cast<int>(queue_.size()) - 1);
+    if (queue_.empty()) { qst_.selected = 0; qst_.scroll = 0; return; }
+    qst_.selected = std::clamp(qst_.selected, 0, static_cast<int>(queue_.size()) - 1);
     // queue_nav_rows() is the big overlay's row count while it is open, the
     // small pane's otherwise. The window is also kept inside the queue so
     // no empty rows trail the last entry once the queue is long enough.
     const int rows = std::max(1, queue_nav_rows());
-    queue_scroll_ = std::clamp(queue_scroll_, 0, std::max(0, static_cast<int>(queue_.size()) - rows));
-    if (queue_selected_ >= queue_scroll_ + rows) queue_scroll_ = queue_selected_ - rows + 1;
-    if (queue_selected_ < queue_scroll_) queue_scroll_ = queue_selected_;
+    qst_.scroll = std::clamp(qst_.scroll, 0, std::max(0, static_cast<int>(queue_.size()) - rows));
+    if (qst_.selected >= qst_.scroll + rows) qst_.scroll = qst_.selected - rows + 1;
+    if (qst_.selected < qst_.scroll) qst_.scroll = qst_.selected;
 }
 
 void App::queue_remove_hovering() {
-    if (queue_.empty() || queue_selected_ < 0 || queue_selected_ >= static_cast<int>(queue_.size())) return;
-    const int idx = queue_selected_;
+    if (queue_.empty() || qst_.selected < 0 || qst_.selected >= static_cast<int>(queue_.size())) return;
+    const int idx = qst_.selected;
     queue_.erase(queue_.begin() + idx);
-    queue_next_run_ = 0;
+    qst_.next_run = 0;
     clamp_queue_selected();
 }
 
 void App::queue_clear() {
     const size_t n = queue_.size();
     // One level of undo (Ctrl+Shift+Z): what was just cleared.
-    if (n > 0) queue_undo_ = queue_;
-    queue_shuffle_undo_.clear();
+    if (n > 0) qst_.undo = queue_;
+    qst_.shuffle_undo.clear();
     queue_.clear();
-    queue_next_run_ = 0;
+    qst_.next_run = 0;
     clamp_queue_selected(); // empty queue -> cursor and scroll back to 0
     const std::string undo_key = hotkey_text("HKeyQueueUndoClear", "CTRL+SHIFT+Z");
     log_event("queue cleared (" + std::to_string(n) + " track" + (n == 1 ? "" : "s") + " removed)"
@@ -962,11 +980,11 @@ void App::queue_clear() {
 // Ctrl+Shift+Z. Puts the last cleared queue back in FRONT of whatever was
 // queued since, then forgets the backup (single level).
 void App::queue_undo_clear() {
-    if (queue_undo_.empty()) { status_line_ = "nothing to undo -- the queue has not been cleared"; return; }
-    const int n = static_cast<int>(queue_undo_.size());
-    queue_.insert(queue_.begin(), queue_undo_.begin(), queue_undo_.end());
-    queue_undo_.clear();
-    queue_next_run_ = 0;
+    if (qst_.undo.empty()) { status_line_ = "nothing to undo -- the queue has not been cleared"; return; }
+    const int n = static_cast<int>(qst_.undo.size());
+    queue_.insert(queue_.begin(), qst_.undo.begin(), qst_.undo.end());
+    qst_.undo.clear();
+    qst_.next_run = 0;
     clamp_queue_selected();
     log_event("queue restored (" + std::to_string(n) + " track" + (n == 1 ? "" : "s") + ")");
 }
@@ -974,48 +992,48 @@ void App::queue_undo_clear() {
 // "!" -- lock / unlock (locked is the default). Locked: a played track goes to
 // the end of the queue, so the queue loops. Unlocked: a played track leaves it.
 void App::queue_toggle_lock() {
-    queue_locked_ = !queue_locked_;
-    queue_next_run_ = 0;
+    qst_.locked = !qst_.locked;
+    qst_.next_run = 0;
     queue_reset_lap();
-    log_event(queue_locked_ ? "queue locked: played tracks move to the end of the queue"
+    log_event(qst_.locked ? "queue locked: played tracks move to the end of the queue"
                             : "queue unlocked: played tracks leave the queue");
 }
 
 // The head of the queue is always what plays next, so a manual move only has
 // to end the current "a" run.
-void App::queue_after_move(int /*from*/, int /*to*/) {
-    queue_next_run_ = 0;
+void App::QueueState::queue_after_move(int /*from*/, int /*to*/) {
+    next_run = 0;
 }
 
 void App::queue_move_hovering(int dir) {
     if (queue_.empty()) return;
-    int target = queue_selected_ + dir;
+    int target = qst_.selected + dir;
     if (target < 0 || target >= static_cast<int>(queue_.size())) return; // already at an edge
-    std::swap(queue_[queue_selected_], queue_[target]);
-    queue_after_move(queue_selected_, target);
-    queue_selected_ = target;
+    std::swap(queue_[qst_.selected], queue_[target]);
+    qst_.queue_after_move(qst_.selected, target);
+    qst_.selected = target;
     clamp_queue_selected();
 }
 
 // SHIFT+s in the big queue overlay: the queue is put in a random order. On a locked queue the track that plays now sits at its
 // end (the played tracks do): that one stays there, so "previous" still finds it.
 bool App::queue_playing_is_last() const {
-    if (!queue_locked_ || !has_track_ || queue_.empty()) return false;
+    if (!qst_.locked || !has_track_ || queue_.empty()) return false;
     const QueueItem& last = queue_.back();
-    return last.is_local == current_is_local_ && (last.is_local ? last.local_path == current_path_ : last.video_id == current_video_id_);
+    return last.is_local == current_.is_local && (last.is_local ? last.local_path == current_.path : last.video_id == current_.video_id);
 }
 
 void App::queue_shuffle_order() {
     if (queue_.size() < 2) { status_line_ = "shuffle order: the queue needs at least two items"; return; }
     size_t n = queue_.size();
     if (queue_playing_is_last()) --n;
-    queue_shuffle_undo_ = queue_;   // one level of undo (SHIFT+u)
-    queue_shuffle_undo_sel_ = queue_selected_;
+    qst_.shuffle_undo = queue_;   // one level of undo (SHIFT+u)
+    qst_.shuffle_undo_sel = qst_.selected;
     std::random_device rd;
     std::mt19937 rng(rd());
     std::shuffle(queue_.begin(), queue_.begin() + static_cast<std::ptrdiff_t>(n), rng);
-    queue_after_move(0, 0);
-    queue_selected_ = 0;
+    qst_.queue_after_move(0, 0);
+    qst_.selected = 0;
     clamp_queue_selected();
     status_line_ = "queue shuffled: " + std::to_string(queue_.size()) + " items in a new random order -- SHIFT+u undoes it";
 }
@@ -1024,17 +1042,17 @@ void App::queue_shuffle_order() {
 // place behind the others, tracks that were removed or played are simply gone from it; the track that plays now (locked queue)
 // stays at the end. One level: the backup is forgotten afterwards.
 void App::queue_undo_shuffle() {
-    if (queue_shuffle_undo_.empty()) { status_line_ = "nothing to undo -- the queue has not been shuffled"; return; }
+    if (qst_.shuffle_undo.empty()) { status_line_ = "nothing to undo -- the queue has not been shuffled"; return; }
     auto key_of = [](const QueueItem& q) { return q.is_local ? "L" + path_utf8(q.local_path) : "V" + q.video_id; };
     std::unordered_map<std::string, std::vector<int>> ranks;   // per track: its places in the old order (the first is used first)
-    for (int i = static_cast<int>(queue_shuffle_undo_.size()) - 1; i >= 0; --i) ranks[key_of(queue_shuffle_undo_[static_cast<size_t>(i)])].push_back(i);
+    for (int i = static_cast<int>(qst_.shuffle_undo.size()) - 1; i >= 0; --i) ranks[key_of(qst_.shuffle_undo[static_cast<size_t>(i)])].push_back(i);
     const size_t n = queue_.size() - (queue_playing_is_last() ? 1 : 0);
     std::vector<std::pair<int, size_t>> order;
     for (size_t j = 0; j < n; ++j) {
         auto it = ranks.find(key_of(queue_[j]));
         int r;
         if (it != ranks.end() && !it->second.empty()) { r = it->second.back(); it->second.pop_back(); }
-        else r = static_cast<int>(queue_shuffle_undo_.size() + j);   // new since the shuffle
+        else r = static_cast<int>(qst_.shuffle_undo.size() + j);   // new since the shuffle
         order.emplace_back(r, j);
     }
     std::stable_sort(order.begin(), order.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
@@ -1043,9 +1061,9 @@ void App::queue_undo_shuffle() {
     for (const auto& o : order) back.push_back(std::move(queue_[o.second]));
     for (size_t j = n; j < queue_.size(); ++j) back.push_back(std::move(queue_[j]));
     queue_ = std::move(back);
-    queue_selected_ = queue_shuffle_undo_sel_;
-    queue_shuffle_undo_.clear();
-    queue_after_move(0, 0);
+    qst_.selected = qst_.shuffle_undo_sel;
+    qst_.shuffle_undo.clear();
+    qst_.queue_after_move(0, 0);
     clamp_queue_selected();
     status_line_ = "queue shuffle undone: the order from before is back";
 }
@@ -1053,14 +1071,14 @@ void App::queue_undo_shuffle() {
 // Shift+4 / Shift+5: the hovering item to the very top / bottom.
 void App::queue_move_to_edge(int dir) {
     if (queue_.empty()) return;
-    const int from = std::clamp(queue_selected_, 0, static_cast<int>(queue_.size()) - 1);
+    const int from = std::clamp(qst_.selected, 0, static_cast<int>(queue_.size()) - 1);
     const int to = (dir < 0) ? 0 : static_cast<int>(queue_.size()) - 1;
     if (from == to) return; // already there
     QueueItem item = std::move(queue_[from]);
     queue_.erase(queue_.begin() + from);
     queue_.insert(queue_.begin() + to, std::move(item));
-    queue_after_move(from, to);
-    queue_selected_ = to;
+    qst_.queue_after_move(from, to);
+    qst_.selected = to;
     clamp_queue_selected();
 }
 
@@ -1091,11 +1109,11 @@ void App::queue_to_playlist() {
     if (queue_.empty()) { status_line_ = "the queue is empty -- nothing to save as a playlist"; return; }
     int skipped = 0;
     if (queue_local_tracks(skipped).empty()) { status_line_ = "no local tracks in the queue (playlists hold local files only)"; return; }
-    qtp_track_ = false;
-    qtp_stage_ = 0;
-    qtp_choice_ = 0;
-    qtp_query_.clear();
-    qtp_selected_ = 0;
+    qtp_->track = false;
+    qtp_->stage = 0;
+    qtp_->choice = 0;
+    qtp_->query.clear();
+    qtp_->selected = 0;
     mode_ = Mode::QueueToPlaylist;
     force_redraw_ = true;
 }
@@ -1105,7 +1123,7 @@ void App::queue_to_playlist() {
 // ---------------------------------------------------------------------
 
 void App::track_to_playlist() {
-    if (queue_focus_) { status_line_ = "focus the library pane first (TAB), then press this key on a track"; return; }
+    if (qst_.focus) { status_line_ = "focus the library pane first (TAB), then press this key on a track"; return; }
     if (list_source_ == ListSource::Playlist) { status_line_ = "a playlist can't be added to a playlist -- pick a track"; return; }
     if (list_source_ == ListSource::Folder) { status_line_ = "a folder can't be added to a playlist -- open it and pick a track"; return; }
     const size_t len = (list_source_ == ListSource::Local) ? local_view_.size() : online_view_.size();
@@ -1120,12 +1138,12 @@ void App::track_to_playlist() {
         t.title = r.title; t.artist = r.uploader; t.video_id = r.video_id; t.is_local = false;
     }
     atp_track_ = std::move(t);
-    qtp_track_ = true;
-    qtp_stage_ = 0;
-    qtp_choice_ = 0;
-    qtp_query_.clear();
-    qtp_new_name_.clear();
-    qtp_selected_ = 0;
+    qtp_->track = true;
+    qtp_->stage = 0;
+    qtp_->choice = 0;
+    qtp_->query.clear();
+    qtp_->new_name.clear();
+    qtp_->selected = 0;
     mode_ = Mode::QueueToPlaylist;
     force_redraw_ = true;
 }
@@ -1151,7 +1169,7 @@ void App::atp_add_file(const std::string& playlist, const std::string& title, co
 
 void App::track_to_playlist_apply(const std::string& playlist) {
     mode_ = Mode::Browse;
-    qtp_track_ = false;
+    qtp_->track = false;
     if (atp_track_.is_local) { atp_add_file(playlist, atp_track_.title, atp_track_.artist, atp_track_.path); return; }
     // An online track: download it into the download folder in the background, then add the file it became.
     status_line_ = "downloading \"" + atp_track_.title + "\" for \"" + playlist + "\" ...";
@@ -1184,7 +1202,7 @@ void App::track_to_playlist_apply(const std::string& playlist) {
             // the cache copy goes (the file lives in the download folder now) unless it is the track being played
             if (job.ok) {
                 std::error_code ec2;
-                if (!(has_track_ && current_path_ == got->cached_path)) fs::remove(got->cached_path, ec2);
+                if (!(has_track_ && current_.path == got->cached_path)) fs::remove(got->cached_path, ec2);
             }
         }
         std::lock_guard<std::mutex> lk(atp_mutex_);
@@ -1210,8 +1228,8 @@ void App::poll_pending_atp() {
 }
 
 void App::qtp_refresh() {
-    qtp_view_ = filter_playlists(qtp_query_);   // empty query = all of them
-    qtp_selected_ = std::clamp(qtp_selected_, 0, std::max(0, static_cast<int>(qtp_view_.size()) - 1));
+    qtp_->view = filter_playlists(qtp_->query);   // empty query = all of them
+    qtp_->selected = std::clamp(qtp_->selected, 0, std::max(0, static_cast<int>(qtp_->view.size()) - 1));
 }
 
 void App::queue_to_playlist_apply(const std::string& existing) {
@@ -1278,10 +1296,12 @@ std::vector<std::string> wrap_words(const std::string& text, int width) {
 
 
 void App::start_local_track(const LocalTrack& track) {
-    const std::string playlist_ctx = std::move(pending_queue_playlist_);
-    pending_queue_playlist_.clear();
+    const std::string playlist_ctx = std::move(current_.pending_queue_playlist);
+    current_.pending_queue_playlist.clear();
+    current_.pending_play_only = current_.pending_video = false;
     if (load_in_progress_.load()) { status_line_ = "still loading the previous track ..."; return; }
-    load_playlist_ctx_ = playlist_ctx;
+    current_.load_playlist_ctx = playlist_ctx;
+    current_.load_play_only = current_.load_video = false;
     fs::path parent = track.path.parent_path().filename();
     // folder_artist is only a cheap guess for the browse-list Artist column
     // (see LocalTrack's comment in local_source.h) -- it's the same string
@@ -1296,10 +1316,14 @@ void App::start_local_track(const LocalTrack& track) {
 }
 
 void App::start_online_track(const OnlineResult& result) {
-    const std::string playlist_ctx = std::move(pending_queue_playlist_);
-    pending_queue_playlist_.clear();
+    const std::string playlist_ctx = std::move(current_.pending_queue_playlist);
+    current_.pending_queue_playlist.clear();
+    const bool play_only = current_.pending_play_only, want_video = current_.pending_video;
+    current_.pending_play_only = current_.pending_video = false;
     if (load_in_progress_.load()) { status_line_ = "still loading the previous track ..."; return; }
-    load_playlist_ctx_ = playlist_ctx;
+    current_.load_playlist_ctx = playlist_ctx;
+    current_.load_play_only = play_only;
+    current_.load_video = want_video;
     // Pass "" for artist so the lyrics search queries just the YouTube video title
     // (which usually contains "Artist - Song Name" perfectly), instead of appending the channel name.
     // where it comes from (the meta data panel's Location; also what the download key looks at)

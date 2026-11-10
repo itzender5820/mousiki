@@ -1018,6 +1018,7 @@ def main_session(binary, root, scripts):
             sess.pump(0.4)
         check("STYLE OPTION" in sess.text(), "style option: the overlay opens")
         check("Cover Brightness" in sess.text() and "Look of this track" in sess.text(), "style option: the rows are shown")
+        check("Cover Gradient Saturation" in sess.text(), "style option: Cover Gradient Saturation has a row")
         check_frame(sess, "style option", frame=False)
         sess.send(b"\x1b[B", 0.3)       # Cover Contrast
         sess.send(b"\x1b[C", 1.2)
@@ -1856,6 +1857,159 @@ def settings_video_preview(binary, root, scripts):
     finally:
         sess.kill()
 
+def bulk_add_options(binary, root, scripts):
+    """BULK ADD (SHIFT+g): the panel shows the two options, CTRL+s (Save) and CTRL+o (Video) switch them and they are saved;
+    the audio book without a narrative does not show the music player's "Hit [n] to proceed"."""
+    home = os.path.join(root, "ba_home")
+    lib = os.path.join(root, "music")
+    cfg = os.path.join(home, ".config", "mousiki", "config.txt")
+    os.makedirs(os.path.dirname(cfg))
+    with open(cfg, "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        sess.pump(1.0)
+        check("Hit [" in sess.text() or "Alpha Song" in sess.text() or sess.alive(), "bulk add: the main screen is up")
+        sess.send("G", 1.0)
+        t = sess.text()
+        check("BULK ADD" in t and "Save: ON" in t and "Video: OFF" in t, "bulk add: the panel shows Save: ON and Video: OFF by default")
+        sess.send(b"\x13", 0.8)
+        t = sess.text()
+        check("Save: OFF" in t and "Video: OFF" in t, "bulk add: CTRL+s switches to play only")
+        sess.send(b"\x0f", 0.8)
+        t = sess.text()
+        check("Save: OFF" in t and "Video: ON" in t, "bulk add: CTRL+o switches the video on")
+        sess.send(b"\x1b", 1.0)
+        check("BULK ADD" not in sess.text() and sess.alive(), "bulk add: ESC closes the panel")
+        sess.send("q", 1.5)
+    finally:
+        sess.kill()
+    conf = open(cfg, encoding="utf-8").read()
+    check("BulkAddSave=false" in conf and "BulkAddVideo=true" in conf, "bulk add: both options are saved in config.txt")
+
+    home = os.path.join(root, "bb_home")
+    books = os.path.join(root, "books")
+    cfgdir = os.path.join(home, ".config", "mousiki")
+    os.makedirs(cfgdir)
+    with open(os.path.join(cfgdir, "config.txt"), "w", encoding="utf-8") as f:
+        f.write("AudioBookPath=%s\nStartMode=audiobook\nUseTerminalSettings=true\n" % books)
+    sess = Session(binary, home, scripts, {"MOUSIKI_NULL_AUDIO": "1"}, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.5)
+        t = sess.text()
+        check("No Narrative Loaded" in t, "audio book: no narrative loaded shows its message")
+        check("to proceed" not in t, "audio book: no \"Hit [n] to proceed\" without a narrative")
+        sess.send("q", 1.5)
+    finally:
+        sess.kill()
+
+
+def bulk_add_flow(binary, root, scripts):
+    """BULK ADD end to end with a fake yt-dlp: with Save OFF and Video ON the played track's audio file and its video exist while it plays and
+    are deleted again once the next track has started; with Save ON the files stay."""
+    import subprocess, stat, glob
+    if shutil.which("ffmpeg") is None:
+        print("  skipped: bulk add flow (ffmpeg is not installed on this machine)")
+        return
+    home = os.path.join(root, "baf_home")
+    fake = os.path.join(root, "baf_bin")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    os.makedirs(fake)
+    wav = os.path.join(root, "baf_tone.wav")
+    make_wav(wav, 20)
+    clip = os.path.join(root, "baf_clip.mp4")
+    r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=64x48:rate=5:duration=2", "-pix_fmt", "yuv420p", clip], capture_output=True)
+    if r.returncode != 0:
+        print("  (skipped: ffmpeg could not make the test clip)")
+        return
+    yt = os.path.join(fake, "yt-dlp")
+    with open(yt, "w") as f:
+        f.write("""#!/bin/bash
+if [[ "$*" == *"--flat-playlist"* ]]; then
+  echo '{"id":"AAAAAAAAAAA","title":"Bulk One","uploader":"Chan","duration":20}'
+  echo '{"id":"BBBBBBBBBBB","title":"Bulk Two","uploader":"Chan","duration":20}'
+  exit 0
+fi
+out=""; audio=0
+for a in "$@"; do if [ "$a" = "-x" ]; then audio=1; fi; done
+while [ $# -gt 0 ]; do if [ "$1" = "-o" ]; then out="$2"; fi; shift; done
+if [ $audio = 1 ]; then
+  f="${out/\\%(ext)s/opus}"
+  cp "@WAV@" "$f"
+else
+  f="${out/\\%(ext)s/mp4}"
+  echo "download:PCT 50.0%"
+  cp "@CLIP@" "$f"
+  echo "FILE:$f"
+fi
+""".replace("@CLIP@", clip).replace("@WAV@", wav))
+    os.chmod(yt, os.stat(yt).st_mode | stat.S_IEXEC)
+
+    def run(save, video):
+        cfg = os.path.join(home, ".config", "mousiki", "config.txt")
+        with open(cfg, "w", encoding="utf-8") as f:
+            f.write("UseTerminalSettings=true\nVideoMode=true\nBulkAddSave=%s\nBulkAddVideo=%s\n" % (save, video))
+        sess = Session(binary, home, scripts, {"PATH": fake + os.pathsep + os.environ.get("PATH", ""), "MOUSIKI_NULL_AUDIO": "1"}, quiet_stderr=True)
+        cache = os.path.join(home, ".cache", "mousiki")
+        def files(pat):
+            return sorted(glob.glob(os.path.join(cache, pat)) + glob.glob(os.path.join(cache, "video_down", pat)))
+        try:
+            for _ in range(30):
+                sess.pump(0.5)
+                if "HELP WIZARD" in sess.text():
+                    break
+            sess.send(b"\x1b", 1.0)
+            sess.send("G", 1.0)
+            sess.send("https://www.youtube.com/playlist?list=x", 0.8)
+            sess.send("\r", 0.5)
+            for _ in range(30):
+                sess.pump(0.5)
+                if "Bulk Two" in sess.text():
+                    break
+            check("Bulk One" in sess.text() and "Bulk Two" in sess.text(), "bulk add flow (save=%s video=%s): the fake playlist is listed" % (save, video))
+            sess.send("a", 1.0)
+            sess.send("n", 1.0)                       # the first track of the queue
+            for _ in range(40):
+                sess.pump(0.5)
+                if files("*.opus") and (video == "false" or files("*.mp4")):
+                    break
+            check(len(files("*.opus")) == 1, "bulk add flow (save=%s video=%s): the first track's file is there while it plays" % (save, video))
+            if video == "true":
+                check(len(files("*.mp4")) == 1, "bulk add flow (save=%s video=%s): its video is downloaded" % (save, video))
+            else:
+                check(len(files("*.mp4")) == 0, "bulk add flow (save=%s video=%s): no video is downloaded" % (save, video))
+            sess.send("n", 1.0)                       # the second one: the first one's files go when it has started
+            for _ in range(40):
+                sess.pump(0.5)
+                if len(files("*.opus")) >= 2 or (save == "false" and files("*.opus") and "Bulk Two" in sess.text()):
+                    break
+            sess.pump(3.0)
+            ops = files("*.opus")
+            if save == "false":
+                check(len(ops) == 1 and "bulk_two" in os.path.basename(ops[0]).lower().replace(" ", "_"), "bulk add flow (save=%s video=%s): only the playing track's file is left: %r" % (save, video, [os.path.basename(x) for x in ops]))
+                check(len(files("*.mp4")) <= 1, "bulk add flow (save=%s video=%s): the first video is deleted with its track" % (save, video))
+            else:
+                check(len(ops) == 2, "bulk add flow (save=%s video=%s): both files stay: %r" % (save, video, [os.path.basename(x) for x in ops]))
+            sess.send("q", 2.0)
+            sess.pump(1.5)
+            if save == "false":
+                check(len(files("*.opus")) == 0 and len(files("*.mp4")) == 0, "bulk add flow (save=%s video=%s): nothing is left after quitting" % (save, video))
+        finally:
+            sess.kill()
+        shutil.rmtree(cache, ignore_errors=True)
+    run("false", "true")
+    run("true", "false")
+
+
 def queue_shuffle(binary, root, scripts):
     """The big queue overlay (SHIFT+k): SHIFT+s shuffles the order of the queue."""
     home = os.path.join(root, "qs_home")
@@ -1947,7 +2101,7 @@ def video_overlays(binary, root, scripts):
         check("Include Lyrics" in t and "Disk/Cover/Thumbnail" in t and "Manually Couple Local Files" in t and "Quick Search/Down. YT" in t and "General Fetch Videos Menu" in t and "Delete Current Video" in t and "Refetch this Video" in t, "video overlay: the rows are listed")
         check("Picture Size" in t and "Effect" in t and "Full Screen Video" in t, "video overlay: picture size, effect and full screen video rows are listed")
         check("Contrast" in t and "Colors" in t and "Chromatic Aberration" in t and "Resolution" in t and "Buffer" in t, "video overlay: contrast, colors, chromatic aberration, resolution and buffer rows")
-        for _ in range(15):   # (to "Manually Couple Local Files", under "Full Screen Video"; Show Clap Loading is the row before it)
+        for _ in range(16):   # (to "Manually Couple Local Files", under "Full Screen Video"; Show Clap Loading is the row before it)
             sess.send(b"\x1b[B", 0.2)
         sess.wait_for(lambda t: "> Manually Couple Local Files" in t, 15.0)   # (the keys may be late on a busy machine: not before the row is reached)
         sess.send("\r", 1.0)
@@ -2303,9 +2457,9 @@ def video_fullscreen_sizes(binary, root, scripts):
             sess.pump(0.5)
             if "Clip Song" in sess.text():
                 break
-        # the menu rows: Picture Size is the fifth row, Rounded Corners the sixth, Effect the seventh
+        # the menu rows: Picture Size is the sixth row (after Cover Gradient Saturation), Rounded Corners the seventh, Effect the eighth
         sess.send("Y", 1.0)
-        for _ in range(4):
+        for _ in range(5):   # (Cover Gradient Saturation is the row under Disk/Cover/Thumbnail)
             sess.send(b"\x1b[B", 0.2)
         check("< regular >" in sess.text(), "video overlay: the picture size starts on regular")
         sess.send(b"\x1b[C", 0.5)
@@ -2381,16 +2535,16 @@ def video_fullscreen_sizes(binary, root, scripts):
         check(any("Video Chromatic Aberration" in ln and "as in Settings (off)" in ln for ln in t.splitlines()), "style option: the chromatic aberration row shows its value untruncated")
         check("Video Resolution" in t, "style option: a Video Resolution row")
         check(any("Use mp4 audio for this song" in ln and "false" in ln for ln in t.splitlines()), "style option: a song paired with a video has the row Use mp4 audio for this song (false)")
-        for _ in range(7):                                   # down to the first video row: the preview shows the video instead of the disk
+        for _ in range(8):                                   # down to the first video row: the preview shows the video instead of the disk
             sess.send(b"\x1b[B", 0.2)
         for _ in range(10):
             if "the video of this track" in sess.text():
                 break
             sess.pump(0.5)
         check("the video of this track" in sess.text(), "style option: on a video row the preview shows the video of the track")
-        for _ in range(7):
+        for _ in range(8):
             sess.send(b"\x1b[A", 0.2)
-        for _ in range(6):
+        for _ in range(7):
             sess.send(b"\x1b[B", 0.2)
         sess.send(b"\x1b[C", 0.8)
         for _ in range(10):                                  # (a busy machine draws it a little later)
@@ -2421,6 +2575,7 @@ def video_fullscreen_sizes(binary, root, scripts):
         sess.send(b"\x1b[C", 0.8)
         sess.wait_for(lambda tt: "Use Video in Lyrics Field" in tt and "[ ] false" in tt.split("Use Video in Lyrics Field", 1)[1][:80], 8.0)
         check("Use Video in Lyrics Field" in sess.text() and "[ ] false" in sess.text().split("Use Video in Lyrics Field", 1)[1][:80], "video overlay: the Video mode can be switched off")
+        check("Cover Gradient Saturation" in sess.text() and "60 %" in sess.text().split("Cover Gradient Saturation", 1)[1][:30], "video overlay: Cover Gradient Saturation is a row (default 60 %)")
         sess.send(b"\x1b", 1.0)
         sess.send("/", 0.5)
         sess.send("clip", 1.0)
@@ -2727,7 +2882,7 @@ def run_scenario(name, binary, root, scripts):
 
 
 SCENARIOS = ["narrow80", "narrow100", "main", "read_lyrics_play", "karaoke_timing", "book_speed_and_devices", "paging_and_translit_row",
-             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "radio_organigram", "radio_idle_rate", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "translation_editor", "translation_create", "play_mode_back", "disk_border_setting", "translation_paste_undo", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key", "video_overlays", "video_pair_tags", "video_fetch_flow", "video_fetch_restore", "settings_video_preview", "video_files_tab", "video_library_modes", "video_fullscreen_sizes", "video_translation_tab", "organigram_menu", "scope_spectro_overlays", "radio_waterfall", "radio_station_edit"]
+             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "radio_organigram", "radio_idle_rate", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "bulk_add_options", "bulk_add_flow", "translation_editor", "translation_create", "play_mode_back", "disk_border_setting", "translation_paste_undo", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key", "video_overlays", "video_pair_tags", "video_fetch_flow", "video_fetch_restore", "settings_video_preview", "video_files_tab", "video_library_modes", "video_fullscreen_sizes", "video_translation_tab", "organigram_menu", "scope_spectro_overlays", "radio_waterfall", "radio_station_edit"]
 
 
 def main():

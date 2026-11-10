@@ -2,6 +2,7 @@
 // picture of the track's video (a real picture in Kitty / Sixel terminals, braille dots elsewhere) with the current lyric line under it.
 // The sound is the player's as always; the picture only follows its clock (video_player.h).
 #include "app.h"
+#include "app_state_device.h"
 #include "app_internal.h"
 #include "console_log.h"
 #include "video_timing.h"
@@ -157,7 +158,7 @@ void App::borrow_video_tags() {
         borrowed_tags_ = std::move(now);
     }
     if (changed) {
-        search_idx_.clear();   // (rebuilt on the next search, with the tags the lists show now)
+        search_.idx.clear();   // (rebuilt on the next search, with the tags the lists show now)
         bv_ver_ = row_meta_tags_version_.fetch_add(1, std::memory_order_relaxed) + 1;
     }
 }
@@ -171,17 +172,17 @@ std::string App::format_text() const {
         for (auto& c : e) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
         return e;
     };
-    if (current_path_.empty()) return metadata_.format;
-    const std::string key = path_utf8(current_path_) + "|" + std::to_string(video_rev_) + (settings_.video_mode ? "1" : "0") + "|" + metadata_.format;
+    if (current_.path.empty()) return metadata_.format;
+    const std::string key = path_utf8(current_.path) + "|" + std::to_string(video_rev_) + (settings_.video_mode ? "1" : "0") + "|" + metadata_.format;
     if (key == fmt_key_) return fmt_val_;
     std::string out = metadata_.format;
-    if (LocalSource::is_video_file(current_path_)) {
-        const std::string e = ext_up(current_path_);
+    if (LocalSource::is_video_file(current_.path)) {
+        const std::string e = ext_up(current_.path);
         if (!e.empty()) out = e;
     } else if (settings_.video_mode) {
-        const std::string v = video_source_for(current_path_);
+        const std::string v = video_source_for(current_.path);
         const std::string ve = v.empty() ? std::string() : ext_up(path_from_utf8(v));
-        const std::string te = ext_up(current_path_);
+        const std::string te = ext_up(current_.path);
         if (!ve.empty()) out = (te.empty() ? metadata_.format : te) + ", " + ve;
     }
     fmt_key_ = key;
@@ -192,12 +193,12 @@ std::string App::format_text() const {
 // Auto Video: at every new track, a track with a video switches the field to the video view; one without it to the Lyrics/Viz Default.
 void App::video_auto_apply() {
     auto why_no_video = [&]() {   // for the log: why this track has no video view
-        if (cover_track_video_opts(path_utf8(current_path_)).on == 0) return std::string("\"Video of this track\" is off (Style Option)");
-        if (VideoLinks::get().is_none(path_utf8(current_path_))) return std::string("the connection to its video was removed (Manually Couple Local Files)");
+        if (cover_track_video_opts(path_utf8(current_.path)).on == 0) return std::string("\"Video of this track\" is off (Style Option)");
+        if (VideoLinks::get().is_none(path_utf8(current_.path))) return std::string("the connection to its video was removed (Manually Couple Local Files)");
         return std::string("no video file found for it");
     };
-    if (audiobook_ || !settings_.video_mode || !settings_.video_auto || !current_is_local_ || current_path_.empty()) return;
-    if (!video_shown_for(current_path_).empty()) {
+    if (audiobook_ || !settings_.video_mode || !settings_.video_auto || !current_.is_local || current_.path.empty()) return;
+    if (!video_shown_for(current_.path).empty()) {
         if (!settings_.video_view) {   // the view you were on (changed with "." / ",") comes back on a track without a video
             auto_prev_view_ = settings_.element_lyrics ? 3 : std::clamp(settings_.lyric_viz, 0, 2); auto_prev_known_ = true;
             auto_prev_set_ = true;
@@ -206,7 +207,7 @@ void App::video_auto_apply() {
         settings_.video_view = true;
         return;
     }
-    log_event("auto video: " + path_utf8(current_path_.filename()) + " has no video: " + why_no_video());
+    log_event("auto video: " + path_utf8(current_.path.filename()) + " has no video: " + why_no_video());
     if (!settings_.video_view) {   // a track without a video on another view: the view you chose stays (and is remembered for "last used")
         auto_prev_view_ = settings_.element_lyrics ? 3 : std::clamp(settings_.lyric_viz, 0, 2); auto_prev_known_ = true;
         return;
@@ -233,7 +234,7 @@ void App::video_toggle() {
         if (local_sort_mode_ == 4) local_sort_mode_ = 0;
     }
     refresh_local_view();   // the video files join / leave the library list
-    if (settings_.video_mode && settings_.video_auto && !audiobook_ && current_is_local_ && !current_path_.empty() && !video_shown_for(current_path_).empty()) {
+    if (settings_.video_mode && settings_.video_auto && !audiobook_ && current_.is_local && !current_.path.empty() && !video_shown_for(current_.path).empty()) {
         if (!settings_.video_view) { auto_prev_view_ = settings_.element_lyrics ? 3 : std::clamp(settings_.lyric_viz, 0, 2); auto_prev_known_ = true; }
         settings_.element_lyrics = true;   // turned on while a track with a video plays: the field jumps to the video at once
         settings_.video_view = true;
@@ -314,13 +315,13 @@ bool App::video_round_for(const fs::path& track) const {
 }
 
 int App::video_res_for() const {
-    const int own = has_track_ && !current_path_.empty() ? cover_track_video_opts(path_utf8(current_path_)).res : -1;
+    const int own = has_track_ && !current_.path.empty() ? cover_track_video_opts(path_utf8(current_.path)).res : -1;
     return std::clamp(own >= 0 ? own : settings_.video_res, 0, 2);
 }
 
 int App::video_pic_width() const {
     const int res = video_res_for();
-    int w = video_res_width(res, gfx_proto_ == GfxProto::Sixel);
+    int w = video_res_width(res, gfxs_.proto == GfxProto::Sixel);
     if (res > 0 && video_.has_video()) w = std::min(w, std::max(640, video_.source_width()));   // (no point in decoding wider than the video itself)
     return w;
 }
@@ -343,10 +344,10 @@ int App::video_fx_for(const fs::path& track) const {
 }
 
 void App::video_ensure_source() const {
-    const std::string cur = path_utf8(current_path_);
+    const std::string cur = path_utf8(current_.path);
     if (cur != video_for_track_) {
         video_for_track_ = cur;
-        video_.set_source(video_shown_for(current_path_));
+        video_.set_source(video_shown_for(current_.path));
         video_pic_key_.clear();
     }
 }
@@ -369,20 +370,20 @@ std::vector<std::string> lyric_translation_rows(const std::vector<LyricLine>& li
     return rows;
 }
 
-// The saved translations of the lyrics that play (the caller holds lyrics_mutex_ if `cur` is lyrics_result_.lines). The lyrics are read the way
+// The saved translations of the lyrics that play (the caller holds lyrics_.mutex if `cur` is lyrics_.result.lines). The lyrics are read the way
 // READ LYRICS reads them (that is what a translation's fingerprint was made from). With several lyrics files that have a translation the
 // one that was edited last is used; its translations are listed with the one for Translate To first.
 const std::vector<App::VTr>& App::video_translations(const std::vector<LyricLine>& cur) const {
     static const std::vector<VTr> none;
     if (!has_track_ || audiobook_ || cur.empty()) return none;
-    const std::string key = path_utf8(current_path_) + "|" + settings_.translate_to + "|" + settings_.translate_service + "|" +
+    const std::string key = path_utf8(current_.path) + "|" + settings_.translate_to + "|" + settings_.translate_service + "|" +
                             std::to_string(cur.size()) + "|" + cur.front().full_text;
     const auto now = std::chrono::steady_clock::now();
     if (key == vtr_key_ && (!vtr_all_.empty() || now - vtr_at_ < std::chrono::seconds(3))) return vtr_all_;
     vtr_key_ = key;
     vtr_at_ = now;
     vtr_all_.clear();
-    std::vector<LyricsVersion> vs = list_lyrics_versions(current_path_);
+    std::vector<LyricsVersion> vs = list_lyrics_versions(current_.path);
     auto edited = [](const LyricsVersion& v) {
         std::error_code ec;
         if (v.file.empty()) return fs::file_time_type::min();
@@ -396,11 +397,11 @@ const std::vector<App::VTr>& App::video_translations(const std::vector<LyricLine
     });
     for (const LyricsVersion& v : vs) {
         double delay = 0.0;
-        const std::vector<LyricLine> timed = lyrics_read_lines(read_lyrics_version_text(current_path_, v), &delay);
+        const std::vector<LyricLine> timed = lyrics_read_lines(read_lyrics_version_text(current_.path, v), &delay);
         if (timed.empty()) continue;
         std::vector<std::string> plain;
         for (const LyricLine& l : timed) plain.push_back(l.full_text);
-        std::vector<TranslationInfo> tl = list_lyrics_translations(current_path_, v, plain);
+        std::vector<TranslationInfo> tl = list_lyrics_translations(current_.path, v, plain);
         if (tl.empty()) continue;
         std::stable_sort(tl.begin(), tl.end(), [&](const TranslationInfo& a, const TranslationInfo& b) {
             const int ra = (a.to == settings_.translate_to ? 2 : 0) + (a.service == settings_.translate_service ? 1 : 0);
@@ -410,7 +411,7 @@ const std::vector<App::VTr>& App::video_translations(const std::vector<LyricLine
         std::vector<VTr> found;
         for (const TranslationInfo& info : tl) {
             LyricsTranslation t;
-            if (!load_lyrics_translation(current_path_, v, info.to, plain, t, info.service) || t.same || t.lines.size() != plain.size()) continue;
+            if (!load_lyrics_translation(current_.path, v, info.to, plain, t, info.service) || t.same || t.lines.size() != plain.size()) continue;
             // line by line: the same time stamp (or, with equal counts, the same place)
             std::vector<std::string> out(cur.size());
             bool any = false;
@@ -443,16 +444,16 @@ int App::video_lyr_mode_for(const fs::path& track) const {
 
 std::vector<std::string> App::video_lyric_rows(int width, double elapsed, int mode, int tr_idx, bool all_shown) const {
     std::vector<std::string> rows;
-    std::lock_guard<std::mutex> lock(lyrics_mutex_);
-    if (audiobook_ || !settings_.lyrics_on() || !lyrics_ready_ || lyrics_result_.lines.empty()) return rows;
-    std::vector<LyricLine> lines = lyrics_result_.lines;
+    std::lock_guard<std::mutex> lock(lyrics_.mutex);
+    if (audiobook_ || !settings_.lyrics_on() || !lyrics_.ready || lyrics_.result.lines.empty()) return rows;
+    std::vector<LyricLine> lines = lyrics_.result.lines;
     latinize_lyrics(lines);
-    const double lt = elapsed - lyrics_result_.delay;
+    const double lt = elapsed - lyrics_.result.delay;
     int act = 0;
     for (size_t i = 0; i < lines.size(); ++i) { if (lines[i].start_time <= lt) act = static_cast<int>(i); else break; }
     const std::vector<std::string>* tr = nullptr;
     if (mode >= 2) {
-        const std::vector<VTr>& all = video_translations(lyrics_result_.lines);
+        const std::vector<VTr>& all = video_translations(lyrics_.result.lines);
         if (!all.empty()) tr = &all[static_cast<size_t>(std::clamp(tr_idx, 0, static_cast<int>(all.size()) - 1))].lines;
     }
     return lyric_translation_rows(lines, tr, act, all_shown ? 1e9 : lt, width, mode, settings_);   // (all_shown: every word lit - the size of the box)
@@ -469,7 +470,7 @@ void App::clap_loading_fill(std::vector<std::string>& rows, int W, int H, int ab
     int cw0 = 10, ch0 = 20;
     gfx_cell_pixels(settings_.cell_pixels, cw0, ch0);
     cw0 = std::max(4, cw0); ch0 = std::max(8, ch0);
-    const bool picture = gfx_proto_ != GfxProto::None;
+    const bool picture = gfxs_.proto != GfxProto::None;
     if (H < 4 || W < 12) return;
         // The video is loading: a small open clapperboard in the middle of the picture's place instead of the message (a real picture,
         // transparent round the board, where the terminal has one; else braille dots), in the colours of the border gradient.
@@ -556,14 +557,14 @@ bool App::video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, 
     // vp / look_track: the Style Option preview draws another track's video with its own look (a player of its own); else the playing one
     if (!vp) video_ensure_source();
     VideoPlayer& V = vp ? *vp : video_;
-    const fs::path& LT = look_track ? *look_track : current_path_;
+    const fs::path& LT = look_track ? *look_track : current_.path;
     rows.assign(static_cast<size_t>(std::max(0, H)), std::string(static_cast<size_t>(std::max(0, W)), ' '));
     if (!V.has_video() || W < 4 || H < 2) return false;
     int cw0 = 10, ch0 = 20;
     gfx_cell_pixels(settings_.cell_pixels, cw0, ch0);
     cw0 = std::max(4, cw0); ch0 = std::max(8, ch0);
     const bool paused = vp ? false : player_.is_paused();
-    const bool picture = gfx_proto_ != GfxProto::None;
+    const bool picture = gfxs_.proto != GfxProto::None;
     // --- geometry: dw x dh = what the decoder delivers; the visible part (outw x outh pixels, vcols x vrows cells) is cut from it
     int vcols = 0, vrows = 0, dw = 0, dh = 0, outw = 0, outh = 0, cx0 = 0, cy0 = 0;
     {
@@ -613,7 +614,7 @@ bool App::video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, 
     // While the audio of a new track is still being handed to the device (launch_device_play_async()), the playback time is still the one of
     // the track before: a decoder started now would begin at that time and show a frame from the middle of the new video (or of the one
     // before, when [n] is hit fast), then restart at 0. So nothing is started until the new audio clock is in.
-    const bool handoff = !vp && device_play_pending_gen_.load() != 0;
+    const bool handoff = !vp && device_->play_pending_gen.load() != 0;
     const VideoFrame* frame = handoff ? nullptr : V.frame_for(t, dw, dh, !paused, &fresh);
     VideoFrame scaled;   // (the decoder may still deliver the old size for a moment after a resize or a seek: scale what there is)
     if (frame && (frame->w != dw || frame->h != dh)) { scaled = VideoPlayer::resample(*frame, dw, dh); frame = &scaled; }
@@ -680,7 +681,7 @@ bool App::video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, 
         const std::string key = std::to_string(dw) + "x" + std::to_string(dh) + "|" + std::to_string(outw) + "x" + std::to_string(outh) + "|" + std::to_string(vcols) + "x" + std::to_string(vrows) + "|" +
                                 std::to_string(abs_col + lead) + "|" + std::to_string(cx0) + "," + std::to_string(cy0) + "|" + std::to_string(cut_c) + "," + std::to_string(cut_r) + "," + std::to_string(cut_w) + "," + std::to_string(cut_h) + "|" + look.sig() + "|" + std::to_string(settings_.video_res) + "|" + (round_corners ? "r" : "-") + std::to_string(trim);
         const bool resized = key != video_pic_key_ || g.w != outw || g.h != outh || g.level.size() != static_cast<size_t>(outw) * outh;
-        const bool tc = gfx_proto_ == GfxProto::Kitty && video_res_for() > 0;   // true colour (high / full resolution on Kitty)
+        const bool tc = gfxs_.proto == GfxProto::Kitty && video_res_for() > 0;   // true colour (high / full resolution on Kitty)
         g.plain = true; g.direct = true; g.scale = 1; g.truecolor = tc;
         g.out_cw = cw0; g.out_ch = ch0;
         g.cols = vcols; g.rows = vrows; g.w = outw; g.h = outh;
@@ -782,11 +783,11 @@ bool App::video_field_rows(std::vector<std::string>& rows, int W, int H, int are
                            const std::vector<std::string>& line_rows, bool trim_right) const {
     video_ensure_source();
     if (!video_.has_video()) return false;
-    const int size = video_size_for(current_path_);
+    const int size = video_size_for(current_.path);
     if (size == 2) {   // the full field: the picture fills the place of the oscilloscope, the lyric line is a small box over it
         if (H < 3 || W < 8) return false;
         const int lw = std::max(12, W * 2 / 3);
-        return video_draw(rows, W, H, area_col, 1, second_slot, t, 2, video_lyrics_for(current_path_) ? line_rows : std::vector<std::string>(), lw, false, trim_right);
+        return video_draw(rows, W, H, area_col, 1, second_slot, t, 2, video_lyrics_for(current_.path) ? line_rows : std::vector<std::string>(), lw, false, trim_right);
     }
     if (size == 3) {   // framed: the same, one row and two columns smaller on every side (an empty frame round the picture; a cell is twice as tall as wide, so the frame looks equally wide all round)
         if (H < 5 || W < 12) return false;
@@ -795,7 +796,7 @@ bool App::video_field_rows(std::vector<std::string>& rows, int W, int H, int are
         std::vector<std::string> inner;
         const int lw = std::max(12, (W - 4) * 2 / 3);
         std::vector<std::string> txt;
-        if (video_lyrics_for(current_path_)) for (const auto& r : line_rows) if (display_width(r) > 0 && r.find_first_not_of(' ') != std::string::npos) txt.push_back(r);
+        if (video_lyrics_for(current_.path)) for (const auto& r : line_rows) if (display_width(r) > 0 && r.find_first_not_of(' ') != std::string::npos) txt.push_back(r);
         std::vector<std::string> in_pic;   // (the last row is the frame's bottom row, the ones before it are in the picture's box: it grows upwards)
         for (size_t k = 0; k + 1 < txt.size() || (k == 0 && txt.size() == 1); ++k) in_pic.push_back(txt[k]);
         if (!video_draw(inner, W - 4, H - 2, area_col + 2, 2, second_slot, t, 2, in_pic, lw, true)) return false;
@@ -819,10 +820,10 @@ bool App::video_field_rows(std::vector<std::string>& rows, int W, int H, int are
     // first one, the second is for the continuation when the line has to break. Longer breaks are cut after the second row.
     // With a translation shown the block may need more: the second row is the extra space first, then the block grows upwards (the picture
     // gets smaller, but for the whole track at once - video_need_rows_ is the most any line needs).
-    const int kPad0 = video_lyrics_for(current_path_) ? 1 : 0;
-    const int kReserve = video_lyrics_for(current_path_) ? std::clamp(video_need_rows_, 2, std::max(2, H - kPad0 - 3)) : 0;   // (Include Lyrics off: the picture gets the whole field)
+    const int kPad0 = video_lyrics_for(current_.path) ? 1 : 0;
+    const int kReserve = video_lyrics_for(current_.path) ? std::clamp(video_need_rows_, 2, std::max(2, H - kPad0 - 3)) : 0;   // (Include Lyrics off: the picture gets the whole field)
     const int lrows = std::min<int>(kReserve, static_cast<int>(line_rows.size()));
-    const int kPad = video_lyrics_for(current_path_) ? 1 : 0;   // one empty row above the picture while the lyrics are on
+    const int kPad = video_lyrics_for(current_.path) ? 1 : 0;   // one empty row above the picture while the lyrics are on
     const int vavail = H - kReserve - kPad;
     if (vavail < 3 || W < 8) return false;
     std::vector<std::string> box;
@@ -1040,7 +1041,7 @@ std::string App::build_video_full(int W, const char* clear_prefix) const {
     const double elapsed = has_track_ ? player_.poll_elapsed() : 0.0;
     const int lw = std::max(12, vid_w * 2 / 3);
     // What the lyrics do here is the track's own "Use Lyrics on Video" (Style Option, else Include Lyrics of the VIDEO SETTINGS): the same as in the small field.
-    const int lmode = video_lyr_mode_for(current_path_);
+    const int lmode = video_lyr_mode_for(current_.path);
     const bool lyr = lmode != 0;
     // The box over the picture is measured on the line with ALL its words shown (video_ov_ref_); it must be this line's, not one left by the small field.
     const std::vector<std::string> lyr_rows = lyr ? video_lyric_rows(lw, elapsed, lmode, vfull_tr_idx_, false) : std::vector<std::string>();
@@ -1054,7 +1055,7 @@ std::string App::build_video_full(int W, const char* clear_prefix) const {
         const int kind = ov.osci_mode == 1 ? 1 : 0;
         const int lab = scales ? 7 : 0;
         const int oc = std::max(4, width - lab);
-        const bool image = ov.osci_style == 1 && gfx_proto_ != GfxProto::None;
+        const bool image = ov.osci_style == 1 && gfxs_.proto != GfxProto::None;
         OscilloscopeVisualizer& sc = kind == 1 ? scope_big_yt_ : scope_big_xy_;
         sc.copy_ring_from(scope_);
         OscilloscopeVisualizer::Params pp = osci_scope_params(settings_, viz_dt_, image ? 1 : 0);
@@ -1093,7 +1094,7 @@ std::string App::build_video_full(int W, const char* clear_prefix) const {
             else F.grid.clear();
             F.grid_rgb = {static_cast<uint8_t>(gr), static_cast<uint8_t>(gg2), static_cast<uint8_t>(gb)};
             F.active = true;
-            F.fresh = gfx_due_;
+            F.fresh = gfxs_.due;
             pane.assign(static_cast<size_t>(rows), gfx_hole(oc));
         } else {
             auto color_of = [&](int tx, int cc, uint8_t hue, float k) {
@@ -1120,7 +1121,7 @@ std::string App::build_video_full(int W, const char* clear_prefix) const {
     // ---- the spectrogram ----
     auto draw_spectro = [&](int width, int rows, int row0, int col0) {
         std::vector<std::string> spl;
-        spectro_used_ = true;
+        spectro_.used = true;
         spectro_gradient_from(settings_);
         SpectroAnalyzer& a = spectro();
         layout_spectro_ = layout_spectro_view();
@@ -1129,7 +1130,7 @@ std::string App::build_video_full(int W, const char* clear_prefix) const {
         a.update(sp);
         const int label_w = scales ? 6 : 0, gap = scales ? 1 : 0;
         const int sc_cols = std::max(4, width - label_w - gap);
-        const bool image = sp.style == 1 && gfx_proto_ != GfxProto::None;
+        const bool image = sp.style == 1 && gfxs_.proto != GfxProto::None;
         int cw = 10, chh = 20;
         if (image) gfx_cell_pixels(settings_.cell_pixels, cw, chh);
         const int unit = image ? std::max(1, chh) : 4;
@@ -1142,10 +1143,10 @@ std::string App::build_video_full(int W, const char* clear_prefix) const {
             for (const auto& l : spectro_axis(sp, a.rate(), rows * unit, unit)) if (l.first >= 0 && l.first < rows) lab[static_cast<size_t>(l.first)] = l.second;
         std::vector<std::string> body;
         if (image) {
-            spectro_area_[0] = row0 + prow;
-            spectro_area_[1] = col0 + label_w + gap;
-            spectro_area_[2] = sc_cols;
-            spectro_area_[3] = brows;
+            spectro_.area[0] = row0 + prow;
+            spectro_.area[1] = col0 + label_w + gap;
+            spectro_.area[2] = sc_cols;
+            spectro_.area[3] = brows;
         } else body = a.braille(sp, sc_cols, brows);
         if (ruler) {
             std::string rl(static_cast<size_t>(sc_cols), ' ');
@@ -1199,7 +1200,7 @@ std::string App::build_video_full(int W, const char* clear_prefix) const {
         f << bar << std::string(static_cast<size_t>(mg), ' ') << line << std::string(static_cast<size_t>(mg), ' ') << bar << "\n";
     }
     static const char* kLayoutName[4] = {"Video", "Video+Osci", "Video+Spectro", "Video+Osci+Spectro"};
-    const std::string fx = std::string("Effect: ") + video_fx_name(video_fx_for(current_path_));
+    const std::string fx = std::string("Effect: ") + video_fx_name(video_fx_for(current_.path));
     const std::string keys = "[" + hotkey_text("HKeyVideoFull", "v") + " / ESC] Close";
     const std::string lay = std::string("[SHIFT+UP/DOWN] Layout: ") + kLayoutName[L];
     const std::string grid = "[SHIFT+g] Grid/Scale";
@@ -1209,8 +1210,8 @@ std::string App::build_video_full(int W, const char* clear_prefix) const {
     if (!lyr) tab_state = "off";
     else if (lmode >= 2) {
         std::string lab;
-        { std::lock_guard<std::mutex> lk(lyrics_mutex_);
-          const std::vector<VTr>& all = video_translations(lyrics_result_.lines);
+        { std::lock_guard<std::mutex> lk(lyrics_.mutex);
+          const std::vector<VTr>& all = video_translations(lyrics_.result.lines);
           if (!all.empty()) lab = all[static_cast<size_t>(std::clamp(vfull_tr_idx_, 0, static_cast<int>(all.size()) - 1))].label; }
         tab_state = std::string(lmode == 3 ? "transl." : "+ transl.") + (lab.empty() ? "" : " " + lab);
     }

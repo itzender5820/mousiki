@@ -3,6 +3,7 @@
 // bar, the dummy buttons (here they work) and boxes with the commands, in the colours of the theme in use. The phone only
 // paints these lines and sends back the command of the box that was tapped.
 #include "app.h"
+#include "app_state_phone.h"
 
 #include <algorithm>
 #include <chrono>
@@ -59,20 +60,20 @@ const char* mode_label(int play_mode) {
 void App::phone_publish() {
     int cols = 0, rows = 0;
     const auto now = std::chrono::steady_clock::now();
-    if (!remote::net::screen_wanted(cols, rows)) { phone_last_ = {}; return; }
+    if (!remote::net::screen_wanted(cols, rows)) { phone_->last = {}; return; }
     // the disk turns at 0.10 while something plays (frozen when paused, like the disk on the main screen)
-    if (phone_last_ != std::chrono::steady_clock::time_point{}) {
-        const double dt = std::min(0.25, std::chrono::duration<double>(now - phone_last_).count());
+    if (phone_->last != std::chrono::steady_clock::time_point{}) {
+        const double dt = std::min(0.25, std::chrono::duration<double>(now - phone_->last).count());
         if (has_track_ && !player_.is_paused())
-            phone_angle_ = std::fmod(phone_angle_ + kAngularVelocity * 0.10 * dt, 2.0 * 3.14159265358979323846);
+            phone_->angle = std::fmod(phone_->angle + kAngularVelocity * 0.10 * dt, 2.0 * 3.14159265358979323846);
     }
-    phone_last_ = now;
-    if (now - phone_built_ < std::chrono::milliseconds(70)) return;   // at most ~14 screens a second
-    phone_built_ = now;
+    phone_->last = now;
+    if (now - phone_->built < std::chrono::milliseconds(70)) return;   // at most ~14 screens a second
+    phone_->built = now;
     std::vector<remote::net::Zone> zones;
-    phone_pic_.active = false;
+    phone_->pic.active = false;
     const std::vector<std::string> lines = build_phone_screen(cols, rows, zones);
-    remote::net::set_picture(phone_pic_.active && phone_view_ == 0, phone_pic_.x, phone_pic_.y, phone_pic_.w, phone_pic_.h, phone_pic_.key);
+    remote::net::set_picture(phone_->pic.active && phone_->view == 0, phone_->pic.x, phone_->pic.y, phone_->pic.w, phone_->pic.h, phone_->pic.key);
     remote::net::set_screen(audiobook_ ? "audiobook" : "player", cols, rows, lines, zones, settings_.list_color);
 }
 
@@ -139,7 +140,7 @@ std::vector<std::string> App::build_phone_screen(int W, int H, std::vector<remot
     // On top the local list (as sorted / filtered on the computer; tap a title: it plays), below it, smaller, the saved
     // playlists (tap one: its titles go into the queue). A tap on a pane that is not in focus only gives it the focus;
     // UP / DOWN page through the pane in focus, a whole page at a time. At the bottom CLEAR QUEUE (tap twice).
-    if (phone_view_ == 1 && audiobook_) {
+    if (phone_->view == 1 && audiobook_) {
         // The audio book's LISTS: the library as in the big library overlay -- the folders (open / close with a tap), the books
         // and their chapters indented below them; a tap on a chapter plays it from its start. One pane, paged by UP / DOWN.
         out.clear();
@@ -150,13 +151,13 @@ std::vector<std::string> App::build_phone_screen(int W, int H, std::vector<remot
         remote::net::phone_lists_rows(H, per, per2);
         per = std::max(1, per + per2 - 1);
         const int pages = std::max(1, (nr + per - 1) / per);
-        const int page = std::clamp(phone_page_, 0, pages - 1);
+        const int page = std::clamp(phone_->page, 0, pages - 1);
         const std::string on_col = ansi_for(settings_.tab_current_color, true);
         const std::string now_col = ansi_for(settings_.list_playing_color) + bg_ansi_for(settings_.list_playing_bg_color);
         out.push_back(box_top("LIBRARY", W, B));
         zones.push_back({0, 0, W, 1, "@menu", ""});
-        row(phone_note_.empty() ? legend + truncate_str("tap a folder or a chapter (plays)", inner) + kR
-                                : "\x1b[38;5;246m" + truncate_str(phone_note_, inner) + kR);
+        row(phone_->note.empty() ? legend + truncate_str("tap a folder or a chapter (plays)", inner) + kR
+                                : "\x1b[38;5;246m" + truncate_str(phone_->note, inner) + kR);
         {
             const std::string label = "▶ AUDIO BOOKS (" + std::to_string(nr) + ")  " + std::to_string(page + 1) + "/" + std::to_string(pages);
             const std::string lab = truncate_str(label, W - 8);
@@ -169,7 +170,7 @@ std::vector<std::string> App::build_phone_screen(int W, int H, std::vector<remot
             const int k = page * per + i;
             if (k >= nr) { row(i == 0 && nr == 0 ? legend + truncate_str("no books (AUDIO BOOK PATH in the settings)", inner) + kR : ""); continue; }
             const FoRow& r = rows[static_cast<size_t>(k)];
-            const bool now = !r.is_dir && has_track_ && current_is_local_ && path_utf8(current_path_) == r.path;
+            const bool now = !r.is_dir && has_track_ && current_.is_local && path_utf8(current_.path) == r.path;
             const std::string indent = blanks(std::min(r.depth, 6) * 2);
             std::string head_txt = r.is_dir ? (r.expanded ? "▾ " : "▸ ") : (now ? "▶ " : "  ");
             const std::string cnt = r.is_dir ? " (" + std::to_string(r.count) + ")" : std::string();
@@ -188,7 +189,7 @@ std::vector<std::string> App::build_phone_screen(int W, int H, std::vector<remot
         zones.erase(std::remove_if(zones.begin(), zones.end(), [](const remote::net::Zone& z) { return z.h <= 0; }), zones.end());
         return panel_gradient(out);
     }
-    if (phone_view_ == 1) {
+    if (phone_->view == 1) {
         out.clear();
         zones.clear();
         const std::vector<PlaylistSummary> pls = playlist_summaries();
@@ -196,15 +197,15 @@ std::vector<std::string> App::build_phone_screen(int W, int H, std::vector<remot
         int per = 0, per2 = 0;
         remote::net::phone_lists_rows(H, per, per2);
         const int pages = std::max(1, (nt + per - 1) / per), pages2 = std::max(1, (np + per2 - 1) / per2);
-        const int page = std::clamp(phone_page_, 0, pages - 1), page2 = std::clamp(phone_page2_, 0, pages2 - 1);
+        const int page = std::clamp(phone_->page, 0, pages - 1), page2 = std::clamp(phone_->page2, 0, pages2 - 1);
         const std::string on_col = ansi_for(settings_.tab_current_color, true), off_col = ansi_for(settings_.tab_other_color, false);
         const std::string now_col = ansi_for(settings_.list_playing_color) + bg_ansi_for(settings_.list_playing_bg_color);
         const std::string q_n = std::to_string(queue_.size());
 
         out.push_back(box_top("LISTS", W, B));
         zones.push_back({0, 0, W, 1, "@menu", ""});
-        row(phone_note_.empty() ? legend + truncate_str("queue: " + q_n + (queue_.size() == 1 ? " title" : " titles") + "  |  tap a list to page it", inner) + kR
-                                : "\x1b[38;5;246m" + truncate_str(phone_note_, inner) + kR);
+        row(phone_->note.empty() ? legend + truncate_str("queue: " + q_n + (queue_.size() == 1 ? " title" : " titles") + "  |  tap a list to page it", inner) + kR
+                                : "\x1b[38;5;246m" + truncate_str(phone_->note, inner) + kR);
         // a pane header "├─ ▶ NAME (n)  1/3 ───┤": the focus marker and colour of the tab strips; tapping it gives the focus
         auto header = [&](const std::string& name, int count, int pg, int pgs, bool focus, int which) {
             const std::string label = (focus ? "▶ " : "  ") + name + " (" + std::to_string(count) + ")  " + std::to_string(pg + 1) + "/" + std::to_string(pgs);
@@ -216,22 +217,22 @@ std::vector<std::string> App::build_phone_screen(int W, int H, std::vector<remot
             if (!focus) zones.push_back({0, static_cast<int>(out.size()) - 1, W, 1, "remote-focus", std::to_string(which)});
         };
         // the local list: one title per line, the playing one marked
-        header("LOCAL AUDIO FILES", nt, page, pages, phone_focus_ == 0, 0);
+        header("LOCAL AUDIO FILES", nt, page, pages, phone_->focus == 0, 0);
         const int list_y = static_cast<int>(out.size());
         for (int i = 0; i < per; ++i) {
             const int k = page * per + i;
             if (k >= nt) { row(i == 0 && nt == 0 ? legend + truncate_str("no local titles (PATHS in the settings)", inner) + kR : ""); continue; }
             const LocalTrack& lt = local_view_[static_cast<size_t>(k)];
-            const bool now = has_track_ && current_is_local_ && lt.path == current_path_;
+            const bool now = has_track_ && current_.is_local && lt.path == current_.path;
             const std::string num = pad_right(std::to_string(k + 1), 5);
             const std::string name = truncate_str((now ? "▶ " : "") + apply_font_map(lt.title, settings_.font_map), inner - 5);
             if (now) row(k_col + num + kR + now_col + pad_right(name, inner - 5) + kR);
             else row(k_col + num + kR + v_col + name + kR);
-            if (phone_focus_ == 0) zones.push_back({0, static_cast<int>(out.size()) - 1, W, 1, "track", std::to_string(k + 1)});
+            if (phone_->focus == 0) zones.push_back({0, static_cast<int>(out.size()) - 1, W, 1, "track", std::to_string(k + 1)});
         }
-        if (phone_focus_ != 0) zones.push_back({0, list_y, W, per, "remote-focus", "0"});
+        if (phone_->focus != 0) zones.push_back({0, list_y, W, per, "remote-focus", "0"});
         // the saved playlists: one per line with the number of titles
-        header("PLAYLISTS", np, page2, pages2, phone_focus_ == 1, 1);
+        header("PLAYLISTS", np, page2, pages2, phone_->focus == 1, 1);
         const int pl_y = static_cast<int>(out.size());
         for (int i = 0; i < per2; ++i) {
             const int k = page2 * per2 + i;
@@ -241,15 +242,15 @@ std::vector<std::string> App::build_phone_screen(int W, int H, std::vector<remot
             const std::string num = pad_right(std::to_string(k + 1), 5);
             const std::string name = truncate_str(apply_font_map(ps.name, settings_.font_map), inner - 5 - display_width(count) - 2);
             row(k_col + num + kR + v_col + name + kR + blanks(inner - 5 - display_width(name) - display_width(count)) + legend + count + kR);
-            if (phone_focus_ == 1) zones.push_back({0, static_cast<int>(out.size()) - 1, W, 1, "playlist", std::to_string(k + 1)});
+            if (phone_->focus == 1) zones.push_back({0, static_cast<int>(out.size()) - 1, W, 1, "playlist", std::to_string(k + 1)});
         }
-        if (phone_focus_ != 1) zones.push_back({0, pl_y, W, per2, "remote-focus", "1"});
+        if (phone_->focus != 1) zones.push_back({0, pl_y, W, per2, "remote-focus", "1"});
         out.push_back(box_bottom(W, "", BB));
         while (static_cast<int>(out.size()) < H - 6) out.push_back(blanks(W));
         boxes({{"", "▲ UP", "remote-scroll", "-1"}, {"", "BACK", "remote-view", "0"}, {"", "DOWN ▼", "remote-scroll", "+1"}});
         {
-            const bool armed = phone_clear_armed_ != std::chrono::steady_clock::time_point{} &&
-                               std::chrono::steady_clock::now() - phone_clear_armed_ < std::chrono::seconds(5);
+            const bool armed = phone_->clear_armed != std::chrono::steady_clock::time_point{} &&
+                               std::chrono::steady_clock::now() - phone_->clear_armed < std::chrono::seconds(5);
             boxes({{"", armed ? "TAP AGAIN TO CLEAR " + q_n : "CLEAR QUEUE (" + q_n + ")", "clear-queue", armed ? "1" : "0"}});
         }
         if (static_cast<int>(out.size()) > H) out.resize(static_cast<size_t>(H));
@@ -298,7 +299,7 @@ std::vector<std::string> App::build_phone_screen(int W, int H, std::vector<remot
             const std::string* png = book_phone_png(pkey);
             if (png) {   // the phone draws the real picture (full resolution) over these rows: it fetches it once per key
                 if (!remote::net::picture_has(pkey)) remote::net::picture_store(pkey, *png);
-                phone_pic_ = {true, 2, static_cast<int>(out.size()), inner, disk_h, pkey};
+                phone_->pic = {true, 2, static_cast<int>(out.size()), inner, disk_h, pkey};
                 for (int i = 0; i < disk_h; ++i) row("");
                 zones.push_back({2, static_cast<int>(out.size()) - disk_h, inner, disk_h, "play-pause", ""});
             } else {
@@ -317,15 +318,15 @@ std::vector<std::string> App::build_phone_screen(int W, int H, std::vector<remot
                        std::string ck;
                        const std::string* p = player_phone_png(ck);
                        if (p && !remote::net::picture_has(ck)) remote::net::picture_store(ck, *p);
-                       phone_cover_key_ = p ? ck : std::string();
+                       phone_->cover_key = p ? ck : std::string();
                        return p;
                    }()) {
-            phone_pic_ = {true, 2, static_cast<int>(out.size()), inner, disk_h, phone_cover_key_};
+            phone_->pic = {true, 2, static_cast<int>(out.size()), inner, disk_h, phone_->cover_key};
             for (int i = 0; i < disk_h; ++i) row("");
             zones.push_back({2, static_cast<int>(out.size()) - disk_h, inner, disk_h, "play-pause", ""});
             (void)cpng;
         } else {
-        std::vector<std::string> frame = disk_.frame(phone_angle_);
+        std::vector<std::string> frame = disk_.frame(phone_->angle);
         const int dw = disk_.width();
         const int left = std::max(0, (inner - dw) / 2);
         for (size_t r = 0; r < frame.size(); ++r) {
@@ -362,7 +363,7 @@ std::vector<std::string> App::build_phone_screen(int W, int H, std::vector<remot
         const int top_blank = has_track_ ? 0 : (meta_rows - 1) / 2;
         for (int i = 0; i < meta_rows; ++i) {
             if (!has_track_) {
-                const std::string msg = i == top_blank ? "No Track Loaded" : i == top_blank + 1 ? "Hit [" + hotkey_text("HKeyPlayNextSong", "n") + "] to proceed" : std::string();
+                const std::string msg = i == top_blank ? (audiobook_ ? "No Narrative Loaded" : "No Track Loaded") : (i == top_blank + 1 && !audiobook_) ? "Hit [" + hotkey_text("HKeyPlayNextSong", "n") + "] to proceed" : std::string();
                 row(!msg.empty() ? blanks((inner - display_width(msg)) / 2) + ansi_for(settings_.list_color) + msg + kR : std::string());
             } else row(i < static_cast<int>(lines.size()) ? lines[static_cast<size_t>(i)] : std::string());
         }
@@ -376,7 +377,7 @@ std::vector<std::string> App::build_phone_screen(int W, int H, std::vector<remot
         const int active = total_sec_ > 0 ? std::clamp(static_cast<int>(elapsed / static_cast<double>(total_sec_) * wave_w), 0, wave_w) : 0;
         const int first_row = static_cast<int>(out.size());
         if (settings_.element_waveform) {
-            std::vector<int> levels = !waveform_envelope_.empty() && waveform_ready_ ? WaveformQuantizer::resample_for_ui(waveform_envelope_, wave_w)
+            std::vector<int> levels = !waveform_.envelope.empty() && waveform_.ready ? WaveformQuantizer::resample_for_ui(waveform_.envelope, wave_w)
                                                                                       : std::vector<int>(static_cast<size_t>(wave_w), 0);
             std::string top, mid, bot;
             for (int i = 0; i < wave_w; ++i) {

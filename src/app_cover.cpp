@@ -9,6 +9,7 @@
 // Without Kitty / Sixel the same three looks are drawn with braille dots (the cover dithered; behind the disk: the turning disk
 // with every cell lit by the cover under it).
 #include "app.h"
+#include "app_state_phone.h"
 #include "meta_state.h"
 #include "cover_colour.h"
 
@@ -35,14 +36,14 @@ constexpr double kBacking = 0.55;   // Cover behind Disk: the grey level (of 255
 // The disk's colours: disk_color -> disk_color_end (one colour when the gradient is off or a colour has no RGB value).
 struct DiskColours {
     int sr = 255, sg = 255, sb = 255, er = 255, eg = 255, eb = 255;
-    explicit DiskColours(const Settings& st) {
+    double strength = 0.6;   // Cover Gradient Saturation (0 .. 1)
+    explicit DiskColours(const Settings& st, int gsat) : strength(std::clamp(gsat, 0, 100) / 100.0) {
         if (!try_parse_rgb(st.disk_color, sr, sg, sb)) { sr = sg = sb = 255; }
         er = sr; eg = sg; eb = sb;
         if (st.disk_color_gradient && !st.disk_color_end.empty() && !try_parse_rgb(st.disk_color_end, er, eg, eb)) { er = sr; eg = sg; eb = sb; }
     }
     std::array<uint8_t, 3> at(double u) const {
-        return {static_cast<uint8_t>(std::lround(sr + (er - sr) * u)), static_cast<uint8_t>(std::lround(sg + (eg - sg) * u)),
-                static_cast<uint8_t>(std::lround(sb + (eb - sb) * u))};
+        return gradient_step(sr, sg, sb, er, eg, eb, u, strength);   // (cover_colour.h: a blend that keeps the colour on the way)
     }
 };
 
@@ -74,19 +75,19 @@ const char* cover_look_name(int look) {
 
 const CoverStyle& App::track_style() const {
     static const CoverStyle none;
-    if (audiobook_ || !has_track_ || !current_is_local_ || current_path_.empty()) return none;
-    const std::string path = path_utf8(current_path_);
+    if (audiobook_ || !has_track_ || !current_.is_local || current_.path.empty()) return none;
+    const std::string path = path_utf8(current_.path);
     const unsigned rev = cover_store_revision() * 1000003u + cover_style_revision();
     if (path != look_cache_path_ || rev != look_cache_rev_) {
         look_cache_path_ = path;
         look_cache_rev_ = rev;
         style_cache_ = cover_track_style(path);
-        look_cache_val_ = cover_album_look(display_metadata().album, path_utf8(current_path_.parent_path()));
+        look_cache_val_ = cover_album_look(display_metadata().album, path_utf8(current_.path.parent_path()));
     }
     return style_cache_;
 }
 int App::album_look_override() const {
-    if (audiobook_ || !has_track_ || !current_is_local_ || current_path_.empty()) return -1;
+    if (audiobook_ || !has_track_ || !current_.is_local || current_.path.empty()) return -1;
     const CoverStyle& st = track_style();   // (also refreshes look_cache_val_)
     if (st.look >= 0) return st.look;
     return look_cache_val_;
@@ -95,6 +96,7 @@ int App::eff_cover_contrast() const { if (cover_ovr_.on) return cover_ovr_.contr
 int App::eff_cover_brightness() const { if (cover_ovr_.on) return cover_ovr_.brightness; const int v = track_style().brightness; return v >= 0 ? v : settings_.cover_brightness; }
 int App::eff_cover_chroma() const { if (cover_ovr_.on) return cover_ovr_.chroma; const int v = track_style().chroma; return v >= 0 ? v : settings_.cover_chroma; }
 int App::eff_cover_colors() const { if (cover_ovr_.on) return cover_ovr_.colors; const int v = track_style().colors; return v >= 0 ? v : settings_.cover_colors; }
+int App::eff_cover_gsat() const { if (cover_ovr_.on) return cover_ovr_.gsat; const int v = track_style().gsat; return v >= 0 ? v : settings_.cover_grad_sat; }
 bool App::eff_album_cover() const {
     const int o = album_look_override();
     return o < 0 ? settings_.album_cover : o > 0;
@@ -125,8 +127,8 @@ void App::cycle_cover_look(int dir) {
     if (own >= 0) {
         const int next = (own + dir + kCoverLookCount) % kCoverLookCount;
         const bool of_track = track_style().look >= 0;
-        if (of_track) { CoverStyle st = track_style(); st.look = next; set_cover_track_style(path_utf8(current_path_), st); }
-        else set_cover_album_look(display_metadata().album, path_utf8(current_path_.parent_path()), next);
+        if (of_track) { CoverStyle st = track_style(); st.look = next; set_cover_track_style(path_utf8(current_.path), st); }
+        else set_cover_album_look(display_metadata().album, path_utf8(current_.path.parent_path()), next);
         status_line_ = std::string(of_track ? "cover look of this track: " : "cover look of this album: ") + cover_look_name(next) + (next != 0 && !player_cover() ? "  (this track has no cover: the disk is shown)" : "");
         force_redraw_ = true;
         return;
@@ -141,11 +143,11 @@ void App::cycle_cover_look(int dir) {
 }
 
 const CoverImage* App::player_cover() const {
-    if (audiobook_ || !settings_.element_disk || !has_track_ || !current_is_local_ || current_path_.empty() || !eff_album_cover()) return nullptr;
+    if (audiobook_ || !settings_.element_disk || !has_track_ || !current_.is_local || current_.path.empty() || !eff_album_cover()) return nullptr;
     const TrackMetadata md = display_metadata();
     CoverRequest rq;
-    rq.path = path_utf8(current_path_);
-    rq.title = md.name.empty() ? path_utf8(current_path_.stem()) : md.name;
+    rq.path = path_utf8(current_.path);
+    rq.title = md.name.empty() ? path_utf8(current_.path.stem()) : md.name;
     rq.album = md.album == "-" ? std::string() : md.album;
     rq.search = settings_.cover_search;
     rq.store_rev = cover_store_revision();
@@ -156,7 +158,7 @@ const CoverImage* App::player_cover() const {
     if (own == 3) return nullptr;
     const int vmode = own == 1 ? 0 : own == 2 ? 1 : own == 4 ? 3 : settings_.video_mode ? settings_.video_cover : 0;   // 0 cover, 1 thumbnail, 2 disk, 3 thumbnail fallback
     if (vmode >= 1) {   // the video of the track is found once per track
-        if (snap_track_ != rq.path || snap_rev_ != video_rev_) { snap_track_ = rq.path; snap_rev_ = video_rev_; snap_video_ = video_source_for(current_path_); }
+        if (snap_track_ != rq.path || snap_rev_ != video_rev_) { snap_track_ = rq.path; snap_rev_ = video_rev_; snap_video_ = video_source_for(current_.path); }
         if (vmode == 2 && !snap_video_.empty()) return nullptr;   // Disk: a track with a video shows the plain disk, no cover and no thumbnail
         if (vmode == 1) rq.snapshot_video = snap_video_;          // Thumbnail: a frame of the video first, then the usual search
         else if (vmode == 3 && cover_track_choice(rq.path) != kCoverNone) { rq.snapshot_video = snap_video_; rq.thumb_fallback = true; }   // fallback: the cover first
@@ -169,7 +171,7 @@ bool App::album_cover_gfx(int col, int cols, int rows) const {
     // draw their own pictures into the same slot: the playing track's cover must not be written there too, or the two pictures take the slot
     // from each other every frame (the cover of the editor flickers and goes away when another track starts to play).
     if (mode_ == Mode::CoverFetch || mode_ == Mode::VideoFetch || (mode_ == Mode::MetaEdit && !meta_->sty_from_main)) return false;
-    if (gfx_proto_ == GfxProto::None || cols < 8 || rows < 4 || eff_cover_mode() >= 5) return false;   // (5, 6: the ASCII looks are braille dots)
+    if (gfxs_.proto == GfxProto::None || cols < 8 || rows < 4 || eff_cover_mode() >= 5) return false;   // (5, 6: the ASCII looks are braille dots)
     const CoverImage* cover = player_cover();
     if (!cover) return false;
     int cw0 = 10, ch0 = 20;
@@ -187,13 +189,13 @@ bool App::album_cover_gfx(int col, int cols, int rows) const {
     // the cover is only built again when something it shows changes (the behind-the-disk picture turns, so that one is due again
     // every few frames)
     const std::string key = cover->key + "|" + std::to_string(mode) + "|" + std::to_string(eff_cover_contrast()) + "|" + std::to_string(eff_cover_brightness()) + "|" +
-                            std::to_string(eff_cover_colors()) + "|" + std::to_string(eff_cover_chroma()) + "|" + std::to_string(w) + "x" + std::to_string(h) + "|" +
+                            std::to_string(eff_cover_colors()) + "|" + std::to_string(eff_cover_gsat()) + "|" + std::to_string(eff_cover_chroma()) + "|" + std::to_string(w) + "x" + std::to_string(h) + "|" +
                             std::to_string(col) + "|" + settings_.disk_color + "|" + (settings_.disk_color_gradient ? settings_.disk_color_end : std::string());
     using clock = std::chrono::steady_clock;
     const auto now = clock::now();
     const bool resized = key != cover_pic_key_ || !g.plain || g.w != w || g.h != h || g.level.size() != static_cast<size_t>(w) * h || g.id != 0 ||
                          g.col != col || g.cols != cols;
-    const auto gap = std::chrono::milliseconds(gfx_proto_ == GfxProto::Sixel ? 110 : 40);
+    const auto gap = std::chrono::milliseconds(gfxs_.proto == GfxProto::Sixel ? 110 : 40);
     // (the gradient wave of mode 1 moves too). Under the Style Option overlay (SHIFT+s on the main screen) the picture of the main screen
     // stands still: the preview in the panel is the one that moves, and two pictures re-sent all the time flicker in a Sixel / Kitty terminal.
     const bool turning = mode >= 1 && !(mode_ == Mode::MetaEdit && meta_->sty_from_main);
@@ -317,7 +319,7 @@ constexpr float kDetail = 0.8f;   // how strong the unsharp mask is
 // (for mode 1: the phase of the gradient wave).
 void App::cover_fill(GfxFrame& g, const CoverImage& cover_ref, int mode, double angle, int w, int h, int cws, int chs) const {
     const CoverImage* cover = &cover_ref;
-    const DiskColours dc(settings_);
+    const DiskColours dc(settings_, eff_cover_gsat());
     g.level.assign(static_cast<size_t>(w) * h, 0);
     g.hue.assign(static_cast<size_t>(w) * h, 0);
 
@@ -473,8 +475,8 @@ const std::string* App::player_phone_png(std::string& key) const {
     const bool turning = mode >= 1;
     // the step of the picture: the turn of the disk (modes 2 to 4) or the phase of the gradient wave (mode 1)
     const double unit = mode == 1 ? 0.04 : 0.03;
-    const int step = turning ? static_cast<int>(std::lround((mode == 1 ? wave_phase_now() : phone_angle_) / unit)) : 0;
-    key = "cover|" + cover->key + "|" + std::to_string(eff_cover_contrast()) + "|" + std::to_string(eff_cover_brightness()) + "|" + std::to_string(eff_cover_colors()) + "|" + std::to_string(eff_cover_chroma()) + "|" + std::to_string(mode) + "|" + std::to_string(step) + "|" + settings_.disk_color + "|" +
+    const int step = turning ? static_cast<int>(std::lround((mode == 1 ? wave_phase_now() : phone_->angle) / unit)) : 0;
+    key = "cover|" + cover->key + "|" + std::to_string(eff_cover_contrast()) + "|" + std::to_string(eff_cover_brightness()) + "|" + std::to_string(eff_cover_colors()) + "|" + std::to_string(eff_cover_gsat()) + "|" + std::to_string(eff_cover_chroma()) + "|" + std::to_string(mode) + "|" + std::to_string(step) + "|" + settings_.disk_color + "|" +
           (settings_.disk_color_gradient ? settings_.disk_color_end : std::string());
     if (key == cache_key && !cache_png.empty()) return &cache_png;
     // the disk's field is 30 x 15 cells: a cell is 1 : 2, so the picture is square
@@ -503,14 +505,14 @@ const std::string* App::player_phone_png(std::string& key) const {
 std::vector<std::string> App::album_cover_lines(int cols, int rows) const {
     const CoverImage* cover = player_cover();
     if (!cover || cols < 8 || rows < 4) return {};
-    return album_cover_lines_for(*cover, cover_mode_look(), eff_cover_contrast(), eff_cover_brightness(), eff_cover_colors(), angle_, cols, rows, eff_cover_chroma());
+    return album_cover_lines_for(*cover, cover_mode_look(), eff_cover_contrast(), eff_cover_brightness(), eff_cover_colors(), angle_, cols, rows, eff_cover_chroma(), eff_cover_gsat());
 }
 
 // The same, for any cover and any style (the Style Option overlay's preview): `mode` 0..4 as Cover Mode (the ASCII modes folded onto 0 / 1).
-std::vector<std::string> App::album_cover_lines_for(const CoverImage& cover_ref, int mode, int contrast, int brightness, int colors, double angle, int cols, int rows, int chroma) const {
+std::vector<std::string> App::album_cover_lines_for(const CoverImage& cover_ref, int mode, int contrast, int brightness, int colors, double angle, int cols, int rows, int chroma, int gsat) const {
     const CoverImage* cover = &cover_ref;
     if (cols < 8 || rows < 4) return {};
-    const DiskColours dc(settings_);
+    const DiskColours dc(settings_, gsat >= 0 ? gsat : eff_cover_gsat());
     const int fw = cols * 2, fh = rows * 4;   // the dot field
     auto sgr = [](int r, int g, int b) {
         char c[40];

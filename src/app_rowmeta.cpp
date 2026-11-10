@@ -142,26 +142,26 @@ void App::ensure_visible_row_meta() {
 // Re-runs quantization on the already-decoded PCM for whatever's
 // currently playing — used when the smooth/raw toggle changes mid-track,
 // so the effect shows up right away instead of only on the next track.
-// No re-decode needed: current_pcm_ already holds everything decoded so
+// No re-decode needed: current_.pcm already holds everything decoded so
 // far (streaming decode may still be filling it in, hence the acquire
 // load of `available` rather than assuming it's complete).
 void App::recompute_waveform_for_current_track() {
-    if (!has_track_ || !current_pcm_) return;
-    std::shared_ptr<StreamingPcm> pcm = current_pcm_;
+    if (!has_track_ || !current_.pcm) return;
+    std::shared_ptr<StreamingPcm> pcm = current_.pcm;
     bool smooth = settings_.waveform_smooth;
     // Bump the epoch before the thread starts: a waveform thread that is still running sees that its
     // epoch is stale and drops its result, instead of overwriting pending_waveform_envelope_.
-    int my_epoch = ++waveform_epoch_;
+    int my_epoch = ++waveform_.epoch;
     spawn_bg("waveform pass", [this, pcm, smooth, my_epoch]() {
         if (pcm->windowed) {
             // a long track: from the figures of its analysis pass (the samples are not all held)
             if (!pcm->analysis_done.load(std::memory_order_acquire) || pcm->env_sumsq.empty()) return;
             auto envelope = WaveformQuantizer::envelope_from_bins(pcm->env_sumsq, StreamingPcm::kEnvGran,
                                                                   pcm->total_frames.load(), 4096, smooth);
-            std::lock_guard<std::mutex> lk(waveform_mutex_);
-            if (my_epoch != waveform_epoch_.load()) return;
+            std::lock_guard<std::mutex> lk(waveform_.mutex);
+            if (my_epoch != waveform_.epoch.load()) return;
             pending_waveform_envelope_ = std::move(envelope);
-            waveform_pending_ready_ = true;
+            waveform_.pending_ready = true;
             return;
         }
         size_t n = pcm->available.load(std::memory_order_acquire);
@@ -170,10 +170,10 @@ void App::recompute_waveform_for_current_track() {
         std::vector<float> snapshot(pcm->data.begin(),
                                     pcm->data.begin() + static_cast<long>(n * static_cast<size_t>(pcm->channels)));
         auto envelope = WaveformQuantizer::generate_high_res_envelope(snapshot, 4096, smooth, pcm->channels);
-        std::lock_guard<std::mutex> lk(waveform_mutex_);
-        if (my_epoch != waveform_epoch_.load()) return; // superseded — discard
+        std::lock_guard<std::mutex> lk(waveform_.mutex);
+        if (my_epoch != waveform_.epoch.load()) return; // superseded — discard
         pending_waveform_envelope_ = std::move(envelope);
-        waveform_pending_ready_ = true;
+        waveform_.pending_ready = true;
     });
 }
 
@@ -341,10 +341,10 @@ void App::poll_pending_row_meta_tags() {
     if (list_source_ != ListSource::Local) return; // nothing local is even on screen right now
 
     // Mirror update_live_search_preview()'s "which query is live right now"
-    // logic: mid-typing uses search_buffer_, otherwise the last committed
-    // query. Either way, leave "s:"/"p:" alone -- those aren't local
+    // logic: mid-typing uses search_.buffer, otherwise the last committed
+    // query. Either way, leave "y:"/"p:" alone -- those aren't local
     // filters and don't read row_meta_cache_ at all.
-    std::string q = (mode_ == Mode::Search) ? search_buffer_ : last_local_query_;
+    std::string q = (mode_ == Mode::Search) ? search_.buffer : last_local_query_;
     while (!q.empty() && q.front() == ' ') q.erase(q.begin());
     while (!q.empty() && q.back() == ' ') q.pop_back();
     if (q.size() >= 2) {

@@ -64,7 +64,7 @@ inline const RefHotkeyRow kRefRows[] = {
     {nullptr, "HKeyScopeWindow", "Scope Window"},     // the oscilloscope in its own (graphics card) window
     {nullptr, "HKeySpectroWindow", "Spectrogram Window"}, // the spectrogram in its own (graphics card) window
     // --- Search ---
-    {"SEARCH", "HKeySearch", "Search Local"},   // the prefixes typed in the box (s: sc: b: p: f: r: a:) are fixed, see the cheat sheet
+    {"SEARCH", "HKeySearch", "Search Local"},   // the prefixes typed in the box (y: sc: b: p: f: r: a:) are fixed, see the cheat sheet
     // --- Queue ---
     {"QUEUE", "HKeyAddHoveringSongToQueue", "Add To Queue (Next)"},
     {nullptr, "HKeyRemoveHoveringSongFromQueue", "Remove From Queue"},
@@ -138,7 +138,7 @@ enum SetId {
     kSidVisFluidity, kSidWaveStyle, kSidDiskSpeed, kSidVisDegr, kSidVisVisc, kSidLyrAlign, kSidLyrAnim,
     kSidVolIndicator,
     kSidUseModePlayer, kSidUseModeRadio, kSidUseModeBook, kSidModeOrder1, kSidModeOrder2, kSidModeOrder3, kSidBookAsk, kSidBookCover, kSidBookCoverWave,
-    kSidAlbumCover, kSidCoverMode, kSidCoverContrast, kSidCoverSearch, kSidCoverBrightness, kSidCoverColors,
+    kSidAlbumCover, kSidCoverMode, kSidCoverContrast, kSidCoverSearch, kSidCoverBrightness, kSidCoverColors, kSidCoverGradSat,
     kSidTermDefaultFont, // TEXT AND TRANSLITERATION: leave the terminal's own font alone (terminal_font.h)
     kSidVideoLyrics,   // Include Lyrics (the lines under the video: none / lyrics / lyrics + translation / translation)
     kSidCheckUpdate,   // [ENTER] checks for a newer release now (an action row, no value to switch)
@@ -199,7 +199,7 @@ inline const std::vector<SetLine>& settings_layout(int tab) {
         {true, -1, "DISK / COVER OPTIONS"},
         {false, kSidAlbumCover, "Album Cover"}, {false, kSidCoverMode, "Cover Mode"},
         {false, kSidCoverContrast, "Cover Contrast"}, {false, kSidCoverBrightness, "Cover Brightness"},
-        {false, kSidCoverColors, "Cover Colors"}, {false, kSidCoverChroma, "Cover Chromatic Aberration"}, {false, kSidCoverSearch, "Cover Search"},
+        {false, kSidCoverColors, "Cover Colors"}, {false, kSidCoverGradSat, "Cover Gradient Saturation"}, {false, kSidCoverChroma, "Cover Chromatic Aberration"}, {false, kSidCoverSearch, "Cover Search"},
         {true, -1, ""},
         {true, -1, "SEEK AND VOLUME"},
         {false, kSidDummy, "Dummy Buttons"}, {false, kSidVolIndicator, "Volume Indicator"},

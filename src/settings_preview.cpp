@@ -126,7 +126,7 @@ PvKind kind_of(int id, const Settings& s) {
         case kSidVideoCover: return kPvNone;
         case kSidVideoClap: return kPvClap;
         case kSidDisk: case kSidDiskSpeed: case kSidDiskBorder: return kPvDisk;
-        case kSidAlbumCover: case kSidCoverMode: case kSidCoverContrast: case kSidCoverBrightness: case kSidCoverColors: case kSidCoverChroma:
+        case kSidAlbumCover: case kSidCoverMode: case kSidCoverContrast: case kSidCoverBrightness: case kSidCoverColors: case kSidCoverGradSat: case kSidCoverChroma:
         case kSidCoverSearch: return kPvCover;
         case kSidVolIndicator: case kSidDummy: return kPvVolume;
         case kSidVisualizer: case kSidVisFluidity: case kSidVisDegr: case kSidVisVisc: case kSidBarStyle: case kSidHifiRes: case kSidHifiChan: case kSidHifiColor: case kSidHifiScale: case kSidHifiAdapt: case kSidHifiSplit: case kSidHifiFScale: case kSidHifiGain: case kSidHifiRange: case kSidBarBehavior: return kPvBars;
@@ -330,15 +330,15 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
         const bool cover_look = kind == kPvCover;
         if (cover_look) {
             if (!P.cover.ok) make_sample_cover(P.cover);
-            if (cf_->full_res && gfx_proto_ != GfxProto::None && settings_.cover_mode <= 4) {
+            if (cf_->full_res && gfxs_.proto != GfxProto::None && settings_.cover_mode <= 4) {
                 // a real picture (like the Style Option overlay): the box gets placeholders, the picture is set up below
                 for (int i = 0; i < dr; ++i) rows.push_back(gfx_hole(dc));
                 out.cover_mode = settings_.cover_mode;
                 out.caption = settings_.album_cover ? "sample cover (image)" : "sample cover (image; Album Cover is off)";
             } else {
                 rows = album_cover_lines_for(P.cover, settings_.cover_mode, settings_.cover_contrast, settings_.cover_brightness,
-                                             settings_.cover_colors, P.angle, dc, dr, settings_.cover_chroma);
-                out.caption = std::string(gfx_proto_ != GfxProto::None && cf_->full_res ? "sample cover (braille)" : "sample cover")
+                                             settings_.cover_colors, P.angle, dc, dr, settings_.cover_chroma, settings_.cover_grad_sat);
+                out.caption = std::string(gfxs_.proto != GfxProto::None && cf_->full_res ? "sample cover (braille)" : "sample cover")
                               + (settings_.album_cover ? "" : " (Album Cover is off)");
             }
         }
@@ -512,7 +512,7 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
         sp.span = 10;
         P.spec.update(sp);
         const int srows = std::min(body_h, 12);
-        if (gfx_proto_ != GfxProto::None) {   // the picture wherever the terminal can show one, braille only without Kitty / Sixel
+        if (gfxs_.proto != GfxProto::None) {   // the picture wherever the terminal can show one, braille only without Kitty / Sixel
             // the image style (the default): the terminal draws the picture, the box holds placeholders (main loop: pv_spectro_gfx_)
             pv_spectro_set_ = sp;
             for (int r = 0; r < srows; ++r) out.rows.push_back(gfx_hole(cw));
@@ -646,14 +646,14 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
         int cw0 = 10, ch0 = 20;
         gfx_cell_pixels(settings_.cell_pixels, cw0, ch0);
         cw0 = std::max(4, cw0); ch0 = std::max(8, ch0);
-        const bool picture = gfx_proto_ != GfxProto::None;
+        const bool picture = gfxs_.proto != GfxProto::None;
         const int avail_w = std::max(8, cw), avail_h = std::max(3, body_h);
         int vcols = 0, vrows = 0, dw = 0, dh = 0, fw = 0, fh = 0;
         if (picture) {
             V.fit(avail_w * cw0, avail_h * ch0, 1.0, fw, fh);
             vcols = std::clamp((fw + cw0 / 2) / cw0, 1, avail_w);
             vrows = std::clamp((fh + ch0 / 2) / ch0, 1, avail_h);
-            const int maxw = gfx_proto_ == GfxProto::Sixel ? 480 : 640;
+            const int maxw = gfxs_.proto == GfxProto::Sixel ? 480 : 640;
             const double f = std::min(1.0, static_cast<double>(maxw) / (vcols * cw0));
             dw = std::max(2, static_cast<int>(vcols * cw0 * f) & ~1);
             dh = std::max(2, static_cast<int>(vrows * ch0 * f) & ~1);
@@ -775,7 +775,7 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
         out.w = iw;
         if (settings_.video_clap == 1) {
             clap_loading_fill(out.rows, iw, body_h, inner_x - 1, top, gfx_, P.vid_key, 0);
-            if (gfx_proto_ != GfxProto::None && body_h >= 4) pv_cover_pic_ = true;   // (the picture uses the picture slot gfx_, like the sample cover)
+            if (gfxs_.proto != GfxProto::None && body_h >= 4) pv_cover_pic_ = true;   // (the picture uses the picture slot gfx_, like the sample cover)
         } else if (settings_.video_clap == 0) {
             const std::string msg = "video: starting ...";
             const int pad = std::max(0, (iw - display_width(msg)) / 2);
@@ -788,7 +788,7 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
     if (out.cover_mode >= 0 && nrows > 0) {   // the sample cover as a picture (it uses the picture slot gfx_)
         pv_cover_pic_ = true;
         meta_sty_gfx(pv_->cover, out.cover_mode, settings_.cover_contrast, settings_.cover_brightness, settings_.cover_colors, settings_.cover_chroma,
-                     pv_->angle, inner_x + xo - 2, top + vtop, out.w, nrows);
+                     pv_->angle, inner_x + xo - 2, top + vtop, out.w, nrows, settings_.cover_grad_sat);
     }
     if (out.video && nrows > 0 && out.vframe) {   // the sample video as a picture (it uses the picture slot gfx_, like the sample cover)
         pv_cover_pic_ = true;

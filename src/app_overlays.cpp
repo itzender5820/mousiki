@@ -2,6 +2,9 @@
 // Part of class App (src/app.h): The big list overlay and the big folder overlay.
 // Split out of app.cpp; the includes are the same as there.
 #include "app.h"
+#include "app_state_theme.h"
+#include "app_state_adev.h"
+#include "app_state_fo.h"
 #include "playlist_state.h"
 #include "book_state.h"
 #include "text_edit.h"
@@ -61,7 +64,7 @@
 namespace muisc {
 
 
-// The THEME overlays of the Settings screen (see theme_ui_ in app.h): the theme picker (also used to choose a
+// The THEME overlays of the Settings screen (see theme_->ui in app.h): the theme picker (also used to choose a
 // ---------------------------------------------------------------------
 // Console / log overlay (HKeyConsole)
 // ---------------------------------------------------------------------
@@ -97,7 +100,7 @@ inline int list_total_for(ListSource src, size_t local, size_t online, size_t pl
 // they close.
 bool App::list_overlay_active() const {
     if (!list_overlay_open_) return false;
-    if (mode_ == Mode::AudioDevice) return !adev_from_settings_;
+    if (mode_ == Mode::AudioDevice) return !adev_->from_settings;
     switch (mode_) {
         case Mode::Browse: case Mode::Search: case Mode::BulkAdd:
         case Mode::RetryLyrics: case Mode::ClearQueue: case Mode::UpdateNotice: case Mode::QueueToPlaylist: case Mode::OsciMenu: case Mode::SpectroMenu: case Mode::NormMenu: case Mode::BarsMenu: case Mode::Equalizer: case Mode::SleepTimer: case Mode::MenuIndex: case Mode::Creator: case Mode::LyricsEdit: case Mode::BookOverlay: case Mode::VideoMenu: case Mode::VideoLink: case Mode::VideoSearch: return true;
@@ -176,7 +179,7 @@ std::vector<LegendRow> App::queue_overlay_legend(int panel_w) const {
                   "[" + hotkey_text("HKeyQueueUndoClear", "CTRL+SHIFT+Z") + "] Undo clear"}},
         {"Order", {"[" + join_keys(hotkey_text("HKeyQueueMoveUp", "4"), hotkey_text("HKeyQueueMoveDown", "5")) + "] Move up/down",
                    "[" + join_keys(hotkey_text("HKeyQueueMoveTop", "$"), hotkey_text("HKeyQueueMoveBottom", "%")) + "] Move to top/bottom\001Top/Bottom",
-                   "[" + hotkey_text("HKeyQueueLock", "!") + "] " + (queue_locked_ ? "Unlock" : "Lock"),
+                   "[" + hotkey_text("HKeyQueueLock", "!") + "] " + (qst_.locked ? "Unlock" : "Lock"),
                    "[SHIFT+s] Shuffle order\001Shuffle", "[SHIFT+u] Undo shuffle\001Unshuffle"}},
         {"Other", {"[" + hotkey_text("HKeyQueueToPlaylist", "CTRL+SHIFT+U") + "] Queue to playlist\001To playlist",
                    "[SHIFT+\u2191\u2193] Next/Prev. page\001Page", "[" + hotkey_text("HKeySearch", "/") + "] Search\001Search", "[ESC] Close"}},
@@ -226,9 +229,9 @@ void App::list_overlay_fit_scroll(int rows) {
 void App::list_overlay_open() {
     if (convert_overlay_open_) convert_overlay_close();
     folder_overlay_open_ = false; // the overlays are mutually exclusive
-    queue_overlay_open_ = false; // the two overlays are mutually exclusive (focus is reset just below)
+    qst_.overlay_open = false; // the two overlays are mutually exclusive (focus is reset just below)
     list_overlay_open_ = true;
-    queue_focus_ = false; // the queue pane is hidden while the overlay is up
+    qst_.focus = false; // the queue pane is hidden while the overlay is up
     list_overlay_fit_scroll(overlay_list_rows_);
 }
 
@@ -326,18 +329,18 @@ bool App::folder_overlay_active() const {
 // Builds the folder tree from the scanned library: the roots are the configured local music folders (a folder holding
 // tracks outside every root becomes a root of its own); only folders with tracks at or below them are listed.
 void App::folder_overlay_build_tree() {
-    fo_subdirs_.clear(); fo_files_.clear(); fo_count_.clear(); fo_roots_.clear();
+    fo_->subdirs.clear(); fo_->files.clear(); fo_->count.clear(); fo_->roots.clear();
     std::vector<fs::path> roots;
     for (const auto& r : library_roots()) if (!r.empty()) roots.push_back(fo_normal_root(r));
 
     std::map<std::string, std::set<std::string>> sub;
     std::set<std::string> root_keys, seen;
     std::vector<LocalTrack> tree_tracks = all_local_tracks_;
-    if (!audiobook_) apply_media_view(tree_tracks, fo_media_ >= 0 ? fo_media_ : (settings_.video_mode ? 1 : 0));   // (SHIFT+v)
+    if (!audiobook_) apply_media_view(tree_tracks, fo_->media >= 0 ? fo_->media : (settings_.video_mode ? 1 : 0));   // (SHIFT+v)
     for (const auto& t : tree_tracks) {
         const fs::path dir = t.path.parent_path();
         const std::string key = path_utf8(dir);
-        fo_files_[key].push_back(path_utf8(t.path));
+        fo_->files[key].push_back(path_utf8(t.path));
         if (!seen.insert(key).second) continue;
         const fs::path* best = nullptr;
         size_t best_len = 0;
@@ -364,38 +367,38 @@ void App::folder_overlay_build_tree() {
     for (auto& kv : sub) {
         std::vector<std::string> v(kv.second.begin(), kv.second.end());
         std::sort(v.begin(), v.end(), by_name);
-        fo_subdirs_[kv.first] = std::move(v);
+        fo_->subdirs[kv.first] = std::move(v);
     }
-    for (auto& kv : fo_files_) std::sort(kv.second.begin(), kv.second.end(), by_name);
-    fo_roots_.assign(root_keys.begin(), root_keys.end());
-    std::sort(fo_roots_.begin(), fo_roots_.end(), by_name);
+    for (auto& kv : fo_->files) std::sort(kv.second.begin(), kv.second.end(), by_name);
+    fo_->roots.assign(root_keys.begin(), root_keys.end());
+    std::sort(fo_->roots.begin(), fo_->roots.end(), by_name);
 
     std::function<int(const std::string&)> count = [&](const std::string& d) -> int {
-        auto c = fo_count_.find(d);
-        if (c != fo_count_.end()) return c->second;
+        auto c = fo_->count.find(d);
+        if (c != fo_->count.end()) return c->second;
         int n = 0;
-        auto f = fo_files_.find(d);
-        if (f != fo_files_.end()) n += static_cast<int>(f->second.size());
-        auto s = fo_subdirs_.find(d);
-        if (s != fo_subdirs_.end()) for (const auto& sd : s->second) n += count(sd);
-        fo_count_[d] = n;
+        auto f = fo_->files.find(d);
+        if (f != fo_->files.end()) n += static_cast<int>(f->second.size());
+        auto s = fo_->subdirs.find(d);
+        if (s != fo_->subdirs.end()) for (const auto& sd : s->second) n += count(sd);
+        fo_->count[d] = n;
         return n;
     };
-    for (const auto& r : fo_roots_) count(r);
+    for (const auto& r : fo_->roots) count(r);
 }
 
 // The visible rows: the tree walk (a folder's children only when it is open), narrowed by the search words. With a
 // query a folder is listed when its name or anything below it matches; the matches below it are shown, and a folder
 // that matches by itself shows all of its entries once it is opened.
-void App::folder_overlay_rebuild_view() {
+void App::FoState::folder_overlay_rebuild_view() {
     std::string keep;
-    if (fo_sel_ >= 0 && fo_sel_ < static_cast<int>(fo_view_.size())) keep = fo_view_[static_cast<size_t>(fo_sel_)].path;
-    fo_view_.clear();
+    if (sel >= 0 && sel < static_cast<int>(view.size())) keep = view[static_cast<size_t>(sel)].path;
+    view.clear();
 
     std::vector<std::string> words;
     {
         std::string cur;
-        for (char c : fo_query_) {
+        for (char c : query) {
             if (c == ' ') { if (!cur.empty()) { words.push_back(cur); cur.clear(); } }
             else cur += c;
         }
@@ -412,16 +415,16 @@ void App::folder_overlay_rebuild_view() {
         auto c = below.find(d);
         if (c != below.end()) return c->second;
         bool hit = false;
-        auto f = fo_files_.find(d);
-        if (f != fo_files_.end()) for (const auto& file : f->second) if (name_match(file)) { hit = true; break; }
-        auto s = fo_subdirs_.find(d);
-        if (!hit && s != fo_subdirs_.end())
+        auto f = files.find(d);
+        if (f != files.end()) for (const auto& file : f->second) if (name_match(file)) { hit = true; break; }
+        auto s = subdirs.find(d);
+        if (!hit && s != subdirs.end())
             for (const auto& sd : s->second) if (name_match(sd) || has_below(sd)) { hit = true; break; }
         return below[d] = hit;
     };
 
     std::function<void(const std::string&, int)> emit = [&](const std::string& d, int depth) {
-        const bool open = fo_expanded_.count(d) > 0;
+        const bool open = expanded.count(d) > 0;
         const bool forced = filtering && has_below(d);
         FoRow r;
         r.path = d;
@@ -429,93 +432,93 @@ void App::folder_overlay_rebuild_view() {
         r.is_dir = true;
         r.depth = depth;
         r.expanded = open || forced;
-        auto cnt = fo_count_.find(d);
-        r.count = cnt == fo_count_.end() ? 0 : cnt->second;
-        fo_view_.push_back(r);
+        auto cnt = count.find(d);
+        r.count = cnt == count.end() ? 0 : cnt->second;
+        view.push_back(r);
         if (!open && !forced) return;
         const bool everything = !filtering || (open && name_match(d));
-        auto s = fo_subdirs_.find(d);
-        if (s != fo_subdirs_.end())
+        auto s = subdirs.find(d);
+        if (s != subdirs.end())
             for (const auto& sd : s->second)
                 if (everything || name_match(sd) || has_below(sd)) emit(sd, depth + 1);
-        auto f = fo_files_.find(d);
-        if (f != fo_files_.end())
+        auto f = files.find(d);
+        if (f != files.end())
             for (const auto& file : f->second) {
                 if (!everything && !name_match(file)) continue;
                 FoRow fr;
                 fr.path = file;
                 fr.label = fo_name_of(file);
                 fr.depth = depth + 1;
-                fo_view_.push_back(fr);
+                view.push_back(fr);
             }
     };
-    for (const auto& r : fo_roots_)
+    for (const auto& r : roots)
         if (!filtering || name_match(r) || has_below(r)) emit(r, 0);
 
-    fo_sel_ = 0;
+    sel = 0;
     if (!keep.empty())
-        for (size_t i = 0; i < fo_view_.size(); ++i) if (fo_view_[i].path == keep) { fo_sel_ = static_cast<int>(i); break; }
+        for (size_t i = 0; i < view.size(); ++i) if (view[i].path == keep) { sel = static_cast<int>(i); break; }
 }
 
 void App::folder_overlay_open() {
     if (convert_overlay_open_) convert_overlay_close();
     if (list_overlay_open_) list_overlay_close();   // the overlays are mutually exclusive
-    if (queue_overlay_open_) queue_overlay_close();
+    if (qst_.overlay_open) queue_overlay_close();
     folder_overlay_open_ = true;
-    fo_search_ = false;
-    fo_query_.clear();
+    fo_->search = false;
+    fo_->query.clear();
     folder_overlay_build_tree();
     // Start on the folder of the hovered track, with the way down to it opened.
     std::string target;
-    fo_marked_.clear();
+    fo_->marked.clear();
     if (audiobook_) {   // the audio book player: the open book (else the book under the cursor), with its chapters shown
-        if (!book_->dir.empty()) { target = book_->dir; fo_expanded_.insert(book_->dir); }
+        if (!book_->dir.empty()) { target = book_->dir; fo_->expanded.insert(book_->dir); }
         else if (selected_ >= 0 && selected_ < static_cast<int>(folder_view_.size())) target = folder_view_[static_cast<size_t>(selected_)].path;
-        for (const auto& kv : fo_files_) {   // chapters with a bookmark get a mark
+        for (const auto& kv : fo_->files) {   // chapters with a bookmark get a mark
             BookCue cue;
             if (!cue.load(BookCue::path_for(path_from_utf8(kv.first)))) continue;
             for (const std::string& raw : cue.get_all_raw("REM BOOKMARK")) {
                 BookMark m;
-                if (parse_bookmark(raw, m)) fo_marked_.insert(path_utf8(path_from_utf8(kv.first) / path_from_utf8(m.file)));
+                if (parse_bookmark(raw, m)) fo_->marked.insert(path_utf8(path_from_utf8(kv.first) / path_from_utf8(m.file)));
             }
         }
     } else if (list_source_ == ListSource::Local && selected_ >= 0 && selected_ < static_cast<int>(local_view_.size()))
         target = path_utf8(local_view_[static_cast<size_t>(selected_)].path.parent_path());
     else if (!folder_filter_.empty()) target = folder_filter_;
-    if (!target.empty() && fo_files_.count(target)) {
+    if (!target.empty() && fo_->files.count(target)) {
         fs::path cur = path_from_utf8(target).parent_path();
-        std::set<std::string> roots(fo_roots_.begin(), fo_roots_.end());
+        std::set<std::string> roots(fo_->roots.begin(), fo_->roots.end());
         std::string k = path_utf8(cur);
         while (!k.empty()) {
-            if (fo_subdirs_.count(k)) fo_expanded_.insert(k);
+            if (fo_->subdirs.count(k)) fo_->expanded.insert(k);
             if (roots.count(k)) break;
             const fs::path par = path_from_utf8(k).parent_path();
             if (par.empty() || path_utf8(par) == k) break;
             k = path_utf8(par);
         }
     }
-    fo_sel_ = 0; fo_scroll_ = 0;
-    folder_overlay_rebuild_view();
+    fo_->sel = 0; fo_->scroll = 0;
+    fo_->folder_overlay_rebuild_view();
     if (!target.empty())
-        for (size_t i = 0; i < fo_view_.size(); ++i)
-            if (fo_view_[i].is_dir && fo_view_[i].path == target) { fo_sel_ = static_cast<int>(i); break; }
+        for (size_t i = 0; i < fo_->view.size(); ++i)
+            if (fo_->view[i].is_dir && fo_->view[i].path == target) { fo_->sel = static_cast<int>(i); break; }
 }
 
 void App::folder_overlay_close() {
     folder_overlay_open_ = false;
-    fo_search_ = false;
+    fo_->search = false;
 }
 
 // `f` in the overlay: the hovered folder (or the folder of the hovered file) goes into the LOCAL AUDIO FILES pane,
 // exactly as `f` on a file does there; the file itself ends up hovered. Closes the overlay.
 void App::folder_overlay_filter() {
-    if (fo_sel_ < 0 || fo_sel_ >= static_cast<int>(fo_view_.size())) return;
-    const FoRow row = fo_view_[static_cast<size_t>(fo_sel_)];
+    if (fo_->sel < 0 || fo_->sel >= static_cast<int>(fo_->view.size())) return;
+    const FoRow row = fo_->view[static_cast<size_t>(fo_->sel)];
     const std::string dir = row.is_dir ? row.path : path_utf8(path_from_utf8(row.path).parent_path());
     if (audiobook_) {   // `f`: the book opens in the chapter pane
         folder_overlay_close();
         if (!book_open_dir(dir)) { status_line_ = "that folder holds no audio files"; return; }
-        if (!row.is_dir) for (size_t i = 0; i < chapters_.size(); ++i) if (path_utf8(chapters_[i].path) == row.path) { queue_selected_ = static_cast<int>(i); book_fit_scroll(); break; }
+        if (!row.is_dir) for (size_t i = 0; i < chapters_.size(); ++i) if (path_utf8(chapters_[i].path) == row.path) { qst_.selected = static_cast<int>(i); book_fit_scroll(); break; }
         return;
     }
     folder_filter_ = dir;
@@ -529,33 +532,33 @@ void App::folder_overlay_filter() {
         scroll_ = std::max(0, selected_ - list_visible_rows_ / 2);
     }
     folder_overlay_close();
-    queue_focus_ = false;
+    qst_.focus = false;
     if (local_view_.empty()) status_line_ = "no files directly in this folder -- open one of its subfolders";
     log_event("filtered: " + fo_name_of(dir));
 }
 
 bool App::folder_overlay_key(int key) {
     const bool arrow = last_key_was_arrow();
-    const int total = static_cast<int>(fo_view_.size());
-    const int rows = std::max(1, fo_rows_);
-    auto move_to = [&](int idx) { fo_sel_ = total > 0 ? std::clamp(idx, 0, total - 1) : 0; };
+    const int total = static_cast<int>(fo_->view.size());
+    const int rows = std::max(1, fo_->rows);
+    auto move_to = [&](int idx) { fo_->sel = total > 0 ? std::clamp(idx, 0, total - 1) : 0; };
     auto page = [&](int dir) {
         if (total <= 0) return;
         const int max_scroll = std::max(0, total - rows);
-        const int rel = std::clamp(fo_sel_ - fo_scroll_, 0, rows - 1);
-        const int ns = std::clamp(fo_scroll_ + dir * rows, 0, max_scroll);
-        if (ns == fo_scroll_) fo_sel_ = dir > 0 ? total - 1 : 0;
-        else { fo_scroll_ = ns; fo_sel_ = std::clamp(ns + rel, 0, total - 1); }
+        const int rel = std::clamp(fo_->sel - fo_->scroll, 0, rows - 1);
+        const int ns = std::clamp(fo_->scroll + dir * rows, 0, max_scroll);
+        if (ns == fo_->scroll) fo_->sel = dir > 0 ? total - 1 : 0;
+        else { fo_->scroll = ns; fo_->sel = std::clamp(ns + rel, 0, total - 1); }
     };
 
     // Up / Down work in the list and in the search field alike.
     if (arrow && (key == 'A' || key == 'B')) {
         if (last_key_was_shifted()) page(key == 'A' ? -1 : 1);
-        else move_to(fo_sel_ + (key == 'A' ? -1 : 1));
+        else move_to(fo_->sel + (key == 'A' ? -1 : 1));
         return true;
     }
 
-    const FoRow* cur = (fo_sel_ >= 0 && fo_sel_ < total) ? &fo_view_[static_cast<size_t>(fo_sel_)] : nullptr;
+    const FoRow* cur = (fo_->sel >= 0 && fo_->sel < total) ? &fo_->view[static_cast<size_t>(fo_->sel)] : nullptr;
     if (key == kKeyCtrlP) {      // CTRL+p: play the hovered file; the overlay stays open
         if (!cur) return true;
         if (cur->is_dir) { status_line_ = "CTRL+p plays a chapter -- open the book (ENTER) and pick one"; return true; }
@@ -567,29 +570,29 @@ bool App::folder_overlay_key(int key) {
         }
         for (const auto& t : all_local_tracks_)
             if (path_utf8(t.path) == cur->path) {
-                queue_focus_ = false;
+                qst_.focus = false;
                 start_local_track(t);
                 return true;
             }
         status_line_ = "file is not in the library";
         return true;
     }
-    if (fo_search_) {   // typing the query
-        if (key == 27 || key == '\r' || key == '\n' || key == 9) { fo_search_ = false; return true; }
-        if (key == 127 || key == 8) { pop_utf8_char(fo_query_); folder_overlay_rebuild_view(); return true; }
+    if (fo_->search) {   // typing the query
+        if (key == 27 || key == '\r' || key == '\n' || key == 9) { fo_->search = false; return true; }
+        if (key == 127 || key == 8) { pop_utf8_char(fo_->query); fo_->folder_overlay_rebuild_view(); return true; }
         if (arrow) return true;
-        if (is_text_key(key) && fo_query_.size() < 100) { fo_query_ += static_cast<char>(key); folder_overlay_rebuild_view(); }
+        if (is_text_key(key) && fo_->query.size() < 100) { fo_->query += static_cast<char>(key); fo_->folder_overlay_rebuild_view(); }
         return true;
     }
 
     if (key == 27 || (audiobook_ && key == 'S')) { folder_overlay_close(); return true; }
-    if (key == '/' || key == 9) { fo_search_ = true; return true; }
+    if (key == '/' || key == 9) { fo_->search = true; return true; }
 
     if (key == '\r' || key == '\n') {
         if (!cur) return true;
         if (cur->is_dir) {
-            if (fo_expanded_.count(cur->path)) fo_expanded_.erase(cur->path); else fo_expanded_.insert(cur->path);
-            folder_overlay_rebuild_view();
+            if (fo_->expanded.count(cur->path)) fo_->expanded.erase(cur->path); else fo_->expanded.insert(cur->path);
+            fo_->folder_overlay_rebuild_view();
         } else if (audiobook_) {   // ENTER on a chapter: its book opens and the chapter plays (with the bookmark questions)
             const std::string file = cur->path;
             folder_overlay_close();
@@ -600,27 +603,27 @@ bool App::folder_overlay_key(int key) {
         return true;
     }
     if (arrow && key == 'C') {   // Right: open
-        if (cur && cur->is_dir && !cur->expanded) { fo_expanded_.insert(cur->path); folder_overlay_rebuild_view(); }
+        if (cur && cur->is_dir && !cur->expanded) { fo_->expanded.insert(cur->path); fo_->folder_overlay_rebuild_view(); }
         return true;
     }
     if (arrow && key == 'D') {   // Left: close, or go up to the parent folder
         if (!cur) return true;
-        if (cur->is_dir && cur->expanded && fo_expanded_.count(cur->path)) {
-            fo_expanded_.erase(cur->path);
-            folder_overlay_rebuild_view();
+        if (cur->is_dir && cur->expanded && fo_->expanded.count(cur->path)) {
+            fo_->expanded.erase(cur->path);
+            fo_->folder_overlay_rebuild_view();
         } else {
-            for (int i = fo_sel_ - 1; i >= 0; --i)
-                if (fo_view_[static_cast<size_t>(i)].is_dir && fo_view_[static_cast<size_t>(i)].depth < cur->depth) { fo_sel_ = i; break; }
+            for (int i = fo_->sel - 1; i >= 0; --i)
+                if (fo_->view[static_cast<size_t>(i)].is_dir && fo_->view[static_cast<size_t>(i)].depth < cur->depth) { fo_->sel = i; break; }
         }
         return true;
     }
 
     if (key == 'V' && !arrow && !audiobook_) {   // SHIFT+v: the tree lists audio / video + audio / video
-        fo_media_ = (fo_media_ < 0 ? (settings_.video_mode ? 1 : 0) : fo_media_) + 1;
-        if (fo_media_ > 2) fo_media_ = 0;
+        fo_->media = (fo_->media < 0 ? (settings_.video_mode ? 1 : 0) : fo_->media) + 1;
+        if (fo_->media > 2) fo_->media = 0;
         folder_overlay_build_tree();
-        folder_overlay_rebuild_view();
-        status_line_ = std::string("folder overlay: ") + media_view_name(fo_media_);
+        fo_->folder_overlay_rebuild_view();
+        status_line_ = std::string("folder overlay: ") + media_view_name(fo_->media);
         return true;
     }
 
@@ -630,7 +633,7 @@ bool App::folder_overlay_key(int key) {
     std::string action = resolve_hotkey_action(lookup);
     if (action.empty() && lookup >= 'a' && lookup <= 'z') action = resolve_hotkey_action(lookup - 32);
     if (action.empty() && lookup >= 'A' && lookup <= 'Z') action = resolve_hotkey_action(lookup + 32);
-    if (audiobook_ && !fo_search_ && book_overlay_switch(key)) return true;   // SHIFT+k / m / l: the other audio book overlays
+    if (audiobook_ && !fo_->search && book_overlay_switch(key)) return true;   // SHIFT+k / m / l: the other audio book overlays
     if (action == "HKeyFolderOverlay") { folder_overlay_close(); return true; }
     if (action == "HKeyListOverlay") { folder_overlay_close(); list_overlay_open(); return true; }     // switch without closing first
     if (action == "HKeyQueueOverlay") { folder_overlay_close(); queue_overlay_open(); return true; }
@@ -692,12 +695,12 @@ std::vector<std::string> App::build_folder_overlay_panel(int panel_w, int list_r
         out.push_back(box_top(audiobook_ ? "SEARCH BOOKS" : "SEARCH LOCAL FOLDERS", search_w, border_ansi) + border_ansi + "╭───╮\x1b[0m");
         const int inner = std::max(0, search_w - 4);
         const std::string pre = audiobook_ ? "/" : "/f:";
-        std::string q = fo_query_;
-        const int room = std::max(0, inner - display_width(pre) - (fo_search_ ? 1 : 0));
+        std::string q = fo_->query;
+        const int room = std::max(0, inner - display_width(pre) - (fo_->search ? 1 : 0));
         if (display_width(q) > room) q = truncate_str(q, room);
-        const int fill = std::max(0, inner - display_width(pre) - display_width(q) - (fo_search_ ? 1 : 0));
+        const int fill = std::max(0, inner - display_width(pre) - display_width(q) - (fo_->search ? 1 : 0));
         std::string line = bar + " " + search_idle_sgr(settings_) + pre + search_run(settings_, q, !q.empty())
-                         + (fo_search_ ? search_idle_sgr(settings_) + "█" : std::string())
+                         + (fo_->search ? search_idle_sgr(settings_) + "█" : std::string())
                          + std::string(static_cast<size_t>(fill), ' ') + "\x1b[0m " + bar;
         out.push_back(line + border_ansi + settings_.box_vertical + " " + std::string(1, play_mode_letter()) + " " + settings_.box_vertical + "\x1b[0m");
         out.push_back(box_bottom(search_w, "", border_ansi_bottom) + border_ansi_bottom + "╰───╯\x1b[0m");
@@ -705,16 +708,16 @@ std::vector<std::string> App::build_folder_overlay_panel(int panel_w, int list_r
 
     // --- the tree ---
     const int inner = panel_w - 4;
-    const int total = static_cast<int>(fo_view_.size());
+    const int total = static_cast<int>(fo_->view.size());
     out.push_back(box_top(audiobook_ ? "AUDIO BOOKS" : "LOCAL AUDIO FILES FOLDER", panel_w, border_ansi));
     for (int row = 0; row < list_rows; ++row) {
-        const int idx = fo_scroll_ + row;
+        const int idx = fo_->scroll + row;
         std::string content;
         bool playing = false;
         if (idx < total) {
-            const FoRow& r = fo_view_[static_cast<size_t>(idx)];
+            const FoRow& r = fo_->view[static_cast<size_t>(idx)];
             const std::string indent(static_cast<size_t>(r.depth) * 2, ' ');
-            const std::string mark = r.is_dir ? (r.expanded ? "▾ " : "▸ ") : (audiobook_ && fo_marked_.count(r.path) ? "◆ " : "  ");   // (◆: a bookmark)
+            const std::string mark = r.is_dir ? (r.expanded ? "▾ " : "▸ ") : (audiobook_ && fo_->marked.count(r.path) ? "◆ " : "  ");   // (◆: a bookmark)
             const std::string head = indent + mark;
             if (r.is_dir) {
                 const std::string cnt = std::to_string(r.count) + (audiobook_ ? (r.count == 1 ? " chapter" : " chapters") : (r.count == 1 ? " track" : " tracks"));
@@ -722,11 +725,11 @@ std::vector<std::string> App::build_folder_overlay_panel(int panel_w, int list_r
                 content = head + pad_right(truncate_str(apply_font_map(r.label, settings_.font_map), name_w), name_w) + "  " + cnt;
             } else {
                 content = head + apply_font_map(r.label, settings_.font_map);
-                playing = has_track_ && path_utf8(current_path_) == r.path;
+                playing = has_track_ && path_utf8(current_.path) == r.path;
             }
         }
         const std::string padded = pad_right(truncate_str(content, inner), inner);
-        if (idx == fo_sel_ && idx < total)
+        if (idx == fo_->sel && idx < total)
             out.push_back(bar + " " + cursor_sgr(settings_.list_cursor_color, settings_.list_cursor_bg_color) + padded + "\x1b[0m " + bar);
         else if (playing)
             out.push_back(bar + " " + ansi_for(settings_.list_playing_color) + bg_ansi_for(settings_.list_playing_bg_color) + padded + "\x1b[0m " + bar);
@@ -736,8 +739,8 @@ std::vector<std::string> App::build_folder_overlay_panel(int panel_w, int list_r
     {
         const int rows = std::max(1, list_rows);
         const int pages = std::max(1, (total + rows - 1) / rows);
-        const int page = std::clamp((fo_scroll_ + rows / 2) / rows + 1, 1, pages);
-        const int remaining = total - (fo_scroll_ + rows);
+        const int page = std::clamp((fo_->scroll + rows / 2) / rows + 1, 1, pages);
+        const int remaining = total - (fo_->scroll + rows);
         std::vector<std::string> parts;
         if (remaining > 0) parts.push_back("( " + std::to_string(remaining) + " more )");
         parts.push_back("page " + std::to_string(page) + "/" + std::to_string(pages));

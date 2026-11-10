@@ -539,10 +539,10 @@ DIFFERENT SEARCH CAPABILITIES:[[Header]]
 [/]    +  query       your local library      live, as you type
 [/v:]  +  query       your video files        live
 [/x:]  +  query       songs and videos        live
-[/s:]  +  query       YouTube                 live on [ENTER]
+[/y:]  +  query       YouTube                 live on [ENTER]
 [/sc:] +  query       SoundCloud              live on [ENTER]
 [/b:]  +  query       Bandcamp                live on [ENTER]
-[/sv:] +  query       YouTube videos          live on [ENTER] (SEARCH YT)
+[/yv:] +  query       YouTube videos          live on [ENTER] (SEARCH YT)
 [/p:]  +  query       your saved playlists    live
 [/f:]  +  query       your folders            live
 
@@ -668,7 +668,12 @@ QUEUE related commands, no matter the focus: [[Header]]
                 playlist (saved at once, no editor; online tracks are downloaded first)
 [SHIFT+g]       bulk add from any pane: paste a YouTube playlist link, queue its tracks
                 (a normal text box: caret, marking, copy/paste). It only queues them:
-                nothing is downloaded when adding
+                nothing is downloaded when adding; each track is fetched when it plays
+[CTRL+s]        in BULK ADD: Save ON = the played tracks stay in the download folder
+                (as every streamed track does); OFF = play only: a file that was not
+                there before is deleted again after the track (and at quit)
+[CTRL+o]        in BULK ADD: Video ON = the video of each track is downloaded when it
+                plays (needs Video mode; deleted with the track when Save is OFF)
 
 [[NEW PAGE]]
 2.3.3.1[[Header]] META DATA EDITOR[[Header]] —[[Header]] EDIT TAB[[HEADER]]
@@ -715,7 +720,7 @@ album default of the cover fetch menu and before the Cover Search setting (excep
 Next to it sits the button [ Style Option ] (move there with [->] or [ENTER] on it): a small
 overlay with the look of THIS track (as in Settings, Disk, Just Cover, Cover with Gradient, the
 Cover behind Disk looks, the ASCII looks), its own Cover Contrast, Cover Brightness, Cover
-Colors and Cover Chromatic Aberration, and the look of its whole ALBUM (no album tag: of that folder). With
+Colors, Cover Gradient Saturation and Cover Chromatic Aberration, and the look of its whole ALBUM (no album tag: of that folder). With
 the Video mode on a row "Use Disk/Cover/Thumbnail" sets the cover / video thumbnail / disk of THIS track (the
 same choice as in Cover Options; the VIDEO SETTINGS overlay holds the default). [<-][->] change a row (with the
 Video mode on more rows: Video of this track on / off, Video Size, Video Effect, Video Contrast, Video
@@ -1302,7 +1307,7 @@ A normal search lists songs and the videos without a song of their name.
 KEY[[Legend]]         ACTION[[Legend]]
 [/v:]       lists only video files
 [/x:]       songs and videos
-[/sv:]      searches YouTube for videos
+[/yv:]      searches YouTube for videos
 [SHIFT+v]   in the playlist editor, the meta editor and the folder overlay: steps through audio /
             video + audio / video
 [SHIFT+t]   gets a last step "videos" with the mode on
@@ -1958,7 +1963,7 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
                                                   real pictures (the oscilloscope can be an image next to
                                                   them), without them the same looks are drawn in braille
                                                   dots.
-[Cover Contrast:][[Legend]]                                   0% .. 100% in steps of 5%. Adds contrast to the cover,
+[Cover Contrast:][[Legend]]                                   0% .. 150% in steps of 5%. Adds contrast to the cover,
                                                   only where it is shown through the gradient or the disk
                                                   (Cover with Gradient, ASCII with Gradient, Cover behind
                                                   Disk looks; in the audio book mode with the Book Gradient
@@ -1975,6 +1980,15 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
                                                   behind Disk looks; audio book cover with the wave).
                                                   0% = the gradient only, 50% = the cover's colours shine
                                                   through, 100% = the cover in its own colours.
+[Cover Gradient Saturation:][[Legend]]                        0% .. 100% in steps of 5% (default 60%). Cover looks of
+                                                  the music player: how vivid the disk's gradient is
+                                                  between its two colours. A plain blend of two colours
+                                                  fades to grey in the middle; this brings the colour
+                                                  back (0% = the plain blend, 100% = as saturated as a
+                                                  straight line between the two colours). Only the colour
+                                                  of the dots changes, the picture stays as it is. Also in
+                                                  the VIDEO SETTINGS overlay and, for one track, in Style
+                                                  Option.
 [Cover Search:][[Legend]]                                     says where the cover is looked for:
                                                   Default: first the picture inside the file (mp3 and the
                                                   other formats that can carry one). If it has none, the

@@ -1,4 +1,5 @@
 #include "radio_app.h"
+#include "path_utf8.h"
 #if defined(_WIN32)
 #include "win_compat.h"
 #endif
@@ -60,7 +61,7 @@ bool RadioApp::key_settings_theme(KeyCtx& kc) {
                 const std::filesystem::path file = theme_dir_path(sm.theme_io_dir) / themes::file_name_for(name);
                 std::string err;
                 if (!themes::write_theme_file(file, t, err)) { sm.status = err; return true; }
-                sm.theme_ui = 0; sm.status = "EXPORTED " + file.string();
+                sm.theme_ui = 0; sm.status = "EXPORTED " + muisc::path_utf8(file);
             }
             return true;
         }

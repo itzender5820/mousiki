@@ -186,7 +186,7 @@ void App::build_readlyrics_screen(std::ostringstream& frame, int W, int target_h
     bool synced = false;
     for (const LyricLine& l : rd_->timed) if (l.start_time >= 0.0) { synced = true; break; }
     double offset = rd_->delay;
-    if (mode_ == Mode::LyricsEdit && lyrics_edit_from_reader_) { std::lock_guard<std::mutex> lk(lyrics_mutex_); offset = lyrics_result_.delay; }   // the timing overlay is open: live
+    if (mode_ == Mode::LyricsEdit && lyrics_.edit_from_reader) { std::lock_guard<std::mutex> lk(lyrics_.mutex); offset = lyrics_.result.delay; }   // the timing overlay is open: live
     const double lt = elapsed - offset;
     int active = -1;
     if (plays) {

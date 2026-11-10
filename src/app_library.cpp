@@ -63,7 +63,7 @@ namespace muisc {
 namespace {
 
 // ---- the same matching as fuzzy_score(), for a library of tens of thousands of tracks ------------------------------------
-// The query is normalised and split once, the targets are normalised once per scan (App::search_idx_), and the edit
+// The query is normalised and split once, the targets are normalised once per scan (App::search_.idx), and the edit
 // distance stops as soon as a word cannot reach the 0.55 quality floor any more. The results are identical.
 struct PreparedQuery {
     std::string q;
@@ -267,20 +267,20 @@ std::vector<LocalTrack> App::filter_and_rank_local(const std::string& raw_query)
 
     // The search index: the normalised strings of every track (built once per scan), the tag fields added as the
     // background sweep resolves them. A keystroke then only compares strings.
-    if (search_idx_.size() != all_local_tracks_.size()) {
-        search_idx_.clear();
-        search_idx_.reserve(all_local_tracks_.size());
+    if (search_.idx.size() != all_local_tracks_.size()) {
+        search_.idx.clear();
+        search_.idx.reserve(all_local_tracks_.size());
         for (const auto& t : all_local_tracks_) {
             SearchIdx e;
             e.key = path_utf8(t.path);
             e.title_n = normalize_for_search(with_latin_spelling(t.title));   // (a title in kana / Hangul / hanzi is also found by its Latin spelling)
             e.folder_artist_n = normalize_for_search(with_latin_spelling(t.folder_artist));
-            search_idx_.push_back(std::move(e));
+            search_.idx.push_back(std::move(e));
         }
     }
     {
         std::lock_guard<std::mutex> lk(row_meta_mutex_);   // once for the whole library, not once per track
-        for (auto& e : search_idx_) {
+        for (auto& e : search_.idx) {
             if (e.tags_seen) continue;
             auto it = row_meta_cache_.find(e.key);
             if (it == row_meta_cache_.end()) continue;
@@ -294,7 +294,7 @@ std::vector<LocalTrack> App::filter_and_rank_local(const std::string& raw_query)
     std::vector<std::pair<double, const LocalTrack*>> scored;
     scored.reserve(all_local_tracks_.size());
     for (size_t i = 0; i < all_local_tracks_.size(); ++i) {
-        const SearchIdx& e = search_idx_[i];
+        const SearchIdx& e = search_.idx[i];
         const std::string& artist = e.artist_n.empty() ? e.folder_artist_n : e.artist_n;
         double score = 0.0;
         if (scope == 1) {
@@ -536,7 +536,7 @@ void App::refresh_playlists_after_rescan() {
         for (size_t k = 0; k < at.size(); ++k) {
             QueueItem& it = queue_[at[k]];
             if (q.tracks[k].path != it.local_path) {
-                if (has_track_ && current_path_ == it.local_path) current_path_ = q.tracks[k].path;
+                if (has_track_ && current_.path == it.local_path) current_.path = q.tracks[k].path;
                 it.local_path = q.tracks[k].path;
                 it.title = path_utf8(it.local_path.stem());
                 it.artist = path_utf8(it.local_path.parent_path().filename());
@@ -555,7 +555,7 @@ void App::refresh_playlists_after_rescan() {
         std::lock_guard<std::mutex> lk(row_meta_mutex_);
         for (const auto& k : keys) row_meta_cache_.erase(k);
     }
-    search_idx_.clear();
+    search_.idx.clear();
     resolve_playlist_tracks_async();
     if (rewritten > 0) log_event("playlists updated after the rescan: " + std::to_string(rewritten));
 }
@@ -619,7 +619,7 @@ void App::rescan_library() {
         if (a + b > 0) { video_for_track_.clear(); ++video_rev_; ConsoleLog::instance().log_basic("video connections: " + std::to_string(a) + " moved video(s) and " + std::to_string(b) + " moved song(s) found again by file name"); }
     }
     scanned_book_path_ = settings_.audiobook_path;
-    search_idx_.clear();
+    search_.idx.clear();
     refresh_local_view(); // applies the active query/sort/filter to the new set
     for (const auto& line : diagnostics) ConsoleLog::instance().log_basic(line);
 
@@ -635,7 +635,7 @@ void App::rescan_library() {
 
 
 void App::update_live_search_preview() {
-    std::string buf = search_buffer_;
+    std::string buf = search_.buffer;
     while (!buf.empty() && buf.front() == ' ') buf.erase(buf.begin());
     while (!buf.empty() && buf.back() == ' ') buf.pop_back();
 
@@ -650,7 +650,7 @@ void App::update_live_search_preview() {
         return;
     }
     size_t plen = 0;
-    if (online_prefix(buf, plen) >= 0 || (buf.size() >= 3 && ascii_lower_str(buf.substr(0, 3)) == "sv:")) {   // online (and "sv:", the video search): nothing until ENTER
+    if (online_prefix(buf, plen) >= 0 || (buf.size() >= 3 && ascii_lower_str(buf.substr(0, 3)) == "yv:")) {   // online (and "yv:", the video search): nothing until ENTER
         list_source_ = pre_search_list_source_;
         local_view_ = filter_and_rank_local_view(pre_search_local_query_);
         selected_ = 0;
@@ -659,7 +659,7 @@ void App::update_live_search_preview() {
     }
 
     // "p:" (playlist search) is local like a plain query -- no network
-    // call to defer -- so unlike "s:" above, it's fine to actually run
+    // call to defer -- so unlike "y:" above, it's fine to actually run
     // the filter live on every keystroke rather than waiting for Enter.
     if (buf.size() >= 2 && ascii_lower_str(buf.substr(0, 2)) == "p:") {
         std::string q = buf.substr(2);
@@ -689,7 +689,7 @@ void App::update_live_search_preview() {
 }
 
 void App::submit_search() {
-    std::string buf = search_buffer_;
+    std::string buf = search_.buffer;
     // trim
     while (!buf.empty() && buf.front() == ' ') buf.erase(buf.begin());
     while (!buf.empty() && buf.back() == ' ') buf.pop_back();
@@ -706,19 +706,19 @@ void App::submit_search() {
         return;
     }
     size_t plen = 0;
-    if (buf.size() >= 3 && ascii_lower_str(buf.substr(0, 3)) == "sv:") {   // /sv: search videos on YouTube (SEARCH YT) to download
+    if (buf.size() >= 3 && ascii_lower_str(buf.substr(0, 3)) == "yv:") {   // /yv: search videos on YouTube (SEARCH YT) to download
         std::string query = buf.substr(3);
         while (!query.empty() && query.front() == ' ') query.erase(query.begin());
         video_search_open(query);
         return;
     }
-    if (const int src = online_prefix(buf, plen); src >= 0) {   // s: YouTube, sc: SoundCloud, b: Bandcamp
+    if (const int src = online_prefix(buf, plen); src >= 0) {   // y: YouTube, sc: SoundCloud, b: Bandcamp
         std::string query = buf.substr(plen);
         while (!query.empty() && query.front() == ' ') query.erase(query.begin());
         last_online_query_ = query;
         last_online_source_ = src;
         list_source_ = ListSource::Online;
-        if (search_in_progress_.load()) {
+        if (search_.in_progress.load()) {
             status_line_ = "still searching, hang on ...";
             return;
         }
@@ -728,7 +728,7 @@ void App::submit_search() {
         while (!query.empty() && query.front() == ' ') query.erase(query.begin());
         last_playlist_query_ = query;
         list_source_ = ListSource::Playlist;
-        queue_focus_ = false;   // the saved playlists pane takes the focus, also when the queue had it before
+        qst_.focus = false;   // the saved playlists pane takes the focus, also when the queue had it before
         playlist_->view = filter_playlists(query);
         selected_ = 0;
         scroll_ = 0;

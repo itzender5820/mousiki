@@ -439,17 +439,17 @@ void App::creator_preview_open() {
     }
     creator_->show = true;
     scope_big_ = false;
-    spectro_full_ = false;
+    spectro_.full = false;
     force_redraw_ = true;
 }
 
 void App::creator_remember_previous() {
     if (creator_->show) return;   // already in a preview: what was playing before it stays the song to come back to
     creator_->prev_valid = false;
-    if (has_track_ && current_is_local_ && !current_path_.empty()) {
-        creator_->prev.path = current_path_;
-        creator_->prev.title = path_utf8(current_path_.stem());
-        creator_->prev.folder_artist = path_utf8(current_path_.parent_path().filename());
+    if (has_track_ && current_.is_local && !current_.path.empty()) {
+        creator_->prev.path = current_.path;
+        creator_->prev.title = path_utf8(current_.path.stem());
+        creator_->prev.folder_artist = path_utf8(current_.path.parent_path().filename());
         creator_->prev_valid = true;
     }
 }
@@ -521,7 +521,7 @@ void App::creator_live_start() {
     creator_->show = true;
     mode_ = Mode::Browse;
     scope_big_ = false;
-    spectro_full_ = false;
+    spectro_.full = false;
     force_redraw_ = true;
     status_line_ = "Microphone: " + creator_->mic->device_name();
 }
@@ -666,7 +666,7 @@ std::string App::build_creator_preview(int W, const char* clear_prefix) const {
     f << clear_prefix << "\x1b[?25l";
     f << box_top(truncate_str(title, W - 6), W, border) << "\n";
     const int rows = std::max(2, H - 2);
-    const bool image = gfx_proto_ != GfxProto::None;
+    const bool image = gfxs_.proto != GfxProto::None;
     if (scope) {
         // a square picture in the middle; its own look: the CRT beam in music mode (the exact figure), classic green phosphor
         int cw0 = 10, ch0 = 20;
@@ -704,7 +704,7 @@ std::string App::build_creator_preview(int W, const char* clear_prefix) const {
             try_parse_rgb(settings_.scope_grid_color.empty() ? settings_.list_color : settings_.scope_grid_color, gr, gg, gb);
             F.grid_rgb = {static_cast<uint8_t>(gr), static_cast<uint8_t>(gg), static_cast<uint8_t>(gb)};
             F.active = true;
-            F.fresh = gfx_due_;
+            F.fresh = gfxs_.due;
             gfx2_.active = false;
             pane.assign(static_cast<size_t>(rows), gfx_hole(cols));
         } else {
@@ -739,10 +739,10 @@ std::string App::build_creator_preview(int W, const char* clear_prefix) const {
         f << bar << legend << std::string(static_cast<size_t>(label_w + 1), ' ') << ruler << R << bar << "\n";
         std::vector<std::string> body;
         if (image) {
-            spectro_area_[0] = 2;
-            spectro_area_[1] = 1 + label_w + 1;
-            spectro_area_[2] = cols;
-            spectro_area_[3] = srows;
+            spectro_.area[0] = 2;
+            spectro_.area[1] = 1 + label_w + 1;
+            spectro_.area[2] = cols;
+            spectro_.area[3] = srows;
         } else body = a.braille(sp, cols, srows);
         for (int r = 0; r < srows; ++r) {
             f << bar << legend << pad_left(lab[static_cast<size_t>(r)], label_w) << R << " ";

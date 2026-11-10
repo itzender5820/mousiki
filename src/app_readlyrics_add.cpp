@@ -1,6 +1,8 @@
 // READ LYRICS overlay (stored lyrics versions, translations, search). Split out of app.cpp.
 // Member functions of App (declared in app.h); the helpers shared with app.cpp are in app_internal.h.
 #include "app.h"
+#include "app_state_rl.h"
+#include "app_state_kanji.h"
 #include "readlyrics_state.h"
 #include "text_edit.h"
 #include "overlay_common.h"
@@ -75,8 +77,8 @@ void App::readlyrics_add_open() {
         if (found) { rd_->add_cur = found->path; rd_->add_cur_title = readlyrics_add_track_text(*found); }
     }
     else if (!rd_->track.empty() && fs::exists(rd_->track, ec)) { rd_->add_cur = rd_->track; rd_->add_cur_title = rd_->title; }
-    else if (has_track_ && !current_path_.empty()) {
-        rd_->add_cur = current_path_;
+    else if (has_track_ && !current_.path.empty()) {
+        rd_->add_cur = current_.path;
         rd_->add_cur_title = (metadata_.artist == "-" || metadata_.artist.empty()) ? metadata_.name : metadata_.artist + " - " + metadata_.name;
     }
     // Every lyrics file below the "lyrics" folders of the library (subfolders too; the translations and exports are not lyrics).
@@ -139,8 +141,8 @@ void App::readlyrics_add_open() {
 
 // From the re-fetch form and the karaoke screen: READ LYRICS for the playing track, with the overlay open at once.
 void App::readlyrics_add_open_from_playing() {
-    if (!has_track_ || current_path_.empty()) { status_line_ = "add lyrics manually: play a track first, or open READ LYRICS on one"; return; }
-    rl_from_reader_ = rl_from_karaoke_ = false;
+    if (!has_track_ || current_.path.empty()) { status_line_ = "add lyrics manually: play a track first, or open READ LYRICS on one"; return; }
+    rl_->from_reader = rl_->from_karaoke = false;
     readlyrics_open();
     if (mode_ != Mode::ReadLyrics) return;
     readlyrics_add_open();
@@ -266,9 +268,9 @@ void App::readlyrics_add_unassign() {
     std::string err;
     if (!unassign_lyrics_file(target, &err)) { rd_->add_msg = err; return; }
     log_event("lyrics: unassigned the manually added lyrics of " + path_utf8(target.filename()));
-    if (has_track_ && target == current_path_) {
+    if (has_track_ && target == current_.path) {
         std::string artist = (metadata_.artist == "-") ? "" : metadata_.artist;
-        launch_lyrics_fetch(metadata_.name, artist, current_path_);   // loads whatever is in use now (no network)
+        launch_lyrics_fetch(metadata_.name, artist, current_.path);   // loads whatever is in use now (no network)
     }
     if (target == rd_->track) {
         rd_->versions = list_lyrics_versions(rd_->track);
@@ -377,9 +379,9 @@ void App::readlyrics_add_do() {
     log_event("lyrics: assigned " + path_utf8(file.path.filename()) + " to " + target_title);
     rd_->add_open = false;
     force_redraw_ = true;
-    if (has_track_ && target == current_path_) {   // the playing track: its lyrics load now
+    if (has_track_ && target == current_.path) {   // the playing track: its lyrics load now
         std::string artist = (metadata_.artist == "-") ? "" : metadata_.artist;
-        launch_lyrics_fetch(metadata_.name, artist, current_path_);   // loads whatever is in use now (no network)
+        launch_lyrics_fetch(metadata_.name, artist, current_.path);   // loads whatever is in use now (no network)
     }
     if (target == rd_->track) {   // the reader shows this track: the new copy is the one to see
         rd_->versions = list_lyrics_versions(rd_->track);
@@ -617,7 +619,7 @@ fs::path App::readlyrics_export_file(int flags) const {
 }
 
 bool App::readlyrics_reader_working() const {
-    return settings_.latin_letters && !kanji_broken_ && !kanji_script_.empty();
+    return settings_.latin_letters && !kanji_->broken && !kanji_->script.empty();
 }
 
 void App::readlyrics_export_do() {

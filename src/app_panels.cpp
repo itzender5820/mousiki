@@ -2,6 +2,7 @@
 // Part of class App (src/app.h): The panels of the main screen: metadata, progress bar, search bar, list and queue.
 // Split out of app.cpp; the includes are the same as there.
 #include "app.h"
+#include "app_state_sleep.h"
 #include "playlist_state.h"
 #include "meta_state.h"
 #include "book_state.h"
@@ -296,8 +297,8 @@ void overlay_meta_entry(TrackMetadata& md, const MetaEditEntry& e, const fs::pat
 // (SHIFT+n, SHIFT+t, ...) is visible there at once, before CTRL+s writes it.
 TrackMetadata App::display_metadata() const {
     TrackMetadata md = metadata_;
-    if (!has_track_ || !current_is_local_ || current_path_.empty()) return md;
-    if (const MetaEditEntry* e = meta_entry(path_utf8(current_path_))) overlay_meta_entry(md, *e, current_path_);
+    if (!has_track_ || !current_.is_local || current_.path.empty()) return md;
+    if (const MetaEditEntry* e = meta_entry(path_utf8(current_.path))) overlay_meta_entry(md, *e, current_.path);
     return md;
 }
 
@@ -404,7 +405,7 @@ void App::meta_panel_disk(MetaPanel& m) const {
         // oscilloscope image goes into the second slot gfx2_)
         cover_pic_img = true;
         for (int i = 0; i < panel_h; ++i) disk_frame.push_back(gfx_hole(disk_w));
-    } else if (show_disk && !audiobook_ && eff_album_cover() && (gfx_proto_ == GfxProto::None || eff_cover_mode() >= 5) &&
+    } else if (show_disk && !audiobook_ && eff_album_cover() && (gfxs_.proto == GfxProto::None || eff_cover_mode() >= 5) &&
                !(disk_frame = album_cover_lines(disk_w, panel_h)).empty()) {
         // (no Kitty / Sixel: the cover in braille dots)
     } else if (show_disk) {
@@ -482,7 +483,7 @@ void App::meta_panel_info(MetaPanel& m) const {
                 // the scrolling text ends one column before the next field starts
                 const int mw = std::max(1, avail_v - 1);
                 value_lines.push_back(marquee_or_truncate(mapped_val, mw, key,
-                                                          marquee_meta_idx_[marquee_slot], marquee_meta_since_[marquee_slot]) +
+                                                          marquee_.meta_idx[marquee_slot], marquee_.meta_since[marquee_slot]) +
                                       (avail_v > 0 ? " " : ""));
             } else {
                 const int room = std::max(1, last_meta_row - meta_row_cursor_ + 1);
@@ -516,24 +517,24 @@ void App::meta_panel_info(MetaPanel& m) const {
         // The first line follows SHIFT+n (HKeyToggleMetaOnly), like the list rows do: "Title" is the title tag (the
         // file name when the file has none), "File" is the file name -- also with a pending FILE rename applied.
         // Streams have no file name and always show "Title".
-        const bool show_file = has_track_ && current_is_local_ && !current_path_.empty() && !settings_.meta_only;
+        const bool show_file = has_track_ && current_.is_local && !current_.path.empty() && !settings_.meta_only;
         std::string first_value = shown.name;
         if (show_file) {
-            first_value = path_utf8(current_path_.stem());
-            if (const MetaEditEntry* me = meta_entry(path_utf8(current_path_))) {
+            first_value = path_utf8(current_.path.stem());
+            if (const MetaEditEntry* me = meta_entry(path_utf8(current_.path))) {
                 const int fn = static_cast<int>(MetaField::FileName);
                 if (me->edited[fn] && !me->value[fn].empty()) first_value = me->value[fn];
             }
         }
         if (audiobook_) {
             // The audio book's block: everything that matters for a book (tags read by book_poll(), "-" while they load).
-            const bool tags_ready = book_->meta_path == path_utf8(current_path_);
+            const bool tags_ready = book_->meta_path == path_utf8(current_.path);
             auto tag = [&](int i) { return tags_ready && !book_->meta_vals[static_cast<size_t>(i)].empty() ? book_->meta_vals[static_cast<size_t>(i)] : std::string("-"); };
             std::string book_name = tag(1);
             if (book_name == "-" && !book_->dir.empty()) book_name = path_utf8(path_from_utf8(book_->dir).filename());
             const int cur_ch = book_current_chapter();
             std::string chapter = tag(4);
-            if (chapter == "-") chapter = path_utf8(current_path_.stem());
+            if (chapter == "-") chapter = path_utf8(current_.path.stem());
             if (cur_ch >= 0) chapter = std::to_string(cur_ch + 1) + "/" + std::to_string(chapters_.size()) + "  " + chapter;
             double total = 0, done = 0; bool complete = false;
             book_totals(elapsed, total, done, complete);
@@ -636,7 +637,8 @@ void App::meta_panel_info(MetaPanel& m) const {
         // (both ways) in the metadata/visualizer column instead of being
         // glued to its first row, where it would hide behind the disk.
         meta_rows[std::max(0, panel_h / 2 - 1)] = center_pad(audiobook_ ? "No Narrative Loaded" : "No Track Loaded", meta_w);
-        if (panel_h / 2 < static_cast<int>(meta_rows.size()))
+        // ("Hit [n] to proceed" is the music player's hint: the next song. The audio book has no such thing to proceed to.)
+        if (!audiobook_ && panel_h / 2 < static_cast<int>(meta_rows.size()))
             meta_rows[static_cast<size_t>(panel_h / 2)] = center_pad("Hit [" + hotkey_text("HKeyPlayNextSong", "n") + "] to proceed", meta_w);
     }
     for (int i = 0; i < static_cast<int>(meta_rows.size()); ++i) {
@@ -687,19 +689,19 @@ void App::meta_panel_field(MetaPanel& m) const {
     lyrics_avail = false;
     lyrics_delay = 0.0; // lyrics timing correction (ALT+L), seconds, + = lyrics later
     {
-        std::lock_guard<std::mutex> lock(lyrics_mutex_);
+        std::lock_guard<std::mutex> lock(lyrics_.mutex);
         if (audiobook_) {
             // the audio book mode fetches no lyrics: its field shows the notes (or the visualization), never a "fetching" caption
-        } else if (settings_.lyrics_on() && lyrics_ready_) {
-            lines_copy = lyrics_result_.lines;
+        } else if (settings_.lyrics_on() && lyrics_.ready) {
+            lines_copy = lyrics_.result.lines;
             lines_orig = lines_copy;
             latinize_lyrics(lines_copy);
-            lyrics_delay = lyrics_result_.delay;
-            lyrics_status = lyrics_result_.message;
+            lyrics_delay = lyrics_.result.delay;
+            lyrics_status = lyrics_.result.message;
             lyrics_avail = !lines_copy.empty();
             // the video view of a track without a video shows the "When No Video Shows" visual and nothing else: no "lyrics loaded (cached)" caption
-            if (settings_.video_mode && settings_.video_view && settings_.novideo_viz != 4 && video_shown_for(current_path_).empty()) lyrics_status.clear();
-        } else if (settings_.lyrics_on() && has_track_ && !(settings_.video_mode && settings_.video_view && settings_.novideo_viz != 4 && video_shown_for(current_path_).empty())) {
+            if (settings_.video_mode && settings_.video_view && settings_.novideo_viz != 4 && video_shown_for(current_.path).empty()) lyrics_status.clear();
+        } else if (settings_.lyrics_on() && has_track_ && !(settings_.video_mode && settings_.video_view && settings_.novideo_viz != 4 && video_shown_for(current_.path).empty())) {
             lyrics_status = "fetching lyrics ...";   // (not on the video view of a track without a video that shows a visual: nothing is fetched there)
         }
         // else: Lyrics Engine is off -- no fetch ever ran, so there's
@@ -751,26 +753,26 @@ void App::meta_panel_field(MetaPanel& m) const {
         }
     } else if (settings_.video_mode && settings_.video_view && !audiobook_ && lyrics_w >= 12 && panel_h >= 6 &&
                [&]() {   // (false: no video for this track -> "When No Video Shows" decides, see video_missing)   // the Video view: the picture of the track's video with the current lyric line under it
-                   const int vsize = video_size_for(current_path_);
-                   const bool wide = vsize == 2 && gfx_proto_ != GfxProto::None;   // (a picture: the spare column minus half a cell, so the gap at the right is as wide as the one at the top and bottom)
+                   const int vsize = video_size_for(current_.path);
+                   const bool wide = vsize == 2 && gfxs_.proto != GfxProto::None;   // (a picture: the spare column minus half a cell, so the gap at the right is as wide as the one at the top and bottom)
                    const int lpad = 1;   // one empty column at the left of the picture: the gap to the meta data column (its bars) is as wide as the one to the right border
                    const int fw = lyrics_w + (wide ? 1 : 0) - lpad;   // the width video_field_rows gets; the lyric line is wrapped to the width it will be shown in (video_field_rows)
                    std::vector<std::string> line_rows;
                    video_ov_ref_.clear();
-                   if (lyrics_avail && video_lyrics_for(current_path_)) {
+                   if (lyrics_avail && video_lyrics_for(current_.path)) {
                        const double lt = elapsed - lyrics_delay;
                        int act = 0;
                        for (size_t i = 0; i < lines_copy.size(); ++i) { if (lines_copy[i].start_time <= lt) act = static_cast<int>(i); else break; }
                        const int ww = vsize == 3 ? std::max(12, (fw - 4) * 2 / 3) : vsize == 2 ? std::max(12, fw * 2 / 3) : fw;   // (the full / framed field: the line is a small box over the picture; the same widths as in video_field_rows)
                        // Include Lyrics: 1 the lyric line, 2 + its translation under it, 3 the translation only (the lyric line where a line has none)
-                       const int vmode = video_lyr_mode_for(current_path_);
+                       const int vmode = video_lyr_mode_for(current_.path);
                        const std::vector<std::string>* trp = nullptr;
                        if (vmode >= 2) { const auto& all = video_translations(lines_orig); if (!all.empty()) trp = &all[static_cast<size_t>(std::clamp(vfull_tr_idx_, 0, static_cast<int>(all.size()) - 1))].lines; }
                        line_rows = lyric_translation_rows(lines_copy, trp, act, lt, ww, vmode, settings_);
                        video_ov_ref_ = lyric_translation_rows(lines_copy, trp, act, 1e9, ww, vmode, settings_);   // (all words shown: the size of the box)
                        // The rows the block needs at most on this track (so the picture keeps its size from line to line): 2 as ever, more only
                        // with a translation shown.
-                       const std::string nkey = path_utf8(current_path_) + "|" + std::to_string(ww) + "|" + std::to_string(vmode) + "|" + std::to_string(lines_copy.size()) + (trp ? "t" : "-");
+                       const std::string nkey = path_utf8(current_.path) + "|" + std::to_string(ww) + "|" + std::to_string(vmode) + "|" + std::to_string(lines_copy.size()) + (trp ? "t" : "-");
                        if (nkey != video_need_key_) {
                            video_need_key_ = nkey;
                            int need = 2;
@@ -800,10 +802,10 @@ void App::meta_panel_field(MetaPanel& m) const {
         // one timer for the whole track.
         if (lyrics_status != last_lyrics_status_) {
             last_lyrics_status_ = lyrics_status;
-            lyrics_status_shown_at_ = std::chrono::steady_clock::now();
+            lyrics_.status_shown_at = std::chrono::steady_clock::now();
         }
         double status_age = std::chrono::duration<double>(
-            std::chrono::steady_clock::now() - lyrics_status_shown_at_).count();
+            std::chrono::steady_clock::now() - lyrics_.status_shown_at).count();
         bool show_caption = status_age < 1.75 && !lyrics_status.empty();
 
         if (has_track_ && lyrics_w >= 6 && panel_h >= 3) {
@@ -839,7 +841,7 @@ void App::meta_panel_field(MetaPanel& m) const {
                 const int pal = os.palette;
                 OscilloscopeVisualizer::Params osci_params = osci_scope_params(settings_, viz_dt_);
                 bool as_image = false;
-                if (settings_.osci_style == 1 && gfx_proto_ != GfxProto::None && lyrics_w > 0 && !book_pic_img) {
+                if (settings_.osci_style == 1 && gfxs_.proto != GfxProto::None && lyrics_w > 0 && !book_pic_img) {
                     // image style: the terminal draws the picture; the cells stay blank here and the loop emits it
                     gfx_cell_pixels(settings_.cell_pixels, cell_w_, cell_h_);
                     const int cw0 = std::max(4, cell_w_), ch0 = std::max(8, cell_h_);
@@ -869,7 +871,7 @@ void App::meta_panel_field(MetaPanel& m) const {
                         g.pal[static_cast<size_t>(h)] = {static_cast<uint8_t>(r), static_cast<uint8_t>(gr), static_cast<uint8_t>(b)};
                     }
                     g.active = true;
-                    g.fresh = gfx_due_;
+                    g.fresh = gfxs_.due;
                     as_image = true;
                     // placeholder cells: the main loop writes them as spaces or (Sixel) skips them so the picture stays
                     for (int i = 0; i < panel_h; ++i) lyric_rows[i] = gfx_hole(lyrics_w);
@@ -900,14 +902,14 @@ void App::meta_panel_field(MetaPanel& m) const {
                 }
             } else if (area_viz == 2) {
                 // Spectrogram (like Audacity's): braille, or a picture the terminal draws (tiles sent by the main loop)
-                spectro_used_ = true;
+                spectro_.used = true;
                 spectro_gradient_from(settings_);
                 spectro().update(settings_.spectro);
-                if (settings_.spectro.style == 1 && gfx_proto_ != GfxProto::None) {
-                    spectro_area_[0] = 1;
-                    spectro_area_[1] = 2 + disk_w + (show_disk ? sep_w : 2) + meta_w;
-                    spectro_area_[2] = lyrics_w;
-                    spectro_area_[3] = viz_rows_h;
+                if (settings_.spectro.style == 1 && gfxs_.proto != GfxProto::None) {
+                    spectro_.area[0] = 1;
+                    spectro_.area[1] = 2 + disk_w + (show_disk ? sep_w : 2) + meta_w;
+                    spectro_.area[2] = lyrics_w;
+                    spectro_.area[3] = viz_rows_h;
                     for (int i = 0; i < viz_rows_h && i < panel_h; ++i) lyric_rows[i] = gfx_hole(lyrics_w);
                 } else {
                     auto rows = spectro().braille(settings_.spectro, lyrics_w, viz_rows_h);
@@ -1123,8 +1125,8 @@ std::vector<std::string> App::build_progress_panel(int total_width) const {
     active_cols = std::clamp(active_cols, 0, wave_w);
 
     int reveal_cols = wave_w;
-    if (waveform_ready_) {
-        double reveal_sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - waveform_reveal_start_).count();
+    if (waveform_.ready) {
+        double reveal_sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - waveform_.reveal_start).count();
         if (reveal_sec < 0.7) {
             reveal_cols = static_cast<int>((reveal_sec / 0.7) * wave_w);
         }
@@ -1138,8 +1140,8 @@ std::vector<std::string> App::build_progress_panel(int total_width) const {
 
     std::string top_wave, mid_wave, bot_wave;
     std::vector<int> waveform_levels;
-    if (!waveform_envelope_.empty()) {
-        waveform_levels = WaveformQuantizer::resample_for_ui(waveform_envelope_, wave_w);
+    if (!waveform_.envelope.empty()) {
+        waveform_levels = WaveformQuantizer::resample_for_ui(waveform_.envelope, wave_w);
     } else {
         waveform_levels.assign(wave_w, 0);
     }
@@ -1307,13 +1309,13 @@ std::vector<std::string> App::build_search_bar(int total_width) const {
                        : "SEARCH LOCAL";
     if (list_source_ == ListSource::Local) {   // "/r:" and "/a:" narrow the search to artists / albums
         std::string rest;
-        const int scope = local_query_scope(mode_ == Mode::Search ? search_buffer_ : last_local_query_, rest);
+        const int scope = local_query_scope(mode_ == Mode::Search ? search_.buffer : last_local_query_, rest);
         if (scope == 1) label = "SEARCH ARTISTS";
         else if (scope == 2) label = "SEARCH ALBUMS";
     }
 
     {
-        const std::string sl = sleep_timer_label();
+        const std::string sl = sleep_->sleep_timer_label();
         if (!sl.empty()) label += "  [" + sl + "]";
     }
     // The online resolve/download step (YouTube, SoundCloud, Bandcamp) shows its live note here, in the search box's
@@ -1332,7 +1334,7 @@ std::vector<std::string> App::build_search_bar(int total_width) const {
     if (mode_ == Mode::Search) {
         content.clear(); // caret/selection box built lower down
     } else if (list_source_ == ListSource::Online) {
-        content = std::string(last_online_source_ == 1 ? "/sc:" : last_online_source_ == 2 ? "/b:" : "/s:") + last_online_query_;
+        content = std::string(last_online_source_ == 1 ? "/sc:" : last_online_source_ == 2 ? "/b:" : "/y:") + last_online_query_;
     } else if (list_source_ == ListSource::Playlist) {
         content = "/p:" + last_playlist_query_;
     } else if (list_source_ == ListSource::Folder) {
@@ -1374,8 +1376,8 @@ std::vector<std::string> App::build_search_bar(int total_width) const {
         // those escapes are worth).
         const int inner = std::max(1, search_w - 4); // box_line inner width
         const std::string idle = search_idle_sgr(settings_);
-        const bool typed = !search_buffer_.empty();
-        EditPaint p = paint_edit_field(search_buffer_, edit_caret_, edit_anchor_, inner - 1, typed ? search_sgr(settings_) : idle, true);
+        const bool typed = !search_.buffer.empty();
+        EditPaint p = paint_edit_field(search_.buffer, edit_caret_, edit_anchor_, inner - 1, typed ? search_sgr(settings_) : idle, true);
         std::string body = "/" + search_run(settings_, p.s, typed);
         const int fill = std::max(0, inner - (1 + p.cols));
         std::string pad(static_cast<size_t>(fill), ' ');
@@ -1432,7 +1434,7 @@ std::vector<std::string> App::build_list_panel(int total_width, int height) cons
 
     std::vector<std::string> out;
     // The list has the keys unless the search box is being typed into or the queue was focused (TAB).
-    if (!queue_focus_ && mode_ != Mode::Search) label += focus_indicator(settings_, border_ansi);
+    if (!qst_.focus && mode_ != Mode::Search) label += focus_indicator(settings_, border_ansi);
     out.push_back(box_top(label, total_width, border_ansi));
 
     const int idx_w = 3;
@@ -1472,7 +1474,7 @@ std::vector<std::string> App::build_list_panel(int total_width, int height) cons
                 if (audiobook_ && f.up) { t_name = "\u2190 .."; t_count.clear(); }
                 else if (audiobook_ && f.container) { t_name = "\u25b8 " + t_name; t_count = std::to_string(f.sub_count) + (f.sub_count == 1 ? " book" : " books"); }   // a folder you walk into
                 content = pad_right(t_idx, idx_w) + settings_.list_separator + " "
-                        + (idx == selected_ ? marquee_or_truncate(t_name, name_w, idx + 1000000, marquee_row_idx_, marquee_since_)   // (the hovered folder / book scrolls when too long)
+                        + (idx == selected_ ? marquee_or_truncate(t_name, name_w, idx + 1000000, marquee_.row_idx, marquee_.since)   // (the hovered folder / book scrolls when too long)
                                             : pad_right(truncate_str(t_name, name_w), name_w)) + settings_.list_separator + " "
                         + pad_right(truncate_str(t_parent, parent_w), parent_w) + settings_.list_separator + " "
                         + pad_right(t_count, count_w);
@@ -1513,7 +1515,7 @@ std::vector<std::string> App::build_list_panel(int total_width, int height) cons
                 // gets the same static truncate_str() as before, so
                 // nothing about the rest of the list changes.
                 std::string title_shown = (idx == selected_)
-                    ? marquee_or_truncate(t_title, title_w, idx, marquee_row_idx_, marquee_since_)
+                    ? marquee_or_truncate(t_title, title_w, idx, marquee_.row_idx, marquee_.since)
                     : pad_right(truncate_str(t_title, title_w), title_w);
                 content = pad_right(t_idx, idx_w) + settings_.list_separator + " "
                         + pad_right(title_shown, title_w) + settings_.list_separator + " "
@@ -1523,7 +1525,7 @@ std::vector<std::string> App::build_list_panel(int total_width, int height) cons
         }
         bool sel = (idx == selected_) && idx < static_cast<int>(total);
         bool is_playing_row = has_track_ && list_source_ == ListSource::Local && idx < static_cast<int>(total)
-                               && local_view_[idx].path == current_path_;
+                               && local_view_[idx].path == current_.path;
         std::string bar = border_ansi + settings_.box_vertical + "\x1b[0m";
         std::string padded = pad_right(truncate_str(content, inner), inner);
         if (sel) {
@@ -1556,8 +1558,8 @@ std::vector<std::string> App::build_queue_panel(int total_width, int height, boo
     // the lock changes what playback does whether or not the pane has focus).
     // The focus indicator replaces the old "(focused)" note; "locked" shows with or without focus (the lock changes
     // what playback does whether or not the pane has the keys).
-    std::string title = queue_locked_ ? "QUEUE (locked)" : "QUEUE";
-    if (queue_focus_) title += focus_indicator(settings_, border_ansi);
+    std::string title = qst_.locked ? "QUEUE (locked)" : "QUEUE";
+    if (qst_.focus) title += focus_indicator(settings_, border_ansi);
     out.push_back(box_top(title, total_width, border_ansi));
 
     if (queue_.empty()) {
@@ -1575,7 +1577,7 @@ std::vector<std::string> App::build_queue_panel(int total_width, int height, boo
         }
     } else {
         for (int row = 0; row < height; ++row) {
-            int idx = queue_scroll_ + row;
+            int idx = qst_.scroll + row;
             std::string content;
             bool is_row_playing = false;
             bool is_row_hovering = false;
@@ -1601,12 +1603,12 @@ std::vector<std::string> App::build_queue_panel(int total_width, int height, boo
                     const int title_w = std::max(5, inner - artist_w - sep_w);
                     content = pad_right(truncate_str(t_title, title_w), title_w) + settings_.list_separator + " " + truncate_str(t_artist, artist_w);
                 }
-                is_row_playing = has_track_ && q.is_local && q.local_path == current_path_;
-                is_row_hovering = queue_focus_ && (idx == queue_selected_);
+                is_row_playing = has_track_ && q.is_local && q.local_path == current_.path;
+                is_row_hovering = qst_.focus && (idx == qst_.selected);
             }
             std::string padded = pad_right(truncate_str(content, inner), inner);
             std::string color_ansi;
-            const bool is_hit = wide_artist && !queue_find_.empty() && idx < static_cast<int>(queue_.size()) && queue_find_match(queue_find_, static_cast<size_t>(idx));
+            const bool is_hit = wide_artist && !qst_.find.empty() && idx < static_cast<int>(queue_.size()) && queue_find_match(qst_.find, static_cast<size_t>(idx));
             if (is_row_hovering) color_ansi = cursor_sgr(settings_.queue_cursor_color, settings_.queue_cursor_bg_color);
             else if (is_hit) color_ansi = header_sgr(settings_);   // (a match of the search bar)
             else if (is_row_playing) color_ansi = ansi_for(settings_.queue_playing_color, true) + bg_ansi_for(settings_.queue_playing_bg_color);
@@ -1617,7 +1619,7 @@ std::vector<std::string> App::build_queue_panel(int total_width, int height, boo
 
     // Like the LOCAL AUDIO pane: how many titles are below the visible rows.
     std::string footer;
-    const int remaining = static_cast<int>(queue_.size()) - (queue_scroll_ + height);
+    const int remaining = static_cast<int>(queue_.size()) - (qst_.scroll + height);
     if (remaining > 0) footer = "( " + std::to_string(remaining) + " more )";
     out.push_back(box_bottom(total_width, footer, border_ansi_bottom));
     return out;

@@ -1261,12 +1261,12 @@ std::vector<std::string> App::build_playlist_library_panel(int total_width, int 
             // filename scrolls (marquee) when it doesn't fit.
             bool row_focused_sel = (playlist_->edit_focus == 1) && (idx == cursor);
             std::string file_shown = row_focused_sel
-                ? marquee_or_truncate(c_file, col1_w, idx, marquee_pl_lib_row_idx_, marquee_pl_lib_since_)
+                ? marquee_or_truncate(c_file, col1_w, idx, marquee_.pl_lib_row_idx, marquee_.pl_lib_since)
                 : pad_right(truncate_str(c_file, col1_w), col1_w);
             content = file_shown + col_sep
-                    + (row_focused_sel ? marquee_or_truncate(c_title, col2_w, idx, marquee_pl_lib_row_idx_, marquee_pl_lib_since_) : pad_right(truncate_str(c_title, col2_w), col2_w)) + col_sep
-                    + (row_focused_sel ? marquee_or_truncate(c_artist, col3_w, idx, marquee_pl_lib_row_idx_, marquee_pl_lib_since_) : pad_right(truncate_str(c_artist, col3_w), col3_w)) + col_sep
-                    + (row_focused_sel ? marquee_or_truncate(c_album, col4_w, idx, marquee_pl_lib_row_idx_, marquee_pl_lib_since_) : pad_right(truncate_str(c_album, col4_w), col4_w));
+                    + (row_focused_sel ? marquee_or_truncate(c_title, col2_w, idx, marquee_.pl_lib_row_idx, marquee_.pl_lib_since) : pad_right(truncate_str(c_title, col2_w), col2_w)) + col_sep
+                    + (row_focused_sel ? marquee_or_truncate(c_artist, col3_w, idx, marquee_.pl_lib_row_idx, marquee_.pl_lib_since) : pad_right(truncate_str(c_artist, col3_w), col3_w)) + col_sep
+                    + (row_focused_sel ? marquee_or_truncate(c_album, col4_w, idx, marquee_.pl_lib_row_idx, marquee_.pl_lib_since) : pad_right(truncate_str(c_album, col4_w), col4_w));
             if (fm) content = "  " + content;   // the files of an opened folder hang indented under it
         }
         bool sel = (playlist_->edit_focus == 1) && (idx == cursor) && idx < total;
@@ -1375,12 +1375,12 @@ std::vector<std::string> App::build_playlist_tracks_panel(int total_width, int h
             std::string c_album = apply_font_map(tag_album, settings_.font_map);
             bool row_focused_sel = (playlist_->edit_focus == 2) && (idx == playlist_->edit_track_selected);
             std::string file_shown = row_focused_sel
-                ? marquee_or_truncate(c_file, col1_w, idx, marquee_pl_track_row_idx_, marquee_pl_track_since_)
+                ? marquee_or_truncate(c_file, col1_w, idx, marquee_.pl_track_row_idx, marquee_.pl_track_since)
                 : pad_right(truncate_str(c_file, col1_w), col1_w);
             content = file_shown + col_sep
-                    + (row_focused_sel ? marquee_or_truncate(c_title, col2_w, idx, marquee_pl_track_row_idx_, marquee_pl_track_since_) : pad_right(truncate_str(c_title, col2_w), col2_w)) + col_sep
-                    + (row_focused_sel ? marquee_or_truncate(c_artist, col3_w, idx, marquee_pl_track_row_idx_, marquee_pl_track_since_) : pad_right(truncate_str(c_artist, col3_w), col3_w)) + col_sep
-                    + (row_focused_sel ? marquee_or_truncate(c_album, col4_w, idx, marquee_pl_track_row_idx_, marquee_pl_track_since_) : pad_right(truncate_str(c_album, col4_w), col4_w));
+                    + (row_focused_sel ? marquee_or_truncate(c_title, col2_w, idx, marquee_.pl_track_row_idx, marquee_.pl_track_since) : pad_right(truncate_str(c_title, col2_w), col2_w)) + col_sep
+                    + (row_focused_sel ? marquee_or_truncate(c_artist, col3_w, idx, marquee_.pl_track_row_idx, marquee_.pl_track_since) : pad_right(truncate_str(c_artist, col3_w), col3_w)) + col_sep
+                    + (row_focused_sel ? marquee_or_truncate(c_album, col4_w, idx, marquee_.pl_track_row_idx, marquee_.pl_track_since) : pad_right(truncate_str(c_album, col4_w), col4_w));
         }
         bool sel = (playlist_->edit_focus == 2) && (idx == playlist_->edit_track_selected) && idx < total;
         std::string padded = pad_right(truncate_str(content, inner), inner);

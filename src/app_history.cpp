@@ -90,22 +90,22 @@ void App::history_end_current_play() {
     history_.save(); // one small JSON write per finished track
 }
 
-// Opens a record for current_path_/current_video_id_/metadata_. Must only be
+// Opens a record for current_.path/current_.video_id/metadata_. Must only be
 // called once those three already describe the NEW track.
 void App::history_begin_current_play() {
     if (!has_track_) return;
     HistoryPlay p;
-    p.id = history_track_id(current_is_local_, path_utf8(current_path_), current_video_id_);
+    p.id = history_track_id(current_.is_local, path_utf8(current_.path), current_.video_id);
     if (p.id.empty()) return; // nothing to aggregate by: record nothing rather than a phantom title
     p.title = metadata_.name;
     if (p.title.empty() || p.title == "-")
-        p.title = path_utf8(current_path_.stem()); // untagged local file
+        p.title = path_utf8(current_.path.stem()); // untagged local file
     p.artist = (metadata_.artist == "-") ? std::string() : metadata_.artist;
     p.len_sec = static_cast<double>(total_sec_);
     p.started_at = static_cast<long long>(std::time(nullptr));
-    p.playlist = current_playlist_;
+    p.playlist = current_.playlist;
     if (audiobook_) {   // the reading history: the chapter, the book's name as the "artist" and as the "playlist" (TOP BOOKS)
-        const std::string book = path_utf8(current_path_.parent_path().filename());
+        const std::string book = path_utf8(current_.path.parent_path().filename());
         p.artist = book;
         p.playlist = book;
     }

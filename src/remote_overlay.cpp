@@ -8,6 +8,7 @@
 #include "qr_code.h"
 #include "remote_server.h"
 #include "terminal_ui.h"
+#include "string_util.h"
 
 namespace muisc::remote_ui {
 
@@ -162,7 +163,7 @@ bool key(State& st, Values& val, int k, bool arrow, bool& close) {
         if (k == 27) { st.editing = false; st.status = "not changed"; return false; }
         if (k == '\r' || k == '\n') {
             if (st.row == 1) {
-                const int p = std::atoi(st.buffer.c_str());
+                const int p = muisc::atoi_safe(st.buffer.c_str());
                 if (p < 1024 || p > 65535) { st.status = "the port must be 1024 - 65535"; return false; }
                 st.editing = false;
                 if (p == val.port) return false;

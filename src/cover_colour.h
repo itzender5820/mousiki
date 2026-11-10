@@ -55,6 +55,33 @@ inline std::array<float, 3> mix_colour(const std::array<uint8_t, 3>& base, float
     return out;
 }
 
+// The colour at place u (0..1) of the disk's gradient from (sr, sg, sb) to (er, eg, eb), for the cover looks. A plain blend of the two
+// RGB colours loses colour on the way: halfway between a purple and a teal comes out a dull grey-blue. So a blended colour gets
+// `strength` (0 = the plain blend, 0.6 = the default, 1 = all of it) of the saturation (HSV) it lacks compared with a saturation that goes from one end's to the other's in a straight line; the
+// hue stays the blend's, and the brightness as the eye sees it (luma) stays the blend's as far as the colour can be brightened
+// (the largest channel stops at 255). The two ends are exactly the colours that were chosen, and a colour without a hue (grey) is left
+// as it is. The picture itself (the grey levels of the cover) is not touched, only the colour it is drawn in.
+inline std::array<uint8_t, 3> gradient_step(int sr, int sg, int sb, int er, int eg, int eb, double u, double strength = 0.6) {
+    const double c[3] = {sr + (er - sr) * u, sg + (eg - sg) * u, sb + (eb - sb) * u};
+    const auto sat = [](double r, double g, double b) { const double mx = std::max({r, g, b}), mn = std::min({r, g, b}); return mx > 0 ? (mx - mn) / mx : 0.0; };
+    const auto luma = [](const double* v) { return 0.299 * v[0] + 0.587 * v[1] + 0.114 * v[2]; };
+    const double mx = std::max({c[0], c[1], c[2]}), mn = std::min({c[0], c[1], c[2]});
+    const double want = sat(sr, sg, sb) + (sat(er, eg, eb) - sat(sr, sg, sb)) * u, have = mx > 0 ? (mx - mn) / mx : 0.0;
+    double out[3] = {c[0], c[1], c[2]};
+    if (mx - mn > 0.5 && want - have > 1e-4) {
+        const double target = have + (want - have) * std::clamp(strength, 0.0, 1.0);
+        const double k = (mx - mx * (1.0 - target)) / (mx - mn);   // stretch the channels away from the brightest one
+        for (double& v : out) v = mx - (mx - v) * k;
+        const double ly = luma(out);
+        if (ly > 1.0) {
+            const double scale = std::min(luma(c) / ly, 255.0 / std::max({out[0], out[1], out[2]}));
+            if (scale > 1.0) for (double& v : out) v *= scale;
+        }
+    }
+    const auto q = [](double v) { return static_cast<uint8_t>(std::clamp(std::lround(v), 0L, 255L)); };
+    return {q(out[0]), q(out[1]), q(out[2])};
+}
+
 // Sixel draws a picture that is not `direct` with only 16 colours (blocks of 16 palette entries) x 15 brightness steps: right for
 // a gradient, wrong for a cover's own colours. So with Sixel every pixel's colour, brightness included, comes from this fixed
 // palette (6 x 8 x 5 steps of red, green, blue = 240 colours) and the picture is drawn `direct` (level = 255 for every lit pixel).

@@ -8,6 +8,7 @@
 // and from the main screen alike: the choice is written to config.txt at once (that one line), so the settings screen's s / ESC
 // neither save nor undo it.
 #include "app.h"
+#include "app_state_adev.h"
 #include "string_util.h"
 #include "utf8_util.h"
 #include "console_log.h"
@@ -24,45 +25,45 @@ std::string App::audio_device_label() const {
 }
 
 void App::audio_device_open(bool from_settings) {
-    adev_from_settings_ = from_settings;
-    adev_err_.clear();
-    adev_list_ = list_output_devices(&adev_err_);
+    adev_->from_settings = from_settings;
+    adev_->err.clear();
+    adev_->list = list_output_devices(&adev_->err);
     // the row that is in use now: 0 = the system default, 1.. = the devices in the system's order
-    adev_sel_ = 0;
-    for (size_t i = 0; i < adev_list_.size(); ++i)
-        if (!settings_.audio_device.empty() && adev_list_[i].name == settings_.audio_device) adev_sel_ = static_cast<int>(i) + 1;
+    adev_->sel = 0;
+    for (size_t i = 0; i < adev_->list.size(); ++i)
+        if (!settings_.audio_device.empty() && adev_->list[i].name == settings_.audio_device) adev_->sel = static_cast<int>(i) + 1;
     mode_ = Mode::AudioDevice;
     force_redraw_ = true;
 }
 
 void App::audio_device_close() {
-    mode_ = adev_from_settings_ ? Mode::Settings : Mode::Browse;
+    mode_ = adev_->from_settings ? Mode::Settings : Mode::Browse;
     force_redraw_ = true;
 }
 
 void App::audio_device_key(int key) {
     const bool arrow = last_key_was_arrow();
-    const int rows = 1 + static_cast<int>(adev_list_.size());
-    if (arrow && key == 'A') { adev_sel_ = (adev_sel_ + rows - 1) % rows; return; }
-    if (arrow && key == 'B') { adev_sel_ = (adev_sel_ + 1) % rows; return; }
+    const int rows = 1 + static_cast<int>(adev_->list.size());
+    if (arrow && key == 'A') { adev_->sel = (adev_->sel + rows - 1) % rows; return; }
+    if (arrow && key == 'B') { adev_->sel = (adev_->sel + 1) % rows; return; }
     if (!arrow && (key == 'r' || key == 'R')) {   // look again (a headset that was just plugged in)
-        const std::string keep = adev_sel_ > 0 && adev_sel_ <= static_cast<int>(adev_list_.size()) ? adev_list_[adev_sel_ - 1].name : std::string();
-        adev_err_.clear();
-        adev_list_ = list_output_devices(&adev_err_);
-        adev_sel_ = 0;
-        for (size_t i = 0; i < adev_list_.size(); ++i) if (!keep.empty() && adev_list_[i].name == keep) adev_sel_ = static_cast<int>(i) + 1;
-        status_line_ = "audio devices: " + std::to_string(adev_list_.size()) + " found";
+        const std::string keep = adev_->sel > 0 && adev_->sel <= static_cast<int>(adev_->list.size()) ? adev_->list[adev_->sel - 1].name : std::string();
+        adev_->err.clear();
+        adev_->list = list_output_devices(&adev_->err);
+        adev_->sel = 0;
+        for (size_t i = 0; i < adev_->list.size(); ++i) if (!keep.empty() && adev_->list[i].name == keep) adev_->sel = static_cast<int>(i) + 1;
+        status_line_ = "audio devices: " + std::to_string(adev_->list.size()) + " found";
         return;
     }
     if (!arrow && (key == '\r' || key == '\n')) {
-        const std::string pick = adev_sel_ > 0 && adev_sel_ <= static_cast<int>(adev_list_.size()) ? adev_list_[adev_sel_ - 1].name : std::string();
+        const std::string pick = adev_->sel > 0 && adev_->sel <= static_cast<int>(adev_->list.size()) ? adev_->list[adev_->sel - 1].name : std::string();
         settings_.audio_device = pick;
         audio_device_apply();   // moves a playing track there now
         const std::string now = player_.active_device();
         status_line_ = "audio device: " + audio_device_label();
         if (!pick.empty() && !now.empty() && now != pick) status_line_ += " -- could not be opened, the default device plays";
         set_config_value("AudioDevice", pick);    // saved at once, also from Settings (s / ESC there leave it as it is)
-        if (adev_from_settings_) {                // what ESC in Settings goes back to, and no "unsaved changes" for it
+        if (adev_->from_settings) {                // what ESC in Settings goes back to, and no "unsaved changes" for it
             settings_snapshot_.audio_device = pick;
             settings_snapshot_text_ = settings_to_text(settings_snapshot_);
         }
@@ -74,9 +75,9 @@ void App::audio_device_key(int key) {
 }
 
 void App::audio_device_apply() {
-    if (settings_.audio_device == adev_applied_) return;
-    adev_applied_ = settings_.audio_device;
-    player_.set_device(adev_applied_);
+    if (settings_.audio_device == adev_->applied) return;
+    adev_->applied = settings_.audio_device;
+    player_.set_device(adev_->applied);
     if (!has_track_) return;   // nothing open: the next track opens the new device
     device_run([this] {   // on the device worker, like every opening and closing of the device (WASAPI wants one thread)
         if (!player_.reopen_device()) ConsoleLog::instance().log_basic("audio: no audio device could be opened");
@@ -104,28 +105,28 @@ std::vector<std::string> App::build_audio_device_panel() const {
     };
     const std::string active = player_.active_device();
     std::string def_name;
-    for (const AudioOutputDevice& d : adev_list_) if (d.is_default) def_name = d.name;
+    for (const AudioOutputDevice& d : adev_->list) if (d.is_default) def_name = d.name;
 
     std::vector<std::string> lines;
     lines.push_back(box_top("Choose Audio Device", W, border));
     lines.push_back(row("", false));
     {
         const bool chosen = settings_.audio_device.empty();
-        lines.push_back(row(entry(adev_sel_ == 0, "System Default" + (def_name.empty() ? std::string() : " (" + def_name + ")"), chosen ? "in use" : ""), adev_sel_ == 0));
+        lines.push_back(row(entry(adev_->sel == 0, "System Default" + (def_name.empty() ? std::string() : " (" + def_name + ")"), chosen ? "in use" : ""), adev_->sel == 0));
     }
-    for (size_t i = 0; i < adev_list_.size(); ++i) {
+    for (size_t i = 0; i < adev_->list.size(); ++i) {
         const int r = static_cast<int>(i) + 1;
-        const bool chosen = !settings_.audio_device.empty() && settings_.audio_device == adev_list_[i].name;
+        const bool chosen = !settings_.audio_device.empty() && settings_.audio_device == adev_->list[i].name;
         std::string mark = chosen ? "in use" : "";
-        if (chosen && !active.empty() && active != adev_list_[i].name) mark = "not opened";
-        lines.push_back(row(entry(adev_sel_ == r, adev_list_[i].name, mark), adev_sel_ == r));
+        if (chosen && !active.empty() && active != adev_->list[i].name) mark = "not opened";
+        lines.push_back(row(entry(adev_->sel == r, adev_->list[i].name, mark), adev_->sel == r));
     }
     if (!settings_.audio_device.empty()) {   // the chosen device is not there (unplugged): say so instead of hiding it
         bool there = false;
-        for (const AudioOutputDevice& d : adev_list_) if (d.name == settings_.audio_device) there = true;
+        for (const AudioOutputDevice& d : adev_->list) if (d.name == settings_.audio_device) there = true;
         if (!there) lines.push_back(row("  " + truncate_str(settings_.audio_device, inner - 18) + " (not found)", false));
     }
-    if (!adev_err_.empty()) lines.push_back(row("  " + adev_err_, false));
+    if (!adev_->err.empty()) lines.push_back(row("  " + adev_->err, false));
     lines.push_back(row("", false));
     for (const std::string& l : wrap_lines("The choice is the same for the music player, the radio and the audio books. A playing track moves to the new device at once.", inner, 3))
         lines.push_back(row(l, false));

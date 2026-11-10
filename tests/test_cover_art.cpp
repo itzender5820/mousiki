@@ -499,3 +499,22 @@ TEST(a_style_or_look_change_does_not_make_the_cover_load_again) {
     set_cover_track_choice("/music/a.mp3", kCoverNone);   // a different picture is a change of the store
     CHECK(cover_store_revision() != rev);
 }
+
+TEST(a_track_style_keeps_contrast_up_to_150_and_its_own_gradient_saturation) {
+    mt::TempHome home;
+    CoverStyle st;
+    st.contrast = 150;
+    st.gsat = 35;
+    set_cover_track_style("/music/b.mp3", st);
+    CoverStyle r = cover_track_style("/music/b.mp3");
+    CHECK_EQ(r.contrast, 150);
+    CHECK_EQ(r.gsat, 35);
+    CHECK_EQ(r.brightness, -1);                  // the rest stays "as in Settings"
+    CoverStyle only_sat;
+    only_sat.gsat = 0;                           // 0 is a value of its own, not "unset"
+    set_cover_track_style("/music/c.mp3", only_sat);
+    CHECK_EQ(cover_track_style("/music/c.mp3").gsat, 0);
+    CoverStyle none;
+    set_cover_track_style("/music/c.mp3", none); // nothing set at all: the entry is gone
+    CHECK_EQ(cover_track_style("/music/c.mp3").gsat, -1);
+}

@@ -237,8 +237,8 @@ void App::book_load_chapters(const std::string& dir) {
 }
 
 int App::book_current_chapter() const {
-    if (!has_track_ || !current_is_local_) return -1;
-    for (size_t i = 0; i < chapters_.size(); ++i) if (chapters_[i].path == current_path_) return static_cast<int>(i);
+    if (!has_track_ || !current_.is_local) return -1;
+    for (size_t i = 0; i < chapters_.size(); ++i) if (chapters_[i].path == current_.path) return static_cast<int>(i);
     return -1;
 }
 
@@ -263,11 +263,11 @@ void App::book_open(int row) {
     book_load_chapters(book_->dir);
     book_bookmark_load();   // the bookmark and the notes of this book
     book_->note_shown = false;
-    queue_focus_ = true;
+    qst_.focus = true;
     const int cur = book_current_chapter();
     const int mark = book_bookmark_chapter();
-    queue_selected_ = cur >= 0 ? cur : mark >= 0 ? mark : 0;   // the cursor: the chapter that plays, else the one with the bookmark
-    queue_scroll_ = 0;
+    qst_.selected = cur >= 0 ? cur : mark >= 0 ? mark : 0;   // the cursor: the chapter that plays, else the one with the bookmark
+    qst_.scroll = 0;
     book_fit_scroll();
     status_line_ = "book: " + path_utf8(path_from_utf8(book_->dir).filename()) + " (" + std::to_string(chapters_.size()) +
                    (chapters_.size() == 1 ? " chapter)" : " chapters)");
@@ -275,11 +275,11 @@ void App::book_open(int row) {
 
 void App::book_fit_scroll() {
     const int n = static_cast<int>(chapters_.size());
-    queue_selected_ = n == 0 ? 0 : std::clamp(queue_selected_, 0, n - 1);
+    qst_.selected = n == 0 ? 0 : std::clamp(qst_.selected, 0, n - 1);
     const int rows = std::max(1, list_nav_rows());
-    if (queue_selected_ < queue_scroll_) queue_scroll_ = queue_selected_;
-    if (queue_selected_ >= queue_scroll_ + rows) queue_scroll_ = queue_selected_ - rows + 1;
-    queue_scroll_ = std::clamp(queue_scroll_, 0, std::max(0, n - rows));
+    if (qst_.selected < qst_.scroll) qst_.scroll = qst_.selected;
+    if (qst_.selected >= qst_.scroll + rows) qst_.scroll = qst_.selected - rows + 1;
+    qst_.scroll = std::clamp(qst_.scroll, 0, std::max(0, n - rows));
 }
 
 void App::book_play_chapter(int idx) {
@@ -288,7 +288,7 @@ void App::book_play_chapter(int idx) {
     LocalTrack t;
     t.title = c.title;
     t.path = c.path;
-    queue_selected_ = idx;
+    qst_.selected = idx;
     book_fit_scroll();
     start_local_track(t);
 }
@@ -297,7 +297,7 @@ void App::book_play_chapter(int idx) {
 void App::book_step(int delta, bool direct) {
     if (chapters_.empty()) { status_line_ = "no book open (ENTER on a book opens its chapters)"; return; }
     int base = book_current_chapter();
-    if (base < 0) base = std::clamp(queue_selected_, 0, static_cast<int>(chapters_.size()) - 1);
+    if (base < 0) base = std::clamp(qst_.selected, 0, static_cast<int>(chapters_.size()) - 1);
     else base += delta;
     if (base < 0 || base >= static_cast<int>(chapters_.size())) {
         status_line_ = delta > 0 ? "that was the last chapter" : "that is the first chapter";
@@ -360,26 +360,26 @@ void App::book_seek(int dir) {
 // was used (or is not available in this mode).
 bool App::book_intercept(const std::string& action, int key) {
     // [<-] in the library pane inside a folder: one step up (the ".." row)
-    if (last_key_was_arrow() && key == 'D' && !queue_focus_ && last_folder_query_.empty() && !book_->nav.empty() && !folder_view_.empty() && folder_view_[0].up) {
+    if (last_key_was_arrow() && key == 'D' && !qst_.focus && last_folder_query_.empty() && !book_->nav.empty() && !folder_view_.empty() && folder_view_[0].up) {
         book_open(0);
         return true;
     }
     if (action == "HKeyPlay") {
-        if (queue_focus_) { if (!chapters_.empty()) book_go(std::clamp(queue_selected_, 0, static_cast<int>(chapters_.size()) - 1)); }
+        if (qst_.focus) { if (!chapters_.empty()) book_go(std::clamp(qst_.selected, 0, static_cast<int>(chapters_.size()) - 1)); }
         else book_open(selected_);
         return true;
     }
     if (action == "HKeyNavigateUp" || action == "HKeyNavigateDown") {
-        if (!queue_focus_) return false;   // the books list: the normal folder list handling
-        queue_selected_ += action == "HKeyNavigateUp" ? -1 : 1;
+        if (!qst_.focus) return false;   // the books list: the normal folder list handling
+        qst_.selected += action == "HKeyNavigateUp" ? -1 : 1;
         book_fit_scroll();
         return true;
     }
     if (action == "HKeyMetaEditor") { book_tags_open(); return true; }   // the tag editor of the audio book player (no fetching)
-    if (action == "HKeySwitchBetweenCards") { queue_focus_ = !queue_focus_; return true; }
+    if (action == "HKeySwitchBetweenCards") { qst_.focus = !qst_.focus; return true; }
     if (action == "HKeyHistory") { history_open(); return true; }              // the reading history
     if (action == "HKeyRemoveHoveringSongFromQueue") {   // [d] in the chapter pane: delete the bookmark of that chapter (asks first)
-        if (queue_focus_ && !chapters_.empty()) book_delmark_open(std::clamp(queue_selected_, 0, static_cast<int>(chapters_.size()) - 1));
+        if (qst_.focus && !chapters_.empty()) book_delmark_open(std::clamp(qst_.selected, 0, static_cast<int>(chapters_.size()) - 1));
         else status_line_ = "[d] deletes the bookmark of the chapter chosen in the chapter pane";
         return true;
     }
@@ -431,7 +431,7 @@ bool App::book_intercept(const std::string& action, int key) {
         status_line_ = settings_.play_mode == 0 ? "play mode: on to the next chapter" : settings_.play_mode == 1 ? "play mode: repeat the chapter" : "play mode: stop after the chapter";
         return true;
     }
-    if (key == 27 && queue_focus_) { queue_focus_ = false; return true; }   // ESC in the chapter pane: the focus goes back to the library pane
+    if (key == 27 && qst_.focus) { qst_.focus = false; return true; }   // ESC in the chapter pane: the focus goes back to the library pane
     if (key == 27 && last_folder_query_.empty() && !book_->nav.empty() && !folder_view_.empty() && folder_view_[0].up) { book_open(0); return true; }   // ESC inside a folder: one step up
     if (key == 27) {   // ESC (library pane): back to the whole list of books
         last_folder_query_.clear();
@@ -544,9 +544,9 @@ std::array<unsigned char, 256> book_brightness_curve(int brightness) {
 
 const BookCoverScaled& scaled_cover(const CoverData& c, int max_w, int max_h, bool colour, int contrast) {
     static SizeCache<BookCoverScaled, 4> cache;   // (the terminal's and the phone's picture are different sizes: both stay)
-    contrast = std::clamp(contrast, 0, 100);
+    contrast = std::clamp(contrast, 0, 150);
     const std::string key = c.dir + "|" + std::to_string(max_w) + "x" + std::to_string(max_h) + (colour ? "c" : "g") + std::to_string(contrast);
-    // more contrast: values move away from the middle (0 % = unchanged, 100 % = 2.5 times the distance from the middle grey)
+    // more contrast: values move away from the middle (0 % = unchanged, 100 % = 2.5 times the distance from the middle grey, 150 % = 3.25 times)
     const double factor = 1.0 + contrast / 100.0 * 1.5;
     auto punch = [&](unsigned char v) { return static_cast<unsigned char>(std::clamp(static_cast<int>(std::lround((v - 127.5) * factor + 127.5)), 0, 255)); };
     if (const BookCoverScaled* hit = cache.find(key)) return *hit;
@@ -722,9 +722,9 @@ const CoverData* current_cover(const std::string& dir) {
 // What the cover needs and how it stands (the status line after Book Cover is switched). Short on purpose: it must fit the line
 // next to the setting's name; the full story (path, ffmpeg message) is in the console log (t).
 std::string App::book_cover_report() const {
-    if (gfx_proto_ == GfxProto::None)
+    if (gfxs_.proto == GfxProto::None)
         return "no Sixel/Kitty found (OsciImageProtocol=sixel in config.txt)";
-    const std::string proto = gfx_name(gfx_proto_);
+    const std::string proto = gfx_name(gfxs_.proto);
     if (book_->dir.empty()) return proto + " | open a book to see its cover";
     std::string note, nd, src;
     { std::lock_guard<std::mutex> lk(g_cover_note_mutex); note = g_cover_note; nd = g_cover_note_dir; src = g_cover_src; }
@@ -748,7 +748,7 @@ std::string App::book_cover_report() const {
 // the pixel in the colour wave: v = (1 - amount) * d + amount * ripple, d = the diagonal (x + y) / (w + h) of the picture,
 // the same wave as the braille picture's (the cells are twice as tall as wide there, the pixels are square here).
 bool App::book_picture_gfx(int col, int cols, int rows) const {
-    if (!audiobook_ || gfx_proto_ == GfxProto::None || cols < 8 || rows < 4) return false;
+    if (!audiobook_ || gfxs_.proto == GfxProto::None || cols < 8 || rows < 4) return false;
     int cw0 = 10, ch0 = 20;
     gfx_cell_pixels(settings_.cell_pixels, cw0, ch0);
     cw0 = std::max(4, cw0); ch0 = std::max(8, ch0);
@@ -792,7 +792,7 @@ bool App::book_picture_gfx(int col, int cols, int rows) const {
     last_src = src;
     const bool resized = changed_src || g.w != w || g.h != h || g.level.size() != static_cast<size_t>(w) * h || !g.plain || g.id != 0 || g.col != col || g.cols != cols;
     // Cover Colors with Sixel: a fixed palette, drawn `direct` (see cover_colour.h)
-    const bool six_colours = cover && !direct && settings_.cover_colors > 0 && gfx_proto_ == GfxProto::Sixel;
+    const bool six_colours = cover && !direct && settings_.cover_colors > 0 && gfxs_.proto == GfxProto::Sixel;
     g.plain = true;
     g.direct = direct || six_colours;
     g.scale = scale;
@@ -804,7 +804,7 @@ bool App::book_picture_gfx(int col, int cols, int rows) const {
     using clock = std::chrono::steady_clock;
     static clock::time_point last_sent{};
     const auto now = clock::now();
-    const auto gap = std::chrono::milliseconds(gfx_proto_ == GfxProto::Sixel ? 120 : 50);
+    const auto gap = std::chrono::milliseconds(gfxs_.proto == GfxProto::Sixel ? 120 : 50);
     const bool due = resized || now - last_sent >= gap;
     g.active = true;
     g.fresh = due;
@@ -1124,13 +1124,13 @@ std::vector<std::string> App::build_chapter_panel(int total_width, int height) c
         const int room = std::max(4, total_width - 14);
         title += " - " + truncate_str(name, room);
     }
-    if (queue_focus_) title += focus_indicator(settings_, border_ansi);
+    if (qst_.focus) title += focus_indicator(settings_, border_ansi);
     out.push_back(box_top(title, total_width, border_ansi));
 
     const int n = static_cast<int>(chapters_.size());
     const int playing = book_current_chapter();
     for (int row = 0; row < height; ++row) {
-        const int idx = queue_scroll_ + row;
+        const int idx = qst_.scroll + row;
         std::string content;
         bool is_playing = false, is_hover = false, is_bookmark = false;
         if (n == 0) {
@@ -1153,15 +1153,15 @@ std::vector<std::string> App::build_chapter_panel(int total_width, int height) c
             const int idx_w = 3, dur_w = 8;
             const int title_w = std::max(5, inner - idx_w - dur_w - 2 * (display_width(settings_.list_separator) + 1));
             is_playing = idx == playing;
-            is_hover = queue_focus_ && idx == queue_selected_;
+            is_hover = qst_.focus && idx == qst_.selected;
             const bool marked = book_mark_in_chapter(idx) >= 0;   // a chapter with a bookmark is marked; the one with the newest also gets the header colour
             if (marked) is_bookmark = idx == book_bookmark_chapter();
             std::string shown_name = apply_font_map(name, settings_.font_map);
             if (marked) shown_name = "\u25c6 " + shown_name;
             // the chapter name scrolls when it is too long (Settings -> GENERAL -> Marquee Scrolling): the chosen row, or while the pane
             // has no cursor the chapter that plays
-            const bool scroll_row = is_hover || (!queue_focus_ && is_playing);
-            const std::string name_cell = scroll_row ? marquee_or_truncate(shown_name, title_w, idx, marquee_ch_idx_, marquee_ch_since_)
+            const bool scroll_row = is_hover || (!qst_.focus && is_playing);
+            const std::string name_cell = scroll_row ? marquee_or_truncate(shown_name, title_w, idx, marquee_.ch_idx, marquee_.ch_since)
                                                      : pad_right(truncate_str(shown_name, title_w), title_w);
             content = pad_right(apply_font_map(std::to_string(idx + 1), settings_.font_map), idx_w) + settings_.list_separator + " " +
                       name_cell + settings_.list_separator + " " + pad_right(dur, dur_w);
@@ -1175,7 +1175,7 @@ std::vector<std::string> App::build_chapter_panel(int total_width, int height) c
         out.push_back(bar + " " + color_ansi + padded + "\x1b[0m " + bar);
     }
     std::string footer;
-    const int remaining = n - (queue_scroll_ + height);
+    const int remaining = n - (qst_.scroll + height);
     if (remaining > 0) footer = "( " + std::to_string(remaining) + " more )";
     out.push_back(box_bottom(total_width, footer, border_ansi_bottom));
     return out;
@@ -1296,8 +1296,8 @@ bool App::book_ov_dirty() const { return book_->ov_val != book_->ov_orig; }
 
 void App::book_tags_open() {
     if (chapters_.empty()) { status_line_ = "open a book first (ENTER on a book), then SHIFT+m edits the tags of its chapters"; return; }
-    int ch = queue_focus_ ? queue_selected_ : book_current_chapter();
-    if (ch < 0) ch = queue_selected_;
+    int ch = qst_.focus ? qst_.selected : book_current_chapter();
+    if (ch < 0) ch = qst_.selected;
     book_->ov_kind = BookOv::Tags;
     book_ov_load(ch);
     book_->ov_row = 0;
@@ -1411,12 +1411,12 @@ void App::book_finish_job(BookTagJob& job) {
             return;
         }
     }
-    if (has_track_ && current_is_local_) {   // the chapter that plays is held open by the player's decoder: it lets go first
+    if (has_track_ && current_.is_local) {   // the chapter that plays is held open by the player's decoder: it lets go first
         for (const auto& r : rn)
-            if (path_key(r.first) == path_key(current_path_)) {
+            if (path_key(r.first) == path_key(current_.path)) {
                 device_stop();   // on the device worker (see App::device_run())
-                if (current_pcm_) current_pcm_->cancelled.store(true);
-                current_pcm_.reset();
+                if (current_.pcm) current_.pcm->cancelled.store(true);
+                current_.pcm.reset();
                 has_track_ = false;
                 history_end_current_play();
                 std::this_thread::sleep_for(std::chrono::milliseconds(400));
@@ -1448,7 +1448,7 @@ void App::book_finish_job(BookTagJob& job) {
     }
     for (const auto& r : rn) {
         for (auto& c : chapters_) if (c.path == r.first) { c.path = r.second; c.title = path_utf8(r.second.stem()); }   // every reference follows the new name
-        if (path_utf8(current_path_) == path_utf8(r.first)) current_path_ = r.second;
+        if (path_utf8(current_.path) == path_utf8(r.first)) current_.path = r.second;
     }
     job.renamed = static_cast<int>(rn.size());
     {   // the bookmarks, the auto-mark, the chapter marks and the notes name their file: they follow the rename
@@ -1494,7 +1494,7 @@ void App::book_poll() {
         const std::string kind = !settings_.book_cover ? "std" : (current_cover(book_->dir) ? "cover:" + book_->dir : "other:" + book_->dir);
         if (kind != shown_kind) { shown_kind = kind; force_redraw_ = true; }
     }
-    if (settings_.book_cover && gfx_proto_ == GfxProto::None && audiobook_) {
+    if (settings_.book_cover && gfxs_.proto == GfxProto::None && audiobook_) {
         static bool said = false;
         if (!said) { said = true; status_line_ = "book cover: " + book_cover_report(); }
     }
@@ -1504,14 +1504,14 @@ void App::book_poll() {
         static std::string shown;
         if (!note.empty() && nd == book_->dir && shown != nd + note) { shown = nd + note; status_line_ = note + " (the console log, t, has the path)"; }
     }
-    if (has_track_ && current_is_local_ && book_->meta_path != path_utf8(current_path_)) {
-        book_->meta_path = path_utf8(current_path_);
-        book_->meta_vals = book_read_tags(current_path_);
+    if (has_track_ && current_.is_local && book_->meta_path != path_utf8(current_.path)) {
+        book_->meta_path = path_utf8(current_.path);
+        book_->meta_vals = book_read_tags(current_.path);
     }
     if (!has_track_) book_->meta_path.clear();
     // a chapter that was started "at" a time: once it is loaded, go there
     if (book_->seek_pending) {
-        if (has_track_ && current_is_local_ && path_utf8(current_path_) == book_->seek_file && !load_in_progress_.load()) {
+        if (has_track_ && current_.is_local && path_utf8(current_.path) == book_->seek_file && !load_in_progress_.load()) {
             player_.seek_relative(book_->seek_sec - player_.poll_elapsed());
             book_->seek_pending = false;
             book_->prev_elapsed = book_->seek_sec;
@@ -1539,7 +1539,7 @@ void App::book_poll() {
             std::lock_guard<std::mutex> lk(row_meta_mutex_);   // the tags and names on disk changed: the cached row data is stale
             row_meta_cache_.clear();
         }
-        search_idx_.clear();
+        search_.idx.clear();
         if (job.ok > 0 || job.renamed > 0) rescan_library();   // names and tags changed: the lists read them again
         return;
     }

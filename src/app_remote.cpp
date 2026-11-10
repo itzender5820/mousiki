@@ -2,6 +2,8 @@
 // Part of class App (src/app.h): Mode switch, the remote control (phone / command line) and the actions they trigger.
 // Split out of app.cpp; the includes are the same as there.
 #include "app.h"
+#include "app_state_fo.h"
+#include "app_state_phone.h"
 #include "meta_state.h"
 #include "book_state.h"
 #include "text_edit.h"
@@ -247,24 +249,24 @@ void App::remote_poll() {
         else if (n == "playback-mode") act_cycle_play_mode();
         else if (n == "wizard") act_wizard_toggle();
         else if (n == "remote-view") {
-            phone_view_ = remote::number(c.arg, 0) > 0.5 ? 1 : 0;
-            phone_note_.clear();
-            phone_clear_armed_ = {};
-            if (phone_view_ == 1 && audiobook_) phone_book_reveal();   // the library tree opens at the book that is open
-            else if (phone_view_ == 1) {   // the local list opens on the page of the playing title
+            phone_->view = remote::number(c.arg, 0) > 0.5 ? 1 : 0;
+            phone_->note.clear();
+            phone_->clear_armed = {};
+            if (phone_->view == 1 && audiobook_) phone_book_reveal();   // the library tree opens at the book that is open
+            else if (phone_->view == 1) {   // the local list opens on the page of the playing title
                 int cols = 44, rows = 44;
                 remote::net::screen_wanted(cols, rows);
                 int per = 0, per2 = 0;
                 remote::net::phone_lists_rows(rows, per, per2);
                 int at = -1;
-                if (has_track_ && current_is_local_)
-                    for (size_t i = 0; i < local_view_.size(); ++i) if (local_view_[i].path == current_path_) { at = static_cast<int>(i); break; }
-                phone_page_ = at >= 0 ? at / per : 0;
-                phone_page2_ = 0;
-                phone_focus_ = 0;
+                if (has_track_ && current_.is_local)
+                    for (size_t i = 0; i < local_view_.size(); ++i) if (local_view_[i].path == current_.path) { at = static_cast<int>(i); break; }
+                phone_->page = at >= 0 ? at / per : 0;
+                phone_->page2 = 0;
+                phone_->focus = 0;
             }
         }
-        else if (n == "remote-focus") { phone_focus_ = remote::number(c.arg, 0) > 0.5 ? 1 : 0; }
+        else if (n == "remote-focus") { phone_->focus = remote::number(c.arg, 0) > 0.5 ? 1 : 0; }
         else if (n == "remote-scroll") {   // a whole page of the pane in focus
             int cols = 44, rows = 44;
             remote::net::screen_wanted(cols, rows);
@@ -273,13 +275,13 @@ void App::remote_poll() {
             const int step = static_cast<int>(remote::number(c.arg, 0));
             if (audiobook_) {   // one pane: the whole library tree
                 const int pages = std::max(1, (static_cast<int>(phone_book_rows().size()) + per + per2 - 2) / std::max(1, per + per2 - 1));
-                phone_page_ = std::clamp(phone_page_ + step, 0, pages - 1);
-            } else if (phone_focus_ == 0) {
+                phone_->page = std::clamp(phone_->page + step, 0, pages - 1);
+            } else if (phone_->focus == 0) {
                 const int pages = std::max(1, (static_cast<int>(local_view_.size()) + per - 1) / per);
-                phone_page_ = std::clamp(phone_page_ + step, 0, pages - 1);
+                phone_->page = std::clamp(phone_->page + step, 0, pages - 1);
             } else {
                 const int pages = std::max(1, (static_cast<int>(playlist_summaries().size()) + per2 - 1) / per2);
-                phone_page2_ = std::clamp(phone_page2_ + step, 0, pages - 1);
+                phone_->page2 = std::clamp(phone_->page2 + step, 0, pages - 1);
             }
         }
         else if (n == "book-open" || (n == "track" && audiobook_)) {   // the phone's library tree (1 = its first row)
@@ -288,17 +290,17 @@ void App::remote_poll() {
             if (k >= 0 && k < static_cast<int>(rows.size())) {
                 const FoRow& r = rows[static_cast<size_t>(k)];
                 if (r.is_dir) {   // a folder opens / closes
-                    if (!phone_book_open_.erase(r.path)) phone_book_open_.insert(r.path);
+                    if (!phone_->book_open.erase(r.path)) phone_->book_open.insert(r.path);
                 } else if (book_open_dir(path_utf8(path_from_utf8(r.path).parent_path()))) {   // a chapter plays from its start (no questions)
                     for (size_t i = 0; i < chapters_.size(); ++i)
                         if (path_utf8(chapters_[i].path) == r.path) {
                             book_automark_tick(true);
                             book_->prompt_paused = false;
                             book_play_chapter(static_cast<int>(i));
-                            phone_note_ = "playing " + path_utf8(path_from_utf8(r.path).stem());
+                            phone_->note = "playing " + path_utf8(path_from_utf8(r.path).stem());
                             break;
                         }
-                } else phone_note_ = "that book is no longer in the library";
+                } else phone_->note = "that book is no longer in the library";
             }
         }
         else if (n == "track") {   // the phone's local list: play that title (1 = the first title of the list)
@@ -311,20 +313,20 @@ void App::remote_poll() {
                     if (selected_ < scroll_) scroll_ = selected_;
                 }
                 start_local_track(t);
-                phone_note_ = "playing " + t.title;
+                phone_->note = "playing " + t.title;
             }
         }
         else if (n == "clear-queue") {   // the phone taps twice (arg 0 arms, 1 clears); the command line clears at once
-            if (queue_.empty()) phone_note_ = "the queue is empty";
+            if (queue_.empty()) phone_->note = "the queue is empty";
             else if (c.arg == "0") {
-                phone_clear_armed_ = std::chrono::steady_clock::now();
-                phone_note_ = "tap again to clear " + std::to_string(queue_.size()) + (queue_.size() == 1 ? " title" : " titles");
+                phone_->clear_armed = std::chrono::steady_clock::now();
+                phone_->note = "tap again to clear " + std::to_string(queue_.size()) + (queue_.size() == 1 ? " title" : " titles");
             } else {
                 const size_t was = queue_.size();
                 queue_clear();
-                phone_clear_armed_ = {};
-                phone_note_ = "queue cleared (" + std::to_string(was) + (was == 1 ? " title)" : " titles)");
-                status_line_ = phone_note_;
+                phone_->clear_armed = {};
+                phone_->note = "queue cleared (" + std::to_string(was) + (was == 1 ? " title)" : " titles)");
+                status_line_ = phone_->note;
             }
         }
         else if (n == "playlist") {   // the phone's PLAYLISTS list (1 = the first playlist in A-Z order)
@@ -332,9 +334,9 @@ void App::remote_poll() {
             const int k = static_cast<int>(remote::number(c.arg, 0)) - 1;
             if (k >= 0 && k < static_cast<int>(pls.size())) {
                 const bool idle = !has_track_;
-                phone_note_ = queue_playlist(pls[static_cast<size_t>(k)].name);
-                status_line_ = phone_note_;
-                if (idle && !queue_.empty()) { play_next_from_queue(); phone_note_ += " -- playing"; }
+                phone_->note = queue_playlist(pls[static_cast<size_t>(k)].name);
+                status_line_ = phone_->note;
+                if (idle && !queue_.empty()) { play_next_from_queue(); phone_->note += " -- playing"; }
             }
         }
         else if (n == "switch-mode") request_mode_switch(remote::number(c.arg, 1) < 0 ? -1 : 1);   // (-1: the previous mode)
@@ -358,7 +360,7 @@ void App::remote_poll() {
 }
 
 
-// The phone's audio book LISTS: the library overlay's tree (folders, books, chapters), walked with phone_book_open_.
+// The phone's audio book LISTS: the library overlay's tree (folders, books, chapters), walked with phone_->book_open.
 std::vector<App::FoRow> App::phone_book_rows() const {
     std::vector<FoRow> out;
     std::function<void(const std::string&, int)> emit = [&](const std::string& d, int depth) {
@@ -367,15 +369,15 @@ std::vector<App::FoRow> App::phone_book_rows() const {
         r.label = fo_name_of(d);
         r.is_dir = true;
         r.depth = depth;
-        r.expanded = phone_book_open_.count(d) > 0;
-        const auto c = fo_count_.find(d);
-        r.count = c == fo_count_.end() ? 0 : c->second;
+        r.expanded = phone_->book_open.count(d) > 0;
+        const auto c = fo_->count.find(d);
+        r.count = c == fo_->count.end() ? 0 : c->second;
         out.push_back(r);
         if (!r.expanded) return;
-        const auto sd = fo_subdirs_.find(d);
-        if (sd != fo_subdirs_.end()) for (const auto& x : sd->second) emit(x, depth + 1);
-        const auto f = fo_files_.find(d);
-        if (f != fo_files_.end())
+        const auto sd = fo_->subdirs.find(d);
+        if (sd != fo_->subdirs.end()) for (const auto& x : sd->second) emit(x, depth + 1);
+        const auto f = fo_->files.find(d);
+        if (f != fo_->files.end())
             for (const auto& file : f->second) {
                 FoRow fr;
                 fr.path = file;
@@ -384,7 +386,7 @@ std::vector<App::FoRow> App::phone_book_rows() const {
                 out.push_back(fr);
             }
     };
-    for (const auto& r : fo_roots_) emit(r, 0);
+    for (const auto& r : fo_->roots) emit(r, 0);
     return out;
 }
 
@@ -392,14 +394,14 @@ std::vector<App::FoRow> App::phone_book_rows() const {
 // is opened, the page is the one that shows it.
 void App::phone_book_reveal() {
     folder_overlay_build_tree();
-    phone_page_ = 0;
-    phone_note_.clear();
+    phone_->page = 0;
+    phone_->note.clear();
     if (book_->dir.empty()) return;
-    phone_book_open_.insert(book_->dir);
-    std::set<std::string> roots(fo_roots_.begin(), fo_roots_.end());
+    phone_->book_open.insert(book_->dir);
+    std::set<std::string> roots(fo_->roots.begin(), fo_->roots.end());
     std::string k = path_utf8(path_from_utf8(book_->dir).parent_path());
     while (!k.empty()) {
-        if (fo_subdirs_.count(k)) phone_book_open_.insert(k);
+        if (fo_->subdirs.count(k)) phone_->book_open.insert(k);
         if (roots.count(k)) break;
         const std::string par = path_utf8(path_from_utf8(k).parent_path());
         if (par.empty() || par == k) break;
@@ -412,7 +414,7 @@ void App::phone_book_reveal() {
     const int page_rows = std::max(1, per + per2 - 1);
     const std::vector<FoRow> v = phone_book_rows();
     for (size_t i = 0; i < v.size(); ++i)
-        if (v[i].path == book_->dir) { phone_page_ = static_cast<int>(i) / page_rows; break; }
+        if (v[i].path == book_->dir) { phone_->page = static_cast<int>(i) / page_rows; break; }
 }
 
 } // namespace muisc

@@ -5,6 +5,8 @@
 // choose one (ENTER); a single hit is the choice already. Only songs with an active choice are downloaded (into <download folder>/video_down)
 // and paired with their song.
 #include "app.h"
+#include "app_state_vf.h"
+#include "app_state_vm.h"
 #include "app_internal.h"
 #include "console_log.h"
 #include "metadata_probe.h"
@@ -124,8 +126,8 @@ void App::video_fetch_rebuild_list() {
     for (const LocalTrack& t : *src)
         if (LocalSource::is_video_file(t.path)) have.insert(vf_lower(path_utf8(t.path.parent_path())) + "/" + vf_lower(path_utf8(t.path.stem())));
     std::unordered_map<std::string, VFEntry> old;   // what was found and chosen stays when the list is built again
-    if (!vf_saved_loaded_) {   // what the last time left (video_fetch_state.json): the searches and the choices of the songs that were not downloaded
-        vf_saved_loaded_ = true;
+    if (!vfs_->saved_loaded) {   // what the last time left (video_fetch_state.json): the searches and the choices of the songs that were not downloaded
+        vfs_->saved_loaded = true;
         std::ifstream in(config_path().parent_path() / "video_fetch_state.json", std::ios::binary);
         std::stringstream ss;
         ss << in.rdbuf();
@@ -153,15 +155,15 @@ void App::video_fetch_rebuild_list() {
                         e.searched = true;
                         const int ch = static_cast<int>(tinyjson::number_field(sv, "choice", -1.0));
                         e.choice = ch >= 0 && ch < static_cast<int>(e.cands.size()) ? ch : -1;
-                        vf_saved_[path] = std::move(e);
+                        vfs_->saved[path] = std::move(e);
                     }
                 }
             }
         }
     }
-    for (VFEntry& e : vf_all_) old[path_utf8(e.path)] = std::move(e);
-    vf_all_.clear();
-    const std::string playing = (has_track_ && !current_path_.empty()) ? path_utf8(current_path_) : std::string();
+    for (VFEntry& e : vfs_->all) old[path_utf8(e.path)] = std::move(e);
+    vfs_->all.clear();
+    const std::string playing = (has_track_ && !current_.path.empty()) ? path_utf8(current_.path) : std::string();
     for (const LocalTrack& t : *src) {
         if (LocalSource::is_video_file(t.path)) continue;
         const std::string key = path_utf8(t.path);
@@ -169,38 +171,38 @@ void App::video_fetch_rebuild_list() {
         std::error_code ec;
         bool has = (!linked.empty() && fs::exists(path_from_utf8(linked), ec)) ||
                    have.count(vf_lower(path_utf8(t.path.parent_path())) + "/" + vf_lower(path_utf8(t.path.stem()))) > 0;
-        if (vf_filter_ == 0 && has && key != playing) continue;   // missing video only (the playing song stays: it can be re-fetched)
-        if (vf_filter_ == 2 && !has) continue;                    // songs with a video only
+        if (vfs_->filter == 0 && has && key != playing) continue;   // missing video only (the playing song stays: it can be re-fetched)
+        if (vfs_->filter == 2 && !has) continue;                    // songs with a video only
         VFEntry e;
         const auto it = old.find(key);
         if (it != old.end()) e = std::move(it->second);
-        else if (!has) { const auto sv = vf_saved_.find(key); if (sv != vf_saved_.end()) e = sv->second; }   // (searched and chosen the last time)
+        else if (!has) { const auto sv = vfs_->saved.find(key); if (sv != vfs_->saved.end()) e = sv->second; }   // (searched and chosen the last time)
         e.path = t.path;
         e.has_video = has;
         e.label = (t.folder_artist.empty() || t.folder_artist == "-") ? t.title : t.folder_artist + " - " + t.title;
         e.folder = path_utf8(t.path.parent_path().filename());
         e.hay = vf_lower(with_latin_spelling(e.label) + " " + path_utf8(t.path.filename()) + " " + e.folder);
         e.searching = false; e.queued = false;
-        vf_all_.push_back(std::move(e));
+        vfs_->all.push_back(std::move(e));
     }
-    std::sort(vf_all_.begin(), vf_all_.end(), [](const VFEntry& a, const VFEntry& b) { return vf_lower(a.label) < vf_lower(b.label); });
-    vf_queue_.clear();
-    video_fetch_refilter();
+    std::sort(vfs_->all.begin(), vfs_->all.end(), [](const VFEntry& a, const VFEntry& b) { return vf_lower(a.label) < vf_lower(b.label); });
+    vfs_->queue.clear();
+    vfs_->video_fetch_refilter();
 }
 
 // The found videos and the choices are kept in video_fetch_state.json (next to config.txt) at every change: leaving the overlay without
 // downloading loses nothing. Songs that are not listed at the moment keep what they had; a song that has its video now, or whose file is
 // gone, is dropped.
-void App::video_fetch_save_state() {
-    for (const VFEntry& e : vf_all_) {
+void App::VfState::video_fetch_save_state() {
+    for (const VFEntry& e : all) {
         const std::string key = path_utf8(e.path);
-        if (e.cands.empty() || (e.has_video && !e.refetch)) vf_saved_.erase(key);
-        else vf_saved_[key] = e;
+        if (e.cands.empty() || (e.has_video && !e.refetch)) saved.erase(key);
+        else saved[key] = e;
     }
     tinyjson::Value songs = tinyjson::Value::make_arr();
-    for (auto it = vf_saved_.begin(); it != vf_saved_.end();) {
+    for (auto it = saved.begin(); it != saved.end();) {
         std::error_code ec;
-        if (!fs::exists(it->second.path, ec)) { it = vf_saved_.erase(it); continue; }
+        if (!fs::exists(it->second.path, ec)) { it = saved.erase(it); continue; }
         const VFEntry& e = it->second;
         tinyjson::Value sv = tinyjson::Value::make_obj();
         sv.set("path", tinyjson::Value::make_str(it->first));
@@ -223,7 +225,7 @@ void App::video_fetch_save_state() {
     root.set("songs", std::move(songs));
     const fs::path p = config_path().parent_path() / "video_fetch_state.json";
     std::error_code ec;
-    if (vf_saved_.empty()) { fs::remove(p, ec); return; }
+    if (saved.empty()) { fs::remove(p, ec); return; }
     fs::path tmp = p;
     tmp += ".tmp";
     {
@@ -236,50 +238,50 @@ void App::video_fetch_save_state() {
 
 void App::video_fetch_refilter_keep() {
     std::string keep;
-    if (const VFEntry* h = video_fetch_hovered()) keep = path_utf8(h->path);
-    video_fetch_refilter();
-    for (size_t k = 0; k < vf_view_.size() && !keep.empty(); ++k)
-        if (path_utf8(vf_all_[static_cast<size_t>(vf_view_[k])].path) == keep) { vf_sel_ = static_cast<int>(k); break; }
+    if (const VFEntry* h = vfs_->video_fetch_hovered()) keep = path_utf8(h->path);
+    vfs_->video_fetch_refilter();
+    for (size_t k = 0; k < vfs_->view.size() && !keep.empty(); ++k)
+        if (path_utf8(vfs_->all[static_cast<size_t>(vfs_->view[k])].path) == keep) { vfs_->sel = static_cast<int>(k); break; }
 }
 
-void App::video_fetch_refilter() {
+void App::VfState::video_fetch_refilter() {
     std::vector<std::string> words;
     std::string cur;
-    for (char c : vf_lower(vf_query_)) {
+    for (char c : vf_lower(query)) {
         if (c == ' ') { if (!cur.empty()) words.push_back(cur); cur.clear(); } else cur += c;
     }
     if (!cur.empty()) words.push_back(cur);
-    vf_view_.clear();
-    for (size_t i = 0; i < vf_all_.size(); ++i) {
+    view.clear();
+    for (size_t i = 0; i < all.size(); ++i) {
         bool ok = true;
-        for (const std::string& w : words) if (vf_all_[i].hay.find(w) == std::string::npos) { ok = false; break; }
-        if (ok && vf_filter_ == 3 && vf_all_[i].choice < 0) ok = false;   // only the songs with a chosen video
-        if (ok) vf_view_.push_back(static_cast<int>(i));
+        for (const std::string& w : words) if (all[i].hay.find(w) == std::string::npos) { ok = false; break; }
+        if (ok && filter == 3 && all[i].choice < 0) ok = false;   // only the songs with a chosen video
+        if (ok) view.push_back(static_cast<int>(i));
     }
-    vf_sel_ = std::clamp(vf_sel_, 0, std::max(0, static_cast<int>(vf_view_.size()) - 1));
+    sel = std::clamp(sel, 0, std::max(0, static_cast<int>(view.size()) - 1));
 }
 
-const App::VFEntry* App::video_fetch_hovered() const {
-    if (vf_view_.empty()) return nullptr;
-    return &vf_all_[static_cast<size_t>(vf_view_[static_cast<size_t>(std::clamp(vf_sel_, 0, static_cast<int>(vf_view_.size()) - 1))])];
+const App::VFEntry* App::VfState::video_fetch_hovered() const {
+    if (view.empty()) return nullptr;
+    return &all[static_cast<size_t>(view[static_cast<size_t>(std::clamp(sel, 0, static_cast<int>(view.size()) - 1))])];
 }
 
 void App::video_fetch_open(const fs::path& focus) {
-    const fs::path target = focus.empty() ? (has_track_ ? current_path_ : fs::path()) : focus;   // (the song the cursor starts on)
-    vf_focus_ = 1;
-    vf_tab_ = 0;
-    vm_confirm_.clear();
-    vf_cand_sel_ = 0;
-    vf_warn_ = false;
-    vf_filter_ = (!target.empty() && !LocalSource::is_video_file(target) && !video_source_for(target).empty()) ? 1 : 0;   // (a song with a video is listed too, the cursor stands on it)
-    vf_confirm_.clear();
-    vf_msg_.clear();
-    vf_hover_.clear();
-    vf_pic_key_.clear();
-    vf_query_.clear();     // (a filter from the last time would hide the playing song)
+    const fs::path target = focus.empty() ? (has_track_ ? current_.path : fs::path()) : focus;   // (the song the cursor starts on)
+    vfs_->focus = 1;
+    vfs_->tab = 0;
+    vm_->confirm.clear();
+    vfs_->cand_sel = 0;
+    vfs_->warn = false;
+    vfs_->filter = (!target.empty() && !LocalSource::is_video_file(target) && !video_source_for(target).empty()) ? 1 : 0;   // (a song with a video is listed too, the cursor stands on it)
+    vfs_->confirm.clear();
+    vfs_->msg.clear();
+    vfs_->hover.clear();
+    vfs_->pic_key.clear();
+    vfs_->query.clear();     // (a filter from the last time would hide the playing song)
     edit_owner_.clear();
     video_fetch_rebuild_list();
-    vf_sel_ = 0;
+    vfs_->sel = 0;
     // the cursor stands on the playing song
     if (!target.empty() && !LocalSource::is_video_file(target)) {
         auto same = [&](const fs::path& a) {
@@ -288,29 +290,29 @@ void App::video_fetch_open(const fs::path& focus) {
             return fs::equivalent(a, target, ec);
         };
         int at = -1;
-        for (size_t k = 0; k < vf_view_.size() && at < 0; ++k)
-            if (same(vf_all_[static_cast<size_t>(vf_view_[k])].path)) at = static_cast<int>(k);
+        for (size_t k = 0; k < vfs_->view.size() && at < 0; ++k)
+            if (same(vfs_->all[static_cast<size_t>(vfs_->view[k])].path)) at = static_cast<int>(k);
         if (at < 0) {   // not in the scanned library (opened from elsewhere): it is listed all the same
             VFEntry e;
             e.path = target;
-            const bool playing = has_track_ && target == current_path_;
+            const bool playing = has_track_ && target == current_.path;
             const TrackMetadata md = playing ? display_metadata() : TrackMetadata();
             e.label = (md.artist.empty() || md.artist == "-") ? (md.name.empty() || md.name == "-" ? path_utf8(target.stem()) : md.name) : md.artist + " - " + md.name;
             e.folder = path_utf8(target.parent_path().filename());
             e.hay = vf_lower(with_latin_spelling(e.label) + " " + path_utf8(target.filename()) + " " + e.folder);
             e.has_video = !video_source_for(target).empty();
-            vf_all_.insert(vf_all_.begin(), std::move(e));
-            video_fetch_refilter();
+            vfs_->all.insert(vfs_->all.begin(), std::move(e));
+            vfs_->video_fetch_refilter();
             at = 0;
         }
-        vf_sel_ = at;
+        vfs_->sel = at;
     }
     mode_ = Mode::VideoFetch;
     force_redraw_ = true;
 }
 
 void App::video_fetch_close() {
-    video_fetch_save_state();
+    vfs_->video_fetch_save_state();
     text_disengage();
     gfx_.active = false;
     mode_ = Mode::Browse;   // (a running download goes on; its end is reported in the status line)
@@ -327,20 +329,20 @@ void App::video_fetch_cancel_and_join() {
     vf_.running = false;
 }
 
-void App::video_fetch_enqueue(const std::string& path, bool front) {
-    for (VFEntry& e : vf_all_) {
+void App::VfState::video_fetch_enqueue(const std::string& path, bool front) {
+    for (VFEntry& e : all) {
         if (path_utf8(e.path) != path || e.searched || e.searching || e.queued || (e.has_video && !e.refetch)) continue;
         e.queued = true;
-        if (front) vf_queue_.push_front(path); else vf_queue_.push_back(path);
+        if (front) queue.push_front(path); else queue.push_back(path);
         return;
     }
 }
 
-int App::video_fetch_nav(int selected, int total, bool up) const {
+int App::VfState::video_fetch_nav(int selected, int total, bool up) const {
     if (total <= 0) return 0;
     int to;
     if (last_key_was_ctrl()) to = up ? 0 : total - 1;
-    else if (last_key_was_shifted()) to = selected + (up ? -1 : 1) * std::max(1, vf_page_rows_);
+    else if (last_key_was_shifted()) to = selected + (up ? -1 : 1) * std::max(1, page_rows);
     else to = selected + (up ? -1 : 1);
     return std::clamp(to, 0, total - 1);
 }
@@ -355,51 +357,51 @@ void App::video_fetch_poll() {
     }
     if (mode_ == Mode::VideoFetch) {
         // a finished search
-        if (!vf_searching_.empty() && vf_search_.valid() && vf_search_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-            std::vector<OnlineResult> hits = vf_search_.get();
-            for (VFEntry& e : vf_all_) {
-                if (path_utf8(e.path) != vf_searching_) continue;
+        if (!vfs_->searching.empty() && vfs_->search.valid() && vfs_->search.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            std::vector<OnlineResult> hits = vfs_->search.get();
+            for (VFEntry& e : vfs_->all) {
+                if (path_utf8(e.path) != vfs_->searching) continue;
                 e.searching = false;
                 e.searched = true;
                 e.cands = std::move(hits);
                 e.choice = e.cands.size() == 1 ? 0 : -1;   // one hit is the choice; several ones have to be chosen
-                if (e.cands.empty()) {   // (the exact texts searched are named: a search that finds nothing can be compared with /sv:)
-                    vf_msg_ = "nothing found for: " + vf_last_queries_;
-                    vf_warn_ = true;
-                    log_event("video fetch: nothing found for: " + vf_last_queries_);
+                if (e.cands.empty()) {   // (the exact texts searched are named: a search that finds nothing can be compared with /yv:)
+                    vfs_->msg = "nothing found for: " + vfs_->last_queries;
+                    vfs_->warn = true;
+                    log_event("video fetch: nothing found for: " + vfs_->last_queries);
                 }
                 break;
             }
             bool auto_go = false;
-            for (VFEntry& e : vf_all_) {   // "Refetch this Video": the closest hit is chosen and downloaded by itself
-                if (path_utf8(e.path) != vf_searching_ || vf_auto_ != vf_searching_) continue;
+            for (VFEntry& e : vfs_->all) {   // "Refetch this Video": the closest hit is chosen and downloaded by itself
+                if (path_utf8(e.path) != vfs_->searching || vfs_->v_auto != vfs_->searching) continue;
                 if (!e.cands.empty()) { const int c = vf_closest(e.cands, e.seconds); e.choice = c >= 0 ? c : 0; auto_go = true; }
-                vf_auto_.clear();
+                vfs_->v_auto.clear();
             }
-            vf_searching_.clear();
-            video_fetch_save_state();
-            if (vf_filter_ == 3) video_fetch_refilter_keep();
+            vfs_->searching.clear();
+            vfs_->video_fetch_save_state();
+            if (vfs_->filter == 3) video_fetch_refilter_keep();
             if (auto_go) video_fetch_start();
             force_redraw_ = true;
         }
         // the search of the song under the cursor starts by itself when the cursor has rested there for a moment
-        if (const VFEntry* h = vf_tab_ == 0 ? video_fetch_hovered() : nullptr) {
+        if (const VFEntry* h = vfs_->tab == 0 ? vfs_->video_fetch_hovered() : nullptr) {
             const std::string hp = path_utf8(h->path);
             const auto now = std::chrono::steady_clock::now();
-            if (hp != vf_hover_) {
-                vf_hover_ = hp; vf_hover_since_ = now;
+            if (hp != vfs_->hover) {
+                vfs_->hover = hp; vfs_->hover_since = now;
                 const RowMeta rm = meta_row_meta(h->path);   // (the cheap native tag reader; cached)
                 std::string tg;
                 for (const std::string& part : {rm.title, rm.artist, rm.album}) if (!part.empty() && part != "-") tg += (tg.empty() ? "" : "  /  ") + part;
-                for (VFEntry& x : vf_all_) if (x.path == h->path) x.tags = tg;
+                for (VFEntry& x : vfs_->all) if (x.path == h->path) x.tags = tg;
             }
-            else if (!h->searched && !h->searching && !h->queued && now - vf_hover_since_ >= std::chrono::milliseconds(250)) video_fetch_enqueue(hp, true);
+            else if (!h->searched && !h->searching && !h->queued && now - vfs_->hover_since >= std::chrono::milliseconds(250)) vfs_->video_fetch_enqueue(hp, true);
         }
         // the next search of the queue
-        if (vf_searching_.empty() && !vf_queue_.empty()) {
-            const std::string path = vf_queue_.front();
-            vf_queue_.pop_front();
-            for (VFEntry& e : vf_all_) {
+        if (vfs_->searching.empty() && !vfs_->queue.empty()) {
+            const std::string path = vfs_->queue.front();
+            vfs_->queue.pop_front();
+            for (VFEntry& e : vfs_->all) {
                 if (path_utf8(e.path) != path) continue;
                 e.queued = false;
                 if (e.searched) break;
@@ -408,13 +410,13 @@ void App::video_fetch_poll() {
                 std::vector<std::string> queries;
                 const std::string by_name = vf_search_text(vf_without_track_number(path_utf8(e.path.stem())));
                 const std::string by_tags = !rm.title.empty() ? vf_search_text(rm.artist.empty() ? rm.title : rm.artist + " " + rm.title) : std::string();
-                if (vf_src_ != 2 || by_tags.empty()) queries.push_back(by_name);
-                if (vf_src_ != 1 && !by_tags.empty() && vf_lower(by_tags) != vf_lower(by_name)) queries.push_back(by_tags);
+                if (vfs_->src != 2 || by_tags.empty()) queries.push_back(by_name);
+                if (vfs_->src != 1 && !by_tags.empty() && vf_lower(by_tags) != vf_lower(by_name)) queries.push_back(by_tags);
                 e.searching = true;
-                vf_searching_ = path;
-                vf_last_queries_.clear();
-                for (const std::string& q : queries) vf_last_queries_ += (vf_last_queries_.empty() ? "\"" : " | \"") + q + "\"";
-                vf_search_ = std::async(std::launch::async, [queries]() {
+                vfs_->searching = path;
+                vfs_->last_queries.clear();
+                for (const std::string& q : queries) vfs_->last_queries += (vfs_->last_queries.empty() ? "\"" : " | \"") + q + "\"";
+                vfs_->search = std::async(std::launch::async, [queries]() {
                     std::vector<std::vector<OnlineResult>> lists;
                     for (const std::string& q : queries) { OnlineSource src; auto hits = src.search_videos(q, 10);
                         if (hits.empty()) hits = src.search_videos(q, 10);   // (one more try: a single failed yt-dlp call must not empty the list)
@@ -452,10 +454,10 @@ void App::video_fetch_poll() {
     if (vf_.linked.exchange(false)) { ++video_rev_; video_for_track_.clear(); }
     std::string replaced_note;
     for (const std::string& dp : done_paths) {   // "Refetch this Video": the old downloaded file goes once the new one is connected
-        const auto it = vf_replace_.find(dp);
-        if (it == vf_replace_.end()) continue;
+        const auto it = vfs_->replace.find(dp);
+        if (it == vfs_->replace.end()) continue;
         const std::string old = it->second;
-        vf_replace_.erase(it);
+        vfs_->replace.erase(it);
         const std::string now = VideoLinks::get().video_for(dp);
         if (old.empty() || old == now) continue;
         bool other_users = false;
@@ -471,31 +473,31 @@ void App::video_fetch_poll() {
     status_line_ = msg;
     log_event(msg);
     if (mode_ == Mode::VideoFetch) {
-        vf_msg_ = msg;
-        vf_warn_ = failed > 0;
+        vfs_->msg = msg;
+        vfs_->warn = failed > 0;
         // the songs that have their video now leave the list
-        vf_all_.erase(std::remove_if(vf_all_.begin(), vf_all_.end(), [&](const VFEntry& e) {
-            return std::find(done_paths.begin(), done_paths.end(), path_utf8(e.path)) != done_paths.end() && path_utf8(e.path) != (has_track_ ? path_utf8(current_path_) : std::string());
-        }), vf_all_.end());
-        for (VFEntry& e : vf_all_)
+        vfs_->all.erase(std::remove_if(vfs_->all.begin(), vfs_->all.end(), [&](const VFEntry& e) {
+            return std::find(done_paths.begin(), done_paths.end(), path_utf8(e.path)) != done_paths.end() && path_utf8(e.path) != (has_track_ ? path_utf8(current_.path) : std::string());
+        }), vfs_->all.end());
+        for (VFEntry& e : vfs_->all)
             if (std::find(done_paths.begin(), done_paths.end(), path_utf8(e.path)) != done_paths.end()) { e.has_video = true; e.refetch = false; e.choice = -1; e.cands.clear(); e.searched = false; }
-        video_fetch_refilter();
-        video_fetch_save_state();
+        vfs_->video_fetch_refilter();
+        vfs_->video_fetch_save_state();
     }
     force_redraw_ = true;
 }
 
 void App::video_fetch_start(bool only_current) {
-    if (vf_.running) { vf_msg_ = "a download is running already"; vf_warn_ = true; return; }
+    if (vf_.running) { vfs_->msg = "a download is running already"; vfs_->warn = true; return; }
     std::vector<VFJob> jobs;
     int undecided = 0;
     std::string only;   // only_current: the song under the cursor
     if (only_current) {
-        const VFEntry* h = video_fetch_hovered();
-        if (!h) { vf_msg_ = "no song selected"; vf_warn_ = true; return; }
+        const VFEntry* h = vfs_->video_fetch_hovered();
+        if (!h) { vfs_->msg = "no song selected"; vfs_->warn = true; return; }
         only = path_utf8(h->path);
     }
-    for (const VFEntry& e : vf_all_) {
+    for (const VFEntry& e : vfs_->all) {
         if (only_current && path_utf8(e.path) != only) continue;
         if (e.choice < 0 || static_cast<size_t>(e.choice) >= e.cands.size()) { if (e.cands.size() > 1) ++undecided; continue; }
         VFJob j;
@@ -508,16 +510,16 @@ void App::video_fetch_start(bool only_current) {
         jobs.push_back(std::move(j));
     }
     if (jobs.empty()) {
-        vf_msg_ = only_current ? (undecided > 0 ? "this song needs a choice" : "nothing chosen for this song yet")
+        vfs_->msg = only_current ? (undecided > 0 ? "this song needs a choice" : "nothing chosen for this song yet")
                 : undecided > 0 ? std::to_string(undecided) + (undecided == 1 ? " song needs" : " songs need") + " a choice"
                                 : "nothing chosen yet";
-        vf_warn_ = true;
+        vfs_->warn = true;
         return;
     }
     const fs::path dir = video_down_dir();
     std::error_code ec;
     fs::create_directories(dir, ec);
-    if (ec) { vf_msg_ = "cannot create " + path_utf8(dir) + ": " + ec.message(); vf_warn_ = true; return; }
+    if (ec) { vfs_->msg = "cannot create " + path_utf8(dir) + ": " + ec.message(); vfs_->warn = true; return; }
     if (vf_.thread.joinable()) vf_.thread.join();
     {
         std::lock_guard<std::mutex> lk(vf_.m);
@@ -607,173 +609,173 @@ void App::video_fetch_start(bool only_current) {
         std::lock_guard<std::mutex> lk(vf_.m);
         vf_.finished = true;
     });
-    vf_msg_ = "downloading " + std::to_string(jobs.size()) + (jobs.size() == 1 ? " chosen video" : " chosen videos") + " ...";
-    vf_warn_ = false;
+    vfs_->msg = "downloading " + std::to_string(jobs.size()) + (jobs.size() == 1 ? " chosen video" : " chosen videos") + " ...";
+    vfs_->warn = false;
 }
 
 // ---- keys ------------------------------------------------------------------------------------------------------------------------------
 
 void App::video_fetch_key(int key) {
     const bool arrow = last_key_was_arrow();
-    const bool in_text = (vf_focus_ == 0 && text_engaged("vf-search")) || (vf_focus_ == 0 && text_engaged("vm-search"));
+    const bool in_text = (vfs_->focus == 0 && text_engaged("vf-search")) || (vfs_->focus == 0 && text_engaged("vm-search"));
     if (key_is("HKeyVideoFetch", key) && !(in_text && key >= 32 && key < 127)) { video_fetch_close(); return; }
-    if (key == kKeyAltLeft || key == kKeyAltRight || (arrow && (key == 'C' || key == 'D') && !in_text && vf_focus_ != 2 && vf_confirm_.empty() && vm_confirm_.empty())) {   // the two tabs
+    if (key == kKeyAltLeft || key == kKeyAltRight || (arrow && (key == 'C' || key == 'D') && !in_text && vfs_->focus != 2 && vfs_->confirm.empty() && vm_->confirm.empty())) {   // the two tabs
         text_disengage();
-        vf_tab_ = 1 - vf_tab_;
-        vf_focus_ = 1;
-        vf_confirm_.clear();
-        vm_confirm_.clear();
-        vf_pic_key_.clear();
-        vm_pic_key_.clear();
-        vf_warn_ = false;
-        if (vf_tab_ == 1) { video_manage_rebuild(); vf_msg_.clear(); }
-        else vf_msg_.clear();
+        vfs_->tab = 1 - vfs_->tab;
+        vfs_->focus = 1;
+        vfs_->confirm.clear();
+        vm_->confirm.clear();
+        vfs_->pic_key.clear();
+        vm_->pic_key.clear();
+        vfs_->warn = false;
+        if (vfs_->tab == 1) { video_manage_rebuild(); vfs_->msg.clear(); }
+        else vfs_->msg.clear();
         force_redraw_ = true;
         return;
     }
-    if (vf_tab_ == 1) { video_manage_key(key); return; }
+    if (vfs_->tab == 1) { video_manage_key(key); return; }
     if (key == 27) {
-        if (!vf_confirm_.empty()) { vf_confirm_.clear(); vf_msg_ = "re-fetch cancelled"; vf_warn_ = false; return; }
-        if (vf_focus_ == 2) { vf_focus_ = 1; return; }
-        if (vf_focus_ == 0 && !vf_query_.empty()) { vf_query_.clear(); edit_caret_ = edit_anchor_ = 0; vf_sel_ = 0; video_fetch_refilter(); return; }
+        if (!vfs_->confirm.empty()) { vfs_->confirm.clear(); vfs_->msg = "re-fetch cancelled"; vfs_->warn = false; return; }
+        if (vfs_->focus == 2) { vfs_->focus = 1; return; }
+        if (vfs_->focus == 0 && !vfs_->query.empty()) { vfs_->query.clear(); edit_caret_ = edit_anchor_ = 0; vfs_->sel = 0; vfs_->video_fetch_refilter(); return; }
         video_fetch_close();
         return;
     }
     if (!arrow && key == '\t') {
         text_disengage();
-        vf_focus_ = vf_focus_ == 0 ? 1 : vf_focus_ == 1 ? (video_fetch_hovered() && !video_fetch_hovered()->cands.empty() ? 2 : 0) : 0;
+        vfs_->focus = vfs_->focus == 0 ? 1 : vfs_->focus == 1 ? (vfs_->video_fetch_hovered() && !vfs_->video_fetch_hovered()->cands.empty() ? 2 : 0) : 0;
         return;
     }
-    if (key == kKeyCtrlC && vf_.running && vf_focus_ != 0) {
+    if (key == kKeyCtrlC && vf_.running && vfs_->focus != 0) {
         video_fetch_cancel_and_join();
-        vf_msg_ = "download cancelled";
-        vf_warn_ = true;
+        vfs_->msg = "download cancelled";
+        vfs_->warn = true;
         return;
     }
     if (key == kKeyCtrlF) {   // which songs are listed: missing video only / all songs / songs with a video / chosen
         text_disengage();
         std::string keep;
-        if (const VFEntry* h = video_fetch_hovered()) keep = path_utf8(h->path);
-        vf_filter_ = (vf_filter_ + 1) % 4;
+        if (const VFEntry* h = vfs_->video_fetch_hovered()) keep = path_utf8(h->path);
+        vfs_->filter = (vfs_->filter + 1) % 4;
         video_fetch_rebuild_list();
-        vf_sel_ = 0;
-        for (size_t k = 0; k < vf_view_.size(); ++k)
-            if (path_utf8(vf_all_[static_cast<size_t>(vf_view_[k])].path) == keep) { vf_sel_ = static_cast<int>(k); break; }
-        vf_cand_sel_ = 0;
-        if (vf_focus_ == 2) vf_focus_ = 1;
-        vf_hover_.clear();
-        vf_msg_ = vf_filter_ == 0 ? "listed: songs with a missing video (and the playing song)" : vf_filter_ == 1 ? "listed: all songs" : vf_filter_ == 2 ? "listed: songs that have a video" : "listed: the songs with a chosen video";
-        vf_warn_ = false;
+        vfs_->sel = 0;
+        for (size_t k = 0; k < vfs_->view.size(); ++k)
+            if (path_utf8(vfs_->all[static_cast<size_t>(vfs_->view[k])].path) == keep) { vfs_->sel = static_cast<int>(k); break; }
+        vfs_->cand_sel = 0;
+        if (vfs_->focus == 2) vfs_->focus = 1;
+        vfs_->hover.clear();
+        vfs_->msg = vfs_->filter == 0 ? "listed: songs with a missing video (and the playing song)" : vfs_->filter == 1 ? "listed: all songs" : vfs_->filter == 2 ? "listed: songs that have a video" : "listed: the songs with a chosen video";
+        vfs_->warn = false;
         return;
     }
-    if (vf_focus_ != 0 && !arrow && key_is("HKeySearch", key)) {   // "/" (SHIFT+7 on a German keyboard): to the filter field
-        vf_focus_ = 0;
-        edit_focus("vf-search", vf_query_);
+    if (vfs_->focus != 0 && !arrow && key_is("HKeySearch", key)) {   // "/" (SHIFT+7 on a German keyboard): to the filter field
+        vfs_->focus = 0;
+        edit_focus("vf-search", vfs_->query);
         text_engage("vf-search");
-        edit_caret_ = edit_anchor_ = vf_query_.size();
+        edit_caret_ = edit_anchor_ = vfs_->query.size();
         return;
     }
     if (key == kKeyCtrlT) {   // searched by: file name + tags / file name / tags
-        vf_src_ = (vf_src_ + 1) % 3;
-        for (VFEntry& e : vf_all_) { e.cands.clear(); e.searched = false; e.choice = -1; }
-        vf_queue_.clear();
-        video_fetch_save_state();
-        if (vf_filter_ == 3) video_fetch_refilter_keep();
-        vf_msg_ = vf_src_ == 0 ? "search text: the file name and the tags" : vf_src_ == 1 ? "search text: the file name" : "search text: the tags (artist + title)";
-        vf_warn_ = false;
-        vf_hover_.clear();
+        vfs_->src = (vfs_->src + 1) % 3;
+        for (VFEntry& e : vfs_->all) { e.cands.clear(); e.searched = false; e.choice = -1; }
+        vfs_->queue.clear();
+        vfs_->video_fetch_save_state();
+        if (vfs_->filter == 3) video_fetch_refilter_keep();
+        vfs_->msg = vfs_->src == 0 ? "search text: the file name and the tags" : vfs_->src == 1 ? "search text: the file name" : "search text: the tags (artist + title)";
+        vfs_->warn = false;
+        vfs_->hover.clear();
         return;
     }
-    if (vf_focus_ == 0) {   // --- the filter field of the song list ---
-        if (key == '\r' || key == '\n' || (arrow && key == 'B')) { text_disengage(); vf_focus_ = 1; return; }
+    if (vfs_->focus == 0) {   // --- the filter field of the song list ---
+        if (key == '\r' || key == '\n' || (arrow && key == 'B')) { text_disengage(); vfs_->focus = 1; return; }
         if (arrow) return;
-        edit_focus("vf-search", vf_query_);
+        edit_focus("vf-search", vfs_->query);
         text_engage("vf-search");
         std::string note;
-        if (edit_text_key(vf_query_, edit_caret_, edit_anchor_, key, 120, &note)) { vf_sel_ = 0; video_fetch_refilter(); }
-        if (!note.empty()) { vf_msg_ = note; vf_warn_ = false; }
+        if (edit_text_key(vfs_->query, edit_caret_, edit_anchor_, key, 120, &note)) { vfs_->sel = 0; vfs_->video_fetch_refilter(); }
+        if (!note.empty()) { vfs_->msg = note; vfs_->warn = false; }
         return;
     }
-    if (vf_focus_ == 1 && !vf_confirm_.empty()) {   // the warning of a re-fetch waits for its answer
-        const std::string p = vf_confirm_;
-        vf_confirm_.clear();
+    if (vfs_->focus == 1 && !vfs_->confirm.empty()) {   // the warning of a re-fetch waits for its answer
+        const std::string p = vfs_->confirm;
+        vfs_->confirm.clear();
         if (!arrow && (key == 'r' || key == 'R' || key == '\r' || key == '\n')) {
             VideoLinks::get().mark_none(p);   // the former video is unassigned (also its pairing by file name)
             ++video_rev_;
             video_for_track_.clear();
-            for (VFEntry& e : vf_all_) {
+            for (VFEntry& e : vfs_->all) {
                 if (path_utf8(e.path) != p) continue;
                 e.refetch = true;
                 e.has_video = !video_source_for(e.path).empty();
                 e.searched = false; e.searching = false; e.cands.clear(); e.choice = -1;
             }
-            video_fetch_enqueue(p, true);
-            vf_msg_ = "the former video is unassigned -- searching other videos ...";
-            vf_warn_ = false;
+            vfs_->video_fetch_enqueue(p, true);
+            vfs_->msg = "the former video is unassigned -- searching other videos ...";
+            vfs_->warn = false;
             force_redraw_ = true;
             return;
         }
-        vf_msg_ = "re-fetch cancelled";
-        vf_warn_ = false;
+        vfs_->msg = "re-fetch cancelled";
+        vfs_->warn = false;
         if (key == 27) return;
     }
-    if (vf_focus_ == 1) {   // --- the songs ---
-        const int n = static_cast<int>(vf_view_.size());
+    if (vfs_->focus == 1) {   // --- the songs ---
+        const int n = static_cast<int>(vfs_->view.size());
         if (arrow && (key == 'A' || key == 'B')) {
-            if (key == 'A' && vf_sel_ == 0 && !last_key_was_ctrl()) { vf_focus_ = 0; return; }
-            vf_sel_ = video_fetch_nav(vf_sel_, n, key == 'A');
-            vf_cand_sel_ = 0;
+            if (key == 'A' && vfs_->sel == 0 && !last_key_was_ctrl()) { vfs_->focus = 0; return; }
+            vfs_->sel = vfs_->video_fetch_nav(vfs_->sel, n, key == 'A');
+            vfs_->cand_sel = 0;
             return;
         }
-        const VFEntry* h = video_fetch_hovered();
+        const VFEntry* h = vfs_->video_fetch_hovered();
         if (!h) return;
         const bool held = h->has_video && !h->refetch;   // a song with a video: nothing is searched unless a re-fetch is confirmed
         if (!arrow && (key == 'r' || key == 'R') && held) {
-            vf_confirm_ = path_utf8(h->path);
-            const bool by_link = !VideoLinks::get().video_for(vf_confirm_).empty();
-            vf_msg_ = by_link ? "WARNING: the video of this song is unassigned first (the file stays). [r] / [ENTER] confirms"
+            vfs_->confirm = path_utf8(h->path);
+            const bool by_link = !VideoLinks::get().video_for(vfs_->confirm).empty();
+            vfs_->msg = by_link ? "WARNING: the video of this song is unassigned first (the file stays). [r] / [ENTER] confirms"
                               : "WARNING: this song's video is paired by its file name; the download takes its place. [r] / [ENTER] confirms";
-            vf_warn_ = true;
+            vfs_->warn = true;
             return;
         }
         if (held && (key == '\r' || key == '\n')) {
-            vf_msg_ = "this song has a video already";
-            vf_warn_ = false;
+            vfs_->msg = "this song has a video already";
+            vfs_->warn = false;
             return;
         }
         if (key == '\r' || key == '\n') {
             if (h->cands.empty()) {   // nothing found before: [ENTER] searches again
                 const std::string hp = path_utf8(h->path);
-                for (VFEntry& e : vf_all_) if (path_utf8(e.path) == hp && e.searched && !e.searching) { e.searched = false; e.queued = false; }
-                video_fetch_enqueue(hp, true);
-                vf_msg_ = "searching ...";
-                vf_warn_ = false;
+                for (VFEntry& e : vfs_->all) if (path_utf8(e.path) == hp && e.searched && !e.searching) { e.searched = false; e.queued = false; }
+                vfs_->video_fetch_enqueue(hp, true);
+                vfs_->msg = "searching ...";
+                vfs_->warn = false;
                 return;
             }
-            vf_focus_ = 2;
-            vf_cand_sel_ = std::max(0, h->choice);
+            vfs_->focus = 2;
+            vfs_->cand_sel = std::max(0, h->choice);
             return;
         }
-        if (!arrow && key == 's' && held) { vf_msg_ = "this song has a video already"; vf_warn_ = false; return; }
+        if (!arrow && key == 's' && held) { vfs_->msg = "this song has a video already"; vfs_->warn = false; return; }
         if (!arrow && key == 's') {   // search this song (again)
-            for (VFEntry& e : vf_all_) if (e.path == h->path) { e.searched = false; e.cands.clear(); e.choice = -1; }
-            video_fetch_save_state();
-            video_fetch_enqueue(path_utf8(h->path), true);
-            vf_msg_ = "searching ...";
-            vf_warn_ = false;
+            for (VFEntry& e : vfs_->all) if (e.path == h->path) { e.searched = false; e.cands.clear(); e.choice = -1; }
+            vfs_->video_fetch_save_state();
+            vfs_->video_fetch_enqueue(path_utf8(h->path), true);
+            vfs_->msg = "searching ...";
+            vfs_->warn = false;
             return;
         }
         if (!arrow && key == 'S') {   // search every song shown
             int added = 0;
-            for (int i : vf_view_) { const VFEntry& e = vf_all_[static_cast<size_t>(i)]; if (!e.searched && !e.searching && !e.queued && !(e.has_video && !e.refetch)) { video_fetch_enqueue(path_utf8(e.path), false); ++added; } }
-            vf_msg_ = added > 0 ? "searching the videos of " + std::to_string(added) + " songs, one after the other" : "all shown songs are searched already";
-            vf_warn_ = false;
+            for (int i : vfs_->view) { const VFEntry& e = vfs_->all[static_cast<size_t>(i)]; if (!e.searched && !e.searching && !e.queued && !(e.has_video && !e.refetch)) { vfs_->video_fetch_enqueue(path_utf8(e.path), false); ++added; } }
+            vfs_->msg = added > 0 ? "searching the videos of " + std::to_string(added) + " songs, one after the other" : "all shown songs are searched already";
+            vfs_->warn = false;
             return;
         }
         if (!arrow && key == 'c') {   // clear the choice of this song
-            for (VFEntry& e : vf_all_) if (e.path == h->path) e.choice = -1;
-            video_fetch_save_state();
-            if (vf_filter_ == 3) video_fetch_refilter_keep();
+            for (VFEntry& e : vfs_->all) if (e.path == h->path) e.choice = -1;
+            vfs_->video_fetch_save_state();
+            if (vfs_->filter == 3) video_fetch_refilter_keep();
             return;
         }
         if (!arrow && key == 'F') { video_fetch_start(); return; }
@@ -781,21 +783,21 @@ void App::video_fetch_key(int key) {
         return;
     }
     // --- the videos of the song ---
-    const VFEntry* h = video_fetch_hovered();
-    if (!h || h->cands.empty()) { vf_focus_ = 1; return; }
+    const VFEntry* h = vfs_->video_fetch_hovered();
+    if (!h || h->cands.empty()) { vfs_->focus = 1; return; }
     const int n = static_cast<int>(h->cands.size());
-    if (arrow && (key == 'A' || key == 'B')) { vf_cand_sel_ = std::clamp(vf_cand_sel_ + (key == 'A' ? -1 : 1), 0, n - 1); return; }
+    if (arrow && (key == 'A' || key == 'B')) { vfs_->cand_sel = std::clamp(vfs_->cand_sel + (key == 'A' ? -1 : 1), 0, n - 1); return; }
     if (key == '\r' || key == '\n' || key == ' ') {   // the choice of this song; the cursor stays on the song
-        for (VFEntry& e : vf_all_) if (e.path == h->path) e.choice = vf_cand_sel_;
-        video_fetch_save_state();
-        vf_focus_ = 1;
-        vf_cand_sel_ = std::max(0, vf_cand_sel_);
-        vf_msg_ = "chosen";
-        vf_warn_ = false;
+        for (VFEntry& e : vfs_->all) if (e.path == h->path) e.choice = vfs_->cand_sel;
+        vfs_->video_fetch_save_state();
+        vfs_->focus = 1;
+        vfs_->cand_sel = std::max(0, vfs_->cand_sel);
+        vfs_->msg = "chosen";
+        vfs_->warn = false;
         return;
     }
-    if (!arrow && key == 'c') { for (VFEntry& e : vf_all_) if (e.path == h->path) e.choice = -1; video_fetch_save_state(); if (vf_filter_ == 3) { video_fetch_refilter_keep(); vf_focus_ = 1; } return; }
-    if (!arrow && (key == 'o' || key == 'O')) { open_url("https://www.youtube.com/watch?v=" + h->cands[static_cast<size_t>(vf_cand_sel_)].video_id); return; }
+    if (!arrow && key == 'c') { for (VFEntry& e : vfs_->all) if (e.path == h->path) e.choice = -1; vfs_->video_fetch_save_state(); if (vfs_->filter == 3) { video_fetch_refilter_keep(); vfs_->focus = 1; } return; }
+    if (!arrow && (key == 'o' || key == 'O')) { open_url("https://www.youtube.com/watch?v=" + h->cands[static_cast<size_t>(vfs_->cand_sel)].video_id); return; }
     if (!arrow && key == 'F') { video_fetch_start(); return; }
     if (!arrow && key == 'A') { video_fetch_start(true); return; }
 }
@@ -811,26 +813,26 @@ std::vector<std::string> App::build_vf_songs_panel(int w, int h) const {
     const int inner = w - 4;
     std::vector<std::string> out;
     int chosen = 0;
-    for (const VFEntry& e : vf_all_) if (e.choice >= 0) ++chosen;
-    out.push_back(box_top(std::string("SONGS, ") + (vf_filter_ == 0 ? "missing video" : vf_filter_ == 1 ? "all" : vf_filter_ == 2 ? "with video" : "chosen") + " (" + std::to_string(vf_view_.size()) + "), " + std::to_string(chosen) + " chosen" + (vf_focus_ == 1 ? focus_indicator(settings_, border) : std::string()), w, border));
+    for (const VFEntry& e : vfs_->all) if (e.choice >= 0) ++chosen;
+    out.push_back(box_top(std::string("SONGS, ") + (vfs_->filter == 0 ? "missing video" : vfs_->filter == 1 ? "all" : vfs_->filter == 2 ? "with video" : "chosen") + " (" + std::to_string(vfs_->view.size()) + "), " + std::to_string(chosen) + " chosen" + (vfs_->focus == 1 ? focus_indicator(settings_, border) : std::string()), w, border));
     const int rows = std::max(1, h - 2);
-    const int n = static_cast<int>(vf_view_.size());
-    const int sel = std::clamp(vf_sel_, 0, std::max(0, n - 1));
+    const int n = static_cast<int>(vfs_->view.size());
+    const int sel = std::clamp(vfs_->sel, 0, std::max(0, n - 1));
     const int first = std::clamp(sel - rows / 2, 0, std::max(0, n - rows));
     for (int r = 0; r < rows; ++r) {
         const int i = first + r;
         if (i >= n) {
-            std::string c = (r == 0 && n == 0) ? truncate_str(vf_filter_ == 3 && vf_query_.empty() ? "no video is chosen yet" : vf_all_.empty() ? (vf_filter_ == 0 ? "every song has a video already" : vf_filter_ == 2 ? "no song has a video yet" : "no songs") : "no song matches the filter", inner) : std::string();
+            std::string c = (r == 0 && n == 0) ? truncate_str(vfs_->filter == 3 && vfs_->query.empty() ? "no video is chosen yet" : vfs_->all.empty() ? (vfs_->filter == 0 ? "every song has a video already" : vfs_->filter == 2 ? "no song has a video yet" : "no songs") : "no song matches the filter", inner) : std::string();
             out.push_back(bar + " " + pad_right(c, inner) + " " + bar);
             continue;
         }
-        const VFEntry& e = vf_all_[static_cast<size_t>(vf_view_[static_cast<size_t>(i)])];
+        const VFEntry& e = vfs_->all[static_cast<size_t>(vfs_->view[static_cast<size_t>(i)])];
         // [x] chosen   [?] several videos, a choice is needed   [ ] not searched yet   [~] searching   [-] nothing found
         const char* mark = e.choice >= 0 ? "[x]" : e.searching ? "[~]" : !e.searched ? "[ ]" : e.cands.empty() ? "[-]" : "[?]";
         std::string text = std::string(e.has_video && !e.refetch ? "[v]" : mark) + " " + apply_font_map(e.label, settings_.font_map);   // [v] = has a video (shown in the videos pane)
         // the song under the cursor scrolls as a marquee when it does not fit (like the library list); the other rows are cut
-        const std::string padded = i == sel ? marquee_or_truncate(text, inner, i, vf_marq_, vf_marq_since_) : pad_right(truncate_str(text, inner), inner);
-        const bool hi = i == sel && vf_focus_ == 1;
+        const std::string padded = i == sel ? marquee_or_truncate(text, inner, i, vfs_->marq, vfs_->marq_since) : pad_right(truncate_str(text, inner), inner);
+        const bool hi = i == sel && vfs_->focus == 1;
         out.push_back(bar + " " + (hi ? cursor_sgr(settings_.list_cursor_color, settings_.list_cursor_bg_color) + padded + R : (i == sel ? hdr + padded + R : padded)) + " " + bar);
     }
     const int remaining = n - (first + rows);
@@ -848,9 +850,9 @@ std::vector<std::string> App::build_vf_choice_panel(int w, int h) const {
     const int inner = w - 4;
     auto line = [&](const std::string& content, int used) { return bar + " " + content + std::string(static_cast<size_t>(std::max(0, inner - used)), ' ') + " " + bar; };
     std::vector<std::string> out;
-    const VFEntry* e = video_fetch_hovered();
-    out.push_back(box_top(std::string("VIDEOS FOR THE SONG") + (vf_focus_ == 2 ? focus_indicator(settings_, border) : std::string()), w, border));
-    const std::string src_name = vf_src_ == 0 ? "file name + tags" : vf_src_ == 1 ? "file name" : "tags";
+    const VFEntry* e = vfs_->video_fetch_hovered();
+    out.push_back(box_top(std::string("VIDEOS FOR THE SONG") + (vfs_->focus == 2 ? focus_indicator(settings_, border) : std::string()), w, border));
+    const std::string src_name = vfs_->src == 0 ? "file name + tags" : vfs_->src == 1 ? "file name" : "tags";
     auto text_line = [&](const std::string& t, const std::string& sgr) {
         const std::string c = truncate_str(t, inner);
         return line(sgr + c + R, display_width(c));
@@ -862,7 +864,7 @@ std::vector<std::string> App::build_vf_choice_panel(int w, int h) const {
     const int hl = has_tags ? 3 : 2;   // the header lines above the list
     const int cand_rows = std::clamp((h - 4 - hl) / 2, 2, kCandRows);
     const int n = e ? static_cast<int>(e->cands.size()) : 0;
-    const int csel = std::clamp(vf_cand_sel_, 0, std::max(0, n - 1));
+    const int csel = std::clamp(vfs_->cand_sel, 0, std::max(0, n - 1));
     const int closest = e ? vf_closest(e->cands, e->seconds) : -1;
     const int first = std::clamp(csel - cand_rows / 2, 0, std::max(0, n - cand_rows));
     for (int r = 0; r < cand_rows; ++r) {
@@ -884,7 +886,7 @@ std::vector<std::string> App::build_vf_choice_panel(int w, int h) const {
         const std::string left = std::string(i == e->choice ? "\xe2\x97\x8f " : "\xe2\x97\x8b ") + apply_font_map(c.title, settings_.font_map) + "  - " + apply_font_map(c.uploader, settings_.font_map);   // ● chosen  ○ not chosen
         const int rw = display_width(right);
         const std::string padded = pad_right(truncate_str(left, inner - rw), inner - rw) + right;
-        const bool hi = i == csel && vf_focus_ == 2;
+        const bool hi = i == csel && vfs_->focus == 2;
         out.push_back(bar + " " + (hi ? cursor_sgr(settings_.list_cursor_color, settings_.list_cursor_bg_color) + padded + R : (i == e->choice ? hdr + padded + R : padded)) + " " + bar);
     }
     {
@@ -899,9 +901,9 @@ std::vector<std::string> App::build_vf_choice_panel(int w, int h) const {
     const int pic_rows = std::max(2, h - 2 - hl - cand_rows - 1);
     if (e && n > 0) {
         const OnlineResult& c = e->cands[static_cast<size_t>(csel)];
-        const int scr_col = vf_art_col_ + 2, scr_row = 3 + 1 + hl + cand_rows + 1;
+        const int scr_col = vfs_->art_col + 2, scr_row = 3 + 1 + hl + cand_rows + 1;
         bool as_picture = false;
-        if (gfx_proto_ != GfxProto::None)
+        if (gfxs_.proto != GfxProto::None)
             as_picture = cover_full_picture("https://i.ytimg.com/vi/" + c.video_id + "/mqdefault.jpg", false, inner, pic_rows, scr_col, scr_row);
         const std::vector<std::string> pv = as_picture ? std::vector<std::string>() : video_search_preview(c, inner, pic_rows);
         for (int r = 0; r < pic_rows; ++r) {
@@ -926,24 +928,24 @@ void App::build_vf_screen(std::ostringstream& frame, int W, int target_height) c
         const int inner_w = static_cast<int>(prefix.size()) + field_w + 2 + 1;
         std::string field;
         int field_cols = 0;
-        const std::string& qtext = vf_tab_ == 0 ? vf_query_ : vm_query_;
-        const char* owner = vf_tab_ == 0 ? "vf-search" : "vm-search";
-        if (vf_focus_ == 0) {
+        const std::string& qtext = vfs_->tab == 0 ? vfs_->query : vm_->query;
+        const char* owner = vfs_->tab == 0 ? "vf-search" : "vm-search";
+        if (vfs_->focus == 0) {
             EditPaint p = paint_edit_field(qtext, edit_owner_ == owner ? edit_caret_ : qtext.size(),
                                            edit_owner_ == owner ? edit_anchor_ : qtext.size(), field_w,
                                            qtext.empty() ? search_idle_sgr(settings_) : search_sgr(settings_), true);
             field = search_run(settings_, p.s, !qtext.empty());
             field_cols = p.cols;
         } else {
-            const std::string plain = truncate_str(qtext.empty() ? std::string(vf_tab_ == 0 ? "(type to filter the songs)" : "(type to filter the videos)") : qtext, field_w);
+            const std::string plain = truncate_str(qtext.empty() ? std::string(vfs_->tab == 0 ? "(type to filter the songs)" : "(type to filter the videos)") : qtext, field_w);
             field = search_run(settings_, plain, !qtext.empty());
             field_cols = display_width(plain);
         }
         std::string focus_mark;
         int focus_w = 0;
-        if (vf_focus_ == 0) { focus_mark = " " + focus_sgr(settings_) + "\xe2\x97\x80" + "\x1b[0m"; focus_w = 2; }
+        if (vfs_->focus == 0) { focus_mark = " " + focus_sgr(settings_) + "\xe2\x97\x80" + "\x1b[0m"; focus_w = 2; }
         const std::string line2 = search_idle_sgr(settings_) + prefix + field + "\x1b[0m" + focus_mark;
-        const auto strip = menu_tab_strip(W, "FETCH VIDEOS", {"SONGS AND VIDEOS", "VIDEO FILES"}, vf_tab_, border, border,
+        const auto strip = menu_tab_strip(W, "FETCH VIDEOS", {"SONGS AND VIDEOS", "VIDEO FILES"}, vfs_->tab, border, border,
                                           settings_.box_upper_left, settings_.box_upper_right, settings_.box_vertical,
                                           inner_w, line2, static_cast<int>(prefix.size()) + field_cols + focus_w,
                                           ansi_for(settings_.tab_current_color, false), ansi_for(settings_.tab_other_color, false));
@@ -952,10 +954,10 @@ void App::build_vf_screen(std::ostringstream& frame, int W, int target_height) c
     frame << box_bottom(W, "", border_bottom) << "\n";
 
     int chosen = 0;
-    for (const VFEntry& e : vf_all_) if (e.choice >= 0) ++chosen;
-    const bool in_text = vf_focus_ == 0 && text_engaged(vf_tab_ == 0 ? "vf-search" : "vm-search");
+    for (const VFEntry& e : vfs_->all) if (e.choice >= 0) ++chosen;
+    const bool in_text = vfs_->focus == 0 && text_engaged(vfs_->tab == 0 ? "vf-search" : "vm-search");
     std::vector<LegendGroup> groups;
-    if (vf_tab_ == 1) {
+    if (vfs_->tab == 1) {
         groups.push_back({"Move", {in_text ? "[\xe2\x86\x90\xe2\x86\x92] Cursor" : "[\xe2\x86\x90\xe2\x86\x92] Tab", "[TAB] Focus", "[\xe2\x86\x91\xe2\x86\x93] Navi.", "[SHIFT+\xe2\x86\x91\xe2\x86\x93] Page\001Page", "[CTRL+\xe2\x86\x91\xe2\x86\x93] Top/bottom\001Top/bot."}});
         groups.push_back({"Find", {"[/] Filter field", "[CTRL+f] All / coupled / video only / newest first\001Videos"}});
         groups.push_back({"Delete", {"[DEL] Delete this video file (asked first)\001Delete", "[u] Undo last deletion\001Undo", "[CTRL+3 / m] Make an mp3 from a video only file\001mp3", "[ESC] Back/Exit\001Exit"}});
@@ -970,24 +972,24 @@ void App::build_vf_screen(std::ostringstream& frame, int W, int target_height) c
 
     const int budget = std::min(target_height, term_rows_ - 1);
     const int panel_h = std::max(10, budget - fixed_rows - static_cast<int>(lrows.size()) - 1);
-    vf_page_rows_ = std::max(1, panel_h - 3);
+    vfs_->page_rows = std::max(1, panel_h - 3);
     const int left_w = W * 2 / 5, right_w = W - left_w;
-    vf_art_col_ = left_w;
-    const auto left = vf_tab_ == 0 ? build_vf_songs_panel(left_w, panel_h) : build_vm_list_panel(left_w, panel_h);
-    const auto right = vf_tab_ == 0 ? build_vf_choice_panel(right_w, panel_h) : build_vm_detail_panel(right_w, panel_h);
+    vfs_->art_col = left_w;
+    const auto left = vfs_->tab == 0 ? build_vf_songs_panel(left_w, panel_h) : build_vm_list_panel(left_w, panel_h);
+    const auto right = vfs_->tab == 0 ? build_vf_choice_panel(right_w, panel_h) : build_vm_detail_panel(right_w, panel_h);
     const size_t rows = std::max(left.size(), right.size());
     for (size_t i = 0; i < rows; ++i)
         frame << (i < left.size() ? left[i] : std::string(static_cast<size_t>(left_w), ' '))
               << (i < right.size() ? right[i] : std::string(static_cast<size_t>(right_w), ' ')) << "\n";
 
     for (size_t i = 0; i < lrows.size(); ++i) frame << " " << paint_legend(settings_, lrows, i, border, 0, true) << "\n";
-    std::string status = vf_msg_;
-    const bool dl_running = vf_tab_ == 0 && vf_.running;
+    std::string status = vfs_->msg;
+    const bool dl_running = vfs_->tab == 0 && vf_.running;
     if (dl_running) {
         std::lock_guard<std::mutex> lk(vf_.m);
         status = vf_.status;
     }
-    if (!status.empty()) frame << (vf_warn_ && !dl_running ? "\x1b[31m" : "\x1b[38;5;246m") << truncate_str(status, W) << "\x1b[0m\n";
+    if (!status.empty()) frame << (vfs_->warn && !dl_running ? "\x1b[31m" : "\x1b[38;5;246m") << truncate_str(status, W) << "\x1b[0m\n";
     else frame << "\n";
 }
 

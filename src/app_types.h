@@ -92,6 +92,7 @@ struct PendingLoad {
     TrackMetadata metadata;
     bool is_local = true;   // for snapshot/resume identity -- which of path/video_id is authoritative
     std::string video_id;   // valid if !is_local
+    bool fresh = false;     // online: the file was made by this load (it was not in the download folder / cache before)
 };
 
 struct DevicePlayRequest {

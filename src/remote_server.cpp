@@ -179,7 +179,9 @@ void serve_one(sock_t c, std::string ip) {
     }
     if (!req.empty()) {
         const size_t eol = req.find_first_of("\r\n");
-        const std::string out = handle_request(eol == std::string::npos ? req : req.substr(0, eol), ip);
+        std::string out;
+        try { out = handle_request(eol == std::string::npos ? req : req.substr(0, eol), ip); }
+        catch (...) { out = reply(500, "text/plain; charset=utf-8", "internal error"); }   // (an exception out of this thread would end the player)
         size_t sent = 0;
         while (sent < out.size()) {
             const int w = static_cast<int>(send(c, out.data() + sent, static_cast<int>(std::min<size_t>(out.size() - sent, 65536)), 0));

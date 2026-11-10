@@ -1,8 +1,10 @@
-// The VIDEO FILES tab of the FETCH VIDEOS overlay (Mode::VideoFetch, vf_tab_ == 1), part of class App (src/app.h). It lists the video files of
+// The VIDEO FILES tab of the FETCH VIDEOS overlay (Mode::VideoFetch, vfs_->tab == 1), part of class App (src/app.h). It lists the video files of
 // the library (and every video a song is connected to), shows which songs use the one under the cursor -- with a frame of the video on the right --
 // and deletes one for good ([DEL], asked twice). Filters: all videos / videos coupled with a song / video only (no song uses it).
 // Also here: video_delete_file(), shared with "Delete COMPLETE VIDEO FILE connected to track" of the VIDEO OPTION panel.
 #include "app.h"
+#include "app_state_vf.h"
+#include "app_state_vm.h"
 #include "app_internal.h"
 #include "cover_art.h"
 #include "console_log.h"
@@ -89,7 +91,7 @@ bool App::video_delete_file(const std::string& video, std::string& msg, bool und
     if (video.empty()) { msg = "no video"; return false; }
     const fs::path p = path_from_utf8(video);
     if (!LocalSource::is_video_file(p)) { msg = "not a video file: " + path_utf8(p.filename()); return false; }
-    if (has_track_ && !current_path_.empty() && (current_path_ == p || video_source_for(current_path_) == video)) {
+    if (has_track_ && !current_.path.empty() && (current_.path == p || video_source_for(current_.path) == video)) {
         video_.stop();   // (the player holds the file while its picture is shown)
         video_for_track_.clear();
     }
@@ -154,8 +156,8 @@ void App::video_manage_rebuild() {
         if (fs::exists(path_from_utf8(kv.second), ec) && seen.insert(kv.second).second) videos.push_back(path_from_utf8(kv.second));   // (a video outside the library folders)
     }
     std::string keep;
-    if (!vm_view_.empty() && vm_sel_ >= 0 && vm_sel_ < static_cast<int>(vm_view_.size())) keep = path_utf8(vm_all_[static_cast<size_t>(vm_view_[static_cast<size_t>(vm_sel_)])].path);
-    vm_all_.clear();
+    if (!vm_->view.empty() && vm_->sel >= 0 && vm_->sel < static_cast<int>(vm_->view.size())) keep = path_utf8(vm_->all[static_cast<size_t>(vm_->view[static_cast<size_t>(vm_->sel)])].path);
+    vm_->all.clear();
     for (const fs::path& v : videos) {
         VMEntry e;
         e.path = v;
@@ -183,51 +185,51 @@ void App::video_manage_rebuild() {
         e.coupled = !e.songs.empty();
         e.hay = vm_lower(with_latin_spelling(e.label) + " " + e.folder);
         for (const std::string& s : e.songs) { const auto l = song_label.find(s); e.hay += " " + vm_lower(l != song_label.end() ? l->second : path_utf8(path_from_utf8(s).stem())); }
-        vm_all_.push_back(std::move(e));
+        vm_->all.push_back(std::move(e));
     }
-    std::sort(vm_all_.begin(), vm_all_.end(), [](const VMEntry& a, const VMEntry& b) { return vm_lower(a.label) < vm_lower(b.label); });
-    video_manage_refilter();
+    std::sort(vm_->all.begin(), vm_->all.end(), [](const VMEntry& a, const VMEntry& b) { return vm_lower(a.label) < vm_lower(b.label); });
+    vm_->video_manage_refilter();
     if (!keep.empty())
-        for (size_t k = 0; k < vm_view_.size(); ++k)
-            if (path_utf8(vm_all_[static_cast<size_t>(vm_view_[k])].path) == keep) { vm_sel_ = static_cast<int>(k); break; }
+        for (size_t k = 0; k < vm_->view.size(); ++k)
+            if (path_utf8(vm_->all[static_cast<size_t>(vm_->view[k])].path) == keep) { vm_->sel = static_cast<int>(k); break; }
 }
 
-void App::video_manage_refilter() {
+void App::VmState::video_manage_refilter() {
     std::vector<std::string> words;
     std::string cur;
-    for (char c : vm_lower(vm_query_)) {
+    for (char c : vm_lower(query)) {
         if (c == ' ') { if (!cur.empty()) words.push_back(cur); cur.clear(); } else cur += c;
     }
     if (!cur.empty()) words.push_back(cur);
-    vm_view_.clear();
-    for (size_t i = 0; i < vm_all_.size(); ++i) {
-        const VMEntry& e = vm_all_[i];
-        if (vm_filter_ == 1 && !e.coupled) continue;
-        if (vm_filter_ == 2 && e.coupled) continue;
+    view.clear();
+    for (size_t i = 0; i < all.size(); ++i) {
+        const VMEntry& e = all[i];
+        if (filter == 1 && !e.coupled) continue;
+        if (filter == 2 && e.coupled) continue;
         bool ok = true;
         for (const std::string& w : words) if (e.hay.find(w) == std::string::npos) { ok = false; break; }
-        if (ok) vm_view_.push_back(static_cast<int>(i));
+        if (ok) view.push_back(static_cast<int>(i));
     }
-    if (vm_filter_ == 3)   // newly added / downloaded files first
-        std::stable_sort(vm_view_.begin(), vm_view_.end(), [&](int a, int b) { return vm_all_[static_cast<size_t>(a)].mtime > vm_all_[static_cast<size_t>(b)].mtime; });
-    vm_sel_ = std::clamp(vm_sel_, 0, std::max(0, static_cast<int>(vm_view_.size()) - 1));
+    if (filter == 3)   // newly added / downloaded files first
+        std::stable_sort(view.begin(), view.end(), [&](int a, int b) { return all[static_cast<size_t>(a)].mtime > all[static_cast<size_t>(b)].mtime; });
+    sel = std::clamp(sel, 0, std::max(0, static_cast<int>(view.size()) - 1));
 }
 
 // The sound of a video-only file as an mp3 song (ffmpeg, in the background): saved in the regular download folder, connected to the video.
 void App::video_manage_make_mp3() {
-    if (vm_mp3_fut_.valid()) { vf_msg_ = "an mp3 is being made already"; vf_warn_ = true; return; }
-    if (vm_view_.empty()) return;
-    const VMEntry& e = vm_all_[static_cast<size_t>(vm_view_[static_cast<size_t>(std::clamp(vm_sel_, 0, static_cast<int>(vm_view_.size()) - 1))])];
-    if (e.coupled) { vf_msg_ = "this video is coupled with a song already -- the mp3 is for video only files"; vf_warn_ = true; return; }
+    if (vm_->mp3_fut.valid()) { vfs_->msg = "an mp3 is being made already"; vfs_->warn = true; return; }
+    if (vm_->view.empty()) return;
+    const VMEntry& e = vm_->all[static_cast<size_t>(vm_->view[static_cast<size_t>(std::clamp(vm_->sel, 0, static_cast<int>(vm_->view.size()) - 1))])];
+    if (e.coupled) { vfs_->msg = "this video is coupled with a song already -- the mp3 is for video only files"; vfs_->warn = true; return; }
     const std::string video = path_utf8(e.path);
     const std::string stem = path_utf8(e.path.stem());   // (already a valid file name)
     const std::string base = stem.empty() ? std::string("video") : stem;
     const std::string title = path_utf8(e.path.stem());
     const fs::path dir = cache_.download_dir();
-    vm_mp3_video_ = video;
-    vf_msg_ = "making an mp3 from " + e.label + " ...";
-    vf_warn_ = false;
-    vm_mp3_fut_ = std::async(std::launch::async, [video, dir, base, title]() {
+    vm_->mp3_video = video;
+    vfs_->msg = "making an mp3 from " + e.label + " ...";
+    vfs_->warn = false;
+    vm_->mp3_fut = std::async(std::launch::async, [video, dir, base, title]() {
         std::string err;
         const std::string mp3 = video_make_mp3_file(video, dir, base, title, err);
         return std::make_pair(mp3, err);
@@ -239,84 +241,84 @@ void App::video_manage_make_mp3() {
 void App::video_manage_key(int key) {
     const bool arrow = last_key_was_arrow();
     auto hovered = [&]() -> const VMEntry* {
-        if (vm_view_.empty()) return nullptr;
-        return &vm_all_[static_cast<size_t>(vm_view_[static_cast<size_t>(std::clamp(vm_sel_, 0, static_cast<int>(vm_view_.size()) - 1))])];
+        if (vm_->view.empty()) return nullptr;
+        return &vm_->all[static_cast<size_t>(vm_->view[static_cast<size_t>(std::clamp(vm_->sel, 0, static_cast<int>(vm_->view.size()) - 1))])];
     };
     if (key == 27) {
-        if (!vm_confirm_.empty()) { vm_confirm_.clear(); vf_msg_ = "delete cancelled"; vf_warn_ = false; return; }
-        if (vf_focus_ == 0 && !vm_query_.empty()) { vm_query_.clear(); edit_caret_ = edit_anchor_ = 0; vm_sel_ = 0; video_manage_refilter(); return; }
+        if (!vm_->confirm.empty()) { vm_->confirm.clear(); vfs_->msg = "delete cancelled"; vfs_->warn = false; return; }
+        if (vfs_->focus == 0 && !vm_->query.empty()) { vm_->query.clear(); edit_caret_ = edit_anchor_ = 0; vm_->sel = 0; vm_->video_manage_refilter(); return; }
         video_fetch_close();
         return;
     }
-    if (!arrow && key == '\t') { text_disengage(); vf_focus_ = vf_focus_ == 0 ? 1 : 0; return; }
+    if (!arrow && key == '\t') { text_disengage(); vfs_->focus = vfs_->focus == 0 ? 1 : 0; return; }
     if (key == kKeyCtrlF) {   // which videos are listed: all / coupled with a song / video only
         text_disengage();
-        vm_confirm_.clear();
-        vm_filter_ = (vm_filter_ + 1) % 4;
-        video_manage_refilter();
-        vm_sel_ = 0;
-        vf_msg_ = vm_filter_ == 0 ? "listed: all videos" : vm_filter_ == 1 ? "listed: videos that are coupled with a song" : vm_filter_ == 2 ? "listed: video only (no song uses them)" : "listed: all videos, the newest (added / downloaded last) first";
-        vf_warn_ = false;
+        vm_->confirm.clear();
+        vm_->filter = (vm_->filter + 1) % 4;
+        vm_->video_manage_refilter();
+        vm_->sel = 0;
+        vfs_->msg = vm_->filter == 0 ? "listed: all videos" : vm_->filter == 1 ? "listed: videos that are coupled with a song" : vm_->filter == 2 ? "listed: video only (no song uses them)" : "listed: all videos, the newest (added / downloaded last) first";
+        vfs_->warn = false;
         return;
     }
-    if (vf_focus_ != 0 && !arrow && key_is("HKeySearch", key)) {   // "/": to the filter field
-        vf_focus_ = 0;
-        edit_focus("vm-search", vm_query_);
+    if (vfs_->focus != 0 && !arrow && key_is("HKeySearch", key)) {   // "/": to the filter field
+        vfs_->focus = 0;
+        edit_focus("vm-search", vm_->query);
         text_engage("vm-search");
-        edit_caret_ = edit_anchor_ = vm_query_.size();
+        edit_caret_ = edit_anchor_ = vm_->query.size();
         return;
     }
-    if (vf_focus_ == 0) {   // --- the filter field ---
-        if (key == '\r' || key == '\n' || (arrow && key == 'B')) { text_disengage(); vf_focus_ = 1; return; }
+    if (vfs_->focus == 0) {   // --- the filter field ---
+        if (key == '\r' || key == '\n' || (arrow && key == 'B')) { text_disengage(); vfs_->focus = 1; return; }
         if (arrow) return;
-        edit_focus("vm-search", vm_query_);
+        edit_focus("vm-search", vm_->query);
         text_engage("vm-search");
         std::string note;
-        if (edit_text_key(vm_query_, edit_caret_, edit_anchor_, key, 120, &note)) { vm_sel_ = 0; video_manage_refilter(); }
-        if (!note.empty()) { vf_msg_ = note; vf_warn_ = false; }
+        if (edit_text_key(vm_->query, edit_caret_, edit_anchor_, key, 120, &note)) { vm_->sel = 0; vm_->video_manage_refilter(); }
+        if (!note.empty()) { vfs_->msg = note; vfs_->warn = false; }
         return;
     }
     // --- the list ---
-    const int n = static_cast<int>(vm_view_.size());
-    if (!vm_confirm_.empty()) {   // the deletion waits for its answer
-        const std::string p = vm_confirm_;
-        vm_confirm_.clear();
+    const int n = static_cast<int>(vm_->view.size());
+    if (!vm_->confirm.empty()) {   // the deletion waits for its answer
+        const std::string p = vm_->confirm;
+        vm_->confirm.clear();
         if (!arrow && (key == kKeyDelete || key == '\r' || key == '\n')) {
             std::string msg;
             const bool ok = video_delete_file(p, msg);
-            vf_msg_ = msg;
-            vf_warn_ = !ok;
+            vfs_->msg = msg;
+            vfs_->warn = !ok;
             video_manage_rebuild();
             video_fetch_rebuild_list();   // (the songs of the first tab have no video now)
             return;
         }
-        vf_msg_ = "delete cancelled";
-        vf_warn_ = false;
+        vfs_->msg = "delete cancelled";
+        vfs_->warn = false;
         if (key == 27) return;
     }
     if (arrow && (key == 'A' || key == 'B')) {
-        if (key == 'A' && vm_sel_ == 0 && !last_key_was_ctrl()) { vf_focus_ = 0; return; }
-        vm_sel_ = video_fetch_nav(vm_sel_, n, key == 'A');
+        if (key == 'A' && vm_->sel == 0 && !last_key_was_ctrl()) { vfs_->focus = 0; return; }
+        vm_->sel = vfs_->video_fetch_nav(vm_->sel, n, key == 'A');
         return;
     }
-    if (key == kKeyHome) { vm_sel_ = 0; return; }
-    if (key == kKeyEnd) { vm_sel_ = std::max(0, n - 1); return; }
+    if (key == kKeyHome) { vm_->sel = 0; return; }
+    if (key == kKeyEnd) { vm_->sel = std::max(0, n - 1); return; }
     if (key == kKeyCtrl3 || (!arrow && key == 'm')) { video_manage_make_mp3(); return; }   // (CTRL+3 is reported only by terminals that send modified keys; m works everywhere)
     if (!arrow && key == 'u') {   // undo the last deletion
         std::string msg;
         const bool ok = video_undelete(msg);
-        vf_msg_ = msg;
-        vf_warn_ = !ok;
+        vfs_->msg = msg;
+        vfs_->warn = !ok;
         if (ok) { video_manage_rebuild(); video_fetch_rebuild_list(); }
         return;
     }
     const VMEntry* h = hovered();
     if (!h) return;
     if (key == kKeyDelete) {   // DEL: delete this video file for good (the second DEL / ENTER confirms)
-        vm_confirm_ = path_utf8(h->path);
-        vf_msg_ = h->coupled ? "DELETE " + h->label + "? Used by " + std::to_string(h->songs.size()) + (h->songs.size() == 1 ? " song" : " songs") + " -- they lose the video. [DEL] confirms"
+        vm_->confirm = path_utf8(h->path);
+        vfs_->msg = h->coupled ? "DELETE " + h->label + "? Used by " + std::to_string(h->songs.size()) + (h->songs.size() == 1 ? " song" : " songs") + " -- they lose the video. [DEL] confirms"
                              : "DELETE " + h->label + "? No song uses it. [DEL] confirms";
-        vf_warn_ = true;
+        vfs_->warn = true;
         return;
     }
 }
@@ -332,25 +334,25 @@ std::vector<std::string> App::build_vm_list_panel(int w, int h) const {
     const int inner = w - 4;
     std::vector<std::string> out;
     int coupled = 0;
-    for (const VMEntry& e : vm_all_) if (e.coupled) ++coupled;
-    const char* fname = vm_filter_ == 0 ? "all videos" : vm_filter_ == 1 ? "coupled" : vm_filter_ == 2 ? "video only" : "newest first";
-    out.push_back(box_top(std::string("VIDEOS, ") + fname + " (" + std::to_string(vm_view_.size()) + " of " + std::to_string(vm_all_.size()) + "), " + std::to_string(coupled) + " coupled" +
-                              (vf_focus_ == 1 ? focus_indicator(settings_, border) : std::string()), w, border));
+    for (const VMEntry& e : vm_->all) if (e.coupled) ++coupled;
+    const char* fname = vm_->filter == 0 ? "all videos" : vm_->filter == 1 ? "coupled" : vm_->filter == 2 ? "video only" : "newest first";
+    out.push_back(box_top(std::string("VIDEOS, ") + fname + " (" + std::to_string(vm_->view.size()) + " of " + std::to_string(vm_->all.size()) + "), " + std::to_string(coupled) + " coupled" +
+                              (vfs_->focus == 1 ? focus_indicator(settings_, border) : std::string()), w, border));
     const int rows = std::max(1, h - 2);
-    const int n = static_cast<int>(vm_view_.size());
-    const int sel = std::clamp(vm_sel_, 0, std::max(0, n - 1));
+    const int n = static_cast<int>(vm_->view.size());
+    const int sel = std::clamp(vm_->sel, 0, std::max(0, n - 1));
     const int first = std::clamp(sel - rows / 2, 0, std::max(0, n - rows));
     for (int r = 0; r < rows; ++r) {
         const int i = first + r;
         if (i >= n) {
-            std::string c = (r == 0 && n == 0) ? truncate_str(vm_all_.empty() ? "no video files in the library" : "no video matches the filter", inner) : std::string();
+            std::string c = (r == 0 && n == 0) ? truncate_str(vm_->all.empty() ? "no video files in the library" : "no video matches the filter", inner) : std::string();
             out.push_back(bar + " " + pad_right(c, inner) + " " + bar);
             continue;
         }
-        const VMEntry& e = vm_all_[static_cast<size_t>(vm_view_[static_cast<size_t>(i)])];
+        const VMEntry& e = vm_->all[static_cast<size_t>(vm_->view[static_cast<size_t>(i)])];
         const std::string text = std::string(e.coupled ? "[c] " : "[ ] ") + apply_font_map(e.label, settings_.font_map);   // [c] coupled with a song   [ ] video only
         const std::string padded = pad_right(truncate_str(text, inner), inner);
-        const bool hi = i == sel && vf_focus_ == 1;
+        const bool hi = i == sel && vfs_->focus == 1;
         // the coupled ones are highlighted, the cursor row has its own colours
         out.push_back(bar + " " + (hi ? cursor_sgr(settings_.list_cursor_color, settings_.list_cursor_bg_color) + padded + R : (e.coupled ? hdr + padded + R : padded)) + " " + bar);
     }
@@ -373,7 +375,7 @@ std::vector<std::string> App::build_vm_detail_panel(int w, int h) const {
         return line(sgr + c + R, display_width(c));
     };
     std::vector<std::string> out;
-    const VMEntry* e = vm_view_.empty() ? nullptr : &vm_all_[static_cast<size_t>(vm_view_[static_cast<size_t>(std::clamp(vm_sel_, 0, static_cast<int>(vm_view_.size()) - 1))])];
+    const VMEntry* e = vm_->view.empty() ? nullptr : &vm_->all[static_cast<size_t>(vm_->view[static_cast<size_t>(std::clamp(vm_->sel, 0, static_cast<int>(vm_->view.size()) - 1))])];
     out.push_back(box_top("VIDEO AND COUPLED SONGS", w, border));
     if (!e) {
         for (int r = 0; r < h - 2; ++r) out.push_back(line("", 0));
@@ -395,11 +397,11 @@ std::vector<std::string> App::build_vm_detail_panel(int w, int h) const {
     }
     out.push_back(line("", 0));
     if (!e->coupled) {   // video only files: the mp3 command above the note about the deletion
-        const bool making = vm_mp3_fut_.valid();
+        const bool making = vm_->mp3_fut.valid();
         out.push_back(text_line(making ? "making the mp3 ..." : "[CTRL+3 / m] makes an mp3 song from this video (download folder)", making ? hdr : leg));
     }
     {
-        const bool asking = !vm_confirm_.empty();
+        const bool asking = !vm_->confirm.empty();
         out.push_back(text_line(asking ? "[DEL] again deletes it" : "[DEL] deletes this video file from the disk (asked first)", asking ? std::string("\x1b[31m") : leg));
     }
     // a frame of the video: a real picture (Kitty / Sixel)
@@ -407,10 +409,10 @@ std::vector<std::string> App::build_vm_detail_panel(int w, int h) const {
     const int used = static_cast<int>(out.size());
     const int pic_rows = std::max(2, h - used - 2);   // ... and one below it
     const std::string vpath = path_utf8(e->path);
-    const int scr_col = vf_art_col_ + 2, scr_row = 3 + used;
+    const int scr_col = vfs_->art_col + 2, scr_row = 3 + used;
     bool as_picture = false;
-    if (gfx_proto_ != GfxProto::None) as_picture = cover_full_picture_img(preview_video_frame(vpath), inner, pic_rows, scr_col, scr_row, false);
-    const std::string note = preview_video_frame_loading(vpath) ? "reading a frame ..." : gfx_proto_ == GfxProto::None ? "(no picture in this terminal)" : "(the picture cannot be read)";
+    if (gfxs_.proto != GfxProto::None) as_picture = cover_full_picture_img(preview_video_frame(vpath), inner, pic_rows, scr_col, scr_row, false);
+    const std::string note = preview_video_frame_loading(vpath) ? "reading a frame ..." : gfxs_.proto == GfxProto::None ? "(no picture in this terminal)" : "(the picture cannot be read)";
     for (int r = 0; r < pic_rows; ++r) {
         if (as_picture) out.push_back(bar + " " + gfx_hole(inner) + " " + bar);
         else out.push_back(r == pic_rows / 2 ? text_line(std::string(static_cast<size_t>(std::max(0, (inner - display_width(note)) / 2)), ' ') + note, leg) : line("", 0));

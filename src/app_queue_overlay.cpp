@@ -2,6 +2,8 @@
 // Part of class App (src/app.h): The big queue overlay, floating panels and the bulk add panel.
 // Split out of app.cpp; the includes are the same as there.
 #include "app.h"
+#include "app_state_adev.h"
+#include "app_state_bulk.h"
 #include "text_edit.h"
 #include "overlay_common.h"
 #include "remote_server.h"
@@ -66,8 +68,8 @@ namespace muisc {
 // Shown in the same modes as the list overlay (the ones with the main UI
 // underneath); in the full-screen takeovers the flag just stays set.
 bool App::queue_overlay_active() const {
-    if (!queue_overlay_open_) return false;
-    if (mode_ == Mode::AudioDevice) return !adev_from_settings_;
+    if (!qst_.overlay_open) return false;
+    if (mode_ == Mode::AudioDevice) return !adev_->from_settings;
     switch (mode_) {
         case Mode::Browse: case Mode::Search: case Mode::BulkAdd:
         case Mode::RetryLyrics: case Mode::ClearQueue: case Mode::UpdateNotice: case Mode::QueueToPlaylist: case Mode::OsciMenu: case Mode::SpectroMenu: case Mode::NormMenu: case Mode::BarsMenu: case Mode::Equalizer: case Mode::SleepTimer: case Mode::MenuIndex: case Mode::Creator: case Mode::LyricsEdit: case Mode::BookOverlay: case Mode::VideoMenu: case Mode::VideoLink: case Mode::VideoSearch: return true;
@@ -90,19 +92,19 @@ void App::queue_overlay_open() {
     // Remember the focus to give it back on close. Coming from the list
     // overlay the queue was unfocused (list_overlay_open() forces that), so
     // closing the queue overlay then lands on the list again.
-    queue_overlay_prev_focus_ = queue_focus_;
-    queue_overlay_open_ = true;
-    queue_focus_ = true; // arrow keys, d, 4/5 and a all act on the queue while it is open
+    qst_.overlay_prev_focus = qst_.focus;
+    qst_.overlay_open = true;
+    qst_.focus = true; // arrow keys, d, 4/5 and a all act on the queue while it is open
     clamp_queue_selected();
 }
 
 void App::queue_overlay_close() {
-    queue_overlay_open_ = false;
-    queue_find_edit_ = false;
-    queue_find_.clear();
+    qst_.overlay_open = false;
+    qst_.find_edit = false;
+    qst_.find.clear();
     text_disengage();
-    queue_focus_ = queue_overlay_prev_focus_;
-    // Both panes share queue_selected_/queue_scroll_: pull the window back so
+    qst_.focus = qst_.overlay_prev_focus;
+    // Both panes share qst_.selected/qst_.scroll: pull the window back so
     // the cursor is inside the small pane's (much shorter) view again.
     clamp_queue_selected();
 }
@@ -121,8 +123,8 @@ bool App::queue_find_match(const std::string& query, size_t idx) const {
             std::lock_guard<std::mutex> lk(row_meta_mutex_);
             const auto it = row_meta_cache_.find(key);
             if (it != row_meta_cache_.end()) hay += " " + it->second.artist + " " + it->second.title + " " + it->second.album + " " + it->second.year;
-            const auto all = queue_all_tags_.find(key);
-            if (all != queue_all_tags_.end()) hay += " " + all->second;
+            const auto all = qst_.all_tags.find(key);
+            if (all != qst_.all_tags.end()) hay += " " + all->second;
         }
         hay += " " + path_utf8(q.local_path.stem());
         const fs::path dir = q.local_path.parent_path();
@@ -135,7 +137,7 @@ void App::queue_all_tags_resolve() {
     auto paths = std::make_shared<std::vector<fs::path>>();
     for (const auto& q : queue_) {
         if (!q.is_local) continue;
-        if (queue_all_tags_asked_.insert(path_utf8(q.local_path)).second) paths->push_back(q.local_path);
+        if (qst_.all_tags_asked.insert(path_utf8(q.local_path)).second) paths->push_back(q.local_path);
     }
     if (paths->empty()) return;
     spawn_bg("queue tags", [this, paths]() {
@@ -144,7 +146,7 @@ void App::queue_all_tags_resolve() {
             std::string text = probe_all_tag_text(p);
             {
                 std::lock_guard<std::mutex> lk(row_meta_mutex_);
-                queue_all_tags_[path_utf8(p)] = std::move(text);
+                qst_.all_tags[path_utf8(p)] = std::move(text);
             }
             row_meta_tags_version_.fetch_add(1, std::memory_order_relaxed);   // the screen is drawn again with the new matches
         }
@@ -153,22 +155,22 @@ void App::queue_all_tags_resolve() {
 
 int App::queue_find_count() const {
     int n = 0;
-    for (size_t i = 0; i < queue_.size(); ++i) if (queue_find_match(queue_find_, i)) ++n;
+    for (size_t i = 0; i < queue_.size(); ++i) if (queue_find_match(qst_.find, i)) ++n;
     return n;
 }
 
 void App::queue_find_jump(int dir) {
     const int total = static_cast<int>(queue_.size());
-    if (total == 0 || queue_find_.empty()) return;
+    if (total == 0 || qst_.find.empty()) return;
     const int step = dir < 0 ? -1 : 1;
     for (int k = (dir == 0 ? 0 : 1); k <= total; ++k) {
-        const int i = ((queue_selected_ + step * k) % total + total) % total;
-        if (queue_find_match(queue_find_, static_cast<size_t>(i))) {
-            queue_selected_ = i;
+        const int i = ((qst_.selected + step * k) % total + total) % total;
+        if (queue_find_match(qst_.find, static_cast<size_t>(i))) {
+            qst_.selected = i;
             // keep the cursor inside the window
             const int rows = std::max(1, overlay_queue_rows_);
-            if (queue_selected_ < queue_scroll_) queue_scroll_ = queue_selected_;
-            else if (queue_selected_ >= queue_scroll_ + rows) queue_scroll_ = queue_selected_ - rows + 1;
+            if (qst_.selected < qst_.scroll) qst_.scroll = qst_.selected;
+            else if (qst_.selected >= qst_.scroll + rows) qst_.scroll = qst_.selected - rows + 1;
             clamp_queue_selected();
             return;
         }
@@ -180,13 +182,13 @@ void App::queue_find_jump(int dir) {
 // (the matches stay marked), ESC clears the search.
 void App::queue_find_key(int key) {
     const bool arrow = last_key_was_arrow();
-    if (key == 27) { queue_find_.clear(); queue_find_edit_ = false; text_disengage(); edit_caret_ = edit_anchor_ = 0; return; }
-    if (key == '\r' || key == '\n') { queue_find_edit_ = false; text_disengage(); return; }
+    if (key == 27) { qst_.find.clear(); qst_.find_edit = false; text_disengage(); edit_caret_ = edit_anchor_ = 0; return; }
+    if (key == '\r' || key == '\n') { qst_.find_edit = false; text_disengage(); return; }
     if (arrow && (key == 'A' || key == 'B')) { queue_find_jump(key == 'A' ? -1 : 1); return; }
-    edit_focus("queue-find", queue_find_);
+    edit_focus("queue-find", qst_.find);
     text_engage("queue-find");
-    if (edit_text_key(queue_find_, edit_caret_, edit_anchor_, key, 120, &status_line_)) {
-        if (!queue_find_.empty()) queue_all_tags_resolve();   // (every tag of the queue's files, once)
+    if (edit_text_key(qst_.find, edit_caret_, edit_anchor_, key, 120, &status_line_)) {
+        if (!qst_.find.empty()) queue_all_tags_resolve();   // (every tag of the queue's files, once)
         queue_find_jump(0);
     }
 }
@@ -198,13 +200,13 @@ void App::queue_overlay_page(int dir) {
     if (total <= 0) return;
     const int rows = std::max(1, overlay_queue_rows_);
     const int max_scroll = std::max(0, total - rows);
-    const int rel = std::clamp(queue_selected_ - queue_scroll_, 0, rows - 1);
-    const int new_scroll = std::clamp(queue_scroll_ + dir * rows, 0, max_scroll);
-    if (new_scroll == queue_scroll_) {
-        queue_selected_ = (dir > 0) ? total - 1 : 0;
+    const int rel = std::clamp(qst_.selected - qst_.scroll, 0, rows - 1);
+    const int new_scroll = std::clamp(qst_.scroll + dir * rows, 0, max_scroll);
+    if (new_scroll == qst_.scroll) {
+        qst_.selected = (dir > 0) ? total - 1 : 0;
     } else {
-        queue_scroll_ = new_scroll;
-        queue_selected_ = std::clamp(new_scroll + rel, 0, total - 1);
+        qst_.scroll = new_scroll;
+        qst_.selected = std::clamp(new_scroll + rel, 0, total - 1);
     }
     clamp_queue_selected();
 }
@@ -218,8 +220,8 @@ std::vector<std::string> App::build_queue_overlay_panel(int panel_w, int queue_r
         const int total = static_cast<int>(queue_.size());
         const int rows = std::max(1, queue_rows);
         const int pages = std::max(1, (total + rows - 1) / rows);
-        const int page = std::clamp((queue_scroll_ + rows / 2) / rows + 1, 1, pages);
-        const int remaining = total - (queue_scroll_ + rows);
+        const int page = std::clamp((qst_.scroll + rows / 2) / rows + 1, 1, pages);
+        const int remaining = total - (qst_.scroll + rows);
 
         std::vector<std::string> parts; // dropped from the back until it fits
         if (remaining > 0) parts.push_back("( " + std::to_string(remaining) + " more )");
@@ -239,22 +241,22 @@ std::vector<std::string> App::build_queue_overlay_panel(int panel_w, int queue_r
             const std::string border = ansi_for(settings_.border_color, false);
             const std::string bar = border + settings_.box_vertical + "\x1b[0m";
             const int inner = panel_w - 4;
-            out.push_back(box_top(std::string("SEARCH QUEUE") + (queue_find_edit_ ? focus_indicator(settings_, border) : std::string()), panel_w, border));
+            out.push_back(box_top(std::string("SEARCH QUEUE") + (qst_.find_edit ? focus_indicator(settings_, border) : std::string()), panel_w, border));
             const std::string prefix = "/ ";
             const int field_w = std::max(4, inner - display_width(prefix) - 14);
             std::string content;
             int cols = display_width(prefix);
-            if (queue_find_edit_) {
-                EditPaint p = paint_edit_field(queue_find_, edit_caret_, edit_anchor_, field_w, queue_find_.empty() ? search_idle_sgr(settings_) : search_sgr(settings_), true);
-                content = search_idle_sgr(settings_) + prefix + search_run(settings_, p.s, !queue_find_.empty()) + "\x1b[0m";
+            if (qst_.find_edit) {
+                EditPaint p = paint_edit_field(qst_.find, edit_caret_, edit_anchor_, field_w, qst_.find.empty() ? search_idle_sgr(settings_) : search_sgr(settings_), true);
+                content = search_idle_sgr(settings_) + prefix + search_run(settings_, p.s, !qst_.find.empty()) + "\x1b[0m";
                 cols += p.cols;
             } else {
-                const std::string plain = truncate_str(queue_find_.empty() ? std::string("(press [/] to search the queue)") : queue_find_, field_w);
-                content = search_idle_sgr(settings_) + prefix + search_run(settings_, plain, !queue_find_.empty()) + "\x1b[0m";
+                const std::string plain = truncate_str(qst_.find.empty() ? std::string("(press [/] to search the queue)") : qst_.find, field_w);
+                content = search_idle_sgr(settings_) + prefix + search_run(settings_, plain, !qst_.find.empty()) + "\x1b[0m";
                 cols += display_width(plain);
             }
             std::string hits;
-            if (!queue_find_.empty()) { const int n = queue_find_count(); hits = std::to_string(n) + (n == 1 ? " match" : " matches"); }
+            if (!qst_.find.empty()) { const int n = queue_find_count(); hits = std::to_string(n) + (n == 1 ? " match" : " matches"); }
             const int gap = std::max(0, inner - cols - display_width(hits));
             out.push_back(bar + " " + content + ansi_for(settings_.list_color, false) + std::string(static_cast<size_t>(gap), ' ') + hits + "\x1b[0m " + bar);
             out.push_back(box_bottom(panel_w, "", ansi_for(settings_.border_color_bottom, false)));
@@ -313,13 +315,13 @@ std::vector<std::string> App::build_bulk_add_panel() const {
 
     // --- input box (nested) ---
     lines.push_back(wrap(box_top("", inner_w, border)));
-    if (bulk_add_buffer_.empty() && !bulk_add_results_ready_) {
+    if (bulk_->add_buffer.empty() && !bulk_->add_results_ready) {
         lines.push_back(wrap(box_line("//:paste yt playlist link here", inner_w, border)));
     } else {
         const bool mine = edit_owner_ == "bulk-add";
-        const size_t cc = mine ? std::min(edit_caret_, bulk_add_buffer_.size()) : bulk_add_buffer_.size();
-        const size_t aa = mine ? std::min(edit_anchor_, bulk_add_buffer_.size()) : bulk_add_buffer_.size();
-        const EditPaint p = paint_edit_field(bulk_add_buffer_, cc, aa, std::max(4, inner_w - 4), "", !bulk_add_results_ready_);
+        const size_t cc = mine ? std::min(edit_caret_, bulk_->add_buffer.size()) : bulk_->add_buffer.size();
+        const size_t aa = mine ? std::min(edit_anchor_, bulk_->add_buffer.size()) : bulk_->add_buffer.size();
+        const EditPaint p = paint_edit_field(bulk_->add_buffer, cc, aa, std::max(4, inner_w - 4), "", !bulk_->add_results_ready);
         lines.push_back(wrap(box_line_field("", p.s, p.cols, inner_w, border)));
     }
     lines.push_back(wrap(box_bottom(inner_w, "", border)));
@@ -333,8 +335,8 @@ std::vector<std::string> App::build_bulk_add_panel() const {
 
     const auto& items = pending_bulk_add_.items;
     int total = static_cast<int>(items.size());
-    int show = bulk_add_results_ready_ ? std::min(total, kBulkAddVisibleRows) : 0;
-    int scroll = bulk_add_results_ready_ ? std::clamp(bulk_add_scroll_, 0, std::max(0, total - show)) : 0;
+    int show = bulk_->add_results_ready ? std::min(total, kBulkAddVisibleRows) : 0;
+    int scroll = bulk_->add_results_ready ? std::clamp(bulk_->add_scroll, 0, std::max(0, total - show)) : 0;
 
     // Column widths measured directly from the reference design at its
     // 56-column content width (inner_w - 4): title=27, channel=15, the
@@ -345,8 +347,8 @@ std::vector<std::string> App::build_bulk_add_panel() const {
         if (r >= show) { lines.push_back(wrap(box_line("", inner_w, border))); continue; }
         int idx = scroll + r;
         const auto& it = items[idx];
-        bool starred = idx < static_cast<int>(bulk_add_selected_.size()) && bulk_add_selected_[idx];
-        bool hovering = idx == bulk_add_cursor_;
+        bool starred = idx < static_cast<int>(bulk_->add_selected.size()) && bulk_->add_selected[idx];
+        bool hovering = idx == bulk_->add_cursor;
 
         std::string mark = starred ? "*" : " ";
         std::string title = truncate_str(it.title, title_w);
@@ -384,9 +386,9 @@ std::vector<std::string> App::build_bulk_add_panel() const {
     // "[ N more ]" on the left (only once there's more than fits), "ALL"
     // and "SELECT" on the right as the two commit actions. Just text, no
     // button/tab border art.
-    int more = bulk_add_results_ready_ ? (total - show) : 0;
+    int more = bulk_->add_results_ready ? (total - show) : 0;
     std::string left_label = more > 0 ? ("[ " + std::to_string(more) + " more ]") : "";
-    std::string right_label = bulk_add_results_ready_ ? "ALL   SELECT" : "";
+    std::string right_label = bulk_->add_results_ready ? "ALL   SELECT" : "";
     std::string prefix = settings_.box_lower_left + settings_.box_horizontal;
     if (!left_label.empty()) prefix += " " + left_label + " ";
     std::string suffix = right_label.empty() ? "" : (" " + right_label + " ");
@@ -398,6 +400,12 @@ std::vector<std::string> App::build_bulk_add_panel() const {
     bottom += suffix;
     bottom = pad_right(bottom, inner_w);
     lines.push_back(wrap(border.empty() ? bottom : (border + bottom + "\x1b[0m")));
+
+    // The two options (CTRL+s / CTRL+o), one row under the results box: the panel keeps one fixed height in both phases.
+    {
+        const std::string opts = " [CTRL+s] Save: " + std::string(settings_.bulk_save ? "ON " : "OFF") + "    [CTRL+o] Video: " + (settings_.bulk_video ? "ON" : "OFF");
+        lines.push_back(wrap(box_line(opts, inner_w, border)));
+    }
 
     // Outer box's own bottom border carries "[ESC] cancel" directly.
     lines.push_back(box_bottom(W, "[ESC] cancel", border));

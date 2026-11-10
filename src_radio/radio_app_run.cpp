@@ -1,4 +1,5 @@
 #include "radio_app.h"
+#include "string_util.h"
 #if defined(_WIN32)
 #include "win_compat.h"
 #endif
@@ -36,7 +37,7 @@ RadioApp::RadioApp() {
     rhist.open(storage.history_dir);
     yt.set_download_dir(storage.download_dir);
     // (MOUSIKI_RADIO_SEED: a fixed seed for the tests, so that "shuffle" picks the same stations every time)
-    rng.seed(std::getenv("MOUSIKI_RADIO_SEED") ? static_cast<unsigned>(std::atoi(std::getenv("MOUSIKI_RADIO_SEED"))) : std::random_device{}());
+    rng.seed(std::getenv("MOUSIKI_RADIO_SEED") ? static_cast<unsigned>(muisc::atoi_safe(std::getenv("MOUSIKI_RADIO_SEED"))) : std::random_device{}());
 }
 
 // The headless modes (--dump ..., --selftest) print one frame, or run for a few seconds, and end the program: one method each (headless_*).
@@ -132,7 +133,7 @@ int RadioApp::headless_dump_history(int argc, char** argv) {
         apply_test_size(ui.model);
         HistoryModel& hm = ui.model.hmenu;
         hm.open = true; hm.hist = &rhist; hm.now = static_cast<long long>(std::time(nullptr));
-        hm.tab = std::clamp(argc > 2 ? std::atoi(argv[2]) : 0, 0, 2);
+        hm.tab = std::clamp(argc > 2 ? muisc::atoi_safe(argv[2]) : 0, 0, 2);
         if (argc > 3 && std::string(argv[3]) == "yt") {
             hm.yt_open = true; hm.yt_text = "Daft Punk One More Time"; hm.yt_edit.to_end(hm.yt_text); hm.yt_in_field = false;
             hm.yt_dir = storage.download_dir.string(); hm.yt.searched = true;
@@ -161,17 +162,17 @@ int RadioApp::headless_dump_settings(int argc, char** argv) {
             const bool anim = a2 == "anim", paths = a2 == "paths", ref = a2 == "ref", about = a2 == "about";
             sm.tab = about ? 5 : ref ? 4 : paths ? 3 : anim ? 2 : 1;
             const int maxrow = about ? static_cast<int>(about_app_text().size()) : ref ? kKeyActionCount + 1 : paths ? kPathRowCount : anim ? rs_row_count(2) : kOnOffRowCount;
-            sm.row = std::clamp(argc > 3 ? std::atoi(argv[3]) : 0, 0, maxrow - 1);
+            sm.row = std::clamp(argc > 3 ? muisc::atoi_safe(argv[3]) : 0, 0, maxrow - 1);
             if (ref && argc > 4 && std::string(argv[4]) == "edit") { sm.editing = true; sm.buffer = "u"; sm.edit.to_end(sm.buffer); }
             if (paths && argc > 4 && std::string(argv[4]) == "edit") { sm.editing = true; sm.buffer = "/home/me/radio files"; sm.edit.to_end(sm.buffer); }
         } else {
-            sm.row = std::clamp(argc > 2 ? std::atoi(argv[2]) : 0, 0, color_tab_row_count() - 1);
+            sm.row = std::clamp(argc > 2 ? muisc::atoi_safe(argv[2]) : 0, 0, color_tab_row_count() - 1);
             if (a2 == "pick" || a2 == "create") {   // --dump-settings pick|create: the THEME overlays
                 sm.theme_list = themes::load_all();
                 sm.theme_sel = 2; sm.theme_draft = cfg; sm.theme_base = sm.theme_list[0]; sm.theme_name = "My Theme";
-                sm.theme_ui = a2 == "pick" ? 1 : 2; sm.theme_row = argc > 3 ? std::atoi(argv[3]) : -1;
+                sm.theme_ui = a2 == "pick" ? 1 : 2; sm.theme_row = argc > 3 ? muisc::atoi_safe(argv[3]) : -1;
             } else sm.theme_list = themes::load_all();
-            sm.col = argc > 3 ? std::atoi(argv[3]) : 0;
+            sm.col = argc > 3 ? muisc::atoi_safe(argv[3]) : 0;
             if (argc > 4 && std::string(argv[4]) == "edit") { sm.editing = true; sm.buffer = "21"; }
         }
         auto frame = render_radio_frame(ui.model, engine.status(), engine, cfg);
@@ -184,7 +185,7 @@ int RadioApp::headless_dump_overlay(int argc, char** argv) {
     (void)argc; (void)argv;
     // --dump-overlay [1|2]: the main screen with the SHIFT+o / SHIFT+v overlay
         apply_test_size(ui.model);
-        ui.model.overlay = argc > 2 ? std::atoi(argv[2]) : 1;
+        ui.model.overlay = argc > 2 ? muisc::atoi_safe(argv[2]) : 1;
         auto frame = render_radio_frame(ui.model, engine.status(), engine, cfg);
         print_plain(frame);
         return check_geometry(frame, ui.model) ? 0 : 2;
@@ -195,7 +196,7 @@ int RadioApp::headless_dump_cheat(int argc, char** argv) {
     (void)argc; (void)argv;
         apply_test_size(ui.model);
         ui.model.cheat_open = true;
-        ui.model.cheat_scroll = argc > 2 ? std::atoi(argv[2]) : 0;
+        ui.model.cheat_scroll = argc > 2 ? muisc::atoi_safe(argv[2]) : 0;
         auto frame = render_radio_frame(ui.model, engine.status(), engine, cfg);
         print_plain(frame);
         return check_geometry(frame, ui.model) ? 0 : 2;

@@ -155,9 +155,9 @@ void App::meta_open() {
     meta_->fetch_selected = 0;
     meta_refresh_lib_view();
     // The song that plays now is where the list starts (the view is unfiltered here, whatever was typed or filtered before).
-    if (has_track_ && current_is_local_) {
+    if (has_track_ && current_.is_local) {
         for (size_t i = 0; i < meta_->lib_view.size(); ++i)
-            if (meta_->lib_view[i].path == current_path_) { meta_->lib_selected = static_cast<int>(i); break; }
+            if (meta_->lib_view[i].path == current_.path) { meta_->lib_selected = static_cast<int>(i); break; }
     }
 }
 
@@ -317,13 +317,13 @@ const char* App::meta_filter_label() const {
 
 // SHIFT+c: the song that plays now is hovered in the list, whatever was typed or filtered (the search text and the missing-tag filter are removed).
 void App::meta_jump_to_current() {
-    if (!has_track_ || !current_is_local_) { meta_->status = "no local song plays right now"; return; }
+    if (!has_track_ || !current_.is_local) { meta_->status = "no local song plays right now"; return; }
     meta_->query.clear();
     meta_->filter = 0;
     meta_->folder_hover.clear();
     meta_refresh_lib_view();
     for (size_t i = 0; i < meta_->lib_view.size(); ++i)
-        if (meta_->lib_view[i].path == current_path_) { meta_->lib_selected = static_cast<int>(i); meta_->status = "the song that plays now (search and filters removed)"; return; }
+        if (meta_->lib_view[i].path == current_.path) { meta_->lib_selected = static_cast<int>(i); meta_->status = "the song that plays now (search and filters removed)"; return; }
     meta_->status = "the song that plays now is not in the library list";
 }
 
@@ -952,19 +952,19 @@ void App::poll_meta_save() {
                 // makes the next read actually hit the file again.
                 std::lock_guard<std::mutex> lk(row_meta_mutex_);
                 row_meta_cache_.erase(e.path);
-                search_idx_.clear();   // the tags on disk changed: the index takes them from the cache again
+                search_.idx.clear();   // the tags on disk changed: the index takes them from the cache again
                 if (!new_path.empty() && new_path != e.path) row_meta_cache_.erase(new_path);
             }
             // The playing file now carries these values: make them what the
             // main screen's block is loaded with (it is read once per track),
             // so it keeps showing them after the pending edit is gone.
-            if (has_track_ && current_is_local_ && path_utf8(current_path_) == e.path) {
-                overlay_meta_entry(metadata_, e, current_path_);
+            if (has_track_ && current_.is_local && path_utf8(current_.path) == e.path) {
+                overlay_meta_entry(metadata_, e, current_.path);
             }
             if (!new_path.empty() && new_path != e.path) {
                 // The file was renamed: keep every in-app reference pointed
                 // at the new name so playback/queue/lyrics don't break.
-                if (path_utf8(current_path_) == e.path) current_path_ = path_from_utf8(new_path);   // (metadata_ was already updated above)
+                if (path_utf8(current_.path) == e.path) current_.path = path_from_utf8(new_path);   // (metadata_ was already updated above)
                 for (auto& q : queue_) {
                     if (q.is_local && path_utf8(q.local_path) == e.path) q.local_path = path_from_utf8(new_path);
                 }

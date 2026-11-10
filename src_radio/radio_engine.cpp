@@ -18,6 +18,7 @@
 #include "utf8_util.h"   // clean_tag_text(): the station's metadata
 #include "miniaudio.h"
 #include "process_util.h"
+#include "string_util.h"
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
@@ -351,6 +352,7 @@ struct Recorder {
         converting.fetch_add(1);
         std::thread([this, w, o, t, fr]() {
             std::string result;
+            try {
             if (fr < kRate / 2) {   // under half a second: nothing worth keeping
                 std::error_code ec; std::filesystem::remove(w, ec);
                 result = "recording too short, discarded";
@@ -362,6 +364,7 @@ struct Recorder {
                 if (r.ok() && std::filesystem::exists(o, ec)) { std::filesystem::remove(w, ec); result = "saved " + o; }
                 else result = "mp3 conversion failed, kept " + w;
             }
+            } catch (...) { result = "mp3 conversion failed, kept " + w; }   // (the counter below must be counted down whatever happens)
             { std::lock_guard<std::mutex> lk(m); note = result; }
             serial.fetch_add(1);
             converting.fetch_sub(1);
@@ -476,10 +479,10 @@ void probe_main(std::shared_ptr<Session> s) {
             while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
             std::string v;
             if (!(v = value_after(line, "codec_name")).empty()) { got.codec = upper_codec(v); any = true; }
-            else if (!(v = value_after(line, "sample_rate")).empty()) got.sample_rate = std::atoi(v.c_str());
-            else if (!(v = value_after(line, "channels")).empty()) got.channels = std::atoi(v.c_str());
-            else if (!(v = value_after(line, "bit_rate")).empty()) { int b = std::atoi(v.c_str()); if (b > 0) got.bitrate_kbps = b / 1000; }
-            else if (!(v = value_after(line, "TAG:icy-br")).empty()) { int b = std::atoi(v.c_str()); if (b > 0) got.bitrate_kbps = b; }
+            else if (!(v = value_after(line, "sample_rate")).empty()) got.sample_rate = muisc::atoi_safe(v.c_str());
+            else if (!(v = value_after(line, "channels")).empty()) got.channels = muisc::atoi_safe(v.c_str());
+            else if (!(v = value_after(line, "bit_rate")).empty()) { int b = muisc::atoi_safe(v.c_str()); if (b > 0) got.bitrate_kbps = b / 1000; }
+            else if (!(v = value_after(line, "TAG:icy-br")).empty()) { int b = muisc::atoi_safe(v.c_str()); if (b > 0) got.bitrate_kbps = b; }
             else if (!(v = value_after(line, "TAG:icy-name")).empty()) got.station = clean_tag_text(v);
             else if (!(v = value_after(line, "TAG:icy-genre")).empty()) got.genre = clean_tag_text(v);
             else if (!(v = value_after(line, "TAG:StreamTitle")).empty()) stream_title = v;
@@ -853,8 +856,9 @@ void RadioEngine::tune(const Station& st, int index) {
     d.fft.reset();
     // Detached on purpose: a worker may sit in a blocking read() on a dead socket for up to the
     // rw_timeout; tuning must never wait for that. Each holds its own shared_ptr to what it needs.
-    std::thread(worker_main, s).detach();
-    if (!st.synthetic()) std::thread(probe_main, s).detach();
+    // (an exception that left a detached thread would end the whole program: the worker gives up on the station instead)
+    std::thread([s] { try { worker_main(s); } catch (...) { s->state.store(static_cast<int>(StreamState::Failed)); } }).detach();
+    if (!st.synthetic()) std::thread([s] { try { probe_main(s); } catch (...) {} }).detach();
 }
 
 void RadioEngine::reconnect() {

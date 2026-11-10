@@ -1,6 +1,10 @@
 // Help screens: the wizard (SHIFT+w) and the cheat sheet (?). Split out of app.cpp.
 // Member functions of App (declared in app.h); the helpers shared with app.cpp are in app_internal.h.
 #include "app.h"
+#include "app_state_theme.h"
+#include "app_state_eq.h"
+#include "app_state_wizard.h"
+#include "app_state_cheat.h"
 #include "creator_state.h"
 #include "text_edit.h"
 #include "help_search.h"
@@ -57,13 +61,13 @@ namespace muisc {
 
 bool App::wizard_allowed_over_mode() const {
     switch (mode_) {
-        case Mode::Settings:    return theme_ui_ == 0 && leave_prompt_ == 0;   // not in the theme editor or a question
-        case Mode::Cheatsheet:  return !cheat_searching_;                      // the search field takes typed text
+        case Mode::Settings:    return theme_->ui == 0 && leave_prompt_ == 0;   // not in the theme editor or a question
+        case Mode::Cheatsheet:  return !cheat_->searching;                      // the search field takes typed text
         case Mode::Console: case Mode::History: case Mode::ReadLyrics:
         case Mode::OsciMenu: case Mode::NormMenu: case Mode::BarsMenu: case Mode::SpectroMenu: case Mode::SleepTimer: case Mode::MenuIndex:
         case Mode::LyricsEdit: case Mode::Karaoke:
             return true;
-        case Mode::Equalizer:   return !eq_naming_;                            // the "Save as:" prompt takes typed text
+        case Mode::Equalizer:   return !eq_->naming;                            // the "Save as:" prompt takes typed text
         case Mode::Creator:     return !creator_on_text_field() || creator_->list_open;  // the text field takes the keyboard
         case Mode::Playlist: case Mode::MetaEdit: case Mode::CoverFetch: return !text_entry_active(); // a text field has the keyboard
         default:                return false;                                  // text fields (search, playlist and meta editors ...), prompts
@@ -72,14 +76,14 @@ bool App::wizard_allowed_over_mode() const {
 
 void App::wizard_open() {
     if (!wizard::kEnabled) return;   // switched off (wizard.h)
-    if (mode_ != Mode::Wizard) wizard_return_mode_ = mode_;
-    wizard::open(wizard_st_, !settings_.wizard_seen);
+    if (mode_ != Mode::Wizard) wizard_->return_mode = mode_;
+    wizard::open(wizard_->st, !settings_.wizard_seen);
     mode_ = Mode::Wizard;
 }
 
 void App::wizard_close() {
-    mode_ = wizard_return_mode_;
-    wizard_return_mode_ = Mode::Browse;
+    mode_ = wizard_->return_mode;
+    wizard_->return_mode = Mode::Browse;
     force_redraw_ = true;
     // The first close is what turns the auto-open off for good. Written
     // straight away rather than at exit, so a crash cannot bring the
@@ -102,8 +106,8 @@ void App::build_wizard_screen(std::ostringstream& frame, int W) {
     // The disk of the first page turns at a fixed 0.10 here, whatever Settings -> ANIMA/VIZ -> Disk Speed says and
     // whether or not anything is playing, so the greeting always has some life.
     std::vector<std::string> disk;
-    if (wizard::shows_disk(wizard_st_.page)) disk = disk_.frame(wizard_angle_);
-    const wizard::View v = wizard::render(wizard_st_, W, body_rows, disk);
+    if (wizard::shows_disk(wizard_->st.page)) disk = disk_.frame(wizard_->angle);
+    const wizard::View v = wizard::render(wizard_->st, W, body_rows, disk);
 
     const std::string lead(static_cast<size_t>(v.left), ' ');
     const std::string trail(static_cast<size_t>(std::max(0, W - v.left - v.box_w)), ' ');
@@ -301,10 +305,10 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "#/f:", "Search folders (type /f:query), ENTER lists all files of that folder"},
         {nullptr, "#/v:", "Search VIDEO files only, e.g. /v:live (a normal search lists songs and videos that have no song of their name)"},
         {nullptr, "#/x:", "Search songs AND videos, e.g. /x:live"},
-        {"SEARCH ONLINE (MAIN UI)", "#/s:", "Search online (YouTube; type s:query)"},
+        {"SEARCH ONLINE (MAIN UI)", "#/y:", "Search online (YouTube; type y:query)"},
         {nullptr, "#/sc:", "Search SoundCloud (type it in the search box; ENTER plays, the download key saves it)"},
         {nullptr, "#/b:", "Search Bandcamp (tracks; ENTER plays the free stream, the download key saves it)"},
-        {nullptr, "#/sv:", "Search videos on YouTube: ENTER opens SEARCH YT with the query searched, to download a video for the playing song"},
+        {nullptr, "#/yv:", "Search videos on YouTube: ENTER opens SEARCH YT with the query searched, to download a video for the playing song"},
         // --- Queue ---
         {"QUEUE (MAIN UI)", "HKeyAddHoveringSongToQueue", "Add hovering track of the library pane as NEXT (repeated presses keep their order; does nothing while the queue pane is focused)"},
         {nullptr, "HKeyQueueAddEnd", "Add hovering track to the END of the queue"},
@@ -318,7 +322,8 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "HKeyClearQueue", "Clear the whole queue (asks Yes / No first)"},
         {nullptr, "HKeyQueueUndoClear", "Undo the last queue clear"},
         {nullptr, "HKeyQueueToPlaylist", "Save the queue as a playlist (opens the playlist editor)"},
-        {nullptr, "HKeyBulkAdd", "BULK ADD: paste a YouTube playlist link and queue its tracks (from any pane). Only queues them: nothing is downloaded when adding"},
+        {nullptr, "HKeyBulkAdd", "BULK ADD: paste a YouTube playlist link and queue its tracks (from any pane). Only queues them: nothing is downloaded when adding; each track is fetched when it plays"},
+        {nullptr, "#CTRL+s  CTRL+o", "In BULK ADD: Save on / off (off = play only: the downloaded file is deleted after the track and at quit)   Video on / off (the track's video is downloaded when it plays)"},
         // --- Playlists -- HKeyPlaylist opens the overlay; every other row
         // is the playlist editor's own fixed legend (build_playlist_screen()'s
         // footer), none of which is a rebindable hotkey.
@@ -492,19 +497,19 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
     }
     const int total = static_cast<int>(dlines.size());
     const int max_scroll = std::max(0, total - visible);
-    if (cheat_jump_row_ >= 0 && cheat_jump_row_ < static_cast<int>(row_dline.size())) {
-        cheatsheet_scroll_ = std::max(0, row_dline[static_cast<size_t>(cheat_jump_row_)] - 2);   // the category title above stays in view
+    if (cheat_->jump_row >= 0 && cheat_->jump_row < static_cast<int>(row_dline.size())) {
+        cheatsheet_scroll_ = std::max(0, row_dline[static_cast<size_t>(cheat_->jump_row)] - 2);   // the category title above stays in view
     }
-    cheat_jump_row_ = -1;
+    cheat_->jump_row = -1;
     cheatsheet_scroll_ = std::clamp(cheatsheet_scroll_, 0, max_scroll);
 
-    if (cheat_searching_) {
+    if (cheat_->searching) {
         // ----- SHIFT+s: the search view replaces the table -----
         const std::string R = "\x1b[0m";
         const std::string bar = border + settings_.box_vertical + R;
         const std::string mark_sgr = header_sgr(settings_) + "\x1b[4m";
         const std::string cursor_sgr_ = ansi_for(settings_.list_cursor_color, false) + bg_ansi_for(settings_.list_cursor_bg_color);
-        const std::vector<std::string> words = helpsearch::split_words(cheat_query_);
+        const std::vector<std::string> words = helpsearch::split_words(cheat_->query);
         struct Res { int row; helpsearch::Hit hit; std::string doc; };
         std::vector<Res> res;
         if (!words.empty()) {
@@ -517,9 +522,9 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
             std::stable_sort(res.begin(), res.end(), [](const Res& a, const Res& b) { return helpsearch::better(a.hit, b.hit); });
             if (res.size() > 300) res.resize(300);
         }
-        cheat_result_rows_.clear();
-        for (const Res& r : res) cheat_result_rows_.push_back(r.row);
-        cheat_sel_ = std::clamp(cheat_sel_, 0, std::max(0, static_cast<int>(res.size()) - 1));
+        cheat_->result_rows.clear();
+        for (const Res& r : res) cheat_->result_rows.push_back(r.row);
+        cheat_->sel = std::clamp(cheat_->sel, 0, std::max(0, static_cast<int>(res.size()) - 1));
 
         auto row_out = [&](const std::string& painted, int cols) {
             frame << bar << " " << painted << std::string(static_cast<size_t>(std::max(0, inner - cols)), ' ') << " " << bar << "\n";
@@ -528,9 +533,9 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {   // the query field
             const std::string label = "Search: ";
             const bool mine = edit_owner_ == "cheat-search";
-            const size_t cc = mine ? std::min(edit_caret_, cheat_query_.size()) : cheat_query_.size();
-            const size_t aa = mine ? std::min(edit_anchor_, cheat_query_.size()) : cheat_query_.size();
-            const EditPaint p = paint_edit_field(cheat_query_, cc, aa, std::max(4, inner - display_width(label) - 1), "", true);
+            const size_t cc = mine ? std::min(edit_caret_, cheat_->query.size()) : cheat_->query.size();
+            const size_t aa = mine ? std::min(edit_anchor_, cheat_->query.size()) : cheat_->query.size();
+            const EditPaint p = paint_edit_field(cheat_->query, cc, aa, std::max(4, inner - display_width(label) - 1), "", true);
             row_out(header_sgr(settings_) + label + R + p.s, display_width(label) + p.cols);
             ++used;
         }
@@ -590,21 +595,21 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         std::vector<std::vector<std::pair<size_t, size_t>>> blocks;
         for (const Res& r : res) blocks.push_back(wrap_offsets(r.doc, text_w, std::max(10, text_w - desc_col), 3));
         const int room = std::max(1, visible - used);
-        cheat_first_ = std::clamp(cheat_first_, 0, std::max(0, static_cast<int>(res.size()) - 1));
-        if (cheat_sel_ < cheat_first_) cheat_first_ = cheat_sel_;
+        cheat_->first = std::clamp(cheat_->first, 0, std::max(0, static_cast<int>(res.size()) - 1));
+        if (cheat_->sel < cheat_->first) cheat_->first = cheat_->sel;
         for (;;) {   // scroll down until the selected result fits
             int h = 0;
-            for (int i = cheat_first_; i <= cheat_sel_ && i < static_cast<int>(res.size()); ++i) h += static_cast<int>(blocks[static_cast<size_t>(i)].size());
-            if (h <= room || cheat_first_ >= cheat_sel_) break;
-            ++cheat_first_;
+            for (int i = cheat_->first; i <= cheat_->sel && i < static_cast<int>(res.size()); ++i) h += static_cast<int>(blocks[static_cast<size_t>(i)].size());
+            if (h <= room || cheat_->first >= cheat_->sel) break;
+            ++cheat_->first;
         }
         int rows_left = room;
-        for (int i = cheat_first_; i < static_cast<int>(res.size()) && rows_left > 0; ++i) {
+        for (int i = cheat_->first; i < static_cast<int>(res.size()) && rows_left > 0; ++i) {
             const auto& bl = blocks[static_cast<size_t>(i)];
             for (size_t k = 0; k < bl.size() && rows_left > 0; ++k, --rows_left) {
                 int cols = 0;
                 const std::string body = paint(res[static_cast<size_t>(i)].doc, bl[k].first, bl[k].second, res[static_cast<size_t>(i)].hit.ranges, cols);
-                const bool sel = i == cheat_sel_;
+                const bool sel = i == cheat_->sel;
                 const std::string lead = (k == 0) ? (sel ? cursor_sgr_ + "\u25b6 " + R : std::string("  ")) : std::string("  ");
                 const int indent = k == 0 ? 0 : desc_col;   // wrapped lines continue under the description column
                 row_out(lead + std::string(static_cast<size_t>(indent), ' ') + body, 2 + indent + cols);

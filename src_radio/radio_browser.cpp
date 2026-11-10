@@ -184,22 +184,22 @@ bool parse_bitrate(std::string t, int& mn, int& mx) {
     if (t.rfind(">=", 0) == 0 || t.rfind("<=", 0) == 0) {
         const std::string n = t.substr(2);
         if (!digits(n)) return false;
-        (t[0] == '>' ? mn : mx) = std::atoi(n.c_str());
+        (t[0] == '>' ? mn : mx) = muisc::atoi_safe(n.c_str());
         return true;
     }
     if (t[0] == '>' || t[0] == '<') {
         const std::string n = t.substr(1);
         if (!digits(n)) return false;
-        (t[0] == '>' ? mn : mx) = std::atoi(n.c_str());
+        (t[0] == '>' ? mn : mx) = muisc::atoi_safe(n.c_str());
         return true;
     }
-    if (t.back() == '+') { t.pop_back(); if (!digits(t)) return false; mn = std::atoi(t.c_str()); return true; }
+    if (t.back() == '+') { t.pop_back(); if (!digits(t)) return false; mn = muisc::atoi_safe(t.c_str()); return true; }
     const size_t dash = t.find('-');
-    if (dash == std::string::npos) { if (!digits(t)) return false; mn = std::atoi(t.c_str()); return true; }
+    if (dash == std::string::npos) { if (!digits(t)) return false; mn = muisc::atoi_safe(t.c_str()); return true; }
     const std::string a = t.substr(0, dash), b = t.substr(dash + 1);
     if ((!a.empty() && !digits(a)) || (!b.empty() && !digits(b)) || (a.empty() && b.empty())) return false;
-    if (!a.empty()) mn = std::atoi(a.c_str());
-    if (!b.empty()) mx = std::atoi(b.c_str());
+    if (!a.empty()) mn = muisc::atoi_safe(a.c_str());
+    if (!b.empty()) mx = muisc::atoi_safe(b.c_str());
     if (mx > 0 && mn > mx) std::swap(mn, mx);
     return true;
 }
@@ -375,6 +375,7 @@ void RadioBrowser::search(const BrowseQuery& q) {
     std::thread([sh, args, gen, good]() {
         std::string last_error = "no server answered";
         bool done = false;
+        try {   // (an exception out of this thread would end the program)
         for (const auto& [label, base] : server_bases(good)) {
             {   // superseded while we were trying servers: stop early
                 std::lock_guard<std::mutex> lk(sh->m);
@@ -397,6 +398,7 @@ void RadioBrowser::search(const BrowseQuery& q) {
             done = true;
             break;
         }
+        } catch (...) { last_error = "internal error while searching"; done = false; }
         std::lock_guard<std::mutex> lk(sh->m);
         if (!done && sh->generation == gen) {
             sh->state = BrowseState::Error;
@@ -413,11 +415,13 @@ void RadioBrowser::count_click(const std::string& uuid) {
     std::string good;
     { std::lock_guard<std::mutex> lk(sh->m); good = sh->good_server; }
     std::thread([uuid, good]() {
-        for (const auto& [label, base] : server_bases(good)) {
-            std::string body;
-            if (curl_get(base, "/json/url/" + uuid, {}, body) == 0) return;
-            (void)label;
-        }
+        try {   // (an exception out of this thread would end the program)
+            for (const auto& [label, base] : server_bases(good)) {
+                std::string body;
+                if (curl_get(base, "/json/url/" + uuid, {}, body) == 0) return;
+                (void)label;
+            }
+        } catch (...) {}
     }).detach();
 }
 

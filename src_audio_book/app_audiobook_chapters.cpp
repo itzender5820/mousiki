@@ -47,7 +47,7 @@ void App::book_cm_open() {
     }
     if (book_->cut.active) { status_line_ = "a file is being cut ..."; return; }
     int idx = book_current_chapter();
-    if (idx < 0) idx = std::clamp(queue_selected_, 0, static_cast<int>(chapters_.size()) - 1);
+    if (idx < 0) idx = std::clamp(qst_.selected, 0, static_cast<int>(chapters_.size()) - 1);
     const bool playing_it = idx == book_current_chapter();
     auto go = [this, idx]() {
         if (idx != book_current_chapter()) { book_->prompt_paused = false; book_play_chapter(idx); }   // (the marks are set while listening)
@@ -218,7 +218,7 @@ bool App::book_cm_key(int key) {
         if (act == "HKeyDecreaseVolume") { act_volume_change(-5); return true; }
         if (act == "HKeyLyricsTiming") { mode_ = Mode::Browse; return true; }   // the key that opened it closes it
     }
-    const bool this_file_plays = has_track_ && current_is_local_ && path_utf8(current_path_.filename()) == book_->cm_file && path_utf8(current_path_.parent_path()) == book_->dir;
+    const bool this_file_plays = has_track_ && current_.is_local && path_utf8(current_.path.filename()) == book_->cm_file && path_utf8(current_.path.parent_path()) == book_->dir;
     if (key == 27 || key == 'q') { mode_ = Mode::Browse; return true; }
     if (key == 'm' || key == 'M') {   // a mark where one is listening
         if (!this_file_plays) { say("play this file first: a mark is set at the point you are listening to"); return true; }
@@ -300,15 +300,15 @@ void App::book_cut_start(bool trim) {
     for (const SplitPart& p : job.parts)
         if (fs::exists(dir / path_from_utf8(p.file), ec)) { book_->ov_status = "the file " + p.file + " exists already: rename or move it first"; return; }
     if (load_in_progress_.load()) { book_->ov_status = "the chapter is still loading: try again in a moment"; return; }
-    bool plays_it = has_track_ && current_is_local_ && path_utf8(current_path_) == path_utf8(job.src);
-    if (has_track_ && current_is_local_ && !plays_it) { std::error_code eq; plays_it = fs::equivalent(current_path_, job.src, eq) && !eq; }
-    if (!plays_it && has_track_ && current_is_local_) plays_it = current_path_.filename() == job.src.filename() && current_path_.parent_path().filename() == job.src.parent_path().filename();   // (another spelling of the same folder)
+    bool plays_it = has_track_ && current_.is_local && path_utf8(current_.path) == path_utf8(job.src);
+    if (has_track_ && current_.is_local && !plays_it) { std::error_code eq; plays_it = fs::equivalent(current_.path, job.src, eq) && !eq; }
+    if (!plays_it && has_track_ && current_.is_local) plays_it = current_.path.filename() == job.src.filename() && current_.path.parent_path().filename() == job.src.parent_path().filename();   // (another spelling of the same folder)
     if (plays_it) {   // the player must let go of the file
         device_stop();   // on the device worker (see App::device_run())
         // The long files are decoded by ffmpeg processes that read the file for as long as anybody holds the track (the player, and
         // the app's own reference): letting go of it ends them, and the file can be moved.
-        if (current_pcm_) current_pcm_->cancelled.store(true);   // (the decode threads end and close the file; another holder of the track would keep them alive)
-        current_pcm_.reset();
+        if (current_.pcm) current_.pcm->cancelled.store(true);   // (the decode threads end and close the file; another holder of the track would keep them alive)
+        current_.pcm.reset();
         has_track_ = false;
         history_end_current_play();
     }
@@ -452,7 +452,7 @@ void App::book_cut_finish() {
         std::lock_guard<std::mutex> lk(row_meta_mutex_);
         row_meta_cache_.clear();
     }
-    search_idx_.clear();
+    search_.idx.clear();
     book_->meta_path.clear();
     rescan_library();   // the new files show up as the chapters
     std::string msg = "cut into " + std::to_string(count) + " chapters; the original is kept as " + backup_name + " (ALT+L, SHIFT+d deletes it)";
@@ -478,7 +478,7 @@ std::vector<std::string> App::build_book_cm_panel(int panel_w, int panel_h) cons
     std::vector<std::string> lines;
     lines.push_back(box_top("Chapter marks - " + truncate_str(book_->cm_file, std::max(8, W - 28)), W, border));
 
-    const bool this_file = has_track_ && current_is_local_ && path_utf8(current_path_.filename()) == book_->cm_file && path_utf8(current_path_.parent_path()) == book_->dir;
+    const bool this_file = has_track_ && current_.is_local && path_utf8(current_.path.filename()) == book_->cm_file && path_utf8(current_.path.parent_path()) == book_->dir;
     const double pos = this_file ? player_.poll_elapsed() : -1.0;
     const int n = static_cast<int>(book_->cm.size());
     {   // where one is

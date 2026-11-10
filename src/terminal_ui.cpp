@@ -1,6 +1,7 @@
 // Terminal handling: raw input and key decoding, screen output, terminal size and colour support, text
 // width, and the clipboard. Everything the screen code sends to the terminal goes through here.
 #include "terminal_ui.h"
+#include "string_util.h"
 #include "indic_handler.h"
 #include "utf8_util.h"
 #include <algorithm>
@@ -174,7 +175,7 @@ void terminal_black_background(bool on) {
 static std::string palette_rgb(const std::string& v) {
     if (v.empty() || v.size() > 3) return "";
     for (char c : v) if (c < '0' || c > '9') return "";
-    const int n = std::atoi(v.c_str());
+    const int n = muisc::atoi_safe(v.c_str());
     int r, g, b;
     if (n >= 16 && n <= 231) {
         static const int lv[6] = {0, 95, 135, 175, 215, 255};
@@ -892,7 +893,7 @@ bool truecolor_ok() {
         if (prog && std::string(prog) == "Apple_Terminal") {
             // macOS Terminal knows 24-bit colours from macOS 26 (Darwin 25) on
             struct utsname u {};
-            if (uname(&u) == 0) return std::atoi(u.release) >= 25;
+            if (uname(&u) == 0) return muisc::atoi_safe(u.release) >= 25;
             return false;
         }
 #endif

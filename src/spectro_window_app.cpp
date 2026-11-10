@@ -9,6 +9,7 @@
 #include "scope_window.h"
 #include "scope_sdl.h"
 #include "spectrogram.h"
+#include "string_util.h"
 
 #include <algorithm>
 #include <atomic>
@@ -174,7 +175,7 @@ int spectro_window_main() {
     if (geo.top && A.SetWindowAlwaysOnTop) A.SetWindowAlwaysOnTop(win, 1);
 
     const char* shot_path = std::getenv("MOUSIKI_SPECTRO_SHOT");   // tests: save frame N as a PPM picture
-    const int shot_frame = std::getenv("MOUSIKI_SPECTRO_SHOT_FRAME") ? std::atoi(std::getenv("MOUSIKI_SPECTRO_SHOT_FRAME")) : 240;
+    const int shot_frame = std::getenv("MOUSIKI_SPECTRO_SHOT_FRAME") ? muisc::atoi_safe(std::getenv("MOUSIKI_SPECTRO_SHOT_FRAME")) : 240;
     const bool shot_exit = std::getenv("MOUSIKI_SPECTRO_SHOT_EXIT") != nullptr;
 
     constexpr int kTexW = 2048;          // texel columns: more than one page (1024 columns) plus what arrives meanwhile

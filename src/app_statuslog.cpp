@@ -1,5 +1,6 @@
 // The status message history (second pane of the console overlay).
 #include "app.h"
+#include "app_state_eq.h"
 #include "playlist_state.h"
 #include "meta_state.h"
 #include "creator_state.h"
@@ -29,7 +30,7 @@ std::string stamp_now() {
 
 void App::capture_status() {
     const std::string* const lines[] = {&status_line_, &meta_->status, &playlist_->status, &cf_->status, &history_status_, &rd_->status,
-                                        &creator_->status, &eq_status_, &playlist_->export_status, &playlist_->import_status};
+                                        &creator_->status, &eq_->status, &playlist_->export_status, &playlist_->import_status};
     constexpr size_t n = sizeof lines / sizeof lines[0];
     if (status_seen_.size() != n) status_seen_.assign(n, std::string());
     for (size_t i = 0; i < n; ++i) {

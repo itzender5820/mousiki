@@ -180,7 +180,7 @@ bool App::book_marks_key(int key) {
             if (!book_open_dir(row.dir)) { status_line_ = "that book is no longer in the library"; return; }
             const int c = book_chapter_of(row.file);
             if (c < 0) { status_line_ = "that chapter is no longer in the book"; return; }
-            queue_selected_ = c;
+            qst_.selected = c;
             book_fit_scroll();
             book_resume_open(c, mk, label);
         });
@@ -198,7 +198,7 @@ bool App::book_marks_key(int key) {
         if (!book_open_dir(row.dir)) { say("that book is no longer in the library"); return true; }
         const int c = book_chapter_of(row.file);
         if (c < 0) { say("that chapter is no longer in the book"); return true; }
-        queue_selected_ = c;
+        qst_.selected = c;
         book_fit_scroll();
         book_play_at(c, row.sec);
         say("playing " + stem_of(row.file) + " from " + book_notes::time_text(row.sec));

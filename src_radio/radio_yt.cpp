@@ -109,7 +109,8 @@ void RadioYt::search(const std::string& query) {
     auto st = st_;
     std::thread([st, gen, query, script] {
         OnlineSource src;
-        std::vector<OnlineResult> res = src.search(query, 8, script.string());
+        std::vector<OnlineResult> res;
+        try { res = src.search(query, 8, path_utf8(script)); } catch (...) {}   // (an exception out of this thread would end the program: "nothing found")
         std::lock_guard<std::mutex> lk(st->m);
         if (st->generation == gen) {
             st->snap.searching = false;
@@ -153,7 +154,7 @@ void RadioYt::download(size_t index) {
             YoutubeSource yt(cache);
             // the player splits "Artist - Title" itself; a YouTube result's uploader is the best artist guess we have
             auto r = yt.resolve_by_id(item.video_id, item.title, "", &err);
-            if (r) { ok = true; file = r->cached_path.filename().string(); }
+            if (r) { ok = true; file = path_utf8(r->cached_path.filename()); }
         } catch (const std::exception& e) {
             err = e.what();
         }

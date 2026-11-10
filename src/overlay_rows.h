@@ -12,6 +12,7 @@ enum VMenuRow : int {
     kVmLyrics,          // Include Lyrics
     kVmAutoVideo,       // Auto Video
     kVmCover,           // Cover, Disk or Thumbnail
+    kVmCoverSat,        // Cover Gradient Saturation (0 .. 100 %)
     kVmSize,            // Picture Size
     kVmRounded,         // Rounded Corners
     kVmEffect,          // Effect
@@ -53,6 +54,7 @@ enum StyleRow : int {
     kStCoverContrast,
     kStCoverBrightness,
     kStCoverColors,
+    kStCoverGradSat,    // Cover Gradient Saturation
     kStCoverChroma,
     kStCoverOrThumb,    // Use Disk/Cover/Thumbnail                (Video mode)
     kStVideoOn,         // Video of this track                    (Video mode)
@@ -70,7 +72,7 @@ enum StyleRow : int {
 };
 inline bool style_row_is_video(StyleRow r) { return r >= kStVideoOn && r <= kStMp4Audio; }   // the rows of the "Video" block
 inline std::vector<StyleRow> style_rows(bool video_mode, bool paired) {
-    std::vector<StyleRow> v = {kStLook, kStCoverContrast, kStCoverBrightness, kStCoverColors, kStCoverChroma};
+    std::vector<StyleRow> v = {kStLook, kStCoverContrast, kStCoverBrightness, kStCoverColors, kStCoverGradSat, kStCoverChroma};
     if (video_mode) {
         for (int r = kStCoverOrThumb; r <= kStVideoRounded; ++r) v.push_back(static_cast<StyleRow>(r));
         if (paired) v.push_back(kStMp4Audio);

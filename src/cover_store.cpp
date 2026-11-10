@@ -1,6 +1,7 @@
 // Fetched album covers: saves covers downloaded for an album in a folder next to the music and finds
 // them again by the album name.
 #include "cover_store.h"
+#include "string_util.h"
 #include "video_fx.h"
 
 #include <algorithm>
@@ -137,7 +138,8 @@ fs::path fetched_cover_in_library(const std::string& album, bool wait) {
             auto prom = std::make_shared<std::promise<std::map<std::string, fs::path>>>();
             l.fut = prom->get_future().share();
             std::thread([roots, prom]() {   // (a detached thread, not std::async: its future would wait for the walk when the program ends)
-                std::map<std::string, fs::path> idx;
+              std::map<std::string, fs::path> idx;
+              try {
                 const auto t_start = std::chrono::steady_clock::now();
                 size_t seen = 0;
                 for (const fs::path& root : roots) {
@@ -154,6 +156,7 @@ fs::path fetched_cover_in_library(const std::string& album, bool wait) {
                         for (const fs::path& f : pictures_in(it->path())) idx.emplace(cover_name_key(path_utf8(f.stem())), f);
                     }
                 }
+              } catch (...) { idx.clear(); }   // (an exception out of this thread would end the program: no index then, the covers are looked for the old way)
                 prom->set_value(std::move(idx));
                 cover_store_touch();   // (the covers that were looked for before it was ready are asked for again)
             }).detach();
@@ -203,7 +206,7 @@ struct Choices {
     std::map<std::string, std::string> fetched;         // album key -> "epoch|what MusicBrainz matched" (successful fetches)
     std::map<std::string, std::string> failed;          // album key -> why the last fetch found nothing
     std::map<std::string, std::string> look;            // album key (or "dir:<folder>") -> the cover look of that album ("0".."7")
-    std::map<std::string, std::string> style;           // track path -> "look,contrast,brightness,colors" (-1 = as in Settings)
+    std::map<std::string, std::string> style;           // track path -> "look,contrast,brightness,colors,chroma,gradient saturation" (-1 = as in Settings)
     std::map<std::string, std::string> vopts;           // track path -> "on,size,fx,contrast,colors,chroma,res" (-1 = as in the VIDEO overlay)
     std::map<std::string, std::string> vmode;           // track path -> "1" cover / "2" video thumbnail / "3" plain disk (absent: as in the VIDEO overlay)
     std::atomic<unsigned> revision{1};
@@ -313,7 +316,7 @@ int cover_album_look(const std::string& album, const std::string& folder) {
     load_locked(c);
     const auto it = c.look.find(key);
     if (it == c.look.end()) return -1;
-    const int v = std::atoi(it->second.c_str());
+    const int v = muisc::atoi_safe(it->second.c_str());
     return v >= 0 && v <= kCoverLookCount - 1 ? v : -1;
 }
 
@@ -338,15 +341,16 @@ CoverStyle cover_track_style(const std::string& track_path) {
     load_locked(c);
     const auto it = c.style.find(track_path);
     if (it == c.style.end()) return st;
-    int v[5] = {-1, -1, -1, -1, -1};
+    int v[6] = {-1, -1, -1, -1, -1, -1};   // (older files have five numbers: no gradient saturation of its own)
     std::istringstream in(it->second);
     std::string part;
-    for (int i = 0; i < 5 && std::getline(in, part, ','); ++i) v[i] = std::atoi(part.c_str());
+    for (int i = 0; i < 6 && std::getline(in, part, ','); ++i) v[i] = muisc::atoi_safe(part.c_str());
     st.look = v[0] >= 0 && v[0] < kCoverLookCount ? v[0] : -1;
-    st.contrast = v[1] >= 0 && v[1] <= 100 ? v[1] : -1;
+    st.contrast = v[1] >= 0 && v[1] <= 150 ? v[1] : -1;   // (a contrast of 0 .. 150 %; the colours and the brightness go up to 100)
     st.brightness = v[2] >= 0 && v[2] <= 100 ? v[2] : -1;
     st.colors = v[3] >= 0 && v[3] <= 100 ? v[3] : -1;
     st.chroma = v[4] >= 0 && v[4] < kChromaLevels ? v[4] : -1;
+    st.gsat = v[5] >= 0 && v[5] <= 100 ? v[5] : -1;
     return st;
 }
 
@@ -356,8 +360,8 @@ void set_cover_track_style(const std::string& track_path, const CoverStyle& st) 
     {
         std::lock_guard<std::mutex> lk(c.mu);
         load_locked(c);
-        if (st.look < 0 && st.contrast < 0 && st.brightness < 0 && st.colors < 0 && st.chroma < 0) c.style.erase(track_path);
-        else c.style[track_path] = std::to_string(st.look) + "," + std::to_string(st.contrast) + "," + std::to_string(st.brightness) + "," + std::to_string(st.colors) + "," + std::to_string(st.chroma);
+        if (st.look < 0 && st.contrast < 0 && st.brightness < 0 && st.colors < 0 && st.chroma < 0 && st.gsat < 0) c.style.erase(track_path);
+        else c.style[track_path] = std::to_string(st.look) + "," + std::to_string(st.contrast) + "," + std::to_string(st.brightness) + "," + std::to_string(st.colors) + "," + std::to_string(st.chroma) + "," + std::to_string(st.gsat);
         save_locked(c);
     }
     choices().style_revision.fetch_add(1);   // (not cover_store_touch(): the picture itself is the same, reading it again made it blink away)
@@ -395,7 +399,7 @@ VideoTrackOpts cover_track_video_opts(const std::string& track_path) {
     int v[11] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
     std::istringstream in(it->second);
     std::string part;
-    for (int i = 0; i < 11 && std::getline(in, part, ','); ++i) v[i] = std::atoi(part.c_str());
+    for (int i = 0; i < 11 && std::getline(in, part, ','); ++i) v[i] = muisc::atoi_safe(part.c_str());
     o.on = v[0] == 0 ? 0 : -1;
     o.size = v[1] >= 0 && v[1] <= 3 ? v[1] : -1;
     o.fx = v[2] >= 0 && v[2] < kVideoFxCount ? video_fx_canon(v[2]) : -1;
@@ -431,7 +435,7 @@ int cover_track_video_mode(const std::string& track_path) {
     load_locked(c);
     const auto it = c.vmode.find(track_path);
     if (it == c.vmode.end()) return 0;
-    const int v = std::atoi(it->second.c_str());
+    const int v = muisc::atoi_safe(it->second.c_str());
     return v >= 1 && v <= 4 ? v : 0;   // 1 cover, 2 thumbnail, 3 plain disk, 4 thumbnail fallback
 }
 
