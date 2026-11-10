@@ -904,9 +904,16 @@ bool truecolor_ok() {
 // Where the cursor is left after a frame. A terminal that is made lower moves everything up by the rows it loses when the cursor
 // sits below the new bottom (which a frame ending on its last line always does): the first row is thrown away, and our repaint then
 // fits it back in -- the visible "jump". With the (hidden) cursor parked in the top-left corner nothing is pushed out.
-static std::string park_cursor(const std::string& frame) {
-    const size_t show = frame.rfind("\x1b[?25h"), hide = frame.rfind("\x1b[?25l");
-    if (show != std::string::npos && (hide == std::string::npos || show > hide)) return frame;   // a text caret is meant to be seen
+std::string park_cursor(const std::string& frame) {
+    // The LAST caret escape decides: "show" (a text caret is meant to be seen) leaves the frame as it is. One scan from the end,
+    // on the escape byte first (two rfind() calls went over the whole frame, twice per frame).
+    const char* d = frame.data();
+    for (size_t i = frame.size(); i >= 6; --i) {
+        if (d[i - 6] == '\x1b' && d[i - 5] == '[' && d[i - 4] == '?' && d[i - 3] == '2' && d[i - 2] == '5') {
+            if (d[i - 1] == 'h') return frame;
+            if (d[i - 1] == 'l') break;
+        }
+    }
     return frame + "\x1b[H";
 }
 

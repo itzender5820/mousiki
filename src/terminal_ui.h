@@ -291,6 +291,8 @@ void write_frame(const std::string& frame);
 // write_frame_drain() before.
 double write_frame_async(std::string frame);
 void write_frame_drain();
+// A frame with the hidden cursor parked at the top left ("ESC[H" added), unless its last cursor escape is "show" (a text caret to be seen).
+std::string park_cursor(const std::string& frame);
 bool write_frame_async_allowed();   // false with MOUSIKI_SYNC_WRITE=1
 double write_frame_last_ms();       // how long the terminal took for the last frame the writer wrote
 

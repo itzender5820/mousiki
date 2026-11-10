@@ -477,13 +477,36 @@ std::string sgr_params(const std::string& color) {
 
 std::string gradient_fg(const std::string& start, const std::string& end, float t) {
     if (end.empty()) return ansi_fg(start);
-    RGB a, b;
-    if (!parse_rgb(start, a) || !parse_rgb(end, b)) return ansi_fg(start);
+    // A frame asks for the same few colour pairs hundreds of times (every cell of a gradient, the border, the scope, the lamp ...):
+    // the last 8 pairs are remembered, so the names are read once and not on every call.
+    struct Pair { std::string s, e; RGB a{}, b{}; bool ok = false, used = false; };
+    static thread_local Pair cache[8];
+    static thread_local unsigned next = 0;
+    Pair* hit = nullptr;
+    for (Pair& c : cache) if (c.used && c.s == start && c.e == end) { hit = &c; break; }
+    if (!hit) {
+        hit = &cache[next++ % 8];
+        hit->s = start; hit->e = end; hit->used = true;
+        hit->ok = parse_rgb(start, hit->a) && parse_rgb(end, hit->b);
+    }
+    if (!hit->ok) return ansi_fg(start);
+    const RGB a = hit->a, b = hit->b;
     t = std::clamp(t, 0.0f, 1.0f);
     const int r = static_cast<int>(a.r + (b.r - a.r) * t);
     const int g = static_cast<int>(a.g + (b.g - a.g) * t);
     const int bl = static_cast<int>(a.b + (b.b - a.b) * t);
-    return "\x1b[38;2;" + std::to_string(r) + ";" + std::to_string(g) + ";" + std::to_string(bl) + "m";
+    // "ESC[38;2;R;G;Bm", written straight into a buffer (it is built hundreds of times per frame)
+    char buf[24];
+    char* p = buf;
+    *p++ = '\x1b'; *p++ = '['; *p++ = '3'; *p++ = '8'; *p++ = ';'; *p++ = '2'; *p++ = ';';
+    const auto put = [&p](int v) {
+        v = std::clamp(v, 0, 255);
+        if (v >= 100) { *p++ = static_cast<char>('0' + v / 100); v %= 100; *p++ = static_cast<char>('0' + v / 10); *p++ = static_cast<char>('0' + v % 10); }
+        else if (v >= 10) { *p++ = static_cast<char>('0' + v / 10); *p++ = static_cast<char>('0' + v % 10); }
+        else *p++ = static_cast<char>('0' + v);
+    };
+    put(r); *p++ = ';'; put(g); *p++ = ';'; put(bl); *p++ = 'm';
+    return std::string(buf, static_cast<size_t>(p - buf));
 }
 
 std::string gradient3_fg(const std::string& left, const std::string& center, const std::string& right, float t) {

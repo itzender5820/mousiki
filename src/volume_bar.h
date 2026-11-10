@@ -19,6 +19,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <vector>
 
 namespace muisc {
 
@@ -51,16 +52,24 @@ inline std::string braille(unsigned bits) {
 inline constexpr double kDiskCx = 4.5, kDiskCy = 1.5;
 
 // The solid disc of dots that is turned: lattice points around that centre, wide enough to reach beyond the last cell
-// of the bar from there.
-inline const std::vector<std::pair<float, float>>& disc() {
-    static const std::vector<std::pair<float, float>> d = [] {
-        std::vector<std::pair<float, float>> v;
+// of the bar from there. One row after the other (y rising, x rising inside a row): row_start[r] .. row_start[r + 1] are the
+// points of row r.
+struct Disc {
+    std::vector<std::pair<float, float>> pts;
+    std::vector<size_t> row_start;
+};
+inline const Disc& disc() {
+    static const Disc d = [] {
+        Disc v;
         const double cx = kDiskCx, cy = kDiskCy, r = 2.0 * kVolBarCells + 4.0;
-        for (int y = -static_cast<int>(r) - 2; y <= static_cast<int>(r) + 2; ++y)
+        for (int y = -static_cast<int>(r) - 2; y <= static_cast<int>(r) + 2; ++y) {
+            v.row_start.push_back(v.pts.size());
             for (int x = -static_cast<int>(r) - 2; x <= static_cast<int>(r) + 2; ++x) {
                 const double dx = x - cx, dy = y - cy;
-                if (dx * dx + dy * dy <= r * r) v.push_back({static_cast<float>(dx), static_cast<float>(dy)});
+                if (dx * dx + dy * dy <= r * r) v.pts.push_back({static_cast<float>(dx), static_cast<float>(dy)});
             }
+        }
+        v.row_start.push_back(v.pts.size());
         return v;
     }();
     return d;
@@ -71,11 +80,32 @@ inline std::vector<std::string> disk_cells(double angle) {
     const int pw = 2 * kVolBarCells, ph = 4;
     std::vector<unsigned char> lit(static_cast<size_t>(pw * ph), 0);
     const double cx = kDiskCx, cy = kDiskCy, c = std::cos(angle), s = std::sin(angle);
-    for (const auto& p : disc()) {   // the same move and rounding as DiskArt::frame()
-        const double x = p.first, y = p.second;
-        const int nx = static_cast<int>(std::round(x * c - y * s + cx));
-        const int ny = static_cast<int>(std::round(x * s + y * c + cy));
-        if (nx >= 0 && nx < pw && ny >= 0 && ny < ph) lit[static_cast<size_t>(ny * pw + nx)] = 1;
+    // The same move and rounding as DiskArt::frame() for every point -- but only the points that can land in the 4 dot rows are
+    // looked at: of a row of the disc, those whose turned y is within [-0.6, 3.6] (a strip of x, found by a search; the margin
+    // is more than the rounding needs), instead of all of the several thousand points.
+    const Disc& dc = disc();
+    for (size_t r = 0; r + 1 < dc.row_start.size(); ++r) {
+        size_t i0 = dc.row_start[r];
+        size_t i1 = dc.row_start[r + 1];
+        if (i0 == i1) continue;
+        const double base = static_cast<double>(dc.pts[i0].second) * c + cy;   // the part of the turned y that does not depend on x
+        if (std::fabs(s) < 1e-9) {
+            if (base < -0.6 || base > 3.6) continue;
+        } else {
+            double xa = (-0.6 - base) / s, xb = (3.6 - base) / s;
+            if (xa > xb) std::swap(xa, xb);
+            const auto first = dc.pts.begin() + static_cast<std::ptrdiff_t>(i0), last = dc.pts.begin() + static_cast<std::ptrdiff_t>(i1);
+            const auto lo = std::lower_bound(first, last, xa, [](const std::pair<float, float>& p, double v) { return static_cast<double>(p.first) < v; });
+            const auto hi = std::upper_bound(first, last, xb, [](double v, const std::pair<float, float>& p) { return v < static_cast<double>(p.first); });
+            i1 = static_cast<size_t>(hi - dc.pts.begin());
+            i0 = static_cast<size_t>(lo - dc.pts.begin());
+        }
+        for (size_t i = i0; i < i1; ++i) {
+            const double x = dc.pts[i].first, y = dc.pts[i].second;
+            const int nx = static_cast<int>(std::round(x * c - y * s + cx));
+            const int ny = static_cast<int>(std::round(x * s + y * c + cy));
+            if (nx >= 0 && nx < pw && ny >= 0 && ny < ph) lit[static_cast<size_t>(ny * pw + nx)] = 1;
+        }
     }
     std::vector<std::string> cells;
     cells.reserve(kVolBarCells);
