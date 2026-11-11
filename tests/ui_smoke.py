@@ -2032,6 +2032,11 @@ def queue_shuffle(binary, root, scripts):
             sess.send(b"\x1b[B", 0.3)
         sess.send("K", 1.2)
         check("Shuffle" in sess.text(), "queue shuffle: the overlay legend names SHIFT+s")
+        if shutil.which("ffprobe") is None:
+            # without ffmpeg / ffprobe the tracks cannot be loaded: each one fails at once and leaves the queue, so there is nothing to shuffle
+            print("  skipped: queue shuffle order (ffmpeg / ffprobe is not installed on this machine)")
+            sess.send(b"\x1b", 0.8)
+            return
         names = ["Alpha Song", "Beta Song"]   # (the Japanese / Korean names are left out: a terminal without wide-character support does not show them, and the order would be offsets)
 
         def order():

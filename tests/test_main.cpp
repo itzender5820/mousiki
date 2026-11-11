@@ -27,6 +27,12 @@ TempHome::TempHome() {
     const char* h = std::getenv("HOME");
     had_home_ = h != nullptr;
     if (h) old_home_ = h;
+    const char* xc = std::getenv("XDG_CONFIG_HOME");
+    had_xdg_cfg_ = xc != nullptr;
+    if (xc) old_xdg_cfg_ = xc;
+    const char* xk = std::getenv("XDG_CACHE_HOME");
+    had_xdg_cache_ = xk != nullptr;
+    if (xk) old_xdg_cache_ = xk;
     std::mt19937_64 rng(static_cast<unsigned long long>(std::chrono::steady_clock::now().time_since_epoch().count()));
     dir_ = std::filesystem::temp_directory_path() / ("mousiki-test-" + std::to_string(rng()));
     std::filesystem::create_directories(dir_);
@@ -37,6 +43,8 @@ TempHome::TempHome() {
     _putenv_s("HOME", dir_.string().c_str());
 #else
     setenv("HOME", dir_.string().c_str(), 1);
+    unsetenv("XDG_CONFIG_HOME");   // a test that wants them sets them itself
+    unsetenv("XDG_CACHE_HOME");
 #endif
 }
 
@@ -46,6 +54,8 @@ TempHome::~TempHome() {
     _putenv_s("HOME", had_home_ ? old_home_.c_str() : "");
 #else
     if (had_home_) setenv("HOME", old_home_.c_str(), 1); else unsetenv("HOME");
+    if (had_xdg_cfg_) setenv("XDG_CONFIG_HOME", old_xdg_cfg_.c_str(), 1); else unsetenv("XDG_CONFIG_HOME");
+    if (had_xdg_cache_) setenv("XDG_CACHE_HOME", old_xdg_cache_.c_str(), 1); else unsetenv("XDG_CACHE_HOME");
 #endif
     std::error_code ec;
     if (!old_cwd_.empty()) std::filesystem::current_path(old_cwd_, ec);

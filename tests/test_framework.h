@@ -28,8 +28,8 @@ public:
     std::filesystem::path config_dir() const { return dir_ / ".config" / "mousiki"; }
 private:
     std::filesystem::path dir_, old_cwd_;
-    std::string old_home_;
-    bool had_home_ = false;
+    std::string old_home_, old_xdg_cfg_, old_xdg_cache_;   // (XDG_*: a CI runner sets them; they would lead out of the throw-away HOME)
+    bool had_home_ = false, had_xdg_cfg_ = false, had_xdg_cache_ = false;
 };
 
 template <class A, class B> std::string show(const A& a, const B& b) {
