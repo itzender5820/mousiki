@@ -1907,7 +1907,7 @@ void App::handle_settings_key(int key) {
             if (settings_col_ == 0) theme_open_picker(); else theme_open_creator();
             return;
         }
-        if ((settings_tab_ == 1 || settings_tab_ == 2) && settings_item_id(settings_tab_, settings_row_) == kSidVideoFx) { fxpick_open(0); return; }   // the list of all effects, three columns
+        if ((settings_tab_ == 1 || settings_tab_ == 2) && settings_item_id(settings_tab_, settings_row_) == kSidVideoFx) { fxpick_open(0); return; }   // the list of all effects (two columns and a preview)
         color_edit_buffer_ = settings_get_value(settings_row_, settings_col_);
         edit_caret_ = edit_anchor_ = color_edit_buffer_.size(); // caret starts at the end, as usual
         edit_owner_ = "settings"; // claim the shared caret -- see edit_focus()

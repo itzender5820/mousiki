@@ -340,14 +340,20 @@ private:
     // The options panel inside the full screen video (SHIFT+s): the track's own effect, contrast, colours and chromatic aberration, the same
     // choices (and storage) as the video rows of the Style Option overlay.
     bool video_opts_open_ = false;
-    // The VIDEO EFFECT picker (app_fxpick.cpp): ENTER on a Video Effect row opens it over the menu (3 columns, arrow keys, ENTER, ESC).
+    // The VIDEO EFFECT picker (app_fxpick.cpp): ENTER on a Video Effect row opens it beside the menu (2 columns + a preview, arrow keys, ENTER, ESC).
     struct FxPick { bool open = false; int target = 0; int cursor = 0; int current = 0; bool with_default = false; };   // target: 0 Settings, 1 VIDEO overlay, 2 VIDEO OPTIONS panel, 3 Style Option
     FxPick fxpick_;
     std::vector<int> fxpick_entries() const;
     void fxpick_open(int target);
     void fxpick_apply(int fx);
     bool fxpick_key(int key, bool arrow);
-    std::vector<std::string> build_fxpick_panel(int W, int& panel_w) const;
+    std::vector<std::string> build_fxpick_panel(int W, int& panel_w, int menu_w) const;   // menu_w: the width of the menu it stands beside (0 = none)
+    int fxpick_names_w() const;                                                           // the width of the two columns of names
+    int fxpick_menu_col(int menu_w, int W) const;                                         // 1-based column to draw the menu at so that the picker fits beside it (0 = centred as usual, no picker / no room)
+    std::vector<std::string> fxpick_preview(int fx, int cols, int rows) const;   // the preview column: the video (or a test picture) with the effect on it, as half blocks in true colour
+    VideoLook fxpick_look(int fx) const;                                          // the look the picker shows for `fx`: the target's own grade, the effect of the entry
+    mutable std::vector<std::string> fxpick_prev_;                                // (the preview rows of the last tick: made again 25 times a second at most)
+    mutable std::string fxpick_prev_key_;
     void draw_fxpick(std::ostringstream& frame, int W) const;   // over what the frame has drawn so far (with a picture protocol it replaces the panel under it: see app_render.cpp)
     int video_opts_sel_ = 0;
     bool video_opts_pair_ = false;   // the playing track is a song paired with a video: the row "Use mp4 audio for this song" is listed

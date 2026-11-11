@@ -397,10 +397,10 @@ VideoTrackOpts cover_track_video_opts(const std::string& track_path) {
     load_locked(c);
     const auto it = c.vopts.find(track_path);
     if (it == c.vopts.end()) return o;
-    int v[13] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+    int v[14] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
     std::istringstream in(it->second);
     std::string part;
-    for (int i = 0; i < 13 && std::getline(in, part, ','); ++i) v[i] = muisc::atoi_safe(part.c_str());
+    for (int i = 0; i < 14 && std::getline(in, part, ','); ++i) v[i] = muisc::atoi_safe(part.c_str());
     o.on = v[0] == 0 ? 0 : -1;
     o.size = v[1] >= 0 && v[1] <= 3 ? v[1] : -1;
     o.fx = v[2] >= 0 && v[2] < kVideoFxCount ? video_fx_canon(v[2]) : -1;

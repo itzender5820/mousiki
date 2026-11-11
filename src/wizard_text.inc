@@ -1247,16 +1247,18 @@ framed        Like full, one row and two columns smaller on every side.
 
 [EFFECTS (also Video Effect in Settings, with a preview):][[Header]]
 Off, Scanlines, CRT, VHS, Glitch, Quiet Glitch, Pixel, Gradient, Phosphor Green, Phosphor Green Glow,
-Phosphor Amber, Night Vision, Halftone, Dither B/W, Dither Gradient, Game Boy High-Res, Game Boy High-Res B/W,
+Phosphor Amber, Halftone, Dither B/W, Dither Gradient, Game Boy High-Res, Game Boy High-Res B/W,
 Game Boy High-Res Gradient, Game Boy Low-Res, Game Boy Low-Res Gradient, Game Boy Low-Res B/W, EGA 16, CGA, C64,
 Film, Neon Edge, Neon Edge Gradient, Interlace. A paused video shows a still effect.
 Pick one in the overlay, with [g] on the video view, or per track in Style Option [SHIFT+s].
 [ENTER] on a Video Effect row (Settings, the VIDEO overlay, VIDEO OPTIONS, Style Option) opens the list of all
 )WIZ",
-R"WIZ(effects in three columns on top of the menu: arrow keys, [ENTER] chooses, [ESC] leaves it as it was.
-Phosphor Green Glow: a long-persistence green tube behind curved glass (halation, a short tail to the right of bright
-parts, a faint raster noise, a dark rounded bezel). Night Vision: an image intensifier (amplified green, grain, bloom,
-a round vignette).
+R"WIZ(effects beside the menu (the menu moves aside, so it stays visible): two columns of names and a preview column with
+the playing video (a test picture when none plays) and the highlighted effect on it. Arrow keys, [HOME] / [END],
+[ENTER] chooses, [ESC] leaves it as it was.
+Phosphor Green Glow: a long-persistence green tube (halation, a short tail to the right of bright parts, a faint
+raster noise; the picture stays square). CGA: four colours (black, cyan, magenta, white), each colour mixed from two
+of them in a pattern, so the picture keeps its brightness and most of its hue.
 
 [PICTURE TUNING (Settings, tab ANIMA/VIZ, and Style Option per track):][[Header]]
 SETTING[[Header]]                       [WHAT IT DOES][[Header]]
@@ -1384,10 +1386,10 @@ A nearly mono track fades over to a phase portrait instead of a flat line.
 
 TUNING OVERLAY:[[Header]] [SHIFT+o] opens it, the picture changes live while the music plays.
 [SHIFT+i] / [SHIFT+u] switch straight to the spectrogram options / full screen.
-Scope mode       XY, YT, XY + YT (overlap), XY + YT (row), XY + YT (column)
-Osci style       braille (works in any terminal) / image (pixels, needs Kitty graphics or Sixel)
 )WIZ",
-R"WIZ(Frame rate       30 / 45 / 60 / 90 / 120 / 165 fps
+R"WIZ(Scope mode       XY, YT, XY + YT (overlap), XY + YT (row), XY + YT (column)
+Osci style       braille (works in any terminal) / image (pixels, needs Kitty graphics or Sixel)
+Frame rate       30 / 45 / 60 / 90 / 120 / 165 fps
 Osci music mode  for oscilloscope music: the unprocessed signal and a fixed scale
 Beam             CRT: every sample drawn once, light by the time the beam spends on a spot
                  (image default) / classic: the old look with a tail (braille default)
@@ -1514,12 +1516,12 @@ KEYS IN THE EQUALIZER: [[Header]]
 [,] / [.]  previous / next preset      [0]           set the band to 0 dB
 [SPACE]    equalizer on / off          [R]           back to Flat
 [S]        save the curve as your own preset (up to 24)
-[DEL]      delete the selected custom preset (press twice)
+)WIZ",
+R"WIZ([DEL]      delete the selected custom preset (press twice)
 
 PRESETS: [[Header]]
 Twelve presets are built in (Flat, Bass Boost, Treble Boost, Vocal, Rock, Pop, Jazz, Classical,
-)WIZ",
-R"WIZ(Electronic, Hip-Hop, Acoustic, Loudness), then come your own.
+Electronic, Hip-Hop, Acoustic, Loudness), then come your own.
 
 PREAMP: [[Header]]
 Boosting bands would clip, so the level is lowered by the height of your loudest point (e.g. -7.1 dB
@@ -1680,11 +1682,11 @@ Files that moved or were deleted are skipped, and the status line says how many 
 
 OPEN:[[Header]] [s] opens the settings, always on the first tab. Six tabs:
 COLORS; GENERAL; ANIMA/VIZ; PATHS; REFERENCE; ABOUT APP ([TAB] steps through them)
-
+)WIZ",
+R"WIZ(
 MOVING AND EDITING: [[Header]]
 [UP]/[DOWN]  previous / next row         [<-/->]  step through the values of a row, applied at once
-)WIZ",
-R"WIZ([ENTER]      edit the value as free text
+[ENTER]      edit the value as free text
 
 SAVING AND LEAVING: [[Header]]
 Every change is live: you see and hear it while you are still in the settings. But only [s] writes
@@ -1803,9 +1805,9 @@ marquee.
 [Terminal Size:][[Legend]]                                    columns x rows (default 120 x 32, which shows 4 rows in
                                                   the list and the queue) Use [<-/->] to choose the field
                                                   or the [ Set back to default ] button, where [ENTER]
-                                                  makes input possible / resets the value. Choosing 0 =
 )WIZ",
-R"WIZ(                                                  leaves the terminal alone, similar to setting the
+R"WIZ(                                                  makes input possible / resets the value. Choosing 0 =
+                                                  leaves the terminal alone, similar to setting the
                                                   previous option to true. Minimum is set to at least 100 x
                                                   28. At the end terminal decides: xterm, GNOME Terminal,
                                                   iTerm2, Terminal.app and recent Windows Terminal usually
@@ -1903,10 +1905,10 @@ excluded from your build and want to use it later). Wihtout pykakasi some Kanji 
 Japanese transliteration may remain. Less a problem for Chines/Korean Transliteration. With the
 package janome too (pip install janome) Japanese lines are cut into words (watashi wa anata ga
 suki desu) instead of one long word; Korean keeps the spaces of the text, Chinese is written
-syllable by syllable. This
-has only been tested well with Japanese language, so feel free to report issues in order for
 )WIZ",
-R"WIZ(me to adjust / extend the transliteration function in the future. 
+R"WIZ(syllable by syllable. This
+has only been tested well with Japanese language, so feel free to report issues in order for
+me to adjust / extend the transliteration function in the future. 
 
 Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a German keyboard).
 
@@ -2005,9 +2007,9 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
                                                   themselves turn smoothly around the centre.
                                                   5. Cover behind Disk (Full Anima) - the same, but the
                                                   dots follow the exact braille animation of the disk:
-                                                  rotated and rounded to the dot grid, some of them come
 )WIZ",
-R"WIZ(                                                  and go as it turns (the effect of the disk look of the
+R"WIZ(                                                  rotated and rounded to the dot grid, some of them come
+                                                  and go as it turns (the effect of the disk look of the
                                                   Volume Indicator).
                                                   6. Cover ASCII - the cover as braille dots in its own
                                                   colours, also on Kitty / Sixel terminals.
@@ -2095,9 +2097,9 @@ R"WIZ(                                                  and go as it turns (the 
                                                   Default: the moving braille blocks (disk), in all modes.
 
 [SPECTRUM BARS:][[Header]]               
-[On/Off:][[Legend]]                                           shows or hides the spectrum bars under the meta data
 )WIZ",
-R"WIZ(                                                  field.
+R"WIZ([On/Off:][[Legend]]                                           shows or hides the spectrum bars under the meta data
+                                                  field.
 
 [Bars Style:][[Legend]]                                       Classic is the bar display as before. Hi-Fi is a stereo
                                                   analyzer in braille dots without gaps, one dot column per
@@ -2194,9 +2196,9 @@ R"WIZ(                                                  field.
                                                   conflict message will says so!).
 
 In the audio book mode the GENERAL and ANIMA/VIZ tabs only show what a book needs (no lyrics, no disk
-speed, no TRANSLITERATION category). The audio book mode has its own look: colours and theme, elements,
 )WIZ",
-R"WIZ(visualizations, borders, play mode and sound are kept in audiobook_config.txt, apart from the player and
+R"WIZ(speed, no TRANSLITERATION category). The audio book mode has its own look: colours and theme, elements,
+visualizations, borders, play mode and sound are kept in audiobook_config.txt, apart from the player and
 the radio. Paths, hotkeys, the mode switches and the like are the same in all three modes (config.txt).
 Changing LOCAL PATH rescans at once. Changing the playlist or history folder copies what is there; nothing
 is moved or deleted. Changed folders only stick when you save with [s]. A warning will appear in case you
@@ -2340,11 +2342,11 @@ preset. The name of the active preset list is in the pane title: e.g. PRESETS (M
 THE PRESETS MENU:[[Header]] 
 [SHIFT+p] opens it and is where preset lists can be created. A small [◀] behind a pane's 
 title shows which pane is focused, just as in the music palyer. Names are 1 to 24 characters 
-and unique. Every change is written to presets.txt at once.
+)WIZ",
+R"WIZ(and unique. Every change is written to presets.txt at once.
 
 KEYS IN THE PRESETS MENU: [[Header]]
-)WIZ",
-R"WIZ([TAB]                  SEARCH > SELECT PRESET > STATIONS
+[TAB]                  SEARCH > SELECT PRESET > STATIONS
 [ENTER]                in STATIONS: tune in. In SELECT PRESET: open that preset and tune its 
                        first filled slot...
 [1-0], [e r t d f g]   in STATIONS: put the hovered station in that slot; the same key again 
@@ -2504,10 +2506,10 @@ Colors are not carried over between the two modes: the radio has its own palette
 own theme choice, unless the option "Shared profile" is set to true.
 
 COLORS (ONLY THE RADIO HAS): [[Header]]
-ON_AIR            the diagonal gradient of the ON AIR sign, the needle, the lamp and LIVE
-OSCI              left / right color of the oscilloscope
 )WIZ",
-R"WIZ(FREQUENCY_BAR     the line and ticks of the dial / the numbers and dots
+R"WIZ(ON_AIR            the diagonal gradient of the ON AIR sign, the needle, the lamp and LIVE
+OSCI              left / right color of the oscilloscope
+FREQUENCY_BAR     the line and ticks of the dial / the numbers and dots
 VOLUME            current / possible part of the volume bar
 PRESETS           inactive slots (FG/BG) and the shortcut letters
 BORDER_COLOR, METADATA, VIZ, LIST, HEADER, LEGEND and TAB_NAMES work as in the player, and so do the
@@ -2631,9 +2633,9 @@ of the book and how much of it has been heard, then sampling, format and file si
 
 MENUS FROM OTHER MODES: [[Header]] 
 The converter [SHIFT+c] works on the audio books and searches folders with [/f:]. The equalizer
-[SHIFT+e] and sleept timer [SHIFT+z] is also available in this mode. 
 )WIZ",
-R"WIZ(
+R"WIZ([SHIFT+e] and sleept timer [SHIFT+z] is also available in this mode. 
+
 
 [[New Page]]
 4.1.2 BOOK TAGS [[Header]]
@@ -2759,9 +2761,9 @@ resume choices work the same. Inside one file [n] / [b] jump; "next chapter" pla
 
 A book is sometimes one long file. [ALT+l] (macOS: [SHIFT+j]) opens the chapter marks of the chapter
 that plays (else the chapter under the cursor starts). The window shows where you are and the marks:
-number, time, title, length. You set them while listening:
 )WIZ",
-R"WIZ([m]        a mark at the point you listen at. The first mark adds the start (0:00:00, "Chapter 1"). 
+R"WIZ(number, time, title, length. You set them while listening:
+[m]        a mark at the point you listen at. The first mark adds the start (0:00:00, "Chapter 1"). 
            A new mark is called "Chapter N" (the standard titles are renumbered when one is inserted); 
            the title field opens with it selected:[ENTER] keeps it, typing replaces it.
 [a]        a mark by its time, h:mm:ss (or m:ss), then the title.        
@@ -2894,9 +2896,9 @@ the folder of the title (the artist folder).
  Command                 What it does                          Answer, for example
  ----------------------  ------------------------------------  ----------------------------------
  play                    resume a paused title                 resumed: Romance sengen ... 00:41/..
- play <words>            play the first local title that has   playing Romance sengen - Kaneko Ayano
 )WIZ",
-R"WIZ(                         all the words (any case)              (+1 more matches)
+R"WIZ( play <words>            play the first local title that has   playing Romance sengen - Kaneko Ayano
+                         all the words (any case)              (+1 more matches)
  pause                   pause, keep the position              paused: <title> <position> <volume>
  stop                    same as pause (Mousiki keeps the     paused (stop pauses: the position is
                          position; there is no real stop)      kept, `play` resumes): ...
@@ -3013,9 +3015,9 @@ The radio understands chains, wait, in, if, run, scripts and timers like the pla
  tune <n | words>        tune station n or the first match     tuning: Radio Paradise  [1/42]
  next / prev / shuffle   next, previous, random station        next station: Jazz FM
  pause / play / stop     pause the live stream (it keeps       paused: Jazz FM (the stream keeps
-                         buffering) / resume / stop            buffering; `play` continues here)
 )WIZ",
-R"WIZ( live                    back to the live edge                 back at the live edge: Jazz FM
+R"WIZ(                         buffering) / resume / stop            buffering; `play` continues here)
+ live                    back to the live edge                 back at the live edge: Jazz FM
  seek <s>                inside the buffered stream            seek -30 s in the buffer of Jazz FM
  volume, mute ...        like in the player                    volume 70% -> 75%
  status                  station, song, volume, behind live    playing: Jazz FM "Artist - Song" ..

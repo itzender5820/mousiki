@@ -94,6 +94,10 @@ public:
     static void apply_look(VideoFrame& f, const VideoLook& look, double t, bool braille = false, const VideoFrame* prev = nullptr);
     // The frame that was on screen before the current one (nullptr: none, or another size).
     const VideoFrame* previous_frame() const;
+    // The frame that is on screen now (nullptr: none yet). The picker's preview reads it; it asks the decoder for nothing.
+    const VideoFrame* current_frame() const { return cur_valid_ && cur_.w > 0 ? &cur_ : nullptr; }
+    // A test picture of w x h pixels (colour bars, a grey ramp, a hue sweep, a lit disc): what the effect preview shows when there is no video.
+    static VideoFrame test_card(int w, int h);
     static void quantize(const VideoFrame& f, std::vector<uint8_t>& hue, std::vector<uint8_t>& level, int dither = 0);   // (dither: see apply_fx)
     static const std::vector<std::array<uint8_t, 3>>& palette();
     // Braille: `cols` x `rows` cells from a frame that has (cols * 2) x (rows * 4) dots. Each cell: the dot mask (0x2800 + mask) and the

@@ -2141,7 +2141,7 @@ def video_overlays(binary, root, scripts):
 
 
 def video_fx_picker(binary, root, scripts):
-    """ENTER on the Effect row of the VIDEO overlay opens the effect list (three columns); arrows move, ENTER chooses, ESC leaves it.
+    """ENTER on the Effect row of the VIDEO overlay opens the effect list (two columns and a preview, beside the menu, which stays visible); arrows move, ENTER chooses, ESC leaves it.
     The Base Layer row cycles and is written to config.txt."""
     home = os.path.join(root, "fxp_home")
     lib = os.path.join(root, "music")
@@ -2163,9 +2163,11 @@ def video_fx_picker(binary, root, scripts):
         check("> Effect" in sess.text() and "< Off >" in sess.text(), "effect picker: the Effect row is reached, Off at first")
         sess.send("\r", 1.0)
         t = sess.text()
-        check("VIDEO EFFECT" in t and "Phosphor Green Glow" in t and "Night Vision" in t and "Game Boy High-Res Gradient" in t and "CGA" in t and "C64" in t, "effect picker: ENTER lists all the effects, the new ones too: %r" % t[:0])
-        rows = [l for l in t.splitlines() if "Off" in l and "Phosphor Amber" in l and "Game Boy Low-Res B/W" in l]
-        check(bool(rows), "effect picker: the effects stand in columns side by side")
+        check("VIDEO EFFECT" in t and "Phosphor Green Glow" in t and "Night Vision" not in t and "Game Boy High-Res Gradient" in t and "CGA" in t and "C64" in t, "effect picker: ENTER lists all the effects, the new ones too (no Night Vision): %r" % t[:0])
+        rows = [l for l in t.splitlines() if "Halftone" in l and "Neon Edge Gradient" in l]
+        check(bool(rows), "effect picker: the effects stand in two columns side by side")
+        check("VIDEO SETTINGS" in t and "Use Video in Lyrics Field" in t, "effect picker: the VIDEO SETTINGS overlay it came from stays visible")
+        check("\u2580" in t, "effect picker: the preview column is drawn (half blocks)")
         sess.send(b"\x1b", 0.8)
         t = sess.text()
         check("VIDEO EFFECT" not in t and "< Off >" in t, "effect picker: ESC leaves the effect as it was")
@@ -2213,8 +2215,74 @@ def video_fx_picker(binary, root, scripts):
         sess.send(b"\x1b[B", 0.3)
         sess.send("\r", 1.2)
         t = sess.text()
-        check("VIDEO EFFECT" not in t and "video effect: Dither B/W" in t, "effect picker: Settings takes the choice (Dither B/W, one below Halftone where the picker started)")
+        check("VIDEO EFFECT" not in t and "video effect: Game Boy Low-Res" in t, "effect picker: Settings takes the choice (Game Boy Low-Res, one below Game Boy High-Res Gradient where the picker started: the right arrow had taken CRT one column on)")
         check(sess.alive(), "effect picker: the program is still running")
+    finally:
+        sess.kill()
+
+
+def video_base_per_track(binary, root, scripts):
+    """The Base Layer of a track (VIDEO OPTIONS of the big video, SHIFT+s) is kept: it cycles, stays after the panel is closed and opened again,
+    and is stored with the track (it was never read back). The effect list opened from that panel stands beside it: the panel stays visible."""
+    import shutil, subprocess
+    if not shutil.which("ffmpeg"):
+        print("  skipped: base layer per track (ffmpeg is not installed on this machine)")
+        return
+    home = os.path.join(root, "vbt_home")
+    lib = os.path.join(root, "vbt_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    os.makedirs(lib)
+    ff = ["ffmpeg", "-v", "error", "-y"]
+    ok = subprocess.run(ff + ["-f", "lavfi", "-i", "sine=frequency=440:duration=20", os.path.join(lib, "Clip Song.mp3")], capture_output=True).returncode == 0
+    ok &= subprocess.run(ff + ["-f", "lavfi", "-i", "testsrc=size=160x90:rate=10:duration=20", "-pix_fmt", "yuv420p", os.path.join(lib, "Clip Song.mp4")], capture_output=True).returncode == 0
+    if not ok:
+        print("  (skipped: ffmpeg could not make the test files)")
+        return
+    cfg = os.path.join(home, ".config", "mousiki", "config.txt")
+    with open(cfg, "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nVideoMode=true\nHKeyVideo=Y\nWizardSeen=true\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "Clip Song" in sess.text():
+                break
+        sess.send("/", 0.5)
+        sess.send("clip song", 1.0)
+        sess.send(b"\r", 0.5)
+        sess.send(b"\r", 3.0)
+        sess.send("v", 2.0)
+        sess.send("S", 1.0)
+        check("VIDEO OPTIONS" in sess.text() and "Video Base Layer" in sess.text(), "base layer per track: SHIFT+s opens VIDEO OPTIONS of the big video")
+        for _ in range(6):
+            sess.send(b"\x1b[B", 0.2)   # Contrast .. Dither, then Base Layer
+        check("Video Base Layer" in sess.text() and "as in Settings (scanlines)" in sess.text(), "base layer per track: the row reads as in Settings (scanlines) at first")
+        sess.send(b"\x1b[C", 0.6)
+        check("\u25c0 scanlines \u25b6" in sess.text(), "base layer per track: RIGHT gives the track its own base layer (scanlines)")
+        sess.send(b"\x1b[C", 0.6)
+        check("\u25c0 aperture grille \u25b6" in sess.text(), "base layer per track: RIGHT again: aperture grille")
+        sess.send(b"\x1b[C", 0.6)
+        check("\u25c0 shadow mask \u25b6" in sess.text(), "base layer per track: RIGHT again: shadow mask")
+        sess.send("S", 1.0)
+        check("VIDEO OPTIONS" not in sess.text(), "base layer per track: SHIFT+s closes the panel")
+        sess.send("S", 1.0)
+        for _ in range(6):
+            sess.send(b"\x1b[B", 0.2)
+        check("\u25c0 shadow mask \u25b6" in sess.text(), "base layer per track: the choice is still there after closing and opening the panel")
+        sess.send(b"\x7f", 0.6)           # DEL: back to as in Settings
+        check("as in Settings (scanlines)" in sess.text() and "\u25c0 shadow mask" not in sess.text(), "base layer per track: DEL puts the row back to as in Settings")
+        # the effect list from this panel: beside the panel, which stays visible
+        for _ in range(6):
+            sess.send(b"\x1b[A", 0.2)
+        sess.send(b"\r", 1.2)
+        t = sess.text()
+        check("VIDEO EFFECT" in t and "VIDEO OPTIONS" in t and "Video Base Layer" in t, "effect list from VIDEO OPTIONS: the list opens and the panel stays visible")
+        check("as in Settings" in t and "Phosphor Green Glow" in t and "Night Vision" not in t, "effect list from VIDEO OPTIONS: its first entry is as in Settings; no Night Vision")
+        sess.send(b"\x1b[B", 0.3)
+        sess.send(b"\r", 1.2)
+        t = sess.text()
+        check("VIDEO EFFECT" not in t and "VIDEO OPTIONS" in t and "\u25c0 Off \u25b6" in t, "effect list from VIDEO OPTIONS: DOWN + ENTER choose Off for the track")
+        check(sess.alive(), "base layer per track: the program is still running")
     finally:
         sess.kill()
 
@@ -3766,7 +3834,7 @@ def run_scenario(name, binary, root, scripts):
 
 
 SCENARIOS = ["narrow80", "narrow100", "main", "read_lyrics_play", "karaoke_timing", "book_speed_and_devices", "paging_and_translit_row",
-             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "radio_organigram", "radio_idle_rate", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "bulk_add_options", "bulk_add_flow", "translation_editor", "translation_create", "play_mode_back", "disk_border_setting", "translation_paste_undo", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key", "video_overlays", "video_dither_option", "book_embedded_chapters", "cli_commands", "cli_core", "radio_cli", "radio_cli_typed", "radio_cli_extras", "video_fx_picker", "xdg_dirs", "settings_cli_row", "cli_replies_hooks", "cli_scripts_overlay", "video_pair_tags", "video_fetch_flow", "video_fetch_restore", "settings_video_preview", "video_files_tab", "video_library_modes", "video_fullscreen_sizes", "video_translation_tab", "organigram_menu", "scope_spectro_overlays", "radio_waterfall", "radio_station_edit"]
+             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "radio_organigram", "radio_idle_rate", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "bulk_add_options", "bulk_add_flow", "translation_editor", "translation_create", "play_mode_back", "disk_border_setting", "translation_paste_undo", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key", "video_overlays", "video_dither_option", "book_embedded_chapters", "cli_commands", "cli_core", "radio_cli", "radio_cli_typed", "radio_cli_extras", "video_fx_picker", "xdg_dirs", "settings_cli_row", "cli_replies_hooks", "cli_scripts_overlay", "video_pair_tags", "video_fetch_flow", "video_fetch_restore", "settings_video_preview", "video_files_tab", "video_library_modes", "video_fullscreen_sizes", "video_base_per_track", "video_translation_tab", "organigram_menu", "scope_spectro_overlays", "radio_waterfall", "radio_station_edit"]
 
 
 def main():

@@ -1237,15 +1237,17 @@ framed        Like full, one row and two columns smaller on every side.
 
 [EFFECTS (also Video Effect in Settings, with a preview):][[Header]]
 Off, Scanlines, CRT, VHS, Glitch, Quiet Glitch, Pixel, Gradient, Phosphor Green, Phosphor Green Glow,
-Phosphor Amber, Night Vision, Halftone, Dither B/W, Dither Gradient, Game Boy High-Res, Game Boy High-Res B/W,
+Phosphor Amber, Halftone, Dither B/W, Dither Gradient, Game Boy High-Res, Game Boy High-Res B/W,
 Game Boy High-Res Gradient, Game Boy Low-Res, Game Boy Low-Res Gradient, Game Boy Low-Res B/W, EGA 16, CGA, C64,
 Film, Neon Edge, Neon Edge Gradient, Interlace. A paused video shows a still effect.
 Pick one in the overlay, with [g] on the video view, or per track in Style Option [SHIFT+s].
 [ENTER] on a Video Effect row (Settings, the VIDEO overlay, VIDEO OPTIONS, Style Option) opens the list of all
-effects in three columns on top of the menu: arrow keys, [ENTER] chooses, [ESC] leaves it as it was.
-Phosphor Green Glow: a long-persistence green tube behind curved glass (halation, a short tail to the right of bright
-parts, a faint raster noise, a dark rounded bezel). Night Vision: an image intensifier (amplified green, grain, bloom,
-a round vignette).
+effects beside the menu (the menu moves aside, so it stays visible): two columns of names and a preview column with
+the playing video (a test picture when none plays) and the highlighted effect on it. Arrow keys, [HOME] / [END],
+[ENTER] chooses, [ESC] leaves it as it was.
+Phosphor Green Glow: a long-persistence green tube (halation, a short tail to the right of bright parts, a faint
+raster noise; the picture stays square). CGA: four colours (black, cyan, magenta, white), each colour mixed from two
+of them in a pattern, so the picture keeps its brightness and most of its hue.
 
 [PICTURE TUNING (Settings, tab ANIMA/VIZ, and Style Option per track):][[Header]]
 SETTING[[Header]]                       [WHAT IT DOES][[Header]]

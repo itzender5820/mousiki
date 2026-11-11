@@ -554,7 +554,7 @@ std::string App::cli_exec(const std::string& line_in, cli::Job& job, bool& ok, b
     if (name == "play") {
         if (!has_track_) return fail("nothing is loaded: play <words> plays a title, track <n> plays title n of the list");
         if (!player_.is_paused()) return "already playing: " + track_line();
-        remote_apply({"play", ""});
+        remote_apply({"play", "", "", false});
         return "resumed: " + track_line();
     }
     if (name == "queue") {
@@ -571,7 +571,7 @@ std::string App::cli_exec(const std::string& line_in, cli::Job& job, bool& ok, b
             if (!forced && job.origin != Origin::Typed) return fail("queue clear needs `force queue clear` in a script or from outside");
             if (!forced) { cli_confirm_.line = "queue clear"; cli_confirm_.until = std::chrono::steady_clock::now() + std::chrono::seconds(20); return fail("queue clear cannot be undone here: type yes (within 20 s), or force queue clear"); }
             const size_t n = queue_.size();
-            remote_apply({"clear-queue", "1"});
+            remote_apply({"clear-queue", "1", "", false});
             return "queue cleared (" + std::to_string(n) + ")";
         }
         if (ls == "shuffle") { if (queue_.size() < 2) return fail("nothing to shuffle"); queue_shuffle_order(); return "queue shuffled"; }
@@ -622,7 +622,7 @@ std::string App::cli_exec(const std::string& line_in, cli::Job& job, bool& ok, b
     const bool was_muted = muted_;
     const size_t was_queue = queue_.size();
     const int was_mode = settings_.play_mode;
-    remote_apply({name, arg});
+    remote_apply({name, arg, "", false});
     if (name == "quit") return "bye";
     const std::string tl = track_line();
     if (name == "pause" || name == "stop") {

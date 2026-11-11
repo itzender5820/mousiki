@@ -5,13 +5,13 @@
 
 namespace muisc {
 
-inline constexpr int kVideoFxCount = 30;
+inline constexpr int kVideoFxCount = 29;
 // 0 off, 1 scanlines, 2 crt, 3 vhs, 4 glitch, 5 pixel, 6 gradient, 7 quiet glitch, 8 phosphor green, 9 phosphor amber, 10 halftone, 11 dither,
 // 12 game boy (high-res), 13 ega 16, 14 bloom, 15 film, 16 neon edge, 17 interlace, 18 game boy low-res, 19 neon edge gradient, 20 game boy high-res gradient, 21 dither b/w, 22 dither gradient, 23 game boy high-res b/w, 24 game boy low-res b/w, 25 game boy low-res gradient,
-// 26 phosphor green glow, 27 cga, 28 c64, 29 night vision
+// 26 phosphor green glow, 27 cga, 28 c64
 inline const char* video_fx_name(int fx) {   // as shown in the menus (every word capitalized)
     static const char* const n[kVideoFxCount] = {"Off", "Scanlines", "CRT", "VHS", "Glitch", "Pixel", "Gradient", "Quiet Glitch", "Phosphor Green", "Phosphor Amber",
-                                                 "Halftone", "Dither", "Game Boy High-Res", "EGA 16", "Bloom", "Film", "Neon Edge", "Interlace", "Game Boy Low-Res", "Neon Edge Gradient", "Game Boy High-Res Gradient", "Dither B/W", "Dither Gradient", "Game Boy High-Res B/W", "Game Boy Low-Res B/W", "Game Boy Low-Res Gradient", "Phosphor Green Glow", "CGA", "C64", "Night Vision"};
+                                                 "Halftone", "Dither", "Game Boy High-Res", "EGA 16", "Bloom", "Film", "Neon Edge", "Interlace", "Game Boy Low-Res", "Neon Edge Gradient", "Game Boy High-Res Gradient", "Dither B/W", "Dither Gradient", "Game Boy High-Res B/W", "Game Boy Low-Res B/W", "Game Boy Low-Res Gradient", "Phosphor Green Glow", "CGA", "C64"};
     return fx >= 0 && fx < kVideoFxCount ? n[fx] : "Off";
 }
 inline std::string video_fx_key(int fx) {   // as written in config.txt (lower case)
@@ -22,9 +22,9 @@ inline std::string video_fx_key(int fx) {   // as written in config.txt (lower c
 // The order of the effects in the lists (the numbers stay as they are: they are stored): "Quiet Glitch" sits right below "Glitch".
 // "Dither" (11) is no longer offered: it hardly differed from "Dither B/W" (21), which takes its place (an old setting of 11 reads as 21).
 inline constexpr int kVideoFxShown = kVideoFxCount - 2;   // (Dither 11 and Bloom 14 are not offered)
-inline constexpr int kVideoFxOrder[kVideoFxShown] = {0, 1, 2, 3, 4, 7, 5, 6, 8, 26, 9, 29, 10, 21, 22, 12, 23, 20, 18, 25, 24, 13, 27, 28, 15, 16, 19, 17};
+inline constexpr int kVideoFxOrder[kVideoFxShown] = {0, 1, 2, 3, 4, 7, 5, 6, 8, 26, 9, 10, 21, 22, 12, 23, 20, 18, 25, 24, 13, 27, 28, 15, 16, 19, 17};
 // "Bloom" (14) is no longer offered either (too plain): an old setting of it reads as Off.
-inline int video_fx_canon(int fx) { return fx == 11 ? 21 : fx == 14 ? 0 : fx; }
+inline int video_fx_canon(int fx) { return fx == 11 ? 21 : fx == 14 || fx >= kVideoFxCount ? 0 : fx; }   // (an effect that is gone, e.g. Night Vision of an early 5.1.0 build, reads as Off)
 // The effects that run the gradient wave need the visualizer gradient.
 // The effects that are built on the tube's scanlines / mask: the Video Base Layer replaces the structure they draw (Scanlines itself keeps its lines).
 inline bool video_fx_uses_base(int fx) { return fx == 2 || fx == 3 || fx == 4 || fx == 7 || fx == 8 || fx == 9 || fx == 26; }

@@ -149,7 +149,7 @@ VideoClap=none
 VideoChroma=subtle
 ## chromatic aberration of the video's picture (red and blue pushed apart, more towards the corners; works with every effect): off | subtle | medium | strong
 VideoBase=scanlines
-## the structure of the screen under the tube looks (CRT, VHS, Glitch, Quiet Glitch, Phosphor Green / Amber / Green Glow): scanlines (as always) | aperture grille (Trinitron stripes + two damper wires) | shadow mask (round dots) | slot mask | lcd grid | clean (no structure); a track can have its own: Style Option
+## the structure of the screen under the tube looks (CRT, VHS, Glitch, Quiet Glitch, Phosphor Green / Amber / Green Glow): scanlines (as always) | aperture grille (Trinitron stripes) | shadow mask (round dots) | slot mask | lcd grid | clean (no structure); a track can have its own: Style Option
 VideoDither=interleaved noise
 ## the video looks that use the gradient colours (Gradient, Dither Gradient, Neon Edge Gradient, Game Boy gradient): how saturated those colours are, 0 .. 100 (percent, steps of 5; 100 = the colours as they are, lower = paler, 0 = grey of the same brightness; 85 = default); a track can have its own: Style Option
 VideoGradientSaturation=85

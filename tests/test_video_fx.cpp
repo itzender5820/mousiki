@@ -151,9 +151,11 @@ TEST(video_fx_list_names_and_order) {
     CHECK_EQ(video_fx_from("phosphor green glow"), 26);
     CHECK_EQ(video_fx_from("cga"), 27);
     CHECK_EQ(video_fx_from("c64"), 28);
-    CHECK_EQ(video_fx_from("night vision"), 29);
+    CHECK_EQ(video_fx_from("night vision"), 0);   // (gone again: a setting of it reads as Off)
+    CHECK_EQ(video_fx_canon(29), 0);
+    CHECK_EQ(video_fx_canon(-1), -1);   // (-1 = "as in Settings" stays)
     CHECK(video_fx_pos(26) == video_fx_pos(8) + 1);   // the glow variant sits right below Phosphor Green
-    CHECK_EQ(video_fx_step(29, 1), kVideoFxOrder[(video_fx_pos(29) + 1) % kVideoFxShown]);
+    CHECK_EQ(video_fx_step(28, 1), kVideoFxOrder[(video_fx_pos(28) + 1) % kVideoFxShown]);
 }
 
 // The base layer: another structure under the tube looks. 0 is what the looks always drew; the others replace the lines.
@@ -183,6 +185,14 @@ TEST(video_base_layers) {
     // Scanlines itself (1) and the effects that do not use the layer ignore it
     CHECK(make(1, 3).rgb == make(1, 0).rgb);
     CHECK(make(21, 3).rgb == make(21, 0).rgb);
+    // the aperture grille has no horizontal lines (the damper wires were taken out): a row of a flat picture is as bright as its neighbours
+    for (int yy : {H / 3, 2 * H / 3}) {
+        int up = 0, mid = 0, dn = 0;
+        for (int x = 200; x < 260; ++x) {
+            up += grille.rgb[(static_cast<size_t>(yy - 1) * W + x) * 3 + 1]; mid += grille.rgb[(static_cast<size_t>(yy) * W + x) * 3 + 1]; dn += grille.rgb[(static_cast<size_t>(yy + 1) * W + x) * 3 + 1];
+        }
+        CHECK(std::abs(mid - (up + dn) / 2) <= 60 * 3);   // (the vignette's slope only: a wire would be about 30 % darker = 60 * 15 less)
+    }
     // deterministic, and the same with one thread or four
     for (int fx : {2, 3, 4, 7, 8, 9, 26})
         for (int base = 1; base < kBaseLayers; ++base) {
@@ -200,8 +210,8 @@ TEST(video_base_layers) {
     CHECK_EQ(l.sig(), t0);
 }
 
-// The phosphor looks are tinted all the way down: the black of a tube is faintly green (or amber), not grey; the glow variant has a dark bezel.
-TEST(video_phosphor_is_tinted_and_the_glow_has_a_bezel) {
+// The phosphor looks are tinted all the way down: the black of a tube is faintly green (or amber), not grey; the glow variant keeps square corners (no curved glass, no black bezel).
+TEST(video_phosphor_is_tinted_and_the_glow_has_square_corners) {
     const int W = 320, H = 180;
     VideoFrame black;
     black.w = W; black.h = H; black.rgb.assign(static_cast<size_t>(W) * H * 3, 0);
@@ -216,7 +226,7 @@ TEST(video_phosphor_is_tinted_and_the_glow_has_a_bezel) {
     std::fill(white.rgb.begin(), white.rgb.end(), 255);
     VideoFrame g = white;
     VideoPlayer::apply_fx(g, 26, 0.0);
-    CHECK(g.rgb[0] == 0 && g.rgb[1] == 0 && g.rgb[2] == 0);                 // the corner is outside the curved glass
+    CHECK(g.rgb[1] > 60);                                                   // the corner pixel is lit (a vignette only dims it): no black rounded corner
     const size_t mid = (static_cast<size_t>(H / 2) * W + W / 2) * 3;
     CHECK(g.rgb[mid + 1] > 200);                                              // the middle is bright green
     CHECK(g.rgb[mid + 1] > g.rgb[mid] + 20);   // (burnt towards white at full drive, but still green)

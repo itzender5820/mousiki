@@ -272,6 +272,24 @@ TEST(video_track_dither_pattern_is_kept_per_track_and_old_entries_read_as_settin
     CHECK_EQ(cover_track_video_opts("/music/a.mp3").dither, -1);
 }
 
+TEST(video_track_base_layer_is_kept_per_track) {
+    mt::TempHome home;
+    CHECK_EQ(cover_track_video_opts("/music/a.mp3").base, -1);          // as in Settings
+    VideoTrackOpts o;
+    o.base = 3;                                                         // the 14th field of the stored entry: it must be read back (it was not)
+    o.gsat = 40;
+    set_cover_track_video_opts("/music/a.mp3", o);
+    CHECK_EQ(cover_track_video_opts("/music/a.mp3").base, 3);
+    CHECK_EQ(cover_track_video_opts("/music/a.mp3").gsat, 40);
+    o.base = 0;                                                         // "scanlines" chosen for this track is not "as in Settings"
+    set_cover_track_video_opts("/music/a.mp3", o);
+    CHECK_EQ(cover_track_video_opts("/music/a.mp3").base, 0);
+    o.base = -1; o.gsat = -1; o.chroma = 1;                             // another option set, no base: it reads as Settings, not as garbage
+    set_cover_track_video_opts("/music/a.mp3", o);
+    CHECK_EQ(cover_track_video_opts("/music/a.mp3").base, -1);
+    set_cover_track_video_opts("/music/a.mp3", VideoTrackOpts{});
+}
+
 TEST(cover_scaled_keeps_several_sizes) {
     CoverImage c;
     c.key = "test-cover"; c.w = 64; c.h = 32; c.ok = true;

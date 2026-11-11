@@ -283,6 +283,7 @@ std::optional<std::string> App::render_takeover_screen(int term_cols, int W, boo
         build_settings_screen(frame, W, overlay_budget(W));
         // The cover preview of the Settings screen is the one picture it may show; any other picture switched on while building the
         // screen (the colour tab's theme preview builds the main screen's disk) must stay off.
+        if (fxpick_.open) { pv_cover_pic_ = false; pv_spectro_area_[0] = -1; }   // (the effect list has a preview of its own: the settings' preview pictures are not drawn under it)
         if (!pv_cover_pic_) gfx_.active = false;
         gfx2_.active = false;   // (the main screen's second picture -- the oscilloscope next to a cover -- never belongs here)
         gfxs_.ok = gfx_.active;
@@ -731,8 +732,8 @@ std::string App::render_frame(TerminalIO& term) {
         }
         if (video_opts_open_) {   // SHIFT+s: the options panel over the picture
             std::ostringstream floating;
-            // (the effect picker sits on top of the panel; with a picture protocol it replaces it, so the picture is cut for one panel only)
-            if (!fxpick_.open || !gfx_.active) draw_floating_panel(floating, build_video_opts_panel(), kVideoOptsPanelWidth, W);
+            draw_floating_panel(floating, build_video_opts_panel(), kVideoOptsPanelWidth, W, fxpick_menu_col(kVideoOptsPanelWidth, W));
+            // (the effect picker stands beside the panel; the picture is cut for both)
             if (fxpick_.open) draw_fxpick(floating, W);
             out += floating.str();
             cut_gfx_holes();
@@ -940,8 +941,8 @@ std::string App::render_frame(TerminalIO& term) {
     } else if (mode_ == Mode::VideoMenu) {
         if (vdel_stage_ > 0) draw_floating_panel(floating, build_video_delete_panel(), 64, W, 0, true);   // (the question of Delete Current Video / Refetch this Video)
         else {
-            if (!fxpick_.open || !gfx_.active) draw_floating_panel(floating, build_video_menu_panel(), kVideoMenuPanelWidth, W, 0, true);   // (exactly centred, rows and columns)
-            if (fxpick_.open) draw_fxpick(floating, W);   // (on top; with a picture protocol it replaces the panel: the picture is cut for one panel only)
+            draw_floating_panel(floating, build_video_menu_panel(), kVideoMenuPanelWidth, W, fxpick_menu_col(kVideoMenuPanelWidth, W), true);   // (exactly centred, rows and columns; moved aside while the effect list is open)
+            if (fxpick_.open) draw_fxpick(floating, W);   // (beside the panel; the picture is cut for both)
         }
     } else if (mode_ == Mode::VideoLink) {
         if (vdel_stage_ > 0) { vl_->pic = 0; draw_floating_panel(floating, build_video_delete_panel(), 64, W, 0, true); }   // (the two questions of Delete COMPLETE VIDEO FILE connected to track)
@@ -974,7 +975,7 @@ std::string App::render_frame(TerminalIO& term) {
     } else if (mode_ == Mode::MetaEdit) {   // the Style Option panel of the playing track (HKeyStyleOptions), over the main screen
         meta_refresh_hover_values();
         meta_->sty_pic = 0;
-        { const auto sty = build_meta_sty_panel(W); if (!fxpick_.open || !gfx_.active) draw_floating_panel(floating, sty, meta_sty_panel_width(W), W, 0, false, meta_sty_start_row(static_cast<int>(sty.size()))); }
+        { const auto sty = build_meta_sty_panel(W); draw_floating_panel(floating, sty, meta_sty_panel_width(W), W, fxpick_menu_col(meta_sty_panel_width(W), W), false, meta_sty_start_row(static_cast<int>(sty.size()))); }
         if (fxpick_.open) draw_fxpick(floating, W);
     }
     out += floating.str();

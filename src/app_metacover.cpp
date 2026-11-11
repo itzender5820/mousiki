@@ -417,6 +417,7 @@ bool App::meta_sty_gfx(const CoverImage& cover, int mode, int contrast, int brig
 
 std::vector<std::string> App::meta_sty_preview(int prev_w, int rows, const CoverStyle& st, int album_look, int screen_w) const {
     std::vector<std::string> out;
+    if (fxpick_.open) return std::vector<std::string>(static_cast<size_t>(rows), std::string(static_cast<size_t>(prev_w), ' '));   // (the effect picker has a preview of its own, over this column: no picture is made for it)
     const int look = st.look >= 0 ? st.look : album_look >= 0 ? album_look : (settings_.album_cover ? 1 + std::clamp(settings_.cover_mode, 0, 6) : 0);
     const int contrast = st.contrast >= 0 ? st.contrast : settings_.cover_contrast;
     const int brightness = st.brightness >= 0 ? st.brightness : settings_.cover_brightness;

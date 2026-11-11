@@ -49,15 +49,15 @@ My current setup looks like the previous .gif and the below images. Mousiki come
 
 The appearance is adjusted to fit my cyber-cat themed **MeowerShell** terminal setup [(see Gihub repository for config files)](https://github.com/StSchwerdtfeger/Meower-Shell), which includes FastFetch, Oh-My-Posh and loads of recommendations for lovers of the terminal, e.g. helpful apps like yazi, fzf fuzzy search ...
 
-<p align="center"><img width="850" height="397" alt="grafik" src="readme_images/intro_main_ui.png" /></p>
+<p align="center"><img width="850" height="397" alt="grafik" src="readme_images/intro_main_ui.jpg" /></p>
 
 The new main UI of the radio mode looks like the below:
 
-<p align="center"><img width="850" height="412" alt="grafik" src="readme_images/intro_radio_ui.png" /></p>
+<p align="center"><img width="850" height="412" alt="grafik" src="readme_images/intro_radio_ui.jpg" /></p>
 
 And the audio book mode, the third one, with bookmarks, notes, cutting audio files into chapters...:
 
-<p align="center"><img width="850" alt="The main UI of the audio book mode" src="readme_images/audio_book_main_ui.png" /></p>
+<p align="center"><img width="850" alt="The main UI of the audio book mode" src="readme_images/audio_book_main_ui.jpg" /></p>
 
 
 
@@ -107,27 +107,27 @@ Everything below is in the current version (v5.0.0) and works the same on Window
 
 | |
 |:---:|
-| <img width="600" alt="Album cover, Just Cover" src="readme_images/cover.png" /><br>**Just Cover** |
-| <img width="600" alt="Album cover, Cover with Gradient" src="readme_images/cover_gradient.png" /><br>**Cover with Gradient** |
-| <img width="600" alt="Album cover, Cover behind Disk" src="readme_images/cover_behind_disk.png" /><br>**Cover behind Disk** |
+| <img width="600" alt="Album cover, Just Cover" src="readme_images/cover.jpg" /><br>**Just Cover** |
+| <img width="600" alt="Album cover, Cover with Gradient" src="readme_images/cover_gradient.jpg" /><br>**Cover with Gradient** |
+| <img width="600" alt="Album cover, Cover behind Disk" src="readme_images/cover_behind_disk.jpg" /><br>**Cover behind Disk** |
 
 - **Video mode** (`&`, else `SHIFT+y`): video files (mp4, mkv, webm ...) join the library, and the field shows a track's video with the current lyric line under it. A sound file can be paired with a video (same name, by hand with *Manually Couple Local Files* (`[ Video Option ]` in the meta editor), or downloaded); **Search YT** (`/yv:`) finds and previews videos on YouTube, and **Fetch Videos** (`ALT+v`) downloads the chosen ones for the songs that have none. Needs ffmpeg and yt-dlp.
 
-The picture can get a **retro look** (*Effect* in the VIDEO SETTINGS overlay, *Video Effect* in Settings → ANIMA/VIZ, per track in Style Option, `g` steps through them): Scanlines, CRT, VHS, Glitch, Pixel, Gradient, Phosphor Green (also a *Glow* version behind curved glass) / Amber, Night Vision, Halftone, Dither (B/W and Gradient), Game Boy, EGA 16, CGA, C64, Film, Neon Edge, Interlace and more -- `ENTER` on a Video Effect row opens the list of all of them in three columns -- and a **Base Layer** under the tube looks (scanlines, aperture grille, shadow mask, slot mask, LCD grid, clean), plus Contrast, Colors and Chromatic Aberration. The looks that dither (and the 256-colour picture of sixel) take a **Dither Pattern**: interleaved noise (the default), blue noise, Bayer 2x2 / 4x4 / 8x8, golden ratio. The same video with Game Boy High-Res Gradient, without an effect and with Dither B/W:
+The picture can get a **retro look** (*Effect* in the VIDEO SETTINGS overlay, *Video Effect* in Settings → ANIMA/VIZ, per track in Style Option, `g` steps through them): Scanlines, CRT, VHS, Glitch, Pixel, Gradient, Phosphor Green (also a *Glow* version) / Amber, Halftone, Dither (B/W and Gradient), Game Boy, EGA 16, CGA, C64, Film, Neon Edge, Interlace and more -- `ENTER` on a Video Effect row opens the list of all of them beside the menu, in two columns with a live preview -- and a **Base Layer** under the tube looks (scanlines, aperture grille, shadow mask, slot mask, LCD grid, clean), plus Contrast, Colors and Chromatic Aberration. The looks that dither (and the 256-colour picture of sixel) take a **Dither Pattern**: interleaved noise (the default), blue noise, Bayer 2x2 / 4x4 / 8x8, golden ratio. The same video with Game Boy High-Res Gradient, without an effect and with Dither B/W:
 
 | |
 |:---:|
-| <img width="600" alt="Video effect: Game Boy High-Res Gradient" src="readme_images/video_effect_1.png" /><br>**Game Boy High-Res Gradient** |
-| <img width="600" alt="The video without an effect (Effect: Off)" src="readme_images/video_effect_2.png" /><br>**No effect (Off)** |
-| <img width="600" alt="Video effect: Dither B/W" src="readme_images/video_effect_3.png" /><br>**Dither B/W** |
+| <img width="600" alt="Video effect: Game Boy High-Res Gradient" src="readme_images/video_effect_1.jpg" /><br>**Game Boy High-Res Gradient** |
+| <img width="600" alt="The video without an effect (Effect: Off)" src="readme_images/video_effect_2.jpg" /><br>**No effect (Off)** |
+| <img width="600" alt="Video effect: Dither B/W" src="readme_images/video_effect_3.jpg" /><br>**Dither B/W** |
 
-<p align="center"><img width="850" alt="Video mode: the video in the visualization field with the current lyric line under it" src="readme_images/video_with_lyrics.png" /></p>
+<p align="center"><img width="850" alt="Video mode: the video in the visualization field with the current lyric line under it" src="readme_images/video_with_lyrics.jpg" /></p>
 
 ### Visualizations
 
-<p align="center"><img width="850" alt="Oscilloscope music in XY mode in the visualization field (theme Vaporwave)" src="readme_images/theme_vaporwave.png" /></p>
-<p align="center"><img width="850" alt="The big oscilloscope overlay: YT and XY at once (theme Dracula)" src="readme_images/theme_dracula.png" /></p>
-<p align="center"><img width="850" alt="The oscilloscope in image mode (Kitty / Sixel terminals): YT and XY with oscilloscope music (theme Outrun)" src="readme_images/osci_image.png" /></p>
+<p align="center"><img width="850" alt="Oscilloscope music in XY mode in the visualization field (theme Vaporwave)" src="readme_images/theme_vaporwave.jpg" /></p>
+<p align="center"><img width="850" alt="The big oscilloscope overlay: YT and XY at once (theme Dracula)" src="readme_images/theme_dracula.jpg" /></p>
+<p align="center"><img width="850" alt="The oscilloscope in image mode (Kitty / Sixel terminals): YT and XY with oscilloscope music (theme Outrun)" src="readme_images/osci_image.jpg" /></p>
 
 - **Oscilloscope** in braille or as a real picture (Kitty / Sixel terminals): XY, YT and both together, a CRT beam with afterglow for **oscilloscope music**, grid, metrics and many tuning rows (`SHIFT+o`); full screen (`=`) and its own window (`)`).
 - **Creator** (`^`): turns a text into sound – **oscilloscope music** that draws the text on the XY scope, or a **spectrogram sound** that plays it as notes of a musical scale (so it always sounds pleasant) – saved as a WAV, played in a looping full-screen preview, and listed under *Created files* to open again. The folder with creations is excluded from the library scan, since at the oscilloscope version don't sound pleasent :D A second mode shows your **microphone live** (spectrogram or oscilloscope XY / YT, grid optional) and records it with `ENTER`.
@@ -136,33 +136,33 @@ The picture can get a **retro look** (*Effect* in the VIDEO SETTINGS overlay, *V
 - **Lyric sphere** and **spectrum bars**; the visualization field cycles with `.`.
 
 
-<p align="center"><img width="850" alt="The spectrogram in image mode in the visualization field, both channels" src="readme_images/spectrogram_inapp.png" /></p>
-<p align="center"><img width="850" alt="The spectrogram in image mode over the whole screen, both channels (theme Tokyo Night)" src="readme_images/spectro_image.png" /></p>
-<p align="center"><img width="850" alt="The waterfall view of the spectrogram in image mode: filled graphs with a black outline" src="readme_images/waterfall_image.png" /></p>
-<p align="center"><img width="850" alt="The waterfall view of the spectrogram in braille mode: coloured outlines" src="readme_images/waterfall_braille.png" /></p>
+<p align="center"><img width="850" alt="The spectrogram in image mode in the visualization field, both channels" src="readme_images/spectrogram_inapp.jpg" /></p>
+<p align="center"><img width="850" alt="The spectrogram in image mode over the whole screen, both channels (theme Tokyo Night)" src="readme_images/spectro_image.jpg" /></p>
+<p align="center"><img width="850" alt="The waterfall view of the spectrogram in image mode: filled graphs with a black outline" src="readme_images/waterfall_image.jpg" /></p>
+<p align="center"><img width="850" alt="The waterfall view of the spectrogram in braille mode: coloured outlines" src="readme_images/waterfall_braille.jpg" /></p>
 
 ### Lyrics and Karaoke mode
 
 - **Synchronized lyrics** fetched for local and online tracks, word-by-word animations, a timing editor for the offset (`ALT+L`), several versions kept per song.
 
-<p align="center"><img width="850" alt="Synchronized lyrics on the main screen" src="readme_images/lyrics_main_ui.png" /></p>
+<p align="center"><img width="850" alt="Synchronized lyrics on the main screen" src="readme_images/lyrics_main_ui.jpg" /></p>
 
 - **Read lyrics** with **translations** (`CTRL+L`; `SHIFT+e` writes or corrects a translation by hand, saved as "Manual Translation") and a full-screen **karaoke mode** with big braille letters (also Japanese, Chinese and Korean).
 
 - **Karaoke mode** open via `k`.
   
-<p align="center"><img width="850" alt="Karaoke mode" src="readme_images/changes_19_2.png" /></p>
+<p align="center"><img width="850" alt="Karaoke mode" src="readme_images/changes_19_2.jpg" /></p>
 
 ### Playlists, meta data, history, conversion
 - **Playlist editor** (`SHIFT+p`): create and edit playlists from local or downloaded tracks (library sortable with `SHIFT+t`, `/f:` searches folders), import and export M3U / M3U8 (tracks of a list from another computer are found in your library by file name, then by fuzzy title + artist, also via the Latin spelling of Japanese / Korean / Chinese).
 
-<p align="center"><img width="850" alt="The playlist editor" src="readme_images/changes_09.png" /></p>
+<p align="center"><img width="850" alt="The playlist editor" src="readme_images/changes_09.jpg" /></p>
 
 - **Latin letters** (`"`, i.e. `SHIFT+'` on a US keyboard; in the radio mode too, for station names and titles): shows Japanese, Korean and Chinese titles, tags, file names, lyrics and karaoke in Latin letters (romaji, Revised Romanization, pinyin) and back. Kanji are only converted when the text is known to be Chinese; a name written both ways (`Kaneko Ayano カネコアヤノ`) shows its Latin part; pairs are learned from your own folder and file names, and the search finds such titles by their Latin spelling. Optional and local: with the separate `pykakasi` package installed, kanji in Japanese text are read too; an opt-in setting (Settings → GENERAL → MODES → *Latin Name Lookup*, off by default) asks MusicBrainz for the Latin name of artists written in Chinese characters (it sends those artist names, and so your IP address, to musicbrainz.org - nothing else).
 - **Meta data editor** (`SHIFT+m`): edit tags, rename files, and **fetch missing tags by audio fingerprint** (AcoustID / MusicBrainz) for one title or a whole list.
   
-<p align="center"><img width="850" alt="The meta data editor, fetch list" src="readme_images/changes_11.png" /></p>
-<p align="center"><img width="850" alt="Listening history, top tracks" src="readme_images/history_top_tracks.png" /></p>
+<p align="center"><img width="850" alt="The meta data editor, fetch list" src="readme_images/changes_11.jpg" /></p>
+<p align="center"><img width="850" alt="Listening history, top tracks" src="readme_images/history_top_tracks.jpg" /></p>
 
 - **File conversion** between audio formats.
 - **Listening history** (`SHIFT+h`): history, top tracks, top playlists and listening habits, plus **smart lists** to queue (top 25 of the week, by time of day ...).
@@ -171,7 +171,7 @@ The picture can get a **retro look** (*Effect* in the VIDEO SETTINGS overlay, *V
 
 - **10-band equalizer** with 12 presets and your own presets, **loudness normalization**, stereo / mono, a **sleep timer**.
 
-<p align="center"><img width="850" alt="The 10-band equalizer" src="readme_images/equalizer.png" /></p>
+<p align="center"><img width="850" alt="The 10-band equalizer" src="readme_images/equalizer.jpg" /></p>
 
 ### Radio player
 
@@ -181,9 +181,9 @@ The radio is part of the same program: `*` (`SHIFT` and `+` on a German keyboard
 - **Radio Browser** search through tens of thousands of stations, **16 presets** in several preset lists, **station lists**, a big stations overlay.
 - **Timeshift** (pause, jump back, back to live), **recording** (also from the past buffer), its own **listening history**, and finding the current song on YouTube to download it.
 
-<p align="center"><img width="850" alt="The radio player, tuned to a station (theme Cyberpunk)" src="readme_images/theme_cyberpunk.png" /></p>
+<p align="center"><img width="850" alt="The radio player, tuned to a station (theme Cyberpunk)" src="readme_images/theme_cyberpunk.jpg" /></p>
 
-<p align="center"><img width="850" alt="The radio's presets menu" src="readme_images/radio_presets.png" /></p>
+<p align="center"><img width="850" alt="The radio's presets menu" src="readme_images/radio_presets.jpg" /></p>
 
 ### Audio book player
 
@@ -198,8 +198,8 @@ The audio book player is the third mode, switched to with the same key as to the
 - **Chapter marks and cutting:** `ALT+l` sets chapter marks while you listen (`m`, or by time `h:mm:ss`; standard titles "Chapter N", editable; seeking accelerates), `c` cuts the file at the marks with `ffmpeg -c copy` into `01 Chapter 1.wav`, … and keeps the original as `…mousiki-backup` until you delete it (`SHIFT+d`); bookmark and notes move to the new files.
 - The converter works on the books and searches folders, and the visualizations (sphere, oscilloscope, spectrogram), the equalizer, normalization and the sleep timer are the player's.
 
-<p align="center"><img width="850" alt="The audio book player: books left, chapters right, cover image, waveform and the notes field" src="readme_images/audio_book_main_ui.png" /></p>
-<p align="center"><img width="850" alt="The audio book player showing a note in the field of the visualizations while the playback passes it" src="readme_images/audio_book_main_ui_notes.png" /></p>
+<p align="center"><img width="850" alt="The audio book player: books left, chapters right, cover image, waveform and the notes field" src="readme_images/audio_book_main_ui.jpg" /></p>
+<p align="center"><img width="850" alt="The audio book player showing a note in the field of the visualizations while the playback passes it" src="readme_images/audio_book_main_ui_notes.jpg" /></p>
 
 ### Themes and colours
 
@@ -207,24 +207,24 @@ Mousiki comes with 32 colour themes, and you can make, edit, export and import y
 
 | | |
 |:---:|:---:|
-| <img width="420" alt="SeriousMeowerShell(Default)" src="readme_images/theme_default.png" /><br>**SeriousMeowerShell (Default)** | <img width="420" alt="MeowerShell" src="readme_images/theme_meowershell.png" /><br>**MeowerShell** |
-| <img width="420" alt="Vaporwave" src="readme_images/theme_vaporwave.png" /><br>**Vaporwave** | <img width="420" alt="Lavender Haze" src="readme_images/theme_lavender_haze.png" /><br>**Lavender Haze** |
-| <img width="420" alt="Cyberpunk" src="readme_images/theme_cyberpunk.png" /><br>**Cyberpunk** (radio) | <img width="420" alt="Dracula" src="readme_images/theme_dracula_main.png" /><br>**Dracula** |
+| <img width="420" alt="SeriousMeowerShell(Default)" src="readme_images/theme_default.jpg" /><br>**SeriousMeowerShell (Default)** | <img width="420" alt="MeowerShell" src="readme_images/theme_meowershell.jpg" /><br>**MeowerShell** |
+| <img width="420" alt="Vaporwave" src="readme_images/theme_vaporwave.jpg" /><br>**Vaporwave** | <img width="420" alt="Lavender Haze" src="readme_images/theme_lavender_haze.jpg" /><br>**Lavender Haze** |
+| <img width="420" alt="Cyberpunk" src="readme_images/theme_cyberpunk.jpg" /><br>**Cyberpunk** (radio) | <img width="420" alt="Dracula" src="readme_images/theme_dracula_main.jpg" /><br>**Dracula** |
 
-<p align="center"><img width="850" alt="CHOOSE THEME: all built-in themes" src="readme_images/theme_picker.png" /></p>
-<p align="center"><img width="850" alt="CREATE THEME" src="readme_images/create_theme.png" /></p>
+<p align="center"><img width="850" alt="CHOOSE THEME: all built-in themes" src="readme_images/theme_picker.jpg" /></p>
+<p align="center"><img width="850" alt="CREATE THEME" src="readme_images/create_theme.jpg" /></p>
 
 #### Colour-blind friendly themes
 
 Three themes are made for colour vision deficiencies: **Colorblind Deuteranopia** and **Colorblind Protanopia** (red-green: they build on blue / orange / yellow contrasts instead of red against green) and **Colorblind Tritanopia** (blue-yellow: red / cyan contrasts). **High Contrast** helps on dim screens and for low vision. Like every theme they can be a starting point for your own (CREATE THEME → CHOOSE THEME AS TEMPLATE).
 
-<p align="center"><img width="850" alt="Theme Colorblind Deuteranopia" src="readme_images/theme_colorblind.png" /></p>
+<p align="center"><img width="850" alt="Theme Colorblind Deuteranopia" src="readme_images/theme_colorblind.jpg" /></p>
 
 ### Help, settings and keys
 
 - A **help wizard** (`SHIFT+w`, opens by itself after the first install), a categorized **cheat sheet** (`?`, shows the keys you actually have bound), a **menus index** (`<`: every menu and overlay as an organigram, ENTER opens one), this **[manual](Mousiki_User_Manual/Mousiki_User_Guide.md)** (also as [PDF](Mousiki_User_Manual/Mousiki_User_Guide.pdf)).
 
-<p align="center"><img width="850" alt="The help wizard" src="readme_images/help_wizard.png" /></p>
+<p align="center"><img width="850" alt="The help wizard" src="readme_images/help_wizard.jpg" /></p>
 
 - **Settings** (`s`) for colours, switches, animations, paths and **every key** (most keys can be rebound; a key already in use is refused). German and English keyboard layouts are detected: see [Keyboard layouts](Mousiki_User_Manual/Mousiki_User_Guide.md#keyboard-layouts-german-and-english) in the manual.
 - **Black Background**, a re-fontable UI (`A={𝓐,𝓪}` lines in `config.txt`), emoji replacement, marquee scrolling, **Share Profiles** for the visual settings of player and radio, and a backup of your settings (`config.txt.bak`) when a new version first saves them.
@@ -237,9 +237,9 @@ Three themes are made for colour vision deficiencies: **Colorblind Deuteranopia*
 
 | | | |
 |:---:|:---:|:---:|
-| <img width="260" alt="The phone remote, music player" src="readme_images/phone_player.png" /><br>**Music player** | <img width="260" alt="The phone remote, radio" src="readme_images/phone_radio.png" /><br>**Radio** | <img width="260" alt="The phone remote, audio book player" src="readme_images/remote_audio_book.webp" /><br>**Audio book player** |
+| <img width="260" alt="The phone remote, music player" src="readme_images/phone_player.jpg" /><br>**Music player** | <img width="260" alt="The phone remote, radio" src="readme_images/phone_radio.jpg" /><br>**Radio** | <img width="260" alt="The phone remote, audio book player" src="readme_images/remote_audio_book.webp" /><br>**Audio book player** |
 
-<p align="center"><img width="600" alt="The REMOTE APP settings with the QR code" src="readme_images/remote_overlay.png" /></p>
+<p align="center"><img width="600" alt="The REMOTE APP settings with the QR code" src="readme_images/remote_overlay.jpg" /></p>
 
 ## Quick start
 
