@@ -3495,6 +3495,9 @@ def radio_cli_typed(binary, root, scripts):
 def xdg_dirs(binary, root, scripts):
     """XDG_CONFIG_HOME / XDG_CACHE_HOME: the config (and the cli scripts) are read from, and the log written to, the XDG folders."""
     import subprocess
+    if sys.platform in ("darwin", "win32"):   # macOS and Windows keep everything under $HOME/.config/mousiki (app_dirs.h): the XDG variables are not used there
+        print("  skipped: XDG folders (only Linux and other Unix systems use them)")
+        return
     home = os.path.join(root, "xdg_home")
     xc = os.path.join(root, "xdg_conf")
     xk = os.path.join(root, "xdg_cache")
