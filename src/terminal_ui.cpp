@@ -57,6 +57,16 @@ static std::string g_clipboard;
 // no equivalent. Only async-signal-safe calls are allowed in here, hence the
 // raw write() and tcsetattr() and nothing else.
 // ---------------------------------------------------------------------------
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+#define MOUSIKI_UNDER_SANITIZER 1
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer) || __has_feature(undefined_behavior_sanitizer)
+#define MOUSIKI_UNDER_SANITIZER 1
+#endif
+#endif
+#ifndef MOUSIKI_UNDER_SANITIZER
+#define MOUSIKI_UNDER_SANITIZER 0
+#endif
 static volatile sig_atomic_t g_signals_installed = 0;
 // The black background's way back, ready for the signal handler (which may only call write()): see terminal_black_background().
 static char g_bg_restore[128] = {};
@@ -85,6 +95,15 @@ static void install_fatal_signal_handlers() {
     sigaction(SIGINT, &sa, nullptr);
     sigaction(SIGTERM, &sa, nullptr);
     sigaction(SIGHUP, &sa, nullptr);
+    // a crash (or an uncaught exception, which ends in abort()) must not leave the shell in raw mode on the alternate screen either:
+    // the handler only restores the terminal and hands the signal back, so the crash is still reported (and dumps core) as before
+#if !MOUSIKI_UNDER_SANITIZER   // (a sanitizer build keeps its own crash handlers: they print the report)
+    sigaction(SIGSEGV, &sa, nullptr);
+    sigaction(SIGABRT, &sa, nullptr);
+    sigaction(SIGBUS, &sa, nullptr);
+    sigaction(SIGFPE, &sa, nullptr);
+    sigaction(SIGILL, &sa, nullptr);
+#endif
     g_signals_installed = 1;
 }
 
@@ -94,6 +113,13 @@ static void remove_fatal_signal_handlers() {
     signal(SIGINT, SIG_DFL);
     signal(SIGTERM, SIG_DFL);
     signal(SIGHUP, SIG_DFL);
+#if !MOUSIKI_UNDER_SANITIZER
+    signal(SIGSEGV, SIG_DFL);
+    signal(SIGABRT, SIG_DFL);
+    signal(SIGBUS, SIG_DFL);
+    signal(SIGFPE, SIG_DFL);
+    signal(SIGILL, SIG_DFL);
+#endif
 }
 #endif
 
@@ -956,6 +982,7 @@ struct AsyncWriter {
     std::string pending;
     bool has = false, busy = false, started = false;
     std::atomic<double> last_ms{0.0};
+    std::chrono::steady_clock::time_point started_at{};   // (when the write that is running began; read under mu)
     void loop() {
         std::unique_lock<std::mutex> lk(mu);
         for (;;) {
@@ -964,8 +991,9 @@ struct AsyncWriter {
             pending.clear();
             has = false;
             busy = true;
-            lk.unlock();
             const auto t0 = std::chrono::steady_clock::now();
+            started_at = t0;
+            lk.unlock();
             write_frame_now(job);
             last_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
             lk.lock();
@@ -1011,6 +1039,19 @@ double write_frame_async(std::string frame) {
 }
 
 double write_frame_last_ms() { return writer().last_ms.load(); }
+
+// Waits until the frame being written is about to be done (it took as long as the last one: last_ms; `lead_ms` less, the time the next
+// frame needs to be built), so the picture and the scope are made from the freshest audio instead of from the moment the terminal began
+// to swallow the one before. Never waits longer than the last write took (+ a little), and not at all when nothing is being written.
+void write_frame_wait_nearly_idle(double lead_ms) {
+    AsyncWriter& w = writer();
+    std::unique_lock<std::mutex> lk(w.mu);
+    if (!w.started) return;
+    const double expect = std::min(250.0, w.last_ms.load());
+    const auto wake = w.started_at + std::chrono::microseconds(static_cast<long long>(std::max(0.0, expect - std::max(0.0, lead_ms)) * 1000.0));
+    const auto limit = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+    while ((w.busy || w.has) && std::chrono::steady_clock::now() < wake && std::chrono::steady_clock::now() < limit) w.cv.wait_until(lk, std::min(wake, limit));
+}
 
 int TerminalIO::rows() const {
 #if defined(_WIN32)

@@ -496,6 +496,8 @@ TEST(settings_video_overlay_options_round_trip) {
     CHECK_EQ(s.video_size, 2);   // (Video Size: full by default)
     CHECK(s.video_round);        // (Rounded Corners: on by default)
     CHECK_EQ(s.video_chroma, 1); // (Video Chromatic Aberration: subtle by default)
+    CHECK_EQ(s.video_dither, 5); // (Video Dither Pattern: interleaved noise by default)
+    CHECK_EQ(s.video_grad_sat, 85); // (Video Gradient Saturation: 85 % by default)
     CHECK(!s.disk_border);       // (the ":  :" column: off by default)
     s.video_clap = 1;
     s.video_auto = false;
@@ -551,9 +553,15 @@ TEST(settings_video_resolution_buffer_and_effect_are_saved_and_read_back) {
     CHECK_EQ(back.video_buffer, 128);
     CHECK(!back.video_mp3);
     CHECK_EQ(back.video_fx, 7);
-    s.video_contrast = 40; s.video_brightness = 65; s.video_colors = 25; s.video_chroma = 2; s.cover_chroma = 3;
+    s.video_contrast = 40; s.video_brightness = 65; s.video_colors = 25; s.video_chroma = 2; s.cover_chroma = 3; s.video_dither = 6; s.video_grad_sat = 45;
     save_settings(s);
     const Settings b2 = load_settings();
+    CHECK_EQ(b2.video_dither, 6);   // (golden ratio)
+    CHECK_EQ(b2.video_grad_sat, 45);
+    CHECK_EQ(dither_from("nonsense"), 0);   // (anything unknown: auto)
+    CHECK_EQ(dither_from("line screen"), 5);   // (gone: the default one)
+    CHECK_EQ(dither_from("clustered dot"), 5);
+    CHECK_EQ(dither_from("auto"), 0);
     CHECK_EQ(b2.video_contrast, 40);
     CHECK_EQ(b2.video_brightness, 65);
     CHECK_EQ(b2.video_colors, 25);

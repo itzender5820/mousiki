@@ -9,6 +9,8 @@
 //                              in use): {"rev":..,"mode":..,"cols":..,"rows":..,"lines":[ANSI lines],"zones":[{x,y,w,h,cmd,arg}]}
 //   GET /api/image?pin=&key=   the PNG the screen names under "image" (the audio book cover); image/png
 //   GET /api/cmd?pin=&name=&arg=   one remote command (the names of `mousiki --cmd`)
+//   GET /api/cli?pin=&line=&wait=   one command line (the language of `mousiki --cli`) and its reply, as JSON {"ok","reply","lines"}; only
+//                              when config.txt has RemoteAppCli=true, and with a restricted set (no quit / set / edit / alias / force)
 //   GET /api/status?pin=       what is playing (the keys of `mousiki --status`) as JSON
 //
 // Every /api/ call needs the PIN (shown in the settings, `mousiki --remote-info`); after 10 wrong PINs the API answers
@@ -27,6 +29,8 @@ struct Config {
     bool enabled = false;
     int port = 4747;
     std::string pin;       // 4-8 digits
+    std::string hosts;     // extra names the server answers to (config.txt RemoteAppHosts=a,b): see host_ok()
+    bool cli = false;      // GET /api/cli?line= (a command line with a reply): off by default, config.txt RemoteAppCli=true
 };
 
 void configure(const Config& c);      // starts / stops / restarts the server to match (cheap when nothing changed)
@@ -43,6 +47,8 @@ std::string make_pin();               // a fresh random 6-digit PIN
 
 // ---- the program's side ------------------------------------------------------------------------------------------------
 std::vector<Command> take_commands(); // commands that came in over the network (called by remote::poll())
+// The answer to a command line that came in over the network (the id starts with "net-"): wakes the HTTP request that waits for it.
+void deliver_reply(const std::string& id, bool ok, const std::string& text);
 
 // A phone has asked for the screen within the last 3 s; cols / rows: the size it asked for. The program then builds the
 // screen (at most ~12 times a second) and hands it over with set_screen().
@@ -72,7 +78,13 @@ void set_picture(bool active, int x, int y, int w, int h, const std::string& key
 // Parses "GET /path?a=1&b=x%20y HTTP/1.1" into the path and the decoded query; false when it is not a GET/HEAD request line.
 bool parse_request_line(const std::string& line, std::string& path, std::vector<std::pair<std::string, std::string>>& query);
 // The answer to one request (status line, headers and body), without any socket: what the server thread sends back.
-std::string handle_request(const std::string& request_line, const std::string& peer);
+// `host`: the value of the request'"'"'s Host header ("" = none given: HTTP/1.0 clients and the tests); a request whose Host is not allowed (see
+// host_ok) gets 400 and nothing else.
+std::string handle_request(const std::string& request_line, const std::string& peer, const std::string& host = std::string());
+// DNS rebinding: a web page can make its own domain name point at this computer and then send requests to the server with the browser
+// as the carrier; such a request still carries the page's domain in Host. So Host must be an IP address (the phone, the app, curl on an
+// address), "localhost", or one of the names in `extra` (comma separated, case does not matter, a port is ignored).
+bool host_ok(const std::string& host, const std::string& extra);
 bool pin_ok(const std::string& pin);   // the PIN rule: 4-8 digits
 // True for an address of the home network or this computer (127.x, 10.x, 172.16-31.x, 192.168.x, 169.254.x, 100.64-127.x): the
 // server answers only those; anything else (a public address forwarded in by a router) is closed at once.

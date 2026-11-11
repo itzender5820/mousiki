@@ -248,6 +248,63 @@ struct StationsOverlay {
     int undo_count = 0;   // how many deletions / edits SHIFT+u can take back (shown in the legend)
 };
 
+// ---- the command line (cli_core.h) in the radio: "c:" / "cs:" in the SEARCH box, the console (SHIFT+c), the script overlay ---------
+// The typed command line: what was typed and answered ("> line", "  reply"), and the lines run so far (UP / DOWN recall them).
+struct CliTyped {
+    std::vector<std::string> out;
+    std::vector<std::string> hist;
+    int hist_pos = -1;
+};
+// The console overlay (like the player's): three boxes one above the other -- 0 the log (ConsoleLog), 1 the STATUS MESSAGES (what the radio
+// said under its hints, with the time), 2 the command line (the same output and history as "c:"). `pane` is the one that has the keys.
+struct ConsoleModel {
+    bool open = false;
+    int pane = 0;
+    mutable int up[3] = {0, 0, 0};   // lines scrolled up from the newest, per pane (0 = following the newest)
+    mutable bool has[3] = {true, false, false};   // which boxes the last frame had room for (a small window leaves the status pane / the command line out)
+    std::vector<std::string> status;   // the status messages so far, "[hh:mm:ss] text" (500 at most)
+    std::vector<std::string> seen;     // the last value of each status line that is watched (a new value is one message)
+    std::string buf;             // the command line being typed (pane 1)
+    EditState edit;
+    std::string note;
+};
+// The script overlay: the library of the scripts on the left, a multi-line editor on the right (the player has the same one).
+struct CliOvModel {
+    bool open = false;
+    bool from_settings = false;   // opened from Settings: ESC goes back there
+    std::vector<std::string> names, texts;   // the scripts of the cli folder (+ startup and aliases) and their text, for the search
+    std::vector<int> shown;       // the indices of `names` that match the filter
+    int sel = 0;
+    mutable int scroll = 0;
+    std::string filter;
+    bool filtering = false;
+    EditState fedit;
+    int focus = 0;                // 0 the library, 1 the editor
+    std::string cur;              // the script in the editor ("" = none)
+    std::vector<std::string> lines{""};
+    int cy = 0;
+    size_t cx = 0, anchor = 0;
+    mutable int top = 0;
+    mutable int rows = 10;
+    bool dirty = false, discard_armed = false;
+    int prompt = 0;               // 1 new script (a name), 2 rename, 3 delete (y / n)
+    std::string name_buf;
+    EditState nedit;
+    std::vector<std::string> out; // what the last runs answered
+    std::string note;
+};
+// "c:" at the start of the SEARCH box (the command line), and "cs:" (the search of the scripts).
+inline bool search_is_cli(const std::string& b) {
+    size_t i = 0;
+    while (i < b.size() && b[i] == ' ') ++i;
+    return b.size() >= i + 2 && (b[i] == 'c' || b[i] == 'C') && b[i + 1] == ':';
+}
+inline bool search_is_cs(const std::string& b) {
+    size_t i = 0;
+    while (i < b.size() && b[i] == ' ') ++i;
+    return b.size() >= i + 3 && (b[i] == 'c' || b[i] == 'C') && (b[i + 1] == 's' || b[i + 1] == 'S') && b[i + 2] == ':';
+}
+
 // The record overlay's choices (y): seconds back from the moment it opened; 0 = from now on, -1 = the whole buffer.
 inline constexpr int kRecordBack[] = {0, 60, 300, 600, 900, 1800, -1};
 
@@ -271,6 +328,9 @@ struct UiModel {
     ListMenuModel lmenu;
     SettingsModel settings;
     HistoryModel hmenu;
+    CliTyped cli;
+    ConsoleModel con;
+    CliOvModel cliov;
     StationsOverlay stov;
     mutable int pmarquee_row = -1;       // the tuned preset entry whose name scrolls in the PRESETS pane (-1 = none)
     mutable double pmarquee_since = 0.0;

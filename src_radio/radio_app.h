@@ -13,12 +13,14 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <iostream>
 #include <random>
 #include <string>
 #include <thread>
 #include <vector>
 #include "about_text.h"
+#include "cli_core.h"
 #include "radio_browser.h"
 #include "radio_engine.h"
 #include "terminal_gfx.h"
@@ -140,6 +142,7 @@ struct RadioApp {
     int headless_selftest(int argc, char** argv);
     int interactive();                            // the screen: the loop of frames and keys
     void interactive_setup();                     // what the loop needs before the first frame
+    void capture_status();                        // the status lines under the hints -> the console's STATUS MESSAGES box (radio_app_cli.cpp)
     void frame_tick();                            // the remote app, the notices, the windows, the timers (once per frame)
 
     // ---- the work (radio_app_core.cpp, radio_app_stations.cpp, radio_app_settings.cpp)
@@ -177,6 +180,39 @@ struct RadioApp {
     void lm_sync_entry();
     void load_storage();
     void remote_apply(const muisc::remote::Command& c);
+    // the command line (radio_cli.cpp): `mousiki --cli`, /api/cli, scripts, timers
+    muisc::cli::State cli_state() const;
+    std::string cli_station_line() const;
+    std::string cli_run(const std::string& line, muisc::cli::Origin origin, const std::string& reply_id = "");
+    void cli_step(muisc::cli::Job& job);
+    void cli_finish(muisc::cli::Job& job);
+    std::string cli_exec(const std::string& line, muisc::cli::Job& job, bool& ok);
+    void cli_tick();
+    // the typed command line (radio_app_cli.cpp): "c:" in the SEARCH box, the console (SHIFT+c), the script overlay ("cs:", Settings)
+    std::string cli_complete(const std::string& line);   // CTRL+RIGHT: the command word completed ("" = nothing to add; candidates go to the output)
+    void cli_typed(const std::string& line);              // a line typed by a person: "> line", the replies, the history
+    bool cli_search_key(KeyCtx& kc);                      // the SEARCH box holds "c:" / "cs:"
+    bool key_console(KeyCtx& kc);
+    bool key_cliov(KeyCtx& kc);
+    void console_open(int pane = 0);
+    void cliov_refresh();
+    void cliov_load(const std::string& name);
+    void cliov_open(const std::string& name, const std::string& filter, bool from_settings = false);
+    bool cliov_save();
+    void cliov_run(bool from_editor);
+    std::deque<muisc::cli::Job> cli_jobs;
+    std::vector<muisc::cli::Timer> cli_timers;
+    int cli_timer_serial = 0;
+    // aliases (aliases.cli), hooks (hooks.cli: station-change pause resume stream-error idle) and `set` (radio_cli.cpp)
+    std::map<std::string, std::string> cli_aliases;
+    bool cli_aliases_loaded = false;
+    void cli_hooks_tick();
+    void cli_fire_hook(const std::string& event);
+    struct CliHookSnap { bool valid = false, tuned = false, paused = false; std::string url; };
+    CliHookSnap cli_hook_snap;
+    bool cli_hook_station_pending = false, cli_hook_warned = false;
+    std::chrono::steady_clock::time_point cli_hook_station_at{};
+    muisc::cli::HookLimiter cli_hook_limit;
     void set_search_focus(bool on);
     void settings_close(bool save);
     void settings_open();

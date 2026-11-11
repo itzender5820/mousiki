@@ -249,6 +249,29 @@ TEST(video_track_option_mp4_audio_is_kept_per_track) {
     CHECK_EQ(cover_track_video_opts("/music/a.mp3").mp4audio, -1);
 }
 
+TEST(video_track_dither_pattern_is_kept_per_track_and_old_entries_read_as_settings) {
+    mt::TempHome home;
+    CHECK_EQ(cover_track_video_opts("/music/a.mp3").dither, -1);        // as in Settings
+    VideoTrackOpts o;
+    o.dither = 0;                                                       // "auto" chosen for this track is not the same as "as in Settings"
+    o.chroma = 2;
+    set_cover_track_video_opts("/music/a.mp3", o);
+    CHECK_EQ(cover_track_video_opts("/music/a.mp3").dither, 0);
+    CHECK_EQ(cover_track_video_opts("/music/a.mp3").chroma, 2);
+    o.dither = 5;
+    set_cover_track_video_opts("/music/a.mp3", o);
+    CHECK_EQ(cover_track_video_opts("/music/a.mp3").dither, 5);
+    o.dither = -1; o.gsat = 35;                                         // a gradient saturation of its own
+    set_cover_track_video_opts("/music/a.mp3", o);
+    CHECK_EQ(cover_track_video_opts("/music/a.mp3").gsat, 35);
+    o.gsat = -1;
+    o.dither = 99;                                                      // nonsense in the file: as in Settings
+    set_cover_track_video_opts("/music/a.mp3", o);
+    CHECK_EQ(cover_track_video_opts("/music/a.mp3").dither, -1);
+    set_cover_track_video_opts("/music/a.mp3", VideoTrackOpts{});
+    CHECK_EQ(cover_track_video_opts("/music/a.mp3").dither, -1);
+}
+
 TEST(cover_scaled_keeps_several_sizes) {
     CoverImage c;
     c.key = "test-cover"; c.w = 64; c.h = 32; c.ok = true;
@@ -517,4 +540,37 @@ TEST(a_track_style_keeps_contrast_up_to_150_and_its_own_gradient_saturation) {
     CoverStyle none;
     set_cover_track_style("/music/c.mp3", none); // nothing set at all: the entry is gone
     CHECK_EQ(cover_track_style("/music/c.mp3").gsat, -1);
+}
+
+
+TEST(cover_picture_id_is_the_pixels_not_the_request) {
+    if (!have_ffmpeg()) return;   // (no ffmpeg here)
+    mt::TempHome home;
+    const fs::path d = home.path() / "albid";
+    fs::create_directories(d);
+    touch(d / "one.mp3");
+    touch(d / "two.mp3");
+    make_png(d / "red.png", "red");
+    make_png(d / "red2.png", "red");
+    make_png(d / "blue.png", "blue");
+    CoverRequest a;
+    a.path = path_utf8(d / "one.mp3"); a.title = "one"; a.album = "X"; a.search = 0;
+    set_cover_track_choice(a.path, path_utf8(d / "red.png"));
+    a.store_rev = cover_store_revision();
+    const CoverImage* c1 = wait_cover(a);
+    CHECK(c1 != nullptr);
+    const std::string id1 = c1 ? c1->id() : "", key1 = c1 ? c1->key : "";   // (the slot is reused: copies)
+    CoverRequest b = a;
+    b.path = path_utf8(d / "two.mp3"); b.title = "two";
+    set_cover_track_choice(b.path, path_utf8(d / "red2.png"));   // another file, the same picture
+    b.store_rev = cover_store_revision();
+    const CoverImage* c2 = wait_cover(b);
+    CHECK(c2 != nullptr);
+    CHECK(c2 && c2->key != key1);                                    // (a different request ...)
+    CHECK(c2 && c2->id() == id1 && !id1.empty());                    // ... the same picture
+    set_cover_track_choice(b.path, path_utf8(d / "blue.png"));
+    b.store_rev = cover_store_revision();
+    const CoverImage* c3 = wait_cover(b);
+    CHECK(c3 != nullptr);
+    CHECK(c3 && c3->id() != id1);
 }

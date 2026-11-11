@@ -1,6 +1,7 @@
 // app_playback.cpp
 // Part of class App (src/app.h): Loading and playing a track: the load worker, search, play next / previous, the queue and its playlists.
 // Split out of app.cpp; the includes are the same as there.
+#include "app_dirs.h"
 #include "app.h"
 #include "app_state_sleep.h"
 #include "app_state_device.h"
@@ -72,7 +73,7 @@ void App::write_load_timing_log(const std::string& title, bool is_local, double 
                                  double t_probe, double t_total, const std::string& error) {
     const char* home = std::getenv("HOME");
     if (!home) return;
-    fs::path dir = path_from_utf8(home) / ".cache" / "mousiki";
+    fs::path dir = muisc::app_dirs::cache();
     std::error_code ec;
     fs::create_directories(dir, ec);
     std::ofstream log(dir / "load_timing.log", std::ios::app);
@@ -216,10 +217,8 @@ void App::launch_load_async(fs::path local_path, std::string title, std::string 
         // track, and the StreamingPcm it's filling stays alive via the
         // shared_ptr captured below (and via Player's own reference, if
         // this track is still the one playing) for exactly as long as it
-        // needs to. Known tradeoff: if the app quits while a decode is
-        // still in flight, that ffmpeg subprocess can be orphaned rather
-        // than cleanly killed — worth fixing with real process-group
-        // tracking later, not a correctness or crash risk today.
+        // needs to. (If the app quits while a decode is still in flight,
+        // kill_all_children() ends that ffmpeg at exit.)
         std::shared_ptr<StreamingPcm> pcm = pl.pcm;
         fs::path decode_path = decode_from;
         std::string wtitle = pl.title, wartist = pl.artist;

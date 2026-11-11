@@ -300,6 +300,7 @@ bool App::handle_meta_sty_key(int key) {
     if (!dir && !reset) return true;
     const std::vector<StyleRow> list = style_rows(settings_.video_mode, meta_->sty_pair);
     const StyleRow sel = list[static_cast<size_t>(std::clamp(meta_->sty_sel, 0, static_cast<int>(list.size()) - 1))];
+    if (!arrow && (key == '\r' || key == '\n') && sel == kStVideoEffect) { fxpick_open(3); return true; }   // ENTER on Video Effect: the list of all effects
     switch (sel) {
         case kStLook: st.look = reset ? -1 : sty_step(st.look, dir, kCoverLookCount - 1, 1); break;
         case kStCoverContrast: st.contrast = reset ? -1 : sty_step(st.contrast, dir, 150, 5); break;
@@ -318,7 +319,7 @@ bool App::handle_meta_sty_key(int key) {
             return true;
         }
         case kStVideoOn: case kStVideoLyrics: case kStVideoSize: case kStVideoEffect: case kStVideoContrast: case kStVideoBrightness:
-        case kStVideoColors: case kStVideoChroma: case kStVideoResolution: case kStVideoRounded: {   // the video of this track (-1 = as in the VIDEO overlay / in Settings)
+        case kStVideoColors: case kStVideoChroma: case kStVideoDither: case kStVideoBase: case kStVideoGradSat: case kStVideoResolution: case kStVideoRounded: {   // the video of this track (-1 = as in the VIDEO overlay / in Settings)
             VideoTrackOpts o = cover_track_video_opts(meta_->sty_track);
             switch (sel) {
                 case kStVideoOn: o.on = reset ? -1 : (o.on == 0 ? -1 : 0); break;
@@ -329,6 +330,9 @@ bool App::handle_meta_sty_key(int key) {
                 case kStVideoBrightness: o.brightness = reset ? -1 : sty_step(o.brightness, dir, 100, 5); break;
                 case kStVideoColors: o.colors = reset ? -1 : sty_step(o.colors, dir, 100, 5); break;
                 case kStVideoChroma: o.chroma = reset ? -1 : sty_step(o.chroma, dir, kChromaLevels - 1, 1); break;
+                case kStVideoBase: o.base = reset ? -1 : sty_step(o.base, dir, kBaseLayers - 1, 1); break;
+                case kStVideoDither: o.dither = reset ? -1 : sty_step(o.dither, dir, kDitherPatterns - 1, 1); break;
+                case kStVideoGradSat: o.gsat = reset ? -1 : sty_step(o.gsat, dir, 100, 5); break;
                 case kStVideoResolution: o.res = reset ? -1 : sty_step(o.res, dir, 2, 1); break;
                 default: o.round = reset ? -1 : sty_step(o.round, dir, 1, 1); break;
             }
@@ -570,6 +574,9 @@ std::vector<std::string> App::build_meta_sty_panel(int screen_w) const {
             case kStVideoBrightness: return {"Video Brightness", pct(vo.brightness, settings_.video_brightness)};
             case kStVideoColors: return {"Video Colors", pct(vo.colors, settings_.video_colors)};
             case kStVideoChroma: return {"Video Chromatic Aberration", vo.chroma >= 0 ? std::string(chroma_name(vo.chroma)) : std::string("as in Settings (") + chroma_name(settings_.video_chroma) + ")"};
+            case kStVideoBase: return {"Video Base Layer", vo.base >= 0 ? std::string(base_name(vo.base)) : std::string("as in Settings (") + base_name(settings_.video_base) + ")"};
+            case kStVideoDither: return {"Video Dither Pattern", vo.dither >= 0 ? std::string(dither_name(vo.dither)) : std::string("as in Settings (") + dither_name(settings_.video_dither) + ")"};
+            case kStVideoGradSat: return {"Video Gradient Saturation", pct(vo.gsat, settings_.video_grad_sat)};
             case kStVideoResolution: return {"Video Resolution", vo.res >= 0 ? std::string(video_res_name(vo.res)) : std::string("as in Settings (") + video_res_name(settings_.video_res) + ")"};
             case kStVideoRounded: return {"Video Rounded Corners", vo.round >= 0 ? std::string(vo.round ? "on" : "off") : std::string("as in Settings (") + (settings_.video_round ? "on" : "off") + ")"};
             case kStMp4Audio: return {"Use mp4 audio for this song", vo.mp4audio == 1 ? std::string("true") : std::string("false")};

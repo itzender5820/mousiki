@@ -27,6 +27,7 @@
 #include "app_internal.h"
 #include "app_settings_shared.h"
 #include "app_settings_tables.h"
+#include "app_settings_ref.h"
 #include <cstring>
 #include <algorithm>
 #include <cctype>

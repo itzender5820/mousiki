@@ -28,7 +28,7 @@ namespace {
 int code_of(const std::string& reply) { return reply.size() > 12 ? std::atoi(reply.c_str() + 9) : 0; }
 std::string body_of(const std::string& reply) { const size_t p = reply.find("\r\n\r\n"); return p == std::string::npos ? "" : reply.substr(p + 4); }
 std::string req(const std::string& target) { return net::handle_request("GET " + target + " HTTP/1.1", "test"); }
-void use_pin(const char* pin) { net::configure({false, 4747, pin}); }   // off: no socket, only the PIN is set
+void use_pin(const char* pin) { net::configure({false, 4747, pin, "", false}); }   // off: no socket, only the PIN is set
 
 // a plain HTTP GET over a socket (for the live server test)
 std::string http_get(int port, const std::string& target) {
@@ -44,7 +44,7 @@ std::string http_get(int port, const std::string& target) {
     inet_pton(AF_INET, "127.0.0.1", &a.sin_addr);
     std::string out;
     if (connect(s, reinterpret_cast<sockaddr*>(&a), sizeof a) == 0) {
-        const std::string r = "GET " + target + " HTTP/1.1\r\nHost: x\r\n\r\n";
+        const std::string r = "GET " + target + " HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
         send(s, r.data(), static_cast<int>(r.size()), 0);
         char buf[4096];
         int n;
@@ -138,6 +138,19 @@ TEST(remote_server_hello_needs_no_pin_and_is_no_wrong_pin) {
     CHECK(req("/api/hello").find("Access-Control-Allow-Origin") == std::string::npos);   // no other web page may read the answers
 }
 
+TEST(remote_server_hello_with_a_wrong_pin_is_counted_like_any_other) {
+    // /api/hello?pin=<guess> used to answer "pin":false for a wrong PIN and never count it: every six-digit PIN could be tried in minutes.
+    // Only the scan's no-PIN form (pin=0 / no pin) passes uncounted; any other wrong PIN is locked out after ten, hello included.
+    use_pin("135795");
+    for (int i = 0; i < 10; ++i) CHECK_EQ(code_of(req("/api/hello?pin=000001")), 403);
+    CHECK_EQ(code_of(req("/api/hello?pin=135795")), 429);        // even the right PIN waits a minute now
+    CHECK_EQ(code_of(req("/api/status?pin=135795")), 429);       // (the lock-out is per address, shared with the other endpoints)
+    use_pin("135796");                                            // a new PIN, set at the computer, ends it
+    CHECK_EQ(code_of(req("/api/hello?pin=135796")), 200);
+    for (int i = 0; i < 15; ++i) CHECK_EQ(code_of(req("/api/hello")), 200);   // the scan stays free, with no pin at all too
+    CHECK_EQ(code_of(req("/api/hello?pin=135796")), 200);
+}
+
 TEST(remote_server_answers_only_the_home_network) {
     CHECK(net::lan_peer("127.0.0.1"));
     CHECK(net::lan_peer("192.168.178.20"));
@@ -153,7 +166,7 @@ TEST(remote_server_answers_only_the_home_network) {
 
 TEST(remote_server_commands_reach_the_program) {
     mt::TempHome home;
-    net::configure({false, 4747, "112233"});
+    net::configure({false, 4747, "112233", "", false});
     remote::start("player");
     CHECK_EQ(code_of(req("/api/cmd?pin=112233&name=next")), 200);
     CHECK_EQ(code_of(req("/api/cmd?pin=112233&name=playback-mode")), 200);
@@ -171,7 +184,7 @@ TEST(remote_server_commands_reach_the_program) {
 }
 
 TEST(remote_server_hands_out_the_screen) {
-    net::configure({false, 4747, "445566"});
+    net::configure({false, 4747, "445566", "", false});
     net::set_screen("radio", 44, 2, {"\x1b[38;5;170mline one\x1b[0m", "two"}, {{1, 0, 5, 1, "next", ""}, {0, 1, 44, 1, "seek", "-5"}});
     const std::string r = req("/api/screen?pin=445566&cols=50&rows=60");
     CHECK_EQ(code_of(r), 200);
@@ -186,7 +199,7 @@ TEST(remote_server_hands_out_the_screen) {
 
 TEST(remote_server_live_socket) {
     const int port = 47000 + static_cast<int>(std::chrono::steady_clock::now().time_since_epoch().count() % 1000);
-    net::configure({true, port, "778899"});
+    net::configure({true, port, "778899", "", false});
     if (!net::running()) { CHECK(!net::last_error().empty()); net::shutdown(); return; }   // (port taken: the error says so)
     const std::string page = http_get(port, "/");
     CHECK_EQ(code_of(page), 200);
@@ -204,4 +217,58 @@ TEST(remote_known_commands_cover_the_remote_app) {
     for (const char* c : {"play-pause", "next", "prev", "shuffle", "volume-up", "volume-down", "seek", "toggle-mute",
                           "playback-mode", "wizard", "switch-mode", "live", "stop"})
         CHECK(std::find(k.begin(), k.end(), std::string(c)) != k.end());
+}
+
+TEST(remote_server_cli_endpoint_is_off_by_default_and_waits_for_the_reply) {
+    net::configure({false, 4747, "424242", "", false});
+    CHECK_EQ(code_of(req("/api/cli?pin=424242&line=status")), 403);          // RemoteAppCli=false
+    CHECK(body_of(req("/api/cli?pin=424242&line=status")).find("RemoteAppCli") != std::string::npos);
+    net::configure({false, 4747, "424242", "", true});
+    CHECK_EQ(code_of(req("/api/cli?pin=000000&line=status")), 403);          // the PIN still rules
+    CHECK_EQ(code_of(req("/api/cli?pin=424242")), 400);                      // no line
+    CHECK_EQ(code_of(req("/api/cli?pin=424242&line=a%0Ab")), 400);           // no control characters
+    // the program's side: take the command, answer it from another thread
+    std::thread prog([] {
+        for (int i = 0; i < 200; ++i) {
+            for (const remote::Command& c : net::take_commands()) {
+                if (c.name == "cli" && c.from_net && c.id.compare(0, 4, "net-") == 0) {
+                    remote::reply(c.id, c.arg != "bogus", c.arg == "bogus" ? "unknown command" : "playing: Tonight, Tonight\nline two");
+                    return;
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    });
+    const std::string r = req("/api/cli?pin=424242&line=status&wait=5");
+    prog.join();
+    CHECK_EQ(code_of(r), 200);
+    CHECK(body_of(r).find("\"ok\":true") != std::string::npos);
+    CHECK(body_of(r).find("\"lines\":[\"playing: Tonight, Tonight\",\"line two\"]") != std::string::npos);
+    const std::string none = req("/api/cli?pin=424242&line=status&wait=1");  // nobody answers
+    CHECK_EQ(code_of(none), 504);
+    net::take_commands();
+    net::configure({false, 4747, "424242", "", false});
+}
+
+TEST(remote_server_host_check_stops_dns_rebinding) {
+    CHECK(net::host_ok("", ""));                                  // no Host header (HTTP/1.0, the tests)
+    CHECK(net::host_ok("192.168.1.20:4747", ""));
+    CHECK(net::host_ok("127.0.0.1", ""));
+    CHECK(net::host_ok("localhost:4747", ""));
+    CHECK(net::host_ok("LocalHost", ""));
+    CHECK(net::host_ok("[::1]:4747", ""));
+    CHECK(!net::host_ok("evil.example.com", ""));                 // a rebinding page keeps its own name
+    CHECK(!net::host_ok("evil.example.com:4747", ""));
+    CHECK(!net::host_ok("192.168.1", ""));                        // not an address
+    CHECK(!net::host_ok("1.2.3.4.example.com", ""));
+    CHECK(net::host_ok("mousiki.home:4747", "mousiki.home, NAS"));   // the owner's list
+    CHECK(net::host_ok("nas", "mousiki.home, NAS"));
+    CHECK(!net::host_ok("other.home", "mousiki.home, NAS"));
+    use_pin("606060");
+    CHECK_EQ(code_of(net::handle_request("GET /api/status?pin=606060 HTTP/1.1", "test", "192.168.1.20:4747")), 200);
+    CHECK_EQ(code_of(net::handle_request("GET /api/status?pin=606060 HTTP/1.1", "test", "evil.example.com")), 400);
+    CHECK_EQ(code_of(net::handle_request("GET / HTTP/1.1", "test", "evil.example.com")), 400);     // not even the page
+    net::configure({false, 4747, "606060", "mousiki.home", false});
+    CHECK_EQ(code_of(net::handle_request("GET /api/status?pin=606060 HTTP/1.1", "test", "mousiki.home:4747")), 200);
+    net::configure({false, 4747, "606060", "", false});
 }

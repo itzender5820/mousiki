@@ -5,6 +5,7 @@
 #include "process_util.h"
 
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -15,13 +16,13 @@
 using namespace muisc;
 namespace fs = std::filesystem;
 
-static std::string make_test_video(const std::string& name, int seconds) {
+static std::string make_test_video(const std::string& name, int seconds, int rate = 25) {
     const fs::path dir = fs::temp_directory_path() / "mousiki_video_test";
     std::error_code ec;
     fs::create_directories(dir, ec);
     const fs::path f = dir / name;
     if (!fs::exists(f, ec)) {
-        const ProcResult r = run_capture({"ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=25:duration=" + std::to_string(seconds),
+        const ProcResult r = run_capture({"ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=" + std::to_string(rate) + ":duration=" + std::to_string(seconds),
                                           "-f", "lavfi", "-i", "sine=frequency=440:duration=" + std::to_string(seconds), "-c:v", "mpeg4", "-c:a", "aac", "-shortest", f.string()}, true);
         if (!r.ok()) return std::string();
     }
@@ -624,4 +625,137 @@ TEST(cover_chromatic_aberration_moves_red_and_blue) {
     const CoverRgb& shifted = cover_scaled_rgb(c, 120, 120, 0, 3);
     CHECK(copy.rgb != shifted.rgb);
     CHECK(copy.w == shifted.w && copy.h == shifted.h);
+}
+
+// A paused video that changes size (main UI <-> big overlay) must keep showing the SAME frame: the new decoder starts at the shown
+// frame's own time, not at the clock (its frames lie on a grid that begins at its start, which moved the picture by up to a frame).
+TEST(video_resize_while_paused_keeps_the_same_frame) {
+    const std::string file = make_test_video("t7.mp4", 30);
+    if (file.empty()) return;
+    VideoPlayer v;
+    if (!v.set_source(file)) return;
+    int w = 0, h = 0;
+    v.fit(160, 90, 1.0, w, h);
+    const double t = 3.037;   // not on the decoder's frame grid (it starts at 0.5 s, 25 fps: 0.5, 0.54, ... 3.02, 3.06)
+    const VideoFrame* fr = nullptr;
+    for (int i = 0; i < 100 && !fr; ++i) { fr = v.frame_for(0.5, w, h, true); if (!fr) std::this_thread::sleep_for(std::chrono::milliseconds(50)); }
+    CHECK(fr != nullptr);
+    // play on to t, then pause: the frame shown is the newest one at or before t
+    for (int i = 0; i < 100; ++i) { v.frame_for(t, w, h, true); std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
+    fr = v.frame_for(t, w, h, true);
+    CHECK(fr != nullptr);
+    if (!fr) return;
+    const double shown = fr->pts;
+    int w2 = 0, h2 = 0;
+    v.fit(320, 180, 1.0, w2, h2);
+    for (int i = 0; i < 200 && !(fr && fr->w == w2); ++i) { std::this_thread::sleep_for(std::chrono::milliseconds(50)); fr = v.frame_for(t, w2, h2, false); }
+    CHECK(fr != nullptr);
+    if (fr) { CHECK_EQ(fr->w, w2); CHECK_NEAR(fr->pts, shown, 1e-6); }
+}
+
+static double mean_abs_diff(const VideoFrame& a, const VideoFrame& b) {
+    if (a.w != b.w || a.h != b.h || a.rgb.size() != b.rgb.size() || a.rgb.empty()) return 1e9;
+    double d = 0;
+    for (size_t i = 0; i < a.rgb.size(); ++i) d += std::abs(static_cast<int>(a.rgb[i]) - static_cast<int>(b.rgb[i]));
+    return d / static_cast<double>(a.rgb.size());
+}
+
+// A video whose every frame is different noise: two frames are never alike, so "the same picture" can be told from "a neighbour".
+static std::string make_noise_video(int rate) {
+    const fs::path dir = fs::temp_directory_path() / "mousiki_video_test";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    const fs::path f = dir / ("noise" + std::to_string(rate) + ".mp4");
+    if (!fs::exists(f, ec)) {
+        const ProcResult r = run_capture({"ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=s=320x180:r=" + std::to_string(rate) + ":d=20,format=gray,geq=lum='random(1)*255'",
+                                          "-c:v", "mpeg4", "-q:v", "2", "-pix_fmt", "yuv420p", f.string()}, true);
+        if (!r.ok()) return std::string();
+    }
+    return f.string();
+}
+
+// The picture itself (not just its time label) stays the same when a paused video changes size: a 30 fps source against the decoder's 25 fps
+// grid, several pause times. The new frame, averaged down to the old size, has to look like the old one and not like a neighbour.
+TEST(video_resize_while_paused_keeps_the_same_picture) {
+    const std::string file = make_noise_video(30);
+    if (file.empty()) return;
+    for (double t : {3.037, 3.051, 3.093, 4.011}) {
+        VideoPlayer v;
+        if (!v.set_source(file)) return;
+        int w = 0, h = 0;
+        v.fit(160, 90, 1.0, w, h);
+        const VideoFrame* fr = nullptr;
+        for (int i = 0; i < 100 && !fr; ++i) { fr = v.frame_for(0.5, w, h, true); if (!fr) std::this_thread::sleep_for(std::chrono::milliseconds(50)); }
+        if (!fr) { CHECK(false); return; }
+        // play up to t, collecting the pictures on the way: the one on screen at t and the two before / after it
+        std::vector<VideoFrame> seen;
+        for (double c = 0.5; c < t + 0.12; c += 0.02) {
+            fr = v.frame_for(c, w, h, true);
+            if (fr && (seen.empty() || seen.back().pts != fr->pts)) seen.push_back(*fr);
+            std::this_thread::sleep_for(std::chrono::milliseconds(8));
+        }
+        fr = v.frame_for(t, w, h, true);   // (the clock is back at t: the video "paused" there; a frame later than t is not taken back)
+        if (seen.size() < 4) { CHECK(false); return; }
+        // the frame the user would have been looking at when paused at t: the last one with pts <= t
+        size_t on = 0;
+        for (size_t i = 0; i < seen.size(); ++i) if (seen[i].pts <= t) on = i;
+        // a second player does exactly the same but stops at t (paused), then the size changes
+        VideoPlayer v2;
+        if (!v2.set_source(file)) return;
+        for (int i = 0; i < 100 && !(fr = v2.frame_for(0.5, w, h, true)); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        for (double c = 0.5; c <= t; c += 0.02) { v2.frame_for(c, w, h, true); std::this_thread::sleep_for(std::chrono::milliseconds(8)); }
+        for (int i = 0; i < 10; ++i) { v2.frame_for(t, w, h, true); std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
+        fr = v2.frame_for(t, w, h, false);
+        if (!fr) { CHECK(false); return; }
+        const VideoFrame before = *fr;
+        int w2 = 0, h2 = 0;
+        v2.fit(320, 180, 1.0, w2, h2);
+        for (int i = 0; i < 200 && !(fr && fr->w == w2); ++i) { std::this_thread::sleep_for(std::chrono::milliseconds(50)); fr = v2.frame_for(t, w2, h2, false); }
+        if (!fr || fr->w != w2) { CHECK(false); return; }
+        const VideoFrame down = VideoPlayer::downscale(*fr, before.w, before.h);
+        const double d_same = mean_abs_diff(before, down);
+        double d_other = 1e9;
+        for (size_t i = 0; i < seen.size(); ++i) if (i != on && std::fabs(seen[i].pts - before.pts) > 1e-9 && mean_abs_diff(seen[i], down) < d_other) d_other = mean_abs_diff(seen[i], down);
+        std::printf("    [t=%.3f: new picture vs the one on screen %.1f, vs the closest other frame %.1f]\n", t, d_same, d_other);
+        CHECK(d_same < d_other * 0.7);
+    }
+}
+
+// Going from a large size back to a smaller one restarts nothing: the same decoded frame, averaged down.
+TEST(video_smaller_size_needs_no_restart) {
+    const std::string file = make_test_video("t7.mp4", 30);
+    if (file.empty()) return;
+    VideoPlayer v;
+    if (!v.set_source(file)) return;
+    int w = 0, h = 0;
+    v.fit(320, 180, 1.0, w, h);
+    const VideoFrame* fr = nullptr;
+    for (int i = 0; i < 100 && !fr; ++i) { fr = v.frame_for(1.0, w, h, true); if (!fr) std::this_thread::sleep_for(std::chrono::milliseconds(50)); }
+    CHECK(fr != nullptr);
+    if (!fr) return;
+    const double pts = fr->pts;
+    // paused: the small size is there at once (no wait for a decoder), the same frame
+    int w2 = 0, h2 = 0;
+    v.fit(160, 90, 1.0, w2, h2);
+    fr = v.frame_for(1.0, w2, h2, false);
+    CHECK(fr != nullptr);
+    if (fr) { CHECK_EQ(fr->w, w2); CHECK_EQ(fr->h, h2); CHECK_NEAR(fr->pts, pts, 1e-9); }
+    std::this_thread::sleep_for(std::chrono::milliseconds(400));   // (longer than the 250 ms a larger size waits)
+    fr = v.frame_for(1.0, w2, h2, false);
+    CHECK(fr != nullptr);
+    if (fr) { CHECK_EQ(fr->w, w2); CHECK_NEAR(fr->pts, pts, 1e-9); }
+    // and the big size again: still the same frame, no restart in between
+    fr = v.frame_for(1.0, w, h, false);
+    CHECK(fr != nullptr);
+    if (fr) { CHECK_EQ(fr->w, w); CHECK_NEAR(fr->pts, pts, 1e-9); }
+}
+
+TEST(video_downscale_averages) {
+    VideoFrame f;
+    f.w = 4; f.h = 2; f.rgb = {0,0,0, 100,100,100, 200,200,200, 255,255,255,
+                               0,0,0, 100,100,100, 200,200,200, 255,255,255};
+    const VideoFrame o = VideoPlayer::downscale(f, 2, 1);
+    CHECK_EQ(o.w, 2); CHECK_EQ(o.h, 1);
+    CHECK_EQ(static_cast<int>(o.rgb[0]), 50);     // (0 + 100) / 2, both rows
+    CHECK_EQ(static_cast<int>(o.rgb[3]), 228);    // (200 + 255) / 2 = 227.5 -> 228
 }

@@ -112,6 +112,24 @@ void App::video_menu_change(int row, int dir) {
             status_line_ = std::string("video chromatic aberration: ") + chroma_name(settings_.video_chroma);
             video_pic_key_.clear();
             break;
+        case kVmDither:
+            settings_.video_dither = (std::clamp(settings_.video_dither, 0, kDitherPatterns - 1) + (dir < 0 ? kDitherPatterns - 1 : 1)) % kDitherPatterns;
+            set_config_value("VideoDither", dither_name(settings_.video_dither));
+            status_line_ = std::string("video dither pattern: ") + dither_name(settings_.video_dither) + " (the dots of the looks that dither and of the 256-colour picture; auto = each look's own)";
+            video_pic_key_.clear();
+            break;
+        case kVmBase:
+            settings_.video_base = (std::clamp(settings_.video_base, 0, kBaseLayers - 1) + (dir < 0 ? kBaseLayers - 1 : 1)) % kBaseLayers;
+            set_config_value("VideoBase", base_name(settings_.video_base));
+            status_line_ = std::string("video base layer: ") + base_name(settings_.video_base) + " (the structure under CRT, VHS, Glitch and the Phosphor looks)";
+            video_pic_key_.clear();
+            break;
+        case kVmGradSat:   // 0 .. 100 % in steps of 5, round and round
+            settings_.video_grad_sat = (((std::clamp(settings_.video_grad_sat, 0, 100) / 5) + (dir < 0 ? 20 : 1)) % 21) * 5;
+            set_config_value("VideoGradientSaturation", std::to_string(settings_.video_grad_sat));
+            status_line_ = "video gradient saturation: " + std::to_string(settings_.video_grad_sat) + " % (the gradient looks' colours: 100 = as they are, 0 = grey)";
+            video_pic_key_.clear();
+            break;
         case kVmResolution:
             settings_.video_res = (std::clamp(settings_.video_res, 0, 2) + (dir < 0 ? 2 : 1)) % 3;
             set_config_value("VideoResolution", video_res_name(settings_.video_res));
@@ -194,6 +212,9 @@ void App::video_opts_change(int row, int dir, bool reset) {
         case kVoBrightness: o.brightness = reset ? -1 : vopts_step(o.brightness, dir, 100, 5); break;
         case kVoColors: o.colors = reset ? -1 : vopts_step(o.colors, dir, 100, 5); break;
         case kVoChroma: o.chroma = reset ? -1 : vopts_step(o.chroma, dir, kChromaLevels - 1, 1); break;
+        case kVoDither: o.dither = reset ? -1 : vopts_step(o.dither, dir, kDitherPatterns - 1, 1); break;
+        case kVoBase: o.base = reset ? -1 : vopts_step(o.base, dir, kBaseLayers - 1, 1); break;
+        case kVoGradSat: o.gsat = reset ? -1 : vopts_step(o.gsat, dir, 100, 5); break;
         case kVoResolution: o.res = reset ? -1 : vopts_step(o.res, dir, 2, 1); break;
         case kVoRounded: o.round = reset ? -1 : vopts_step(o.round, dir, 1, 1); break;
         case kVoMp4Audio: {   // Use mp4 audio for this song (a song paired with a video): the audio is loaded again at the same time
@@ -223,6 +244,9 @@ std::vector<std::string> App::build_video_opts_panel() const {
         {"Video Brightness", pct(o.brightness, settings_.video_brightness)},
         {"Video Colors", pct(o.colors, settings_.video_colors)},
         {"Video Chromatic Aberration", o.chroma >= 0 ? std::string(chroma_name(o.chroma)) : std::string("as in Settings (") + chroma_name(settings_.video_chroma) + ")"},
+        {"Video Dither Pattern", o.dither >= 0 ? std::string(dither_name(o.dither)) : std::string("as in Settings (") + dither_name(settings_.video_dither) + ")"},
+        {"Video Base Layer", o.base >= 0 ? std::string(base_name(o.base)) : std::string("as in Settings (") + base_name(settings_.video_base) + ")"},
+        {"Video Gradient Saturation", pct(o.gsat, settings_.video_grad_sat)},
         {"Video Resolution", o.res >= 0 ? std::string(video_res_name(o.res)) : std::string("as in Settings (") + video_res_name(settings_.video_res) + ")"},
         {"Video Rounded Corners", o.round >= 0 ? std::string(o.round ? "on" : "off") : std::string("as in Settings (") + (settings_.video_round ? "on" : "off") + ")"},
     };
@@ -249,6 +273,7 @@ bool App::video_full_key(int key) {
         if (arrow && key == 'A') { { const int n = vopts_row_count(video_opts_pair_); video_opts_sel_ = (video_opts_sel_ + n - 1) % n; } return true; }
         if (arrow && key == 'B') { video_opts_sel_ = (video_opts_sel_ + 1) % vopts_row_count(video_opts_pair_); return true; }
         if (arrow && (key == 'C' || key == 'D')) { video_opts_change(video_opts_sel_, key == 'C' ? 1 : -1, false); return true; }
+        if (!arrow && (key == '\r' || key == '\n') && video_opts_sel_ == kVoEffect) { fxpick_open(2); return true; }
         if (!arrow && (key == '\r' || key == '\n' || key == ' ')) { video_opts_change(video_opts_sel_, 1, false); return true; }
         if (!arrow && (key == 'd' || key == 'r' || key == kKeyDelete || key == 127)) { video_opts_change(video_opts_sel_, 0, true); return true; }
         return true;   // (nothing else works under the panel)
@@ -343,6 +368,7 @@ void App::video_menu_key(int key) {
     if (arrow && key == 'B') { vmenu_sel_ = (vmenu_sel_ + 1) % kRows; return; }
     if (arrow && (key == 'C' || key == 'D')) { if (vmenu_sel_ <= kVmLastSetting) video_menu_change(vmenu_sel_, key == 'C' ? 1 : -1); return; }
     if (!arrow && (key == '\r' || key == '\n' || key == ' ')) {
+        if (vmenu_sel_ == kVmEffect) { fxpick_open(1); return; }
         if (vmenu_sel_ <= kVmLastSetting) { video_menu_change(vmenu_sel_, 1); return; }
         if (vmenu_sel_ == kVmFullScreen) { video_menu_close(); video_full_toggle(); return; }
         if (vmenu_sel_ == kVmCouple) { video_menu_close(); video_link_open(has_track_ ? current_.path : fs::path(), Mode::Browse); return; }
@@ -409,6 +435,9 @@ std::vector<std::string> App::build_video_menu_panel() const {
         lines.push_back(row(entry(vmenu_sel_ == kVmBrightness, "Brightness", pct(settings_.video_brightness)), vmenu_sel_ == kVmBrightness));
         lines.push_back(row(entry(vmenu_sel_ == kVmColors, "Colors", pct(settings_.video_colors)), vmenu_sel_ == kVmColors));
         lines.push_back(row(entry(vmenu_sel_ == kVmChroma, "Chromatic Aberration", std::string("< ") + chroma_name(settings_.video_chroma) + " >"), vmenu_sel_ == kVmChroma));
+        lines.push_back(row(entry(vmenu_sel_ == kVmDither, "Dither Pattern", std::string("< ") + dither_name(settings_.video_dither) + " >"), vmenu_sel_ == kVmDither));
+        lines.push_back(row(entry(vmenu_sel_ == kVmBase, "Base Layer", std::string("< ") + base_name(settings_.video_base) + " >"), vmenu_sel_ == kVmBase));
+        lines.push_back(row(entry(vmenu_sel_ == kVmGradSat, "Gradient Saturation", pct(settings_.video_grad_sat)), vmenu_sel_ == kVmGradSat));
         lines.push_back(row(entry(vmenu_sel_ == kVmResolution, "Resolution", std::string("< ") + video_res_label(settings_.video_res, gfxs_.proto == GfxProto::Sixel) + " >"), vmenu_sel_ == kVmResolution));
         lines.push_back(row(entry(vmenu_sel_ == kVmBuffer, "Buffer", "< " + std::to_string(settings_.video_buffer) + " MB >"), vmenu_sel_ == kVmBuffer));
     }

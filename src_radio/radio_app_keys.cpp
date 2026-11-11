@@ -610,6 +610,7 @@ bool RadioApp::key_main(KeyCtx& kc) {
         case 'R': engine.reconnect(); break;                          // also for a Radio Browser station that is not in the list
         case '/': set_search_focus(true); break;
         case '?': ui.model.cheat_open = true; ui.model.cheat_scroll = 0; break;
+        case 'C': console_open(0); break;   // SHIFT+c: the console (log + command line)
         case '<': ui.model.overlay = 7; ui.model.overlay_row = 1; break;   // the MENUS index: every menu and overlay with its key
         case 'W':                         // Shift+W: the help wizard, as in the music player
             wizard_open_now();

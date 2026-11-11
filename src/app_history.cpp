@@ -1,6 +1,7 @@
 // Listening history overlay (HISTORY / TOP TRACKS / TOP PLAYLISTS / HABITS) and the smart-history queue. Split out of app.cpp.
 // Member functions of App (declared in app.h); the helpers shared with app.cpp are in app_internal.h.
 #include "app.h"
+#include "app_state_hist.h"
 #include "text_edit.h"
 #include "overlay_common.h"
 #include "remote_server.h"
@@ -55,20 +56,20 @@ namespace muisc {
 
 void App::history_open() {
     mode_ = Mode::History;
-    history_tab_ = 0;
-    history_selected_ = 0;
-    history_scroll_ = 0;
-    history_pane_ = 0;
-    history_add_sel_ = 0;
-    history_status_.clear();
+    hist_->tab = 0;
+    hist_->selected = 0;
+    hist_->scroll = 0;
+    hist_->pane = 0;
+    hist_->add_sel = 0;
+    hist_->status.clear();
     if (history_.plays().empty())
-        history_status_ = "nothing played yet in this installation";
+        hist_->status = "nothing played yet in this installation";
     history_refresh_top();
     force_redraw_ = true; // full-screen takeover, same rule as entering Settings
 }
 
 void App::history_refresh_top() {
-    history_top_view_ = history_top(history_.plays(), history_most_first_, &history_.archive());
+    hist_->top_view = history_top(history_.plays(), hist_->most_first, &history_.archive());
 }
 
 // Closes the record of whatever is playing right now. Called on every
@@ -140,7 +141,7 @@ long long file_added_time(const fs::path& p) {
 
 void App::history_queue_rows(const std::vector<HistoryTopRow>& rows, int take, const std::string& label,
                              const std::string& empty_msg) {
-    if (rows.empty()) { history_status_ = empty_msg; return; }
+    if (rows.empty()) { hist_->status = empty_msg; return; }
     const int n = std::min(take, static_cast<int>(rows.size()));
     int added = 0, missing = 0;
     for (int i = 0; i < n; ++i) {
@@ -163,7 +164,7 @@ void App::history_queue_rows(const std::vector<HistoryTopRow>& rows, int take, c
     std::string msg = "queued " + std::to_string(added) + " tracks: " + label;
     if (n < take) msg += " (only " + std::to_string(n) + " available)";
     if (missing > 0) msg += " (" + std::to_string(missing) + " missing, skipped)";
-    history_status_ = msg;
+    hist_->status = msg;
     log_event(msg);
 }
 
@@ -180,25 +181,25 @@ void App::history_queue_smart(int col, int row) {
     const std::string label = kSmartLabels[col][row];
     const long long now = static_cast<long long>(std::time(nullptr));
     const HistoryArchive* arch = &history_.archive();
-    if (col == 0) { history_add_top_to_queue(kHistoryAddCounts[row]); return; }
+    if (col == 0) { history_add_top_to_queue(HistState::kAddCounts[row]); return; }
     if (col == 1) {   // top of the last 7 / 30 / 91 / 365 days
         static const int kDays[4] = {7, 30, 91, 365};
         history_queue_rows(history_top_since(history_.plays(), arch, now - kDays[row] * 86400LL, true),
-                           kSmartListSize, label, "nothing played in that time -- nothing to queue");
+                           HistState::kSmartListSize, label, "nothing played in that time -- nothing to queue");
         return;
     }
     if (col == 2) {   // morning / day / evening / night
         history_queue_rows(history_top_tod(history_.plays(), arch, row, true),
-                           kSmartListSize, label, "nothing played at that time of day yet -- nothing to queue");
+                           HistState::kSmartListSize, label, "nothing played at that time of day yet -- nothing to queue");
         return;
     }
     if (row == 2 || row == 3) {   // least played among what was played in the last 30 / 365 days
         history_queue_rows(history_top_since(history_.plays(), arch, now - (row == 2 ? 30 : 365) * 86400LL, false),
-                           kSmartListSize, label, "nothing played in that time -- nothing to queue");
+                           HistState::kSmartListSize, label, "nothing played in that time -- nothing to queue");
         return;
     }
     // Rows 0 and 1 work on the local library itself, not on the history.
-    if (all_local_tracks_.empty()) { history_status_ = "the local library is empty -- nothing to queue"; return; }
+    if (all_local_tracks_.empty()) { hist_->status = "the local library is empty -- nothing to queue"; return; }
     std::vector<HistoryTopRow> rows;
     if (row == 0) {   // the newest arrivals in the music folders
         std::vector<std::pair<long long, size_t>> by_time;
@@ -208,7 +209,7 @@ void App::history_queue_smart(int col, int row) {
             by_time.push_back({file_added_time(all_local_tracks_[i].path), i});
         }
         std::stable_sort(by_time.begin(), by_time.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
-        for (size_t k = 0; k < by_time.size() && static_cast<int>(rows.size()) < kSmartListSize; ++k) {
+        for (size_t k = 0; k < by_time.size() && static_cast<int>(rows.size()) < HistState::kSmartListSize; ++k) {
             const LocalTrack& t = all_local_tracks_[by_time[k].second];
             HistoryTopRow r;
             r.id = path_utf8(t.path); r.title = t.title; r.artist = t.folder_artist;
@@ -229,14 +230,14 @@ void App::history_queue_smart(int col, int row) {
         // same alphabetical handful of never-played files).
         std::shuffle(by_plays.begin(), by_plays.end(), std::mt19937(std::random_device{}()));
         std::stable_sort(by_plays.begin(), by_plays.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
-        for (size_t k = 0; k < by_plays.size() && static_cast<int>(rows.size()) < kSmartListSize; ++k) {
+        for (size_t k = 0; k < by_plays.size() && static_cast<int>(rows.size()) < HistState::kSmartListSize; ++k) {
             const LocalTrack& t = all_local_tracks_[by_plays[k].second];
             HistoryTopRow r;
             r.id = path_utf8(t.path); r.title = t.title; r.artist = t.folder_artist;
             rows.push_back(r);
         }
     }
-    history_queue_rows(rows, kSmartListSize, label, "the local library is empty -- nothing to queue");
+    history_queue_rows(rows, HistState::kSmartListSize, label, "the local library is empty -- nothing to queue");
 }
 
 void App::handle_history_key(int key) {
@@ -244,7 +245,7 @@ void App::handle_history_key(int key) {
     const bool arrow = last_key_was_arrow();
 
     // ESC in the smart grid only gives the focus back to the track list.
-    if (key == 27 && history_tab_ == 1 && history_pane_ == 1) { history_pane_ = 0; history_status_.clear(); return; }
+    if (key == 27 && hist_->tab == 1 && hist_->pane == 1) { hist_->pane = 0; hist_->status.clear(); return; }
     // Leaving: ESC, or SHIFT+h again -- the very key that opened this
     // (nothing here is a text field, so an uppercase 'H' is always that key).
     if (key == 27 || key_is("HKeyHistory", key)) { mode_ = Mode::Browse; return; }
@@ -252,18 +253,18 @@ void App::handle_history_key(int key) {
     // Top Tracks tab: TAB switches between the two panes (the track list and
     // ADD SMART HISTORY TO QUEUE). It never switches tabs (Left/Right do).
     if (key == 9) {
-        if (history_tab_ == 1 && !audiobook_) { history_pane_ ^= 1; history_status_.clear(); }
+        if (hist_->tab == 1 && !audiobook_) { hist_->pane ^= 1; hist_->status.clear(); }
         return;
     }
 
     // Smart grid focused: all four arrows move in the grid (Left/Right do NOT
     // switch tabs here), Enter queues the highlighted list.
-    if (history_tab_ == 1 && history_pane_ == 1) {
-        if (arrow && key == 'A') { if (history_add_sel_ > 0) --history_add_sel_; return; }
-        if (arrow && key == 'B') { if (history_add_sel_ < 3) ++history_add_sel_; return; }
-        if (arrow && key == 'D') { if (history_add_col_ > 0) --history_add_col_; return; }
-        if (arrow && key == 'C') { if (history_add_col_ < 3) ++history_add_col_; return; }
-        if (key == '\r' || key == '\n') { history_queue_smart(history_add_col_, history_add_sel_); return; }
+    if (hist_->tab == 1 && hist_->pane == 1) {
+        if (arrow && key == 'A') { if (hist_->add_sel > 0) --hist_->add_sel; return; }
+        if (arrow && key == 'B') { if (hist_->add_sel < 3) ++hist_->add_sel; return; }
+        if (arrow && key == 'D') { if (hist_->add_col > 0) --hist_->add_col; return; }
+        if (arrow && key == 'C') { if (hist_->add_col < 3) ++hist_->add_col; return; }
+        if (key == '\r' || key == '\n') { history_queue_smart(hist_->add_col, hist_->add_sel); return; }
     }
 
     // Tab strip: Left/Right cycle, 1/2/3/4 jump outright.
@@ -273,71 +274,71 @@ void App::handle_history_key(int key) {
         // left = seek back"). Swapped here, every arrow press walked the tab
         // strip backwards, which on a 3-tab strip looks like jumping 1->3.
         const int dir = (key == 'D') ? -1 : 1;
-        history_tab_ = (history_tab_ + dir + kHistTabs) % kHistTabs;
-        history_selected_ = 0;
-        history_scroll_ = 0;
-        history_pane_ = 0;
-        history_status_.clear();
+        hist_->tab = (hist_->tab + dir + HistState::kTabs) % HistState::kTabs;
+        hist_->selected = 0;
+        hist_->scroll = 0;
+        hist_->pane = 0;
+        hist_->status.clear();
         return;
     }
     if (key == '1' || key == '2' || key == '3' || key == '4') {
-        history_tab_ = key - '1';
-        history_selected_ = 0;
-        history_scroll_ = 0;
-        history_pane_ = 0;
-        history_status_.clear();
+        hist_->tab = key - '1';
+        hist_->selected = 0;
+        hist_->scroll = 0;
+        hist_->pane = 0;
+        hist_->status.clear();
         return;
     }
 
     // Enter on a track of the HISTORY / TOP TRACKS list: play it right away (the overlay stays open).
-    if (!arrow && (key == '\r' || key == '\n') && history_tab_ != kHistTabPlaylists && history_tab_ != kHistTabHabits) {
+    if (!arrow && (key == '\r' || key == '\n') && hist_->tab != HistState::kTabPlaylists && hist_->tab != HistState::kTabHabits) {
         std::string id, title, artist;
         const auto& plays = history_.plays();
-        if (history_tab_ == 0) {
+        if (hist_->tab == 0) {
             const int n = static_cast<int>(std::min<size_t>(100, plays.size()));
-            if (history_selected_ >= 0 && history_selected_ < n) {
-                const HistoryPlay& p = plays[static_cast<size_t>(history_selected_)];
+            if (hist_->selected >= 0 && hist_->selected < n) {
+                const HistoryPlay& p = plays[static_cast<size_t>(hist_->selected)];
                 id = p.id; title = p.title; artist = p.artist;
             }
-        } else if (history_selected_ >= 0 && history_selected_ < static_cast<int>(history_top_view_.size())) {
-            const HistoryTopRow& r = history_top_view_[static_cast<size_t>(history_selected_)];
+        } else if (hist_->selected >= 0 && hist_->selected < static_cast<int>(hist_->top_view.size())) {
+            const HistoryTopRow& r = hist_->top_view[static_cast<size_t>(hist_->selected)];
             id = r.id; title = r.title; artist = r.artist;
         }
         if (id.empty()) return;
         if (audiobook_) {   // a chapter: its book opens, the chapter plays (with the bookmark questions)
-            history_status_ = book_play_file(id) ? "playing: " + title : "cannot play: the file no longer exists";
+            hist_->status = book_play_file(id) ? "playing: " + title : "cannot play: the file no longer exists";
             return;
         }
         if (artist == "-") artist.clear();
         if (id.compare(0, 3, "yt:") == 0) {
             OnlineResult r{id.substr(3), title, artist};
             start_online_track(r);
-            history_status_ = "playing: " + title;
+            hist_->status = "playing: " + title;
         } else {
             fs::path path = path_from_utf8(id);
             std::error_code ec;
-            if (!fs::exists(path, ec)) { history_status_ = "cannot play: the file no longer exists"; return; }
+            if (!fs::exists(path, ec)) { hist_->status = "cannot play: the file no longer exists"; return; }
             LocalTrack t{path_utf8(path.stem()), path, artist};
             start_local_track(t);
-            history_status_ = "playing: " + (title.empty() ? path_utf8(path.stem()) : title);
+            hist_->status = "playing: " + (title.empty() ? path_utf8(path.stem()) : title);
         }
         return;
     }
 
     // Up/Down: a cursor on the two list tabs, plain scrolling on Top Playlists / Habits
     // (whose content has no cursor and may be taller than the panel).
-    const bool scroll_tab = (history_tab_ == kHistTabPlaylists || history_tab_ == kHistTabHabits);
-    const int total = (history_tab_ == 0)
+    const bool scroll_tab = (hist_->tab == HistState::kTabPlaylists || hist_->tab == HistState::kTabHabits);
+    const int total = (hist_->tab == 0)
         ? static_cast<int>(std::min<size_t>(100, history_.plays().size()))
-        : static_cast<int>(history_top_view_.size());
+        : static_cast<int>(hist_->top_view.size());
     if (arrow && key == 'A') {
-        if (scroll_tab) history_scroll_ = std::max(0, history_scroll_ - (last_key_was_shifted() ? 10 : 1));   // SHIFT+arrow / PgUp / PgDn: a page of 10
-        else history_selected_ = std::max(0, history_selected_ - (last_key_was_shifted() ? 10 : 1));
+        if (scroll_tab) hist_->scroll = std::max(0, hist_->scroll - (last_key_was_shifted() ? 10 : 1));   // SHIFT+arrow / PgUp / PgDn: a page of 10
+        else hist_->selected = std::max(0, hist_->selected - (last_key_was_shifted() ? 10 : 1));
         return;
     }
     if (arrow && key == 'B') {
-        if (scroll_tab) history_scroll_ += (last_key_was_shifted() ? 10 : 1); // clamped against the real content while drawing
-        else history_selected_ = std::max(0, std::min(total - 1, history_selected_ + (last_key_was_shifted() ? 10 : 1)));
+        if (scroll_tab) hist_->scroll += (last_key_was_shifted() ? 10 : 1); // clamped against the real content while drawing
+        else hist_->selected = std::max(0, std::min(total - 1, hist_->selected + (last_key_was_shifted() ? 10 : 1)));
         return;
     }
 
@@ -345,12 +346,12 @@ void App::handle_history_key(int key) {
     // least played on top. Nowhere else to do it, so it is a no-op there
     // rather than a surprise.
     if (key == 'r' || key == 'R') {
-        if (history_tab_ != 1) return;
-        history_most_first_ = !history_most_first_;
+        if (hist_->tab != 1) return;
+        hist_->most_first = !hist_->most_first;
         history_refresh_top();
-        if (history_selected_ >= static_cast<int>(history_top_view_.size()))
-            history_selected_ = std::max(0, static_cast<int>(history_top_view_.size()) - 1);
-        history_status_ = history_most_first_ ? "TOP TRACKS: most played first"
+        if (hist_->selected >= static_cast<int>(hist_->top_view.size()))
+            hist_->selected = std::max(0, static_cast<int>(hist_->top_view.size()) - 1);
+        hist_->status = hist_->most_first ? "TOP TRACKS: most played first"
                                               : "TOP TRACKS: least played first";
         return;
     }
@@ -369,7 +370,7 @@ void App::build_history_screen(std::ostringstream& frame, int W, int target_heig
 
     {   // one fused pane: LISTENING HISTORY rests on the top border line, the settings-style tab strip below it (no numbers)
         const auto strip = menu_tab_strip(W, audiobook_ ? "READING HISTORY" : "LISTENING HISTORY",
-                                          audiobook_ ? std::vector<std::string>{"HISTORY", "TOP CHAPTERS", "TOP BOOKS", "HABITS"} : std::vector<std::string>{"HISTORY", "TOP TRACKS", "TOP PLAYLISTS", "HABITS"}, history_tab_, border, border,
+                                          audiobook_ ? std::vector<std::string>{"HISTORY", "TOP CHAPTERS", "TOP BOOKS", "HABITS"} : std::vector<std::string>{"HISTORY", "TOP TRACKS", "TOP PLAYLISTS", "HABITS"}, hist_->tab, border, border,
                                           settings_.box_upper_left, settings_.box_upper_right, settings_.box_vertical, 0, "", 0,
                                           ansi_for(settings_.tab_current_color, false), ansi_for(settings_.tab_other_color, false));
         frame << strip.first << "\n" << strip.second << "\n";
@@ -385,13 +386,13 @@ void App::build_history_screen(std::ostringstream& frame, int W, int target_heig
     // reserved to sit blank (only the legend and, while a message is up, one status row are shown);
     // while a message is up the list
     // simply gives up one row for it, the way Browse does for its prompt.
-    const std::string hint = (history_tab_ == 1 && history_pane_ == 1)
+    const std::string hint = (hist_->tab == 1 && hist_->pane == 1)
         ? "[\u2191\u2193\u2190\u2192] Pick a list  [ENTER] Add it to the queue  [TAB] Track list  [ESC] Leave the pane"
-        : (history_tab_ == 1 && audiobook_)
+        : (hist_->tab == 1 && audiobook_)
         ? "[\u2190\u2192] Switch Tab  [1-4] Tab  [\u2191\u2193] Move  [SHIFT+\u2191\u2193] Page  [ENTER] Play the chapter  [r] Flip sort  [ESC] Exit"
-        : (history_tab_ == 1)
+        : (hist_->tab == 1)
         ? "[\u2190\u2192] Switch Tab  [1-4] Tab  [TAB] Smart history pane  [\u2191\u2193] Move  [SHIFT+\u2191\u2193] Page  [ENTER] Play  [r] Flip sort  [ESC] Exit"
-        : (history_tab_ == kHistTabPlaylists || history_tab_ == kHistTabHabits)
+        : (hist_->tab == HistState::kTabPlaylists || hist_->tab == HistState::kTabHabits)
         ? "[\u2190\u2192] Switch Tab  [1-4] Tab  [\u2191\u2193] Scroll  [SHIFT+\u2191\u2193] Page  [ESC] Exit"
         : "[\u2190\u2192] Switch Tab  [1-4] Tab  [\u2191\u2193] Move  [SHIFT+\u2191\u2193] Page  [ENTER] Play  [ESC] Exit";
     std::vector<std::string> hint_lines(1);
@@ -407,7 +408,7 @@ void App::build_history_screen(std::ostringstream& frame, int W, int target_heig
         pos = sep + 2;   // entries are separated by two blanks
     }
     const int legend_rows = static_cast<int>(hint_lines.size());
-    const int status_rows = history_status_.empty() ? 0 : 1;
+    const int status_rows = hist_->status.empty() ? 0 : 1;
 
     // Same two bounds build_meta_screen() sizes against: term_rows_ - 1 is
     // what clamp_output_rows() keeps, target_height is what the other
@@ -417,7 +418,7 @@ void App::build_history_screen(std::ostringstream& frame, int W, int target_heig
     // row + four option rows + its own two border rows) below the list, so the list gives those
     // rows up -- the whole tab still adds up to `budget` lines (29 on a
     // 30-line terminal). No upper cap on the list: it fills a maximised window.
-    const bool top_tab = (history_tab_ == 1) && !audiobook_;   // (no smart queue pane for books)
+    const bool top_tab = (hist_->tab == 1) && !audiobook_;   // (no smart queue pane for books)
     const int add_body = 5;                       // column titles + 4 rows of lists
     const int add_rows = top_tab ? add_body + 2 : 0;
     int panel_h = std::max(top_tab ? 3 : 6, budget - fixed_rows - 2 - legend_rows - status_rows - add_rows);
@@ -427,7 +428,7 @@ void App::build_history_screen(std::ostringstream& frame, int W, int target_heig
 
     for (const auto& l : hint_lines)
         frame << legend_colored(settings_, truncate_str(l, W)) << "\n";
-    if (status_rows) frame << "\x1b[38;5;246m" << truncate_str(history_status_, W) << "\x1b[0m\n";
+    if (status_rows) frame << "\x1b[38;5;246m" << truncate_str(hist_->status, W) << "\x1b[0m\n";
 }
 
 std::vector<std::string> App::build_history_panel(int total_width, int height) {
@@ -441,9 +442,9 @@ std::vector<std::string> App::build_history_panel(int total_width, int height) {
 
     // The info that sits on the bottom border line.
     std::string info;
-    if (history_tab_ == 0) info = std::to_string(history_.plays().size()) + (audiobook_ ? " chapter plays (newest 100 shown)" : " plays (newest 100 shown)");
-    else if (history_tab_ == 1) info = history_most_first_ ? "most played first" : "least played first";
-    else if (history_tab_ == kHistTabPlaylists) info = "top 5 each";
+    if (hist_->tab == 0) info = std::to_string(history_.plays().size()) + (audiobook_ ? " chapter plays (newest 100 shown)" : " plays (newest 100 shown)");
+    else if (hist_->tab == 1) info = hist_->most_first ? "most played first" : "least played first";
+    else if (hist_->tab == HistState::kTabPlaylists) info = "top 5 each";
 
     // Column helpers. Both are only ever fed PLAIN text: display_width()
     // counts escape bytes as columns, so a decorated string must be padded
@@ -474,7 +475,7 @@ std::vector<std::string> App::build_history_panel(int total_width, int height) {
     std::vector<std::pair<std::string, int>> lines;
     int cursor = -1; // index of the selected line, for the two list tabs
 
-    if (history_tab_ == 0) {
+    if (hist_->tab == 0) {
         const auto& plays = history_.plays();
         const int total = static_cast<int>(std::min<size_t>(100, plays.size()));
         const int when_w = 11, len_w = 7, state_w = 5;
@@ -498,29 +499,29 @@ std::vector<std::string> App::build_history_panel(int total_width, int height) {
                                  T(live ? "PLAY" : (p.finished ? "done" : "skip"), state_w),
                                  0});
             }
-            cursor = history_selected_ + 1; // +1 for the column header above the rows
+            cursor = hist_->selected + 1; // +1 for the column header above the rows
         }
-    } else if (history_tab_ == 1) {
+    } else if (hist_->tab == 1) {
         const int len_w = 7, plays_w = 7;
         // Title and Artist in their own columns (two blanks between them, the same on the HISTORY tab), then the length and the play count
         const std::string tsep = "  ";
         const int text_w = std::max(16, inner - len_w - 2 - plays_w - static_cast<int>(tsep.size()));
         const int title_w = text_w * 3 / 5;
         const int artist_w = text_w - title_w;
-        lines.push_back({T("TITLE", title_w) + tsep + T(audiobook_ ? "BOOK" : "ARTIST", artist_w) + L("LEN", len_w) + "  " + std::string(static_cast<size_t>(std::max(0, plays_w - 7)), ' ') + "PLAYS " + (history_most_first_ ? "\u25bc" : "\u25b2"), 1});
-        if (history_top_view_.empty()) {
+        lines.push_back({T("TITLE", title_w) + tsep + T(audiobook_ ? "BOOK" : "ARTIST", artist_w) + L("LEN", len_w) + "  " + std::string(static_cast<size_t>(std::max(0, plays_w - 7)), ' ') + "PLAYS " + (hist_->most_first ? "\u25bc" : "\u25b2"), 1});
+        if (hist_->top_view.empty()) {
             lines.push_back({"nothing played yet -- plays show up here as soon as music runs", 0});
         } else {
-            for (int i = 0; i < static_cast<int>(history_top_view_.size()); ++i) {
-                const HistoryTopRow& r = history_top_view_[static_cast<size_t>(i)];
+            for (int i = 0; i < static_cast<int>(hist_->top_view.size()); ++i) {
+                const HistoryTopRow& r = hist_->top_view[static_cast<size_t>(i)];
                 std::string t = r.title.empty() ? r.id : r.title;
                 const std::string a = (r.artist.empty() || r.artist == "-") ? std::string("-") : r.artist;
                 lines.push_back({T(t, title_w) + tsep + T(a, artist_w) + L(format_mmss(r.len_sec), len_w) + "  " +
                                  L(std::to_string(r.plays), plays_w), 0});
             }
-            cursor = history_selected_ + 1; // +1 for the column header above the rows
+            cursor = hist_->selected + 1; // +1 for the column header above the rows
         }
-    } else if (history_tab_ == kHistTabPlaylists) {
+    } else if (hist_->tab == HistState::kTabPlaylists) {
         history_playlists_lines(inner, lines);
         cursor = -1; // no cursor: this tab scrolls like Habits
     } else {
@@ -589,27 +590,27 @@ std::vector<std::string> App::build_history_panel(int total_width, int height) {
     }
 
     // Window over the content: around the cursor on the two list tabs,
-    // from history_scroll_ on Habits (whose scroll offset is clamped here,
+    // from hist_->scroll on Habits (whose scroll offset is clamped here,
     // where the real content height is finally known).
     int start = 0;
     if (cursor >= 0) {
         // Same behaviour as the file list: the column header stays put and the window only moves when the
         // cursor leaves it (no re-centering on every step).
-        const int hdr = cursor - history_selected_;                      // fixed lines above the rows
+        const int hdr = cursor - hist_->selected;                      // fixed lines above the rows
         const int rows_total = static_cast<int>(lines.size()) - hdr;
         const int vis = std::max(1, body - hdr);
-        int top = history_view_top_;
-        if (history_selected_ < top) top = history_selected_;
-        if (history_selected_ >= top + vis) top = history_selected_ - vis + 1;
+        int top = hist_->view_top;
+        if (hist_->selected < top) top = hist_->selected;
+        if (hist_->selected >= top + vis) top = hist_->selected - vis + 1;
         top = std::clamp(top, 0, std::max(0, rows_total - vis));
-        history_view_top_ = top;
+        hist_->view_top = top;
         lines.erase(lines.begin() + hdr, lines.begin() + hdr + top);     // scroll the rows, keep the header
         cursor -= top;
         start = 0;
     } else {
         const int max_scroll = std::max(0, static_cast<int>(lines.size()) - body);
-        history_scroll_ = std::clamp(history_scroll_, 0, max_scroll);
-        start = std::min(history_scroll_, max_scroll);
+        hist_->scroll = std::clamp(hist_->scroll, 0, max_scroll);
+        start = std::min(hist_->scroll, max_scroll);
     }
 
     int shown = 0;
@@ -619,7 +620,7 @@ std::vector<std::string> App::build_history_panel(int total_width, int height) {
         if (style == 3) out.push_back(bar + " " + legend_sgr(settings_) + text + R + " " + bar);
         else if (style == 4) out.push_back(bar + " " + text + " " + bar);
         else if (style == 1) head(text);
-        else if (style == 2 || (k == cursor && !(history_tab_ == 1 && history_pane_ == 1)))
+        else if (style == 2 || (k == cursor && !(hist_->tab == 1 && hist_->pane == 1)))
             row(text, cursor_sgr(settings_.list_cursor_color, settings_.list_cursor_bg_color));
         else row(text, "");
     }
@@ -729,7 +730,7 @@ void App::history_playlists_lines(int inner, std::vector<std::pair<std::string, 
 // Top Tracks tab, second pane: ADD SMART HISTORY TO QUEUE, a 4 x 4 grid of
 // lists (kSmartLabels) under a row of column titles, the columns split by the
 // list separator in the border colour. The cursor is only drawn while this
-// pane has focus (history_pane_ == 1).
+// pane has focus (hist_->pane == 1).
 std::vector<std::string> App::build_history_add_panel(int total_width, int height) const {
     const int inner = std::max(20, total_width - 4);
     std::string border_ansi = ansi_for(settings_.border_color, false);
@@ -737,7 +738,7 @@ std::vector<std::string> App::build_history_add_panel(int total_width, int heigh
     const std::string bar = border_ansi + settings_.box_vertical + "\x1b[0m";
     const std::string R = "\x1b[0m";
     std::vector<std::string> out;
-    out.push_back(box_top(std::string("ADD SMART HISTORY TO QUEUE") + (history_pane_ == 1 ? focus_indicator(settings_, border_ansi) : ""),
+    out.push_back(box_top(std::string("ADD SMART HISTORY TO QUEUE") + (hist_->pane == 1 ? focus_indicator(settings_, border_ansi) : ""),
                           total_width, border_ansi));
 
     const std::string sep_txt = " " + (settings_.list_separator.empty() ? std::string("|") : settings_.list_separator) + " ";
@@ -745,8 +746,8 @@ std::vector<std::string> App::build_history_add_panel(int total_width, int heigh
     const int col_w = std::max(4, (inner - 3 * sep_w) / 4);
     const int last_w = std::max(4, inner - 3 * sep_w - 3 * col_w);   // the last column takes the rounding rest
     const std::string sep = border_ansi + sep_txt + R;
-    const bool focused = (history_pane_ == 1);
-    const int played = static_cast<int>(history_top_view_.size()); // distinct titles, whatever the sort
+    const bool focused = (hist_->pane == 1);
+    const int played = static_cast<int>(hist_->top_view.size()); // distinct titles, whatever the sort
     for (int i = 0; i < std::max(1, height); ++i) {
         std::string line;
         for (int c = 0; c < 4; ++c) {
@@ -758,9 +759,9 @@ std::vector<std::string> App::build_history_add_panel(int total_width, int heigh
             } else if (i <= 4) {
                 const int row = i - 1;
                 text = kSmartLabels[c][row];
-                if (c == 0 && played < kHistoryAddCounts[row])
+                if (c == 0 && played < HistState::kAddCounts[row])
                     text += played == 0 ? " (none yet)" : " (" + std::to_string(played) + ")";
-                if (focused && c == history_add_col_ && row == history_add_sel_)
+                if (focused && c == hist_->add_col && row == hist_->add_sel)
                     sgr = cursor_sgr(settings_.list_cursor_color, settings_.list_cursor_bg_color);
             }
             if (c > 0) line += sep;

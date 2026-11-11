@@ -22,6 +22,10 @@ struct CoverImage {
     std::string source;                   // "cover.jpg" or "song.mp3 (inside the file)" -- for the status line
     std::string note;                     // why there is no cover (when !ok)
     bool per_track = false;               // chosen for this track alone (not shared with the other tracks of its album)
+    std::string pic;                      // a hash of the pixels (set for the playing track's cover): two tracks that show the same picture have the same id()
+    // What the picture is, for the caches of what is made from it (the scaled copies, the picture sent to the terminal): the pixels when they are
+    // known, else the request. A new track of the same album, or two tracks with the same cover file, then keep what was built for the one before.
+    const std::string& id() const { return pic.empty() ? key : pic; }
 };
 
 // A cover scaled to a size: grey (`grey`) or in its own colours (`level` = opacity, `hue` = palette index into `pal`, 240 colours).
@@ -109,6 +113,7 @@ struct CoverRequest {
     bool thumb_fallback = false;   // Thumbnail fallback: the usual search first; only when it finds no picture, a frame of snapshot_video
     std::string snapshot_video;   // a video file whose frame is the cover (Settings: Cover or Video Snapshot); "" = the usual search
     bool ignore_track_choice = false;   // resolve_cover_source() only: what "Automatic" would find (the picture chosen for the track is left out)
+    bool hold_previous = false;   // for the picture on screen only: while this cover is read (<= 350 ms) the one before is returned instead of nullptr
     unsigned store_rev = 0;   // cover_store_revision(): the cover is made again when a choice was made or a cover fetched / deleted
 };
 // The cover of the track, once it has been read in the background. nullptr: not read yet, or the track has none (cover_note()

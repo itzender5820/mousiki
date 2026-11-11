@@ -30,10 +30,8 @@ namespace {
 // ---------------------------------------------------------------------
 // The bookmark: REM BOOKMARK "<file name>" <seconds> in <book folder>/<folder>.cue, one per book (where one stopped listening).
 // ---------------------------------------------------------------------
-int App::book_chapter_of(const std::string& file) const {
-    for (size_t i = 0; i < chapters_.size(); ++i)
-        if (path_utf8(chapters_[i].path.filename()) == file) return static_cast<int>(i);
-    return -1;
+int App::book_chapter_of(const std::string& file, double sec) const {
+    return book_chapter_at(file, sec);   // (a file with embedded chapters: the chapter that holds second `sec`)
 }
 
 namespace {
@@ -100,15 +98,16 @@ void App::book_bookmark_store(const std::string& file, double sec) {
 }
 
 int App::book_bookmark_chapter() const {
-    return book_->bookmark.valid() ? book_chapter_of(book_->bookmark.file) : -1;
+    return book_->bookmark.valid() ? book_chapter_of(book_->bookmark.file, book_->bookmark.sec) : -1;
 }
 
 int App::book_mark_in_chapter(int idx) const {
     if (idx < 0 || idx >= static_cast<int>(chapters_.size())) return -1;
     const std::string file = path_utf8(chapters_[static_cast<size_t>(idx)].path.filename());
+    const BookChapter& ch = chapters_[static_cast<size_t>(idx)];
     int best = -1;
     for (size_t i = 0; i < book_->marks.size(); ++i)
-        if (book_->marks[i].file == file && (best < 0 || book_->marks[i].when >= book_->marks[static_cast<size_t>(best)].when)) best = static_cast<int>(i);
+        if (book_->marks[i].file == file && (!ch.part || (book_->marks[i].sec >= ch.start && (ch.end < 0.0 || book_->marks[i].sec < ch.end))) && (best < 0 || book_->marks[i].when >= book_->marks[static_cast<size_t>(best)].when)) best = static_cast<int>(i);
     return best;
 }
 
@@ -265,7 +264,10 @@ void App::book_go(int idx) {
         else { book_->prompt_paused = false; book_play_chapter(idx); }
     };
     if (idx == book_current_chapter()) arrive();
-    else book_ask_then("Going on to " + stem_of(path_utf8(chapters_[static_cast<size_t>(idx)].path.filename())), arrive);
+    else {
+        const BookChapter& to = chapters_[static_cast<size_t>(idx)];
+        book_ask_then("Going on to " + (to.part ? to.title : stem_of(path_utf8(to.path.filename()))), arrive);
+    }
 }
 
 // Reading history ENTER: opens the book that holds `path` and goes to that chapter (false when the file is gone).
@@ -413,24 +415,26 @@ std::vector<BookStamp> App::book_chapter_stamps(int idx, bool with_auto) const {
     std::vector<BookStamp> out;
     if (idx < 0 || idx >= static_cast<int>(chapters_.size())) return out;
     const std::string file = path_utf8(chapters_[static_cast<size_t>(idx)].path.filename());
+    const BookChapter& chp = chapters_[static_cast<size_t>(idx)];
+    auto in_part = [&](double sec) { return !chp.part || (sec >= chp.start && (chp.end < 0.0 || sec < chp.end)); };
     const std::string book = path_utf8(path_from_utf8(book_->dir).filename());
     std::vector<BookStamp> marks, notes;
     for (size_t i = 0; i < book_->marks.size(); ++i) {
         const BookMark& m = book_->marks[i];
-        if (m.file != file || m.sec <= 3.0) continue;
+        if (m.file != file || m.sec <= 3.0 || !in_part(m.sec)) continue;
         BookStamp b; b.kind = 1; b.dir = book_->dir; b.book = book; b.file = file; b.sec = m.sec; b.when = m.when; b.num = static_cast<int>(i) + 1;
         marks.push_back(b);
     }
     for (size_t i = 0; i < book_->notes.size(); ++i) {
         const BookNote& n = book_->notes[i];
-        if (n.file != file) continue;
+        if (n.file != file || !in_part(n.sec)) continue;
         BookStamp b; b.kind = 2; b.dir = book_->dir; b.book = book; b.file = file; b.sec = n.sec; b.title = n.title; b.num = static_cast<int>(i) + 1; b.note = n;
         notes.push_back(b);
     }
     auto by_sec = [](const BookStamp& a, const BookStamp& b) { return a.sec < b.sec; };
     std::stable_sort(marks.begin(), marks.end(), by_sec);
     std::stable_sort(notes.begin(), notes.end(), by_sec);
-    if (with_auto && book_->automark.valid() && book_->automark.file == file && book_->automark.sec > 3.0) {
+    if (with_auto && book_->automark.valid() && book_->automark.file == file && book_->automark.sec > 3.0 && in_part(book_->automark.sec)) {
         bool same = false;
         for (const BookStamp& b : marks) if (std::fabs(b.sec - book_->automark.sec) < 5.0) same = true;
         if (!same) {
@@ -1364,7 +1368,7 @@ std::vector<int> App::book_notes_order() const {
     std::stable_sort(idx.begin(), idx.end(), [&](int a, int b) {
         const BookNote& x = book_->notes[static_cast<size_t>(a)];
         const BookNote& y = book_->notes[static_cast<size_t>(b)];
-        int cx = book_chapter_of(x.file), cy = book_chapter_of(y.file);
+        int cx = book_chapter_of(x.file, x.sec), cy = book_chapter_of(y.file, y.sec);
         if (cx < 0) cx = 1 << 20;
         if (cy < 0) cy = 1 << 20;
         if (book_->notes_sort == 1) {   // SHIFT+t: the recently edited first (notes without a date last, in file order)
@@ -1489,7 +1493,7 @@ bool App::book_notes_key(int key) {
         if (e < 0) return true;
         const std::string file = book_->notes[static_cast<size_t>(e)].file;
         const double sec = book_->notes[static_cast<size_t>(e)].sec;
-        const int c = book_chapter_of(file);
+        const int c = book_chapter_of(file, sec);
         if (c < 0) { say("that chapter is not in the book any more"); return true; }
         book_play_at(c, sec);
         book_note_show(book_->notes[static_cast<size_t>(e)], false);
@@ -1587,7 +1591,7 @@ std::vector<std::string> App::build_book_notes_panel(int panel_w, int panel_h) c
         int lu = 0, ru = 0;
         if (idx < n) {
             const BookNote& nt = book_->notes[static_cast<size_t>(order[static_cast<size_t>(idx)])];
-            const int c = book_chapter_of(nt.file);
+            const int c = book_chapter_of(nt.file, nt.sec);
             std::string plain = "  " + std::string(c >= 0 ? std::to_string(c + 1) : "?") + "  " + truncate_str(stem_of(nt.file), 16) + "  " + book_notes::time_text(nt.sec) + "  " + nt.title;
             plain = pad_right(truncate_str(plain, left_w), left_w);
             const bool sel = idx == book_->notes_sel;

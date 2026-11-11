@@ -1,5 +1,6 @@
 // The terminal side of the scope window: starts `mousiki --scope-window`, feeds it samples and settings through a pipe.
 // See scope_window.h for the overall picture; the window itself is scope_window_app.cpp.
+#include "app_dirs.h"
 #include "scope_window.h"
 #include "scope_sdl.h"
 
@@ -83,11 +84,7 @@ Link& link_of(int k) {
 }
 
 std::string error_file(const Link& L) {
-    const char* home = std::getenv("HOME");
-#if defined(_WIN32)
-    if (!home || !*home) home = std::getenv("USERPROFILE");
-#endif
-    return std::string(home && *home ? home : ".") + "/.cache/mousiki/" + L.err_name;
+    return path_utf8(muisc::app_dirs::cache() / L.err_name);
 }
 
 std::string self_exe() {

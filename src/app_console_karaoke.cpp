@@ -55,14 +55,22 @@ namespace muisc {
 
 void App::build_console_screen(std::ostringstream& frame, int W, int target_height) const {
     std::string border = ansi_for(settings_.border_color, false);
-    // Two panes: the log (what the app ran) above and the status messages (with their times) below. Together exactly as tall as the
-    // player view (target_height). The status pane has 8 rows; on a small terminal it gets what is left after 3 log rows, and
-    // below 2 rows it is left out.
-    const int avail = target_height - 4;                       // minus the borders of the two boxes
-    int log_rows = std::max(3, avail - 8);
-    int status_rows = avail - log_rows;
-    const bool two = status_rows >= 2;
-    if (!two) { log_rows = std::max(1, target_height - 2); status_rows = 0; }
+    // Three panes: the log (what the app ran) on top, the status messages (with their times) in the middle and the command line (CLI)
+    // at the very bottom: 2 reply rows and the line being typed. Together exactly as tall as the player view (target_height). The log
+    // gives up rows first (3 stay); the status pane has 8 rows, down to 2 on a small terminal; below that it is left out, and
+    // after it the log is shortened for the command pane only.
+    constexpr int kCliRows = 3;
+    int log_rows = 3, status_rows = 0, cli_rows = 0;
+    {
+        const int avail3 = target_height - 6;                  // minus the borders of the three boxes
+        if (avail3 - kCliRows - 3 >= 2) { cli_rows = kCliRows; status_rows = std::clamp(avail3 - kCliRows - 3, 2, 8); log_rows = avail3 - kCliRows - status_rows; }
+        else if (target_height - 4 - kCliRows >= 3) { cli_rows = kCliRows; log_rows = target_height - 4 - kCliRows; }
+        else log_rows = std::max(1, target_height - 2);
+    }
+    console_has_[0] = true; console_has_[1] = status_rows >= 2; console_has_[2] = cli_rows > 0;
+    if (!console_has_[console_pane_]) console_pane_ = 0;
+    const bool two = status_rows >= 2 || cli_rows > 0;         // (more than one pane: the focus mark shows)
+    const bool last_is_status = cli_rows == 0;                 // the pane that carries the legend
 
     // A message longer than the pane is wrapped onto more rows instead of being cut off; the rows after the first are indented to
     // sit under the text after the "[hh:mm:ss] " time.
@@ -108,13 +116,37 @@ void App::build_console_screen(std::ostringstream& frame, int W, int target_heig
     };
     const bool verbose = ConsoleLog::instance().level() == LogVerbosity::Verbose;
     const std::string log_title = std::string("CONSOLE / LOGS") + (verbose ? " (verbose)" : "");
+    const std::vector<std::string> tab_legend = {"[TAB] other pane | UP/DOWN scroll (SHIFT: page) | HOME / END | [v] Verbose log for this session | [t / ESC] close",
+                                                 "[TAB] pane | UP/DOWN scroll | HOME / END | [v] Verbose log for this session | [t] close",
+                                                 "[TAB] pane | UP/DOWN | [v] Verbose log for this session | [t] close",
+                                                 "[TAB] pane | [v] verbose log | [t] close"};
     pane(log_title, ConsoleLog::instance().lines(), log_rows, 0,
-         two ? "" : legend({"UP/DOWN scroll | HOME / END | [v] Verbose log for this session | [t / ESC] close", "UP/DOWN | HOME/END | [v] verbose | [t] close"}));   // (with two panes the one legend sits under the second)
-    if (two) pane("STATUS MESSAGES", status_history_, status_rows, 1,
-                  legend({"[TAB] other pane | UP/DOWN scroll (SHIFT: page) | HOME / END | [v] Verbose log for this session | [t / ESC] close",
-                          "[TAB] pane | UP/DOWN scroll | HOME / END | [v] Verbose log for this session | [t] close",
-                          "[TAB] pane | UP/DOWN | [v] Verbose log for this session | [t] close",
-                          "[TAB] pane | [v] verbose log | [t] close"}));
+         !two ? legend({"UP/DOWN scroll | HOME / END | [v] Verbose log for this session | [t / ESC] close", "UP/DOWN | HOME/END | [v] verbose | [t] close"}) : std::string());
+    if (status_rows >= 2) pane("STATUS MESSAGES", status_history_, status_rows, 1, last_is_status ? legend(tab_legend) : std::string());
+    if (cli_rows > 0) {
+        // the command pane: the last replies, then the line being typed (a caret when this pane has the keys)
+        const bool focus = console_pane_ == 2;
+        frame << box_top(std::string("COMMAND LINE") + (focus ? " \xE2\x97\x80" : ""), W, border) << "\n";
+        const int reply_rows = cli_rows - 1;
+        std::vector<std::string> out;
+        const int inner = std::max(10, W - 4);
+        for (const std::string& l : cli_out_) out.push_back(truncate_str(l, inner));
+        const int total = static_cast<int>(out.size());
+        for (int r = 0; r < reply_rows; ++r) {
+            const int idx = total - reply_rows + r;
+            frame << box_line(idx >= 0 && idx < total ? out[static_cast<size_t>(idx)] : std::string(), W, border) << "\n";
+        }
+        if (focus) {
+            const EditPaint p = paint_edit_field(cli_buf_, cli_caret_, cli_anchor_, inner - 2, std::string(), true);
+            frame << box_line_field("> ", p.s, p.cols, W, border) << "\n";
+        } else {
+            frame << box_line("> " + truncate_str(cli_buf_, inner - 2), W, border) << "\n";
+        }
+        frame << box_bottom(W, legend(focus ? std::vector<std::string>{"[ENTER] run | UP/DOWN history | [TAB] pane | [ESC] clear / close | try: help",
+                                                                         "[ENTER] run | UP/DOWN history | [TAB] pane | [ESC] close | help",
+                                                                         "[ENTER] run | [TAB] pane | [ESC] close"}
+                                               : tab_legend), border) << "\n";
+    }
 }
 
 // ---------------------------------------------------------------------

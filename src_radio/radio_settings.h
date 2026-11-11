@@ -37,7 +37,7 @@ bool write_player_viz(const VizPrefs& v);
 // (settings.cpp) the Remote App lines of config.txt, and the upgrade backup of the config files
 #ifndef MOUSIKI_REMOTE_APP_CONFIG
 #define MOUSIKI_REMOTE_APP_CONFIG
-struct RemoteAppConfig { bool enabled = false; int port = 4747; std::string pin; };
+struct RemoteAppConfig { bool enabled = false; int port = 4747; std::string pin; bool cli = false; std::string hosts; };
 #endif
 RemoteAppConfig read_remote_app();
 bool write_remote_app(RemoteAppConfig& rc);
@@ -137,6 +137,8 @@ struct RadioSettings : VizPrefs {
     bool remote_app = false;
     int remote_port = 4747;
     std::string remote_pin;
+    std::string remote_hosts;      // config.txt RemoteAppHosts=
+    bool remote_cli = false;      // config.txt RemoteAppCli=true: /api/cli
     bool use_osci = true;                       // GENERAL "Use oscilloscope": false = never in the scope block / "." cycle
     bool use_spectro = true;                    // GENERAL "Use spectrogram": the same for the spectrogram
     // The help wizard (SHIFT+w): false means it has never been shown here, so

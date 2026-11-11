@@ -153,13 +153,16 @@ std::string sixel_emit(const GfxFrame& f) {
     const int pan = (scale > 1 && sixel_aspect_ok()) ? scale : 1;    // screen rows per sixel row
     const int H = (full_h + pan - 1) / pan;                          // sixel rows
     // output column -> picture column, sixel row -> picture row (nearest neighbour)
-    std::vector<int> xs(static_cast<size_t>(W)), ys(static_cast<size_t>(H));
+    // (buffers are kept between frames: this runs 25 times a second and the sizes rarely change)
+    static std::vector<int> xs, ys;
+    xs.resize(static_cast<size_t>(W)); ys.resize(static_cast<size_t>(H));
     for (int x = 0; x < W; ++x) xs[static_cast<size_t>(x)] = std::min(f.w - 1, static_cast<int>(static_cast<long long>(crop * ocw + x) * f.w / full_w));
     for (int y = 0; y < H; ++y) ys[static_cast<size_t>(y)] = std::min(f.h - 1, static_cast<int>(static_cast<long long>(y) * pan * f.h / full_h));
     // brightness -> step once per level value, then colour index per picture pixel (0 = transparent)
     uint8_t step_of[256];
     for (int l = 0; l < 256; ++l) step_of[l] = static_cast<uint8_t>(std::lround(curve(static_cast<float>(l) / 255.0f) * 15.0f));
-    std::vector<uint8_t> idx(static_cast<size_t>(f.w) * f.h, 0);
+    static std::vector<uint8_t> idx;
+    idx.assign(static_cast<size_t>(f.w) * f.h, 0);
     for (size_t i = 0; i < idx.size(); ++i) {
         const int st = step_of[f.level[i]];
         if (grid_shows(f, i)) idx[i] = 242;   // the grid colour, under the beam
@@ -223,8 +226,9 @@ std::string sixel_emit(const GfxFrame& f) {
         direct_seen = f.direct;
     }
     if (bits.size() != static_cast<size_t>(256) * W) bits.assign(static_cast<size_t>(256) * W, 0);
+    static size_t last_size = 65536;   // the size of the previous picture: a good first guess for this one
     std::string o;
-    o.reserve(65536);
+    o.reserve(last_size + 4096);
     o += "\x1b[0m";
     if (f.erase && f.plain) {   // blank the picture's cells (not the ones something else covers), then draw on them
         auto blank = [&](int r, int from, int to) { if (to > from) { o += at_cell(f.row + r, f.col + from); o.append(static_cast<size_t>(to - from), ' '); } };
@@ -241,9 +245,10 @@ std::string sixel_emit(const GfxFrame& f) {
     o += at_cell(f.row, f.col + crop);
     o += "\x1bP0;1;0q\""; put_int(o, pan); o += ";1;"; put_int(o, W); o += ';'; put_int(o, H);
     o += pal_text;
-    std::vector<int> used;
+    static std::vector<int> used;
+    used.clear();
     used.reserve(256);
-    std::vector<char> seen(256, 0);
+    static std::vector<char> seen(256, 0);   // all zero again at the end of every band
     for (int by = 0; by < H; by += 6) {
         const int bh = std::min(6, H - by);
         used.clear();
@@ -278,6 +283,7 @@ std::string sixel_emit(const GfxFrame& f) {
         o += '-';
     }
     o += "\x1b\\";
+    last_size = o.size();
     return o;
 }
 

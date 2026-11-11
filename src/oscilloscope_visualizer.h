@@ -80,6 +80,10 @@ public:
     // Takes over the newest audio of another scope (the one the player feeds), so a second picture of the same signal --
     // each scope has its own phosphor buffer -- can be drawn at the same time (the big oscilloscope overlay).
     void copy_ring_from(OscilloscopeVisualizer& src);
+    // The largest absolute sample of the newest `frames` frames, and a ring made of the given stereo block (the newest audio is its end):
+    // the big overlay draws the scope for a moment a little ahead of the playing position (see App::scope_ring_ahead()).
+    float recent_peak(size_t frames);
+    void replace_ring(const float* interleaved_lr, size_t frames);
     std::vector<std::vector<Cell>> render(int cols, int rows, const Params& params);
     // Steady readouts for the big overlay's picture names (SHIFT+p there): levels in dBFS (0 dB = full scale), the L/R correlation
     // (+1 = identical channels, 0 = unrelated, -1 = opposite) and the L/R level balance in dB (positive = left louder). They are

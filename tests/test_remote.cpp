@@ -44,12 +44,14 @@ TEST(remote_command_reaches_the_program) {
 TEST(remote_bad_input_is_refused) {
     mt::TempHome home;
     remote::start("radio");
-    CHECK_EQ(client({"--cmd", "format-disk"}), 2);              // only the known command names
+    CHECK_EQ(client({"--cmd", "format-disk"}), 0);              // a name that is no numeric command goes to the program as a command line ...
     CHECK_EQ(client({"--cmd", "seek", "abc"}), 2);              // only a short number as the value
     CHECK_EQ(client({"--cmd", "seek", "1234567890123456"}), 2);
     CHECK_EQ(client({"--cmd"}), 2);
     settle();
-    CHECK(remote::poll().empty());
+    const auto got = remote::poll();                            // ... where it is refused ("unknown command"): only that one arrived
+    CHECK_EQ(got.size(), static_cast<size_t>(1));
+    if (!got.empty()) CHECK_EQ(got[0].name, std::string("cli"));
     remote::stop();
 }
 

@@ -80,6 +80,9 @@ void App::handle_key(int key) {
         return;
     }
 
+    // The VIDEO EFFECT picker has every key while it is open (it sits on top of Settings, the VIDEO overlay, the VIDEO OPTIONS panel, Style Option).
+    if (fxpick_.open && fxpick_key(key, last_key_was_arrow())) return;
+
     // Audio book: the note editor owns every key while it is open (the audio goes on).
     if (audiobook_ && book_->note_edit && mode_ == Mode::Browse) {
         if (key == kKeyCtrlN && !book_->note_discard_ask) { book_note_to_overlay(); return; }   // CTRL+n: on in the big notes overlay
@@ -128,6 +131,7 @@ void App::handle_key(int key) {
     }
 
     if (mode_ == Mode::Console) { handle_console_key(key); return; }
+    if (mode_ == Mode::CliScripts) { handle_cliov_key(key); return; }
 
     if (mode_ == Mode::Playlist) {
         handle_playlist_key(key);

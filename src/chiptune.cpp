@@ -1,5 +1,6 @@
 // Retro formats (tracker modules, console music via libgme, Commodore 64 SID): recognises these files,
 // reads SID headers, renders them to WAV with ffmpeg and checks which decoders ffmpeg was built with.
+#include "app_dirs.h"
 #include "chiptune.h"
 #include "path_utf8.h"
 #include "process_util.h"
@@ -71,7 +72,7 @@ SidInfo read_sid_header(const fs::path& sid) {
 bool render_sid_to_wav(const fs::path& sid, int seconds, fs::path& out_wav, std::string* err) {
     const char* home = std::getenv("HOME");
     if (!home || !*home) home = std::getenv("USERPROFILE");
-    const fs::path dir = (home && *home ? path_from_utf8(home) : fs::path(".")) / ".cache" / "mousiki" / "sid";
+    const fs::path dir = muisc::app_dirs::cache() / "sid";
     std::error_code ec;
     fs::create_directories(dir, ec);
     // Cache key: the file's path, size and modification time plus the length -- a changed file or length renders anew.

@@ -178,7 +178,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "HKeyCoverPrev", "Cover look one step back: plain disk, Just Cover, Cover with Gradient, the Cover behind Disk looks, the ASCII looks (audio books: default picture, cover with gradient wave, cover). Only with Eliment Disk / Cover on; saved at once"},
         {nullptr, "HKeyCoverNext", "Cover look one step forward (the same looks the other way round)"},
         {nullptr, "HKeySetting", "Open Settings panel, hit again to save and quit"},
-        {nullptr, "HKeyConsole", "Console: logs and status messages (TAB pane, arrows scroll; v Verbose log for this session; the log keeps 1500 lines and the end of the last session)"},
+        {nullptr, "HKeyConsole", "Console: logs, status messages and a command line (TAB pane, arrows scroll; v Verbose log for this session; the log keeps 1500 lines and the end of the last session)"},
         {nullptr, "HKeyAudioDevice", "Choose the audio device: the sound outputs of this computer, the one in use marked (UP/DOWN, ENTER switches at once, ESC closes); also Settings -> GENERAL -> AUDIO"},
         {nullptr, "HKeyWizard", "Help wizard: the user guide as tutorial pages (arrow keys turn them)"},
         {nullptr, "HKeyCheatsheet", "This cheatsheet"},
@@ -189,7 +189,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "#ARROW KEYS", "Navigate (context-dependent)"},
         {nullptr, "#Y / N", "Confirm or cancel a prompt"},
         // --- Audio book mode ---
-        {"AUDIO BOOK MODE", "#ENTER", "Left pane: open the book (its chapters fill the right pane). Chapter pane: play the chapter"},
+        {"AUDIO BOOK MODE", "#ENTER", "Left pane: open the book (its chapters fill the right pane; the chapters inside an .m4b / .mka show as rows too). Chapter pane: play the chapter"},
         {nullptr, "HKeySwitchBetweenCards", "Move between the books and the chapters"},
         {nullptr, "HKeyPlayNextSong", "Next chapter (also at the end of a chapter; the play mode can repeat the chapter or stop after it)"},
         {nullptr, "HKeyPlayPreviousSong", "Previous chapter"},
@@ -289,7 +289,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "HKeyKaraoke", "Karaoke overlay: the lyrics over the whole screen, sung words highlighted (toggle; fetches the lyrics even with the lyrics engine off; playback keys keep working)"},
         {nullptr, "#@KARAOKESIZE", "Karaoke overlay: lyrics bigger / smaller, sizes 1-5 (saved when the overlay closes)"},
         // --- Video mode ---
-        {"VIDEO MODE (MAIN UI)", "HKeyVideo", "VIDEO SETTINGS overlay (& = SHIFT+6 on a German keyboard, else SHIFT+y): Use Video in Lyrics Field, Include Lyrics, Auto Video, cover or thumbnail on the disk, Video Size, Rounded Corners, Effect (this track's own effect with UP/DOWN in the big overlay), Contrast, Brightness, Colors, Chromatic Aberration, Resolution, Buffer, Show Clap Loading, Full Screen Video, Manually Couple Local Files, Quick Search/Down. YT, Delete Current Video, Refetch this Video"},
+        {"VIDEO MODE (MAIN UI)", "HKeyVideo", "VIDEO SETTINGS overlay (& = SHIFT+6 on a German keyboard, else SHIFT+y): Use Video in Lyrics Field, Include Lyrics, Auto Video, cover or thumbnail on the disk, Video Size, Rounded Corners, Effect (this track's own effect with UP/DOWN in the big overlay), Contrast, Brightness, Colors, Chromatic Aberration, Dither Pattern, Gradient Saturation, Resolution, Buffer, Show Clap Loading, Full Screen Video, Manually Couple Local Files, Quick Search/Down. YT, Delete Current Video, Refetch this Video"},
         {nullptr, "HKeyVideoFxBack", "Previous video effect for this track (the other direction of the key for the next one)"},
         {nullptr, "HKeyVideoFx", "Next video effect for this track (the picture in the video view of the field; the same effect as Video Effect in Style Option)"},
         {nullptr, "HKeyVideoFull", "Video over the whole screen: UP/DOWN effect (of this track), SHIFT+UP/DOWN layout (video / + osci / + spectrogram; O, I their options, G grid and scales), TAB lyrics off / on / with translation / translation only (each saved translation), S effect, contrast, colors and chromatic aberration, LEFT/RIGHT seek, ESC closes"},
@@ -308,6 +308,8 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {"SEARCH ONLINE (MAIN UI)", "#/y:", "Search online (YouTube; type y:query)"},
         {nullptr, "#/sc:", "Search SoundCloud (type it in the search box; ENTER plays, the download key saves it)"},
         {nullptr, "#/b:", "Search Bandcamp (tracks; ENTER plays the free stream, the download key saves it)"},
+        {nullptr, "#/c:", "Command line: ENTER runs a command or a chain (volume 30; next, play <words>, in 45m pause, set ..., run <script>); every command answers with what happened; hooks.cli reacts to events; UP/DOWN recall, CTRL+RIGHT completes, ESC leaves"},
+        {nullptr, "#/cs:", "Search the CLI scripts (name and text); ENTER opens the script overlay (library + editor) with that search"},
         {nullptr, "#/yv:", "Search videos on YouTube: ENTER opens SEARCH YT with the query searched, to download a video for the playing song"},
         // --- Queue ---
         {"QUEUE (MAIN UI)", "HKeyAddHoveringSongToQueue", "Add hovering track of the library pane as NEXT (repeated presses keep their order; does nothing while the queue pane is focused)"},

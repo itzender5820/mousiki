@@ -98,7 +98,7 @@ static void chroma_planes(std::vector<unsigned char>& red, std::vector<unsigned 
 const CoverScaled& cover_scaled(const CoverImage& c, int max_w, int max_h, bool colour, int contrast, int chroma) {
     static SizeCache<CoverScaled, 4> cache;
     contrast = std::clamp(contrast, 0, 150);
-    const std::string key = c.key + "|" + std::to_string(max_w) + "x" + std::to_string(max_h) + (colour ? "c" : "g") + std::to_string(contrast) + (colour && chroma > 0 ? "x" + std::to_string(chroma) : std::string());
+    const std::string key = c.id() + "|" + std::to_string(max_w) + "x" + std::to_string(max_h) + (colour ? "c" : "g") + std::to_string(contrast) + (colour && chroma > 0 ? "x" + std::to_string(chroma) : std::string());
     // more contrast: values move away from the middle (0 % = unchanged, 100 % = 2.5 times the distance from the middle grey, 150 % = 3.25 times)
     const double factor = 1.0 + contrast / 100.0 * 1.5;
     auto punch = [&](unsigned char v) { return static_cast<unsigned char>(std::clamp(static_cast<int>(std::lround((v - 127.5) * factor + 127.5)), 0, 255)); };
@@ -134,7 +134,7 @@ const CoverScaled& cover_scaled(const CoverImage& c, int max_w, int max_h, bool 
 const CoverRgb& cover_scaled_rgb(const CoverImage& c, int max_w, int max_h, int contrast, int chroma) {
     static SizeCache<CoverRgb, 3> cache;
     contrast = std::clamp(contrast, 0, 150);
-    const std::string key = c.key + "|" + std::to_string(max_w) + "x" + std::to_string(max_h) + "|" + std::to_string(contrast) + (chroma > 0 ? "x" + std::to_string(chroma) : std::string());
+    const std::string key = c.id() + "|" + std::to_string(max_w) + "x" + std::to_string(max_h) + "|" + std::to_string(contrast) + (chroma > 0 ? "x" + std::to_string(chroma) : std::string());
     if (const CoverRgb* hit = cache.find(key)) return *hit;
     const double factor = 1.0 + contrast / 100.0 * 1.5;
     CoverRgb& cs = cache.fresh();
@@ -552,7 +552,18 @@ struct TrackCoverState {
     CoverImage have;
     std::shared_future<CoverImage> pending;
     std::string pending_key;
+    std::chrono::steady_clock::time_point pending_at{};
+    std::vector<CoverImage> older;   // the covers shown before (the last 4): a track that comes back (previous, or two albums taking turns) needs no read
 };
+// FNV-1a over the pixels: the picture's identity (see CoverImage::id())
+void stamp_pic_id(CoverImage& c) {
+    if (!c.ok) return;
+    unsigned long long h = 1469598103934665603ULL;
+    auto eat = [&](const std::vector<unsigned char>& v) { for (unsigned char b : v) { h ^= b; h *= 1099511628211ULL; } };
+    h ^= static_cast<unsigned long long>(c.w) * 65599ULL + static_cast<unsigned long long>(c.h);
+    eat(c.level); eat(c.rgb); eat(c.alpha);
+    c.pic = "p" + std::to_string(h) + "-" + std::to_string(c.w) + "x" + std::to_string(c.h);
+}
 TrackCoverState& state(bool preview = false) {
     static TrackCoverState playing, shown;   // (the preview of an overlay has a slot of its own, see track_cover())
     return preview ? shown : playing;
@@ -565,15 +576,31 @@ const CoverImage* track_cover(const CoverRequest& rq, bool preview) {
     TrackCoverState& s = state(preview);
     const std::string key = request_key(rq);
     if (s.pending.valid() && s.pending.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-        s.have = s.pending.get();
+        CoverImage fresh = s.pending.get();
         s.pending = {};
         s.pending_key.clear();
+        if (!preview && !s.have.key.empty()) {
+            s.older.push_back(std::move(s.have));
+            if (s.older.size() > 4) s.older.erase(s.older.begin());
+        }
+        s.have = std::move(fresh);
     }
     if (s.have.key == key) return s.have.ok ? &s.have : nullptr;
+    if (!preview) {   // shown a moment ago: no read
+        for (size_t i = 0; i < s.older.size(); ++i) {
+            if (s.older[i].key != key) continue;
+            std::swap(s.have, s.older[i]);
+            return s.have.ok ? &s.have : nullptr;
+        }
+    }
     if (!s.pending.valid()) {
         s.pending_key = key;
-        s.pending = bg_async([rq, key]() { return load_track_cover(rq, key); });
+        s.pending_at = std::chrono::steady_clock::now();
+        s.pending = bg_async([rq, key]() { CoverImage c = load_track_cover(rq, key); stamp_pic_id(c); return c; });
     }
+    // a read that is on its way (a few tens of milliseconds): the cover that is on screen stays for up to 350 ms instead of the disk showing
+    // for a moment (cover -> disk -> cover was the flicker at every track change); a slow read (a search) falls back to the disk
+    if (!preview && rq.hold_previous && s.have.ok && s.pending.valid() && std::chrono::steady_clock::now() - s.pending_at < std::chrono::milliseconds(350)) return &s.have;
     // the next track of the same album (in the same folder) is being read: the cover on screen is the one it will get
     const std::string dir = path_utf8(path_from_utf8(rq.path).parent_path());
     if (s.have.ok && !s.have.per_track && !rq.album.empty() && s.have.album == rq.album && s.have.dir == dir) return &s.have;

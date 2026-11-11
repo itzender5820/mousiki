@@ -294,6 +294,7 @@ void write_frame_drain();
 // A frame with the hidden cursor parked at the top left ("ESC[H" added), unless its last cursor escape is "show" (a text caret to be seen).
 std::string park_cursor(const std::string& frame);
 bool write_frame_async_allowed();   // false with MOUSIKI_SYNC_WRITE=1
+void write_frame_wait_nearly_idle(double lead_ms);   // wait until the frame being written is nearly done (the next one is built from fresher data)
 double write_frame_last_ms();       // how long the terminal took for the last frame the writer wrote
 
 // 24-bit colours (ESC[38;2;r;g;bm / 48;2) need a terminal that knows them. macOS Terminal before macOS 26 does not and shows

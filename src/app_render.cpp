@@ -288,6 +288,14 @@ std::optional<std::string> App::render_takeover_screen(int term_cols, int W, boo
         gfxs_.ok = gfx_.active;
         if (remote_ov_.open) remote_overlay_draw(frame, W);
         if (mode_ == Mode::AudioDevice) draw_floating_panel(frame, build_audio_device_panel(), kAudioDevicePanelWidth, W);
+        if (fxpick_.open) draw_fxpick(frame, W);   // (the effect list over the settings)
+        return fullscreen_out(frame);
+    }
+
+    if (mode_ == Mode::CliScripts) {
+        std::ostringstream frame;
+        frame << "\x1b[2J\x1b[H\x1b[?25l";
+        build_cliov_screen(frame, W, overlay_budget(W));
         return fullscreen_out(frame);
     }
 
@@ -598,6 +606,7 @@ std::string App::render_frame(TerminalIO& term) {
             case Mode::Settings: case Mode::ColorEdit: return 1;
             case Mode::MenuIndex: return settings_.menu_index_classic ? 0 : 12;   // the organigram over the whole screen; the classic view is an overlay
             case Mode::Console: return 2;
+            case Mode::CliScripts: return 13;
             case Mode::Cheatsheet: return 3;
             case Mode::Playlist: return 4;
             case Mode::MetaEdit: return 5;
@@ -722,7 +731,9 @@ std::string App::render_frame(TerminalIO& term) {
         }
         if (video_opts_open_) {   // SHIFT+s: the options panel over the picture
             std::ostringstream floating;
-            draw_floating_panel(floating, build_video_opts_panel(), kVideoOptsPanelWidth, W);
+            // (the effect picker sits on top of the panel; with a picture protocol it replaces it, so the picture is cut for one panel only)
+            if (!fxpick_.open || !gfx_.active) draw_floating_panel(floating, build_video_opts_panel(), kVideoOptsPanelWidth, W);
+            if (fxpick_.open) draw_fxpick(floating, W);
             out += floating.str();
             cut_gfx_holes();
         }
@@ -928,7 +939,10 @@ std::string App::render_frame(TerminalIO& term) {
         draw_floating_panel(floating, lines, pw, W, 0, true);
     } else if (mode_ == Mode::VideoMenu) {
         if (vdel_stage_ > 0) draw_floating_panel(floating, build_video_delete_panel(), 64, W, 0, true);   // (the question of Delete Current Video / Refetch this Video)
-        else draw_floating_panel(floating, build_video_menu_panel(), kVideoMenuPanelWidth, W, 0, true);   // (exactly centred, rows and columns)
+        else {
+            if (!fxpick_.open || !gfx_.active) draw_floating_panel(floating, build_video_menu_panel(), kVideoMenuPanelWidth, W, 0, true);   // (exactly centred, rows and columns)
+            if (fxpick_.open) draw_fxpick(floating, W);   // (on top; with a picture protocol it replaces the panel: the picture is cut for one panel only)
+        }
     } else if (mode_ == Mode::VideoLink) {
         if (vdel_stage_ > 0) { vl_->pic = 0; draw_floating_panel(floating, build_video_delete_panel(), 64, W, 0, true); }   // (the two questions of Delete COMPLETE VIDEO FILE connected to track)
         else draw_floating_panel(floating, build_video_link_panel(W), std::clamp(W - 2, 70, 150), W);
@@ -960,7 +974,8 @@ std::string App::render_frame(TerminalIO& term) {
     } else if (mode_ == Mode::MetaEdit) {   // the Style Option panel of the playing track (HKeyStyleOptions), over the main screen
         meta_refresh_hover_values();
         meta_->sty_pic = 0;
-        { const auto sty = build_meta_sty_panel(W); draw_floating_panel(floating, sty, meta_sty_panel_width(W), W, 0, false, meta_sty_start_row(static_cast<int>(sty.size()))); }
+        { const auto sty = build_meta_sty_panel(W); if (!fxpick_.open || !gfx_.active) draw_floating_panel(floating, sty, meta_sty_panel_width(W), W, 0, false, meta_sty_start_row(static_cast<int>(sty.size()))); }
+        if (fxpick_.open) draw_fxpick(floating, W);
     }
     out += floating.str();
     // A picture (not a beam) under a floating panel: only the pixels the panel covers are left out. `full` is the picture as made; the hole

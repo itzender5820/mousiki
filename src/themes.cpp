@@ -1,5 +1,6 @@
 // Colour themes: the palettes that set every colour of the program, how a theme is applied and
 // captured, and the separate radio keys of a theme.
+#include "app_dirs.h"
 #include "themes.h"
 #include "utf8_util.h"
 #include "string_util.h"
@@ -296,7 +297,7 @@ fs::path file_path() {
     const char* home = std::getenv("HOME");
     if (!home || !*home) home = std::getenv("USERPROFILE");
     fs::path base = (home && *home) ? fs::u8path(home) : fs::path(".");
-    return base / ".config" / "mousiki" / "themes.txt";
+    return muisc::app_dirs::config() / "themes.txt";
 }
 
 std::string sanitize_name(const std::string& raw) {

@@ -13,6 +13,7 @@
 // so the braille look can be seen as large as the window (or the whole screen) goes.
 // The playhead runs on the window's own clock at the sample rate, ~35 ms behind the newest sample, so bursts in the pipe
 // never show as jerks.
+#include "app_dirs.h"
 #include "scope_window.h"
 #include "scope_sdl.h"
 #include "oscilloscope_visualizer.h"
@@ -51,17 +52,9 @@ struct Shared {
     std::atomic<bool> eof{false};
 };
 
-std::string home_dir() {
-    const char* h = std::getenv("HOME");
-#if defined(_WIN32)
-    if (!h || !*h) h = std::getenv("USERPROFILE");
-#endif
-    return h && *h ? h : ".";
-}
-
 void write_error(const std::string& msg) {
     std::error_code ec;
-    const std::filesystem::path dir = std::filesystem::path(home_dir()) / ".cache" / "mousiki";
+    const std::filesystem::path dir = muisc::app_dirs::cache();
     std::filesystem::create_directories(dir, ec);
     std::ofstream(dir / "scope_window_error.txt") << msg << "\n";
 }
@@ -114,7 +107,7 @@ void reader_main(Shared* S) {
 // ---- window position and size, kept between runs ----------------------------------------------------------------------
 struct Geometry { int x = sdl::kPosCentered, y = sdl::kPosCentered, w = 720, h = 720; bool full = false, top = false; };
 
-std::filesystem::path geometry_file() { return std::filesystem::path(home_dir()) / ".config" / "mousiki" / "scope_window.txt"; }
+std::filesystem::path geometry_file() { return muisc::app_dirs::config() / "scope_window.txt"; }
 
 Geometry load_geometry(const sdl::Api& A) {
     Geometry g;

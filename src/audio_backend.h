@@ -5,7 +5,7 @@
 
 // Compile-time platform audio backend selection.
 //
-// ffplay/SDL handles the actual speaker output for song playback (see
+// miniaudio handles the actual speaker output for song playback (see
 // player.h). This context exists for anything *we* touch the audio
 // subsystem for directly — right now that's just decoding cached files
 // for the waveform (via ma_decoder, which doesn't need a device context),

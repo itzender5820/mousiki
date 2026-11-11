@@ -334,7 +334,9 @@ VideoLook App::video_look_for(const fs::path& track) const {
     l.brightness = o.brightness >= 0 ? o.brightness : settings_.video_brightness;
     l.colors = o.colors >= 0 ? o.colors : settings_.video_colors;
     l.chroma = o.chroma >= 0 ? o.chroma : settings_.video_chroma;
-    if (video_fx_uses_gradient(l.fx)) l.grad = video_fx_gradient(settings_);
+    l.dither = o.dither >= 0 ? o.dither : settings_.video_dither;
+    l.base = o.base >= 0 ? o.base : settings_.video_base;
+    if (video_fx_uses_gradient(l.fx)) { l.grad = video_fx_gradient(settings_); if (o.gsat >= 0) l.grad.sat = o.gsat; }
     return l;
 }
 
@@ -605,6 +607,10 @@ bool App::video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, 
             }
         }
     }
+    // A picture reaches the screen about one terminal write after it was chosen (a sixel frame takes the terminal 50-150 ms): the frame shown is the
+    // one for the moment it will be on screen, so the picture is not that much behind the sound. Only while it plays, only with a picture
+    // protocol (a text frame is written at once), and at most a quarter of a second.
+    if (!paused) t += present_lead_s_;
     // A video shorter than the track plays again from its start for the rest of the time; a longer one is simply cut off with the track.
     const double vdur = V.duration();
     if (vdur > 1.0 && t >= vdur) t = std::fmod(t, vdur);
@@ -701,7 +707,7 @@ bool App::video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, 
             if (look.active()) { fxf = *src; VideoPlayer::apply_look(fxf, look, t, false, prevp); src = &fxf; }
             const auto tm1 = std::chrono::steady_clock::now();
             if (tc) { g.rgb = src->rgb; g.level.assign(static_cast<size_t>(g.w) * g.h, 255); g.hue.clear(); }
-            else VideoPlayer::quantize(*src, g.hue, g.level);
+            else VideoPlayer::quantize(*src, g.hue, g.level, look.dither);
             video_timing().look_ms = std::chrono::duration<double, std::milli>(tm1 - tm0).count();
             video_timing().quant_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - tm1).count();
             if (round_corners) {   // the corners cut round, like the corners of the UI: a quarter circle of about one cell row
@@ -762,14 +768,17 @@ bool App::video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, 
             else rows[static_cast<size_t>(r)] = dots(r, 0, W);
         }
     }
-    const bool loading = !frame && V.status() == "video: starting ...";
+    // No picture yet: the player says "video: starting ..." while it loads, and an EMPTY status when a frame has just arrived but was not
+    // there yet when `frame` was fetched (one pass of the loop). Both are "loading", so "none" really shows nothing, not even a flash of text.
+    const std::string vstatus = frame ? std::string() : V.status();
+    const bool loading = !frame && (vstatus.empty() || vstatus == "video: starting ...");
     if (loading && settings_.video_clap == 1 && H >= 4 && W >= 12) {
         clap_loading_fill(rows, W, H, abs_col, abs_row, second_slot ? gfx2_ : gfx_, video_pic_key_, second_slot ? 1 : 0);
     } else if (loading && settings_.video_clap == 2) {
         // "none": nothing at all while the video loads (an empty field)
     } else if (!frame) {   // no picture (yet): say why, in the middle of the picture's place, instead of a mute empty field
-        std::string msg = V.status();
-        if (msg.empty()) msg = "video: ...";
+        std::string msg = vstatus;   // (an empty status counts as loading above; with the text note it reads like the loading text)
+        if (msg.empty()) msg = "video: starting ...";
         msg = truncate_str(msg, std::max(1, W - 2));
         const int pad = std::max(0, (W - display_width(msg)) / 2);
         rows[static_cast<size_t>(H / 2)] = std::string(static_cast<size_t>(pad), ' ') + msg + std::string(static_cast<size_t>(std::max(0, W - pad - display_width(msg))), ' ');
@@ -859,6 +868,39 @@ std::vector<int> App::osci_menu_rows() const {
 // + spectrogram, + both; they sit in one column right of the video), TAB the lyrics, ESC closes.
 // The "no video for this track" picture: a film clapperboard (braille art, 40 x 20 cells). Its clapper arm opens and
 // snaps shut again while the whole board drifts a little around the middle of the video field.
+// The scope of the big overlay for the moment `lead_s` ahead of the playing position: the same samples the audio callback will play then, taken from
+// the track's own buffer (the newest audio of the ring is what is playing NOW, and by the time the picture is on screen it is already past).
+// The size is matched to the ring (volume, normalization) by the peaks of the last 4096 frames. Without the track's samples (a stream, a speed
+// other than 1, the decoder not that far yet) the ring is taken as it is.
+void App::scope_ring_ahead(OscilloscopeVisualizer& dst, double lead_s) const {
+    dst.copy_ring_from(const_cast<OscilloscopeVisualizer&>(scope_));
+    if (lead_s < 0.02 || !has_track_ || player_.is_paused() || !current_.pcm || std::fabs(player_.speed() - 1.0) > 1e-3) return;
+    const StreamingPcm& pcm = *current_.pcm;
+    const int sr = pcm.sample_rate, ch = pcm.channels;
+    if (sr <= 0 || (ch != 1 && ch != 2)) return;
+    constexpr long long kN = 4096;
+    const long long cur = static_cast<long long>(player_.poll_elapsed() * sr);
+    size_t lo = 0, hi = 0;
+    pcm.readable(lo, hi);
+    long long end = cur + static_cast<long long>(lead_s * sr);
+    end = std::min<long long>(end, static_cast<long long>(hi));
+    long long from = std::max<long long>(end - kN, static_cast<long long>(lo));
+    if (end - cur < sr / 100 || from < 0 || end - from < 512 || cur - kN < static_cast<long long>(lo)) return;
+    const float* src = pcm.data.data();
+    auto sample = [&](long long f, int c) { const size_t k = pcm.slot(static_cast<size_t>(f)); return ch == 1 || c == 0 ? src[k] : src[k + 1]; };
+    float pcm_pk = 0.0f;
+    for (long long f = cur - kN; f < cur; ++f) pcm_pk = std::max(pcm_pk, std::max(std::fabs(sample(f, 0)), std::fabs(sample(f, 1))));
+    const float ring_pk = dst.recent_peak(static_cast<size_t>(kN));
+    float g = 1.0f;
+    if (pcm_pk > 1e-3f && ring_pk > 1e-4f) g = std::clamp(ring_pk / pcm_pk, 0.02f, 8.0f);
+    std::vector<float> blk(static_cast<size_t>(end - from) * 2);
+    for (long long f = from; f < end; ++f) {
+        blk[static_cast<size_t>(f - from) * 2] = sample(f, 0) * g;
+        blk[static_cast<size_t>(f - from) * 2 + 1] = sample(f, 1) * g;
+    }
+    dst.replace_ring(blk.data(), static_cast<size_t>(end - from));
+}
+
 namespace {
 const char* const kClapperArt[20] = {
     "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠠⣴⣶⣶⡄⠀⠀",
@@ -1057,7 +1099,7 @@ std::string App::build_video_full(int W, const char* clear_prefix) const {
         const int oc = std::max(4, width - lab);
         const bool image = ov.osci_style == 1 && gfxs_.proto != GfxProto::None;
         OscilloscopeVisualizer& sc = kind == 1 ? scope_big_yt_ : scope_big_xy_;
-        sc.copy_ring_from(scope_);
+        scope_ring_ahead(sc, present_lead_s_);
         OscilloscopeVisualizer::Params pp = osci_scope_params(settings_, viz_dt_, image ? 1 : 0);
         pp.mode = kind;
         const OsciSet& os = settings_.osci_set[image ? 1 : 0];
@@ -1080,7 +1122,9 @@ std::string App::build_video_full(int W, const char* clear_prefix) const {
             F.cols = oc; F.rows = rows; F.w = oc * cws; F.h = rows * chs;
             F.row = row0;
             F.col = col0 + lab;
+            const auto sc0 = std::chrono::steady_clock::now();
             sc.render_image(F.w, F.h, pp, F.level, F.hue);
+            video_timing().scope_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - sc0).count();
             if (pal == 0) {
                 for (int y = 0; y < F.h; ++y)
                     for (int x = 0; x < F.w; ++x) F.hue[static_cast<size_t>(y) * F.w + x] = static_cast<uint8_t>(x * 255 / std::max(1, F.w - 1));

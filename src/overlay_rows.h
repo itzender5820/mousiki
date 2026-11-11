@@ -20,6 +20,9 @@ enum VMenuRow : int {
     kVmBrightness,
     kVmColors,
     kVmChroma,          // Chromatic Aberration
+    kVmDither,          // Dither Pattern
+    kVmBase,            // Base Layer
+    kVmGradSat,         // Video Gradient Saturation (0 .. 100 %)
     kVmResolution,
     kVmBuffer,
     kVmClap,            // Show Clap Loading
@@ -40,6 +43,9 @@ enum VOptsRow : int {
     kVoBrightness,
     kVoColors,
     kVoChroma,
+    kVoDither,
+    kVoBase,
+    kVoGradSat,
     kVoResolution,
     kVoRounded,
     kVoMp4Audio,
@@ -65,6 +71,9 @@ enum StyleRow : int {
     kStVideoBrightness,
     kStVideoColors,
     kStVideoChroma,
+    kStVideoDither,
+    kStVideoBase,
+    kStVideoGradSat,
     kStVideoResolution,
     kStVideoRounded,
     kStMp4Audio,        // Use mp4 audio for this song            (a song paired with a video)

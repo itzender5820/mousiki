@@ -1,5 +1,6 @@
 // Listening history: stores each play, aggregates it into the top lists and the habit statistics (by
 // day, weekday and hour), and writes the history archive as JSON.
+#include "app_dirs.h"
 #include "history.h"
 
 #include "path_utf8.h"
@@ -40,7 +41,7 @@ fs::path default_history_dir() {
     // keeps a non-ASCII profile name from turning into ANSI garbage here,
     // exactly as in snapshot.cpp.
     fs::path base = home ? path_from_utf8(home) : fs::path(".");
-    return base / ".cache" / "mousiki" / "history";
+    return muisc::app_dirs::cache() / "history";
 }
 
 Value play_to_json(const HistoryPlay& p) {

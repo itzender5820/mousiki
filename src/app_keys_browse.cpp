@@ -32,6 +32,7 @@
 #include "update_check.h"
 #include "open_url.h"
 #include "app_settings_tables.h"
+#include "app_settings_ref.h"
 #include <cstring>
 #include <algorithm>
 #include <cctype>

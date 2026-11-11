@@ -178,7 +178,7 @@ bool App::book_marks_key(int key) {
         const std::string label = row.kind == 0 ? "auto-mark" : row.kind == 1 ? "bookmark " + std::to_string(row.num) : "note";
         book_ask_then(std::string("Going to the ") + (row.kind == 0 ? "auto-mark" : row.kind == 1 ? "bookmark" : "note") + " in " + row.book, [this, row, mk, label]() {
             if (!book_open_dir(row.dir)) { status_line_ = "that book is no longer in the library"; return; }
-            const int c = book_chapter_of(row.file);
+            const int c = book_chapter_of(row.file, mk.sec);
             if (c < 0) { status_line_ = "that chapter is no longer in the book"; return; }
             qst_.selected = c;
             book_fit_scroll();
@@ -196,7 +196,7 @@ bool App::book_marks_key(int key) {
     }
     if (key == 'P') {   // plays from there; the list stays
         if (!book_open_dir(row.dir)) { say("that book is no longer in the library"); return true; }
-        const int c = book_chapter_of(row.file);
+        const int c = book_chapter_of(row.file, row.sec);
         if (c < 0) { say("that chapter is no longer in the book"); return true; }
         qst_.selected = c;
         book_fit_scroll();

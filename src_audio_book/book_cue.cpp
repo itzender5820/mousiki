@@ -2,6 +2,7 @@
 #include "book_cue.h"
 #include "string_util.h"
 #include "path_utf8.h"
+#include "settings.h"   // write_text_atomic()
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -50,11 +51,10 @@ bool BookCue::load(const fs::path& file) {
 }
 
 bool BookCue::save(const fs::path& file) const {
-    std::ofstream out(file, std::ios::binary | std::ios::trunc);
-    if (!out) return false;
-    if (bom_) out << "\xEF\xBB\xBF";
-    for (const std::string& l : lines_) out << l << (crlf_ ? "\r\n" : "\n");
-    return static_cast<bool>(out);
+    std::string text;
+    if (bom_) text += "\xEF\xBB\xBF";
+    for (const std::string& l : lines_) text += l + (crlf_ ? "\r\n" : "\n");
+    return write_text_atomic(file, text, true);   // (temp file + rename: the auto-mark rewrites this every few seconds)
 }
 
 size_t BookCue::header_end() const {

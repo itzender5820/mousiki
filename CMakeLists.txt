@@ -132,6 +132,17 @@ endif()
 set(MINIZ_SOURCES "${MINIZ_DIR}/miniz.c")
 set_source_files_properties(${MINIZ_SOURCES} PROPERTIES LANGUAGE C)
 
+# ThreadSanitizer (GCC / Clang on Linux or macOS): finds data races in the threads (cover loading, video decoder, the terminal writer ...).
+# Use a build directory of its own, e.g.  cmake -S . -B build-tsan -DMOUSIKI_TSAN=ON -DCMAKE_BUILD_TYPE=Dev -DMOUSIKI_BUILD_TESTS=ON
+# and run ./build-tsan/mousiki_tests  (the sanitizer slows the program down 5-15 times).
+# This block must stay ABOVE the first add_library()/add_executable(): add_compile_options() only reaches targets created after it,
+# so placed later it left mousiki_core and the player uninstrumented.
+option(MOUSIKI_TSAN "GCC/Clang: build everything with -fsanitize=thread" OFF)
+if(MOUSIKI_TSAN AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  add_compile_options(-fsanitize=thread -g -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=thread)
+endif()
+
 # Everything but main() is one OBJECT library, compiled once and linked into the player AND into the test program
 # (mousiki_tests), which used to compile all of it a second time. Include paths, definitions and libraries are PUBLIC on it,
 # so main.cpp and the tests are built with the same settings.
@@ -145,6 +156,16 @@ target_include_directories(mousiki_core PUBLIC "${CMAKE_SOURCE_DIR}/src" "${MINI
 # The version shown on the ABOUT APP tabs (src/version.h) comes from project(... VERSION ...) above,
 # so a release only has to change that one line.
 target_compile_definitions(mousiki_core PUBLIC MOUSIKI_VERSION="${PROJECT_VERSION}")
+
+# Precompiled header: app.h (with the standard headers it pulls in) preprocesses to about 127,000 lines and 52 sources include it, so
+# every full build parsed it 52 times. With the precompiled header it is parsed once per build (a full build is much shorter, most of
+# all on few cores). Not used with Windows (MSVC / MinGW: not tried there, and the Windows headers are order-sensitive), nor with
+# -DMOUSIKI_PCH=OFF. The one source that defines an implementation macro before its includes is left out (SKIP_PRECOMPILE_HEADERS).
+option(MOUSIKI_PCH "Precompile app.h for mousiki_core (faster full builds; not on Windows)" ON)
+if(MOUSIKI_PCH AND NOT WIN32 AND CMAKE_VERSION VERSION_GREATER_EQUAL 3.16)
+  target_precompile_headers(mousiki_core PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_SOURCE_DIR}/src/app.h>")
+  set_source_files_properties("${CMAKE_SOURCE_DIR}/src/miniaudio_impl.cpp" PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+endif()
 
 # ---------------------------------------------------------------------------
 # App icon (Windows only): mousiki.rc + mousiki.ico in the source root -- the
@@ -320,15 +341,6 @@ endif()
 target_sources(mousiki_core PRIVATE ${AUDIO_BOOK_SOURCES})
 target_include_directories(mousiki_core PUBLIC "${CMAKE_SOURCE_DIR}/src_audio_book")
 
-# ThreadSanitizer (GCC / Clang on Linux or macOS): finds data races in the threads (cover loading, video decoder, the terminal writer ...).
-# Use a build directory of its own, e.g.  cmake -S . -B build-tsan -DMOUSIKI_TSAN=ON -DCMAKE_BUILD_TYPE=Dev -DMOUSIKI_BUILD_TESTS=ON
-# and run ./build-tsan/mousiki_tests  (the sanitizer slows the program down 5-15 times).
-option(MOUSIKI_TSAN "GCC/Clang: build everything with -fsanitize=thread" OFF)
-if(MOUSIKI_TSAN AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-  add_compile_options(-fsanitize=thread -g -fno-omit-frame-pointer)
-  add_link_options(-fsanitize=thread)
-endif()
-
 # Compiler warnings for GCC / Clang (MinGW included; MSVC has /W3 above): -Wall -Wextra on Mousiki's own sources only,
 # so the vendored libraries (miniaudio, kissfft, miniz, chromaprint) stay quiet. Warnings never stop the build.
 option(MOUSIKI_WARNINGS "GCC/Clang: build Mousiki's own sources with -Wall -Wextra" ON)
@@ -353,7 +365,7 @@ if(MOUSIKI_BUILD_RADIO_STANDALONE)
       src/fft_visualizer.cpp src/hifi_bars.cpp src/audio_backend.cpp src/miniaudio_impl.cpp src/keyboard_layout.cpp
       src/spectrogram.cpp src/scope_window.cpp src/themes.cpp src/border_gradient.cpp
       # shared with the player: the oscilloscope and the terminal picture output (Kitty / Sixel)
-      src/oscilloscope_visualizer.cpp src/terminal_gfx.cpp src/remote_control.cpp src/remote_server.cpp src/remote_overlay.cpp src/qr_code.cpp src/terminal_font.cpp
+      src/oscilloscope_visualizer.cpp src/terminal_gfx.cpp src/remote_control.cpp src/cli_core.cpp src/remote_server.cpp src/remote_overlay.cpp src/qr_code.cpp src/terminal_font.cpp
       # the player's settings code: Share Profiles, Remote App, the shared oscilloscope / spectrogram rows
       src/settings.cpp src/translit.cpp src/lyrics_fetcher.cpp src/TextSanitizer.cpp src/osci_settings.cpp src/update_check.cpp src/open_url.cpp src/bg_tasks.cpp src/media_session.cpp src/media_session_mpris.cpp
       # the help wizard (SHIFT+w): its pages, and the disk its welcome page spins

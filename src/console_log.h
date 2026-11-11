@@ -33,6 +33,8 @@ public:
     // console (lines()).
     void init(LogVerbosity level);
 
+    // true once init() has run in this process (the radio, which can run first, starts the log only when the player has not).
+    bool initialized() const;
     void set_level(LogVerbosity level);
     LogVerbosity level() const;
     // [v] in the console: Basic <-> Verbose for this session only (nothing is saved). Returns the new level.
@@ -65,6 +67,7 @@ private:
     std::vector<std::string> lines_;
     std::vector<std::string> prev_lines_;   // the end of the last session's log
     LogVerbosity level_ = LogVerbosity::Basic;
+    bool initialized_ = false;
     // fs::path, not std::string: std::ofstream(std::string) opens the
     // file through the ANSI code page on Windows, so a user profile
     // containing a non-ASCII character (C:\\Users\\Jürgen\\...) could not

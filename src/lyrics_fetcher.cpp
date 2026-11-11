@@ -178,7 +178,10 @@ static std::vector<ArchivedCopy> list_archived(const fs::path& track_path) {
     std::error_code ec;
     if (!fs::is_directory(dir, ec)) return out;
     const std::string prefix = archive_prefix(track_path);
-    for (const auto& e : fs::directory_iterator(dir, ec)) {
+    std::error_code iter_ec;   // (an explicit loop: the range-for's operator++ throws on an I/O error half way)
+    const fs::directory_iterator iter_end;
+    for (fs::directory_iterator it(dir, iter_ec); !iter_ec && it != iter_end; it.increment(iter_ec)) {
+        const fs::directory_entry& e = *it;
         const std::string name = path_utf8(e.path().filename());
         if (name.size() < prefix.size() + 16 + 4 || name.compare(0, prefix.size(), prefix) != 0) continue;
         if (name.compare(name.size() - 4, 4, ".lrc") != 0) continue;

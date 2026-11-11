@@ -7,3 +7,4 @@ packaging/aur/out/
 .vscode/
 remote_app/android/.gradle/
 remote_app/android/build/
+build/

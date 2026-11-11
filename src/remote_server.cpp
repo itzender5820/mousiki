@@ -12,6 +12,8 @@
 #include <cstring>
 #include <map>
 #include <deque>
+#include <condition_variable>
+#include <map>
 #include <mutex>
 #include <random>
 #include <thread>
@@ -62,6 +64,9 @@ std::atomic<bool> g_stop{false};
 std::atomic<bool> g_running{false};
 
 std::vector<Command> g_commands;
+std::mutex g_reply_mu;                       // the answers of command lines that came in over /api/cli
+std::condition_variable g_reply_cv;
+std::map<std::string, std::pair<bool, std::string>> g_replies;
 Clock::time_point g_screen_asked{};
 int g_want_cols = 44, g_want_rows = 30;
 std::string g_screen_json;
@@ -165,6 +170,9 @@ void serve_one(sock_t c, std::string ip) {
     timeval to{2, 0};
     setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &to, sizeof to);
     setsockopt(c, SOL_SOCKET, SO_SNDTIMEO, &to, sizeof to);
+#if defined(SO_NOSIGPIPE)
+    { int one = 1; setsockopt(c, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one); }   // macOS/BSD: no MSG_NOSIGNAL there
+#endif
 #endif
     std::string req;
     char buf[2048];
@@ -180,11 +188,24 @@ void serve_one(sock_t c, std::string ip) {
     if (!req.empty()) {
         const size_t eol = req.find_first_of("\r\n");
         std::string out;
-        try { out = handle_request(eol == std::string::npos ? req : req.substr(0, eol), ip); }
+        std::string host;
+        for (size_t p = eol == std::string::npos ? std::string::npos : req.find('\n', eol); p != std::string::npos && p + 1 < req.size();) {
+            const size_t e = req.find('\n', p + 1);
+            const std::string ln = req.substr(p + 1, e == std::string::npos ? std::string::npos : e - p - 1);
+            if (ln.size() > 5 && ln[4] == ':' && std::tolower(static_cast<unsigned char>(ln[0])) == 'h' && std::tolower(static_cast<unsigned char>(ln[1])) == 'o' &&
+                std::tolower(static_cast<unsigned char>(ln[2])) == 's' && std::tolower(static_cast<unsigned char>(ln[3])) == 't') { host = ln.substr(5); break; }
+            p = e;
+        }
+        try { out = handle_request(eol == std::string::npos ? req : req.substr(0, eol), ip, host); }
         catch (...) { out = reply(500, "text/plain; charset=utf-8", "internal error"); }   // (an exception out of this thread would end the player)
         size_t sent = 0;
         while (sent < out.size()) {
-            const int w = static_cast<int>(send(c, out.data() + sent, static_cast<int>(std::min<size_t>(out.size() - sent, 65536)), 0));
+#if defined(MSG_NOSIGNAL)
+            const int send_flags = MSG_NOSIGNAL;   // a phone that goes away mid-answer must not kill the player with SIGPIPE
+#else
+            const int send_flags = 0;              // (macOS: SO_NOSIGPIPE is set on the socket in serve_one; Windows has no SIGPIPE)
+#endif
+            const int w = static_cast<int>(send(c, out.data() + sent, static_cast<int>(std::min<size_t>(out.size() - sent, 65536)), send_flags));
             if (w <= 0) break;
             sent += static_cast<size_t>(w);
         }
@@ -209,6 +230,9 @@ void serve_loop(sock_t listener) {
 #endif
         sock_t c = accept(listener, reinterpret_cast<sockaddr*>(&peer), &plen);
         if (c == MOUSIKI_BAD_SOCK) continue;
+#if !defined(_WIN32)
+        fcntl(c, F_SETFD, FD_CLOEXEC);
+#endif
         if (g_active.load() >= 24) { mousiki_close_sock(c); continue; }   // a flood: drop it
         char ip[64] = "?";
         inet_ntop(AF_INET, &peer.sin_addr, ip, sizeof ip);
@@ -278,19 +302,60 @@ bool parse_request_line(const std::string& line, std::string& path, std::vector<
     return true;
 }
 
-std::string handle_request(const std::string& request_line, const std::string& peer) {
+bool host_ok(const std::string& host_in, const std::string& extra) {
+    std::string h = host_in;
+    while (!h.empty() && (h.front() == ' ' || h.front() == '\t')) h.erase(h.begin());
+    while (!h.empty() && (h.back() == ' ' || h.back() == '\t' || h.back() == '\r')) h.pop_back();
+    if (h.empty()) return true;                                  // no Host header at all (HTTP/1.0)
+    std::string name;
+    if (h.front() == '[') {                                      // [::1]:4747 -- an IPv6 literal is an address
+        const size_t e = h.find(']');
+        if (e == std::string::npos) return false;
+        for (size_t i = 1; i < e; ++i) if (!(std::isxdigit(static_cast<unsigned char>(h[i])) || h[i] == ':' || h[i] == '.')) return false;
+        return true;
+    }
+    name = h.substr(0, h.find(':'));
+    if (name.empty() || name.size() > 253) return false;
+    for (char& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (name == "localhost") return true;
+    if (std::all_of(name.begin(), name.end(), [](char c) { return (c >= '0' && c <= '9') || c == '.'; })) {
+        int dots = 0;
+        for (char c : name) dots += c == '.';
+        return dots == 3;                                        // a.b.c.d (the range of each part does not matter here)
+    }
+    size_t b = 0;
+    while (b <= extra.size()) {                                  // the names the owner allowed
+        size_t e = extra.find(',', b);
+        if (e == std::string::npos) e = extra.size();
+        std::string n = extra.substr(b, e - b);
+        while (!n.empty() && n.front() == ' ') n.erase(n.begin());
+        while (!n.empty() && n.back() == ' ') n.pop_back();
+        for (char& c : n) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (!n.empty() && n == name) return true;
+        b = e + 1;
+    }
+    return false;
+}
+
+std::string handle_request(const std::string& request_line, const std::string& peer, const std::string& host) {
     std::string path;
     std::vector<std::pair<std::string, std::string>> q;
     if (!parse_request_line(request_line, path, q)) return json_reply(400, "{\"error\":\"bad request\"}");
+    {   // the Host check (DNS rebinding): needs g_cfg, so under the lock
+        std::lock_guard<std::mutex> lk(g_mu);
+        if (!host_ok(host, g_cfg.hosts)) return json_reply(400, "{\"error\":\"bad Host: use the computer's address (an IP address), or a name listed in RemoteAppHosts\"}");
+    }
     if (path == "/" || path == "/index.html") return reply(200, "text/html; charset=utf-8", page());
     if (path == "/favicon.ico") return reply(404, "text/plain", "");
     if (path.compare(0, 5, "/api/") != 0) return json_reply(404, "{\"error\":\"not found\"}");
 
-    std::lock_guard<std::mutex> lk(g_mu);
+    std::unique_lock<std::mutex> lk(g_mu);   // (unique: /api/cli lets go of it while it waits for the answer)
     const auto now = Clock::now();
     // "is this Mousiki?" -- the phone app's network scan asks with no PIN (pin=0). The answer (version, mode) is no secret and
-    // does not count as a wrong PIN: the scan must not lock the phone itself out.
-    if (path == "/api/hello" && get(q, "pin") != g_cfg.pin)
+    // does not count as a wrong PIN: the scan must not lock the phone itself out. Only that no-PIN form ("pin=0" or no pin at all;
+    // a real PIN is 4 to 8 digits, so it can never be either) passes uncounted -- any other wrong PIN goes through the lock-out below,
+    // or this answer ("pin":false or not) would let a guesser try every PIN without ever being locked.
+    if (path == "/api/hello" && (get(q, "pin").empty() || get(q, "pin") == "0"))
         return json_reply(200, std::string("{\"ok\":true,\"pin\":false,\"version\":\"") + tinyjson::escape(MOUSIKI_VERSION) + "\",\"mode\":\"" + tinyjson::escape(g_mode) + "\"}");
     PinGuard& guard = guard_for(peer, now);
     if (now < guard.locked_until) return json_reply(429, "{\"error\":\"too many wrong PINs, wait a minute\"}");
@@ -331,13 +396,57 @@ std::string handle_request(const std::string& request_line, const std::string& p
         g_screen_asked = now;   // the answer to a tap is the next screen: keep it coming
         return json_reply(200, "{\"ok\":true}");
     }
+    if (path == "/api/cli") {
+        if (!g_cfg.cli) return json_reply(403, "{\"ok\":false,\"error\":\"the command endpoint is off: set RemoteAppCli=true in config.txt\"}");
+        const std::string line = get(q, "line");
+        if (line.empty() || line.size() > 400) return json_reply(400, "{\"ok\":false,\"error\":\"line= needs 1 to 400 characters\"}");
+        if (std::any_of(line.begin(), line.end(), [](unsigned char ch) { return ch < 32 || ch == 127; })) return json_reply(400, "{\"ok\":false,\"error\":\"no control characters\"}");
+        if (g_commands.size() >= 32) return json_reply(503, "{\"ok\":false,\"error\":\"busy\"}");
+        long wait_s = std::strtol(get(q, "wait").c_str(), nullptr, 10);
+        wait_s = std::clamp(wait_s <= 0 ? 4L : wait_s, 1L, 30L);
+        static std::atomic<unsigned> serial{0};
+        Command c;
+        c.name = "cli";
+        c.arg = line;
+        c.id = "net-" + std::to_string(++serial);
+        c.from_net = true;
+        g_commands.push_back(c);
+        g_screen_asked = now;
+        lk.unlock();
+        std::unique_lock<std::mutex> rl(g_reply_mu);
+        const bool got = g_reply_cv.wait_for(rl, std::chrono::seconds(wait_s), [&] { return g_replies.count(c.id) > 0; });
+        if (!got) return json_reply(504, "{\"ok\":false,\"error\":\"no answer (the program is busy or the line waits: wait=<s> up to 30)\"}");
+        const auto it = g_replies.find(c.id);
+        const bool ok = it->second.first;
+        const std::string text = it->second.second;
+        g_replies.erase(it);
+        std::string lines = "[";
+        size_t b = 0;
+        for (bool first = true; b <= text.size(); first = false) {
+            size_t e = text.find('\n', b);
+            if (e == std::string::npos) e = text.size();
+            if (e > b || b < text.size()) { lines += std::string(first ? "" : ",") + "\"" + tinyjson::escape(text.substr(b, e - b)) + "\""; }
+            b = e + 1;
+        }
+        lines += "]";
+        return json_reply(200, std::string("{\"ok\":") + (ok ? "true" : "false") + ",\"reply\":\"" + tinyjson::escape(text) + "\",\"lines\":" + lines + "}");
+    }
     return json_reply(404, "{\"error\":\"not found\"}");
+}
+
+void deliver_reply(const std::string& id, bool ok, const std::string& text) {
+    {
+        std::lock_guard<std::mutex> lk(g_reply_mu);
+        if (g_replies.size() > 64) g_replies.clear();   // (answers nobody waits for any more)
+        g_replies[id] = {ok, text};
+    }
+    g_reply_cv.notify_all();
 }
 
 void configure(const Config& c) {
     std::lock_guard<std::mutex> lk(g_mu);
     if (c.pin != g_cfg.pin) g_guards.clear();   // a new PIN (set at the computer) ends every lock-out
-    const bool same = c.enabled == g_cfg.enabled && c.port == g_cfg.port && c.pin == g_cfg.pin;
+    const bool same = c.enabled == g_cfg.enabled && c.port == g_cfg.port && c.pin == g_cfg.pin && c.cli == g_cfg.cli && c.hosts == g_cfg.hosts;
     if (same && (g_running.load() || !c.enabled || !g_error.empty())) return;
     // the PIN can change while it runs; a new port or on/off needs a new listener
     if (c.enabled && g_running.load() && c.port == g_cfg.port) { g_cfg = c; return; }
@@ -350,7 +459,14 @@ void configure(const Config& c) {
     static bool wsa = false;
     if (!wsa) { WSADATA d; if (WSAStartup(MAKEWORD(2, 2), &d) != 0) { g_error = "WSAStartup failed"; return; } wsa = true; }
 #endif
+#if defined(SOCK_CLOEXEC)
+    sock_t s = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);   // a child (ffmpeg, yt-dlp) must not inherit the listener and keep the port busy
+#else
     sock_t s = socket(AF_INET, SOCK_STREAM, 0);
+#if !defined(_WIN32)
+    if (s != MOUSIKI_BAD_SOCK) fcntl(s, F_SETFD, FD_CLOEXEC);
+#endif
+#endif
     if (s == MOUSIKI_BAD_SOCK) { g_error = "cannot open a network socket"; return; }
     int yes = 1;
     setsockopt(s, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&yes), sizeof yes);

@@ -1,5 +1,6 @@
 // Fetched album covers: saves covers downloaded for an album in a folder next to the music and finds
 // them again by the album name.
+#include "app_dirs.h"
 #include "cover_store.h"
 #include "string_util.h"
 #include "video_fx.h"
@@ -221,7 +222,7 @@ Choices& choices() {
 fs::path choices_file() {
     const char* home = std::getenv("HOME");
     const fs::path base = home ? path_from_utf8(home) : fs::path(".");
-    return base / ".cache" / "mousiki" / "covers" / "choices.txt";
+    return muisc::app_dirs::cache() / "covers" / "choices.txt";
 }
 
 // Reads choices.txt once (later calls return at once). Each line is a tab-separated record with a one-letter tag:
@@ -396,10 +397,10 @@ VideoTrackOpts cover_track_video_opts(const std::string& track_path) {
     load_locked(c);
     const auto it = c.vopts.find(track_path);
     if (it == c.vopts.end()) return o;
-    int v[11] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+    int v[13] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
     std::istringstream in(it->second);
     std::string part;
-    for (int i = 0; i < 11 && std::getline(in, part, ','); ++i) v[i] = muisc::atoi_safe(part.c_str());
+    for (int i = 0; i < 13 && std::getline(in, part, ','); ++i) v[i] = muisc::atoi_safe(part.c_str());
     o.on = v[0] == 0 ? 0 : -1;
     o.size = v[1] >= 0 && v[1] <= 3 ? v[1] : -1;
     o.fx = v[2] >= 0 && v[2] < kVideoFxCount ? video_fx_canon(v[2]) : -1;
@@ -411,6 +412,9 @@ VideoTrackOpts cover_track_video_opts(const std::string& track_path) {
     o.lyrics = v[8] >= 0 && v[8] <= 3 ? v[8] : -1;   // 0 none, 1 lyrics, 2 lyrics + translation, 3 translation only
     o.brightness = v[9] >= 0 && v[9] <= 100 ? v[9] : -1;
     o.mp4audio = v[10] == 1 ? 1 : -1;   // (only "true" is kept: false is the default)
+    o.dither = v[11] >= 0 && v[11] < kDitherPatterns ? v[11] : -1;   // (an older entry has no 12th field: as in Settings)
+    o.gsat = v[12] >= 0 && v[12] <= 100 ? v[12] : -1;   // (an older entry has no 13th field: as in Settings)
+    o.base = v[13] >= 0 && v[13] < kBaseLayers ? v[13] : -1;   // (an older entry has no 14th field: as in Settings)
     return o;
 }
 
@@ -421,8 +425,8 @@ void set_cover_track_video_opts(const std::string& track_path, const VideoTrackO
     {
         std::lock_guard<std::mutex> lk(c.mu);
         load_locked(c);
-        if (o.on != 0 && o.size < 0 && o.fx < 0 && o.contrast < 0 && o.colors < 0 && o.chroma < 0 && o.res < 0 && o.round < 0 && o.lyrics < 0 && o.brightness < 0 && o.mp4audio < 0) c.vopts.erase(track_path);
-        else c.vopts[track_path] = std::to_string(o.on == 0 ? 0 : -1) + "," + std::to_string(o.size) + "," + std::to_string(o.fx) + "," + std::to_string(o.contrast) + "," + std::to_string(o.colors) + "," + std::to_string(o.chroma) + "," + std::to_string(o.res) + "," + std::to_string(o.round) + "," + std::to_string(o.lyrics) + "," + std::to_string(o.brightness) + "," + std::to_string(o.mp4audio);
+        if (o.on != 0 && o.size < 0 && o.fx < 0 && o.contrast < 0 && o.colors < 0 && o.chroma < 0 && o.res < 0 && o.round < 0 && o.lyrics < 0 && o.brightness < 0 && o.mp4audio < 0 && o.dither < 0 && o.gsat < 0 && o.base < 0) c.vopts.erase(track_path);
+        else c.vopts[track_path] = std::to_string(o.on == 0 ? 0 : -1) + "," + std::to_string(o.size) + "," + std::to_string(o.fx) + "," + std::to_string(o.contrast) + "," + std::to_string(o.colors) + "," + std::to_string(o.chroma) + "," + std::to_string(o.res) + "," + std::to_string(o.round) + "," + std::to_string(o.lyrics) + "," + std::to_string(o.brightness) + "," + std::to_string(o.mp4audio) + "," + std::to_string(o.dither) + "," + std::to_string(o.gsat) + "," + std::to_string(o.base);
         save_locked(c);
     }
     if (old_on != o.on) cover_store_touch();   // (only "video of this track" can change what the disk shows; a look change must not make the cover load again: it blinked away)

@@ -714,7 +714,7 @@ uint32_t probe_duration_native(const fs::path& path) {
     uint32_t duration = 0;
     std::string ext = ascii_lower_str(path_utf8(path.extension()));
 
-    if (ext == ".m4a" || ext == ".mp4" || ext == ".aac") duration = parse_mp4_duration(fd, st.st_size);
+    if (ext == ".m4a" || ext == ".m4b" || ext == ".mp4" || ext == ".aac") duration = parse_mp4_duration(fd, st.st_size);
     else if (ext == ".opus" || ext == ".ogg") duration = parse_ogg_duration(fd, st.st_size);
     else if (ext == ".mp3") duration = parse_mp3_duration(fd, st.st_size);
     else if (ext == ".flac") duration = parse_flac_duration(fd);

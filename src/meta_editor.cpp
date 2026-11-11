@@ -1,5 +1,6 @@
 // The meta data editor: the field names and labels, the edit state per file, and the options of the
 // online meta fetch (which fields to fill in).
+#include "app_dirs.h"
 #include "meta_editor.h"
 #include "chip_meta.h"
 #include "path_utf8.h"
@@ -105,7 +106,7 @@ fs::path meta_session_path() {
     // Windows, so go through path_from_utf8 rather than fs::path(std::string)).
     const char* home = std::getenv("HOME");
     fs::path base = home ? path_from_utf8(home) : fs::path(".");
-    return base / ".cache" / "mousiki" / "meta_session" / "session.json";
+    return muisc::app_dirs::cache() / "meta_session" / "session.json";
 }
 
 bool load_meta_session(std::vector<MetaEditEntry>& entries, std::vector<std::string>& fetch_list,

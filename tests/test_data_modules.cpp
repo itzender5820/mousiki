@@ -241,6 +241,26 @@ TEST(playlist_save_load_list_and_remove) {
     CHECK_EQ(PlaylistManager::list(dir).size(), static_cast<size_t>(1));
 }
 
+TEST(saving_a_playlist_replaces_the_file_without_leaving_a_temp_file) {
+    mt::TempHome home;
+    const fs::path dir = home.path() / "playlists";
+    Playlist pl;
+    pl.name = "Atomic";
+    PlaylistTrack t;
+    t.path = home.path() / "a.mp3";
+    pl.tracks = {t};
+    std::string err;
+    CHECK(PlaylistManager::save(dir, pl, &err));
+    pl.tracks.push_back(t);
+    CHECK(PlaylistManager::save(dir, pl, &err));            // over the existing one
+    auto back = PlaylistManager::load(dir, "Atomic");
+    CHECK(back.has_value());
+    if (back) CHECK_EQ(back->tracks.size(), static_cast<size_t>(2));
+    int files = 0;
+    for (const auto& e : fs::directory_iterator(dir)) { ++files; CHECK(e.path().extension() == ".txt"); }   // no "Atomic.txt.tmp" left
+    CHECK_EQ(files, 1);
+}
+
 TEST(playlist_file_ignores_comments_and_blank_lines) {
     mt::TempHome home;
     const fs::path dir = home.path() / "playlists";

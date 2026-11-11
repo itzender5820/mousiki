@@ -6,6 +6,7 @@
 // on screen), and every frame -- at the monitor's refresh rate -- that texture is drawn with a sub-pixel offset, so the
 // picture scrolls perfectly smoothly: in a terminal a picture can only move in whole pixels or cells. The view follows
 // a clock (not the bursts in which audio arrives), slightly behind the newest column.
+#include "app_dirs.h"
 #include "scope_window.h"
 #include "scope_sdl.h"
 #include "spectrogram.h"
@@ -41,17 +42,9 @@ struct Shared {
     std::atomic<bool> eof{false};
 };
 
-std::string home_dir() {
-    const char* h = std::getenv("HOME");
-#if defined(_WIN32)
-    if (!h || !*h) h = std::getenv("USERPROFILE");
-#endif
-    return h && *h ? h : ".";
-}
-
 void write_error(const std::string& msg) {
     std::error_code ec;
-    const std::filesystem::path dir = std::filesystem::path(home_dir()) / ".cache" / "mousiki";
+    const std::filesystem::path dir = muisc::app_dirs::cache();
     std::filesystem::create_directories(dir, ec);
     std::ofstream(dir / "spectro_window_error.txt") << msg << "\n";
 }
@@ -100,7 +93,7 @@ void reader_main(Shared* S) {
 // ---- window position and size, kept between runs ----------------------------------------------------------------------
 struct Geometry { int x = sdl::kPosCentered, y = sdl::kPosCentered, w = 1100, h = 520; bool full = false, top = false; };
 
-std::filesystem::path geometry_file() { return std::filesystem::path(home_dir()) / ".config" / "mousiki" / "spectro_window.txt"; }
+std::filesystem::path geometry_file() { return muisc::app_dirs::config() / "spectro_window.txt"; }
 
 Geometry load_geometry(const sdl::Api& A) {
     Geometry g;

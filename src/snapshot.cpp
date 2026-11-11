@@ -1,5 +1,6 @@
 // Session snapshot: saves the queue and the playing position so they can be restored at the next
 // start, and keeps a previous snapshot.
+#include "app_dirs.h"
 #include "snapshot.h"
 #include "path_utf8.h"
 #include "tiny_json.h"
@@ -18,7 +19,7 @@ fs::path snapshot_path() {
     // would re-read those bytes as ANSI, so a user profile with a
     // non-ASCII name produced a garbled base directory.
     fs::path base = home ? path_from_utf8(home) : fs::path(".");
-    return base / ".cache" / "mousiki" / "snapshot" / "snapshot.json";
+    return muisc::app_dirs::cache() / "snapshot" / "snapshot.json";
 }
 
 static Value track_to_json(const SnapshotTrack& t) {

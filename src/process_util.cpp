@@ -172,7 +172,19 @@ int ChildProcess::wait() {
 std::unique_ptr<ChildProcess> spawn_capture(const Args& args, bool merge_stderr) {
     if (args.empty() || args[0].empty()) return nullptr;
     int out_pipe[2];
+    // The pipe is created close-on-exec: otherwise a child another thread starts in the same instant inherits the write end, and the
+    // reader here sees no end-of-file until THAT child exits (an ffprobe stuck behind a radio ffmpeg). The dup2 below onto stdout/stderr
+    // gives our own child its copy without the flag. macOS has no pipe2(): there the spawns are serialised from pipe() to the close of
+    // the write end, so no other spawn_capture can run in the window.
+#if defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__ANDROID__)
+    if (pipe2(out_pipe, O_CLOEXEC) != 0) return nullptr;
+#else
+    static std::mutex spawn_window;
+    std::unique_lock<std::mutex> spawn_lock(spawn_window);
     if (pipe(out_pipe) != 0) return nullptr;
+    fcntl(out_pipe[0], F_SETFD, FD_CLOEXEC);
+    fcntl(out_pipe[1], F_SETFD, FD_CLOEXEC);
+#endif
 
     posix_spawn_file_actions_t actions;
     posix_spawn_file_actions_init(&actions);

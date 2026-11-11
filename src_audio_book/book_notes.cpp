@@ -2,6 +2,7 @@
 #include "book_notes.h"
 #include "string_util.h"
 #include "path_utf8.h"
+#include "settings.h"   // write_text_atomic()
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -118,10 +119,7 @@ bool load(const fs::path& file, std::vector<BookNote>& out) {
 }
 
 bool save(const fs::path& file, const std::vector<BookNote>& notes) {
-    std::ofstream out(file, std::ios::binary | std::ios::trunc);
-    if (!out) return false;
-    out << format(notes);
-    return static_cast<bool>(out);
+    return write_text_atomic(file, format(notes), true);
 }
 
 int merge(std::vector<BookNote>& into, const std::vector<BookNote>& from) {

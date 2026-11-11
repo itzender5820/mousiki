@@ -151,6 +151,7 @@ const CoverImage* App::player_cover() const {
     rq.album = md.album == "-" ? std::string() : md.album;
     rq.search = settings_.cover_search;
     rq.store_rev = cover_store_revision();
+    rq.hold_previous = true;   // (a track change: the cover on screen stays while the next one is read, no disk in between)
     rq.pair_path = paired_song_for_video(rq.path);
     // Cover, Disk or Thumbnail: the mode of the track itself (meta editor -> COVER OPTIONS / STYLE OPTION) wins; a track without one follows
     // the setting of the VIDEO overlay (and only while the Video mode is on)
@@ -188,7 +189,7 @@ bool App::album_cover_gfx(int col, int cols, int rows) const {
 
     // the cover is only built again when something it shows changes (the behind-the-disk picture turns, so that one is due again
     // every few frames)
-    const std::string key = cover->key + "|" + std::to_string(mode) + "|" + std::to_string(eff_cover_contrast()) + "|" + std::to_string(eff_cover_brightness()) + "|" +
+    const std::string key = cover->id() + "|" + std::to_string(mode) + "|" + std::to_string(eff_cover_contrast()) + "|" + std::to_string(eff_cover_brightness()) + "|" +
                             std::to_string(eff_cover_colors()) + "|" + std::to_string(eff_cover_gsat()) + "|" + std::to_string(eff_cover_chroma()) + "|" + std::to_string(w) + "x" + std::to_string(h) + "|" +
                             std::to_string(col) + "|" + settings_.disk_color + "|" + (settings_.disk_color_gradient ? settings_.disk_color_end : std::string());
     using clock = std::chrono::steady_clock;
@@ -476,7 +477,7 @@ const std::string* App::player_phone_png(std::string& key) const {
     // the step of the picture: the turn of the disk (modes 2 to 4) or the phase of the gradient wave (mode 1)
     const double unit = mode == 1 ? 0.04 : 0.03;
     const int step = turning ? static_cast<int>(std::lround((mode == 1 ? wave_phase_now() : phone_->angle) / unit)) : 0;
-    key = "cover|" + cover->key + "|" + std::to_string(eff_cover_contrast()) + "|" + std::to_string(eff_cover_brightness()) + "|" + std::to_string(eff_cover_colors()) + "|" + std::to_string(eff_cover_gsat()) + "|" + std::to_string(eff_cover_chroma()) + "|" + std::to_string(mode) + "|" + std::to_string(step) + "|" + settings_.disk_color + "|" +
+    key = "cover|" + cover->id() + "|" + std::to_string(eff_cover_contrast()) + "|" + std::to_string(eff_cover_brightness()) + "|" + std::to_string(eff_cover_colors()) + "|" + std::to_string(eff_cover_gsat()) + "|" + std::to_string(eff_cover_chroma()) + "|" + std::to_string(mode) + "|" + std::to_string(step) + "|" + settings_.disk_color + "|" +
           (settings_.disk_color_gradient ? settings_.disk_color_end : std::string());
     if (key == cache_key && !cache_png.empty()) return &cache_png;
     // the disk's field is 30 x 15 cells: a cell is 1 : 2, so the picture is square

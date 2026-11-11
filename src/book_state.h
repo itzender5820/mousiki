@@ -90,6 +90,8 @@ struct BookState {
     bool seek_pending = false;          // a chapter is loading and has to go to seek_sec when it is ready
     std::string seek_file;
     double seek_sec = 0.0;
+    int part_row = -1;                  // the embedded chapter (row of chapters_) the position was in at the last frame, -1 none
+    double part_el = 0.0;               //   and the position then
     double prev_elapsed = 0.0;          // for noticing that playback passed a note
     bool note_edit = false;
     bool note_typing = true;            // true: keys type; false: SHIFT+s saves, ENTER types again, ESC discards

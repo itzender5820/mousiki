@@ -125,6 +125,9 @@ struct Settings : VizPrefs {
     int video_clap = 2;               // Show Clap Loading (VideoClap=; default none): what shows while a video loads: 0 text note ("video: starting ..."), 1 clap (a small clapperboard), 2 none
     bool video_round = true;          // Rounded Corners of the video picture (VideoRound=): the picture's corners are cut round, like the corners of the UI
     int video_chroma = 1;             // Video Chromatic Aberration (VideoChroma=; default subtle): 0 off, 1 subtle, 2 medium, 3 strong
+    int video_grad_sat = 85;          // Video Gradient Saturation (VideoGradientSaturation=): 0 .. 100 in steps of 5 (%): the gradient colours of the video looks as they are at 100, paler towards 0 (grey); 85 = default
+    int video_dither = 5;             // Video Dither Pattern (VideoDither=): 0 auto (each look's own), 1 blue noise, 2 bayer 2x2, 3 bayer 4x4, 4 bayer 8x8, 5 interleaved noise (default), 6 golden ratio
+    int video_base = 0;               // Video Base Layer (VideoBase=): the structure under the tube looks: 0 scanlines (default), 1 aperture grille, 2 shadow mask, 3 slot mask, 4 lcd grid, 5 clean
     int cover_chroma = 0;             // Cover Chromatic Aberration (CoverChroma=): the same, for covers that show their own colours
     int video_res = 0;                // Video Resolution (VideoResolution=): 0 standard, 1 high, 2 full (see video_fx.h)
     int video_buffer = 32;            // Video Buffer (VideoBuffer=): MB of decoded frames the decoder keeps ahead of the picture
@@ -411,11 +414,15 @@ struct Settings : VizPrefs {
     // true (the default): a track above 96 kHz is brought down to 96 kHz; false: it plays at its own rate (up to 768 kHz). The next track
     // that is loaded uses it. config.txt: RateCap96=true|false.
     bool rate_cap_96 = true;
+    // Pause and resume with a 8 ms fade instead of a hard cut (no click). config.txt: PauseFade=true|false.
+    bool pause_fade = true;
     // The remote app (phone): a small web server inside Mousiki, off by default. One value for both programs (config.txt:
     // RemoteApp=, RemoteAppPort=, RemoteAppPin=); see remote_server.h.
     bool remote_app = false;
     int remote_port = 4747;
     std::string remote_pin;      // made (6 random digits) the first time the remote app is switched on
+    std::string remote_hosts;    // RemoteAppHosts=name1,name2: names (besides IP addresses and localhost) the web server answers to (DNS rebinding check)
+    bool remote_cli = false;     // RemoteAppCli=true: the web server also answers GET /api/cli (command lines for Home Assistant & co), restricted set
     int play_mode = 0; // 0=list 1=loop(repeat) 2=shuffle 3=stop 4=queue then stop (play the queue through once, then stop)
 
     // --- console logging (config.txt: ConsoleVerbosity) -----------------
@@ -646,7 +653,7 @@ bool read_media_keys();
 // nothing else in the file changes). write_remote_app makes a PIN when it is switched on without one.
 #ifndef MOUSIKI_REMOTE_APP_CONFIG
 #define MOUSIKI_REMOTE_APP_CONFIG
-struct RemoteAppConfig { bool enabled = false; int port = 4747; std::string pin; };
+struct RemoteAppConfig { bool enabled = false; int port = 4747; std::string pin; bool cli = false; std::string hosts; };
 #endif
 RemoteAppConfig read_remote_app();
 bool write_remote_app(RemoteAppConfig& rc);
@@ -659,13 +666,20 @@ bool write_start_mode(const std::string& mode);
 // The radio's Latin letters switch (the quote key): LatinLetters= in config.txt, the rest of the file is kept.
 bool write_latin_letters(bool on);
 Settings load_settings();
+// The command line's `set` / `get` / `settings`: the flags, numbers and percentages of the simple settings table (no texts, colours, paths,
+// hotkeys, remote-app or PIN keys, none that could lock the user out). Keys are matched without regard to case.
+std::vector<std::string> cli_setting_names();
+std::string cli_setting_get(const Settings& s, const std::string& key, bool* found = nullptr);          // the value as it reads in config.txt
+std::string cli_setting_set(Settings& s, const std::string& key, const std::string& value, std::string* canonical_key = nullptr);   // "" = done, else why not
+
 // Upgrade safety: config.txt / radio_config.txt carry "# Written by Mousiki v<version>". Before a version other than the
 // one that wrote the file rewrites it, the old file is copied to <name>.bak (one backup, replaced at the next upgrade).
 std::string config_stamp_line();
 std::string config_written_by(const std::filesystem::path& p);   // "" when the file has no stamp (older than v4.2.0)
 bool backup_config_if_older(const std::filesystem::path& p);     // true when a .bak was written
 // Writes `text` to "<p>.tmp" and renames it over `p`: a crash or a power cut in the middle never leaves a cut-off file.
-bool write_text_atomic(const std::filesystem::path& p, const std::string& text);
+// `binary` writes the bytes as they are (no "\n" -> "\r\n" on Windows): for files that keep their own line endings (.cue).
+bool write_text_atomic(const std::filesystem::path& p, const std::string& text, bool binary = false);
 void save_settings(const Settings& s);
 // One line of config.txt without loading / saving the whole file (the CHOOSE AUDIO DEVICE choice, which every mode writes at once,
 // also from a Settings screen with other changes still unsaved): the value of `key` ("" when missing), and rewriting that line

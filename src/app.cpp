@@ -6,11 +6,13 @@
 #include "app_state_rl.h"
 #include "app_state_theme.h"
 #include "app_state_sleep.h"
+#include "app_state_hist.h"
 #include "app_state_eq.h"
 #include "app_state_device.h"
 #include "app_state_adev.h"
 #include "app_state_vs.h"
 #include "app_state_qtp.h"
+#include "app_state_cliov.h"
 #include "app_state_fo.h"
 #include "app_state_bulk.h"
 #include "app_state_wizard.h"
@@ -53,6 +55,7 @@
 #include "update_check.h"
 #include "open_url.h"
 #include "app_settings_tables.h"
+#include "app_settings_ref.h"
 #include <cstring>
 #include <algorithm>
 #include <cctype>
@@ -633,11 +636,13 @@ App::App(Settings* shared, bool audiobook) : audiobook_(audiobook), settings_(sh
     rl_ = std::make_unique<RlState>();
     theme_ = std::make_unique<ThemeState>();
     sleep_ = std::make_unique<SleepState>();
+    hist_ = std::make_unique<HistState>();
     eq_ = std::make_unique<EqState>();
     device_ = std::make_unique<DeviceState>();
     adev_ = std::make_unique<AdevState>();
     vs_ = std::make_unique<VsState>();
     qtp_ = std::make_unique<QtpState>();
+    cliov_ = std::make_unique<CliOvState>();
     fo_ = std::make_unique<FoState>();
     bulk_ = std::make_unique<BulkState>();
     wizard_ = std::make_unique<WizardState>();
@@ -669,6 +674,7 @@ App::App(Settings* shared, bool audiobook) : audiobook_(audiobook), settings_(sh
     history_.load(); // listening history: a missing/corrupt file is not fatal (see HistoryStore::load)
     set_emoji_mode(settings_.emoji_mode);
     player_.set_stereo(settings_.stereo);
+    player_.set_pause_fade(settings_.pause_fade);
     player_.set_device(settings_.audio_device);   // the sound output (Settings -> GENERAL -> AUDIO "Choose Audio Device")
     adev_->applied = settings_.audio_device;
     player_.set_normalization(settings_.normalize,
@@ -1115,6 +1121,16 @@ void App::run_tick() {
     maybe_autosave();
     remote_poll();             // `mousiki --cmd ...` and the status file
 
+    // A picture (video, scope image) is still being written: begin this frame when that is nearly done, so what it shows (the scope above all)
+    // comes from the audio of the moment it is written, not from a whole terminal write earlier.
+    if (gfx_.active && gfxs_.proto != GfxProto::None) {
+        static double build_ema = 15.0;
+        write_frame_wait_nearly_idle(build_ema + 3.0);
+        build_ema = build_ema * 0.9 + last_build_ms_ * 0.1;
+        static double wr_ema = 0.0;
+        wr_ema = wr_ema * 0.9 + std::min(250.0, write_frame_last_ms()) * 0.1;
+        present_lead_s_ = wr_ema > 20.0 ? 0.8 * wr_ema / 1000.0 : 0.0;
+    } else present_lead_s_ = 0.0;
     auto now = std::chrono::steady_clock::now();
     double dt = std::chrono::duration<double>(now - last_frame_time_).count();
     last_frame_time_ = now;
@@ -1452,6 +1468,7 @@ int App::run() {
             if (async_write) write_frame_async(std::move(wire)); else write_frame(wire);
             const auto done = std::chrono::steady_clock::now();
             const double build_ms = std::chrono::duration<double, std::milli>(built - frame_start).count();
+            last_build_ms_ = std::clamp(build_ms, 1.0, 100.0);
             const double write_ms = std::chrono::duration<double, std::milli>(done - built).count();
             static std::chrono::steady_clock::time_point last_slow{};
             if ((build_ms > 40.0 || write_ms > 40.0 || (async_write && write_frame_last_ms() > 40.0)) && gfx_.active && done - last_slow >= std::chrono::milliseconds(400)) {
@@ -1460,7 +1477,7 @@ int App::run() {
                                                  std::to_string(wire_kib) + " KiB (picture " + std::to_string(gfx_.w) + "x" + std::to_string(gfx_.h) + "; look " +
                                                  std::to_string(static_cast<int>(video_timing().look_ms.load())) + " ms [grade " + std::to_string(static_cast<int>(video_timing().grade_ms.load())) + ", effect " +
                                                  std::to_string(video_timing().fx.load()) + ": " + std::to_string(static_cast<int>(video_timing().fx_ms.load())) + ", threads " + std::to_string(video_timing().threads.load()) + "], colours " + std::to_string(static_cast<int>(video_timing().quant_ms.load())) + " ms, encoding " +
-                                                 std::to_string(static_cast<int>(video_timing().encode_ms.load())) + " ms)");
+                                                 std::to_string(static_cast<int>(video_timing().encode_ms.load())) + " ms, scope " + std::to_string(static_cast<int>(video_timing().scope_ms.load())) + " ms)");
             }
         }
         // 25fps (was 12.5fps) — the 700ms waveform reveal animation only

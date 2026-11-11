@@ -1,4 +1,5 @@
 #include "radio_app.h"
+#include "console_log.h"
 #include "path_utf8.h"
 #if defined(_WIN32)
 #include "win_compat.h"
@@ -70,6 +71,7 @@ void RadioApp::tune_to(int idx, bool record) {
         history.push_back(cur);
         if (history.size() > 100) history.erase(history.begin());
     }
+    muisc::ConsoleLog::instance().log_basic("radio: tuning " + ui.stations[static_cast<size_t>(idx)].name);
     engine.tune(ui.stations[static_cast<size_t>(idx)], idx);
 }
 
@@ -131,6 +133,7 @@ void RadioApp::remote_apply(const muisc::remote::Command& c) {
     const RadioStatus rs = engine.status();
     const bool tuned = rs.state != StreamState::Idle && rs.state != StreamState::Failed;
     const std::string& n = c.name;
+    if (n == "cli") { cli_run(c.arg, c.from_net ? muisc::cli::Origin::Network : muisc::cli::Origin::Remote, c.id); return; }   // a command line (text) from outside
     if (n == "next") tune_relative(+1);
     else if (n == "prev") tune_back();
     else if (n == "shuffle") tune_shuffle();

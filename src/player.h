@@ -76,6 +76,8 @@ public:
     // channel count is fixed when the track is decoded: turning stereo ON
     // while a mono-decoded track is playing only affects the next track.
     void set_stereo(bool enabled) { stereo_enabled_.store(enabled); }
+    // Pause / resume with a 8 ms ramp instead of a hard cut (no click): Settings -> GENERAL -> AUDIO "Pause Fade", config.txt PauseFade=
+    void set_pause_fade(bool on) { pause_fade_.store(on); }
     bool stereo_enabled() const { return stereo_enabled_.load(); }
 
     // Oscilloscope music mode: the scopes (terminal and window) get the decoded signal before the mono fold, the
@@ -175,6 +177,8 @@ private:
     std::atomic<float> gain_{0.7f};
     std::atomic<float> fade_{1.0f};
     std::atomic<bool> paused_{false};
+    std::atomic<bool> pause_fade_{true};
+    std::atomic<float> pause_ramp_{1.0f};   // 1 = full level, 0 = silent; follows paused_ over about 8 ms (the audio callback moves it)
     std::atomic<int> volume_pct_{70};
 
     std::atomic<bool> stereo_enabled_{true};

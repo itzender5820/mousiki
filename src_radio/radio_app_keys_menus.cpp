@@ -1,4 +1,6 @@
 #include "radio_app.h"
+#include "cli_core.h"
+namespace cli = muisc::cli;
 #if defined(_WIN32)
 #include "win_compat.h"
 #endif
@@ -424,6 +426,7 @@ bool RadioApp::key_search(KeyCtx& kc) {
         // Shift+Left/Right = mark, Home/End, Del, Ctrl+C/X/V, typing). Ctrl+C is copy here, not quit.
         UiModel& um = ui.model;
         const int nl = static_cast<int>(um.lvisible.size());
+        if (cli_search_key(kc)) return true;   // "c:" (command line) / "cs:" (script search)
         if (arrow && (k == 'A' || k == 'B')) {
             int& cur = um.search_lists ? um.lcursor : um.cursor;
             const int n = um.search_lists ? nl : nvis;
@@ -451,6 +454,7 @@ bool RadioApp::key_search(KeyCtx& kc) {
             }
             um.cursor = 0; um.lcursor = 0;
             ui.refilter(); ui.refilter_main_lists();
+            if (search_is_cs(um.search)) { um.cliov.filter = cli::trim(um.search.substr(um.search.find(':') + 1)); cliov_refresh(); }   // the pane lists the matching scripts
         }
         return true;
     }

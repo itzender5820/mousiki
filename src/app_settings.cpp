@@ -27,6 +27,8 @@
 #include "app_internal.h"
 #include "app_settings_shared.h"
 #include "app_settings_tables.h"
+#include "app_settings_ref.h"
+#include "app_state_cliov.h"
 #include <cstring>
 #include <algorithm>
 #include <cctype>
@@ -92,6 +94,7 @@ void App::settings_close(bool save) {
                 if (history_.file_exists()) history_.load(); else history_.save();
             }
             player_.set_stereo(settings_.stereo);
+            player_.set_pause_fade(settings_.pause_fade);
             player_.set_normalization(settings_.normalize, static_cast<float>(settings_.normalize_target_lufs),
                                       static_cast<float>(settings_.normalize_max_boost_db));
             set_emoji_mode(settings_.emoji_mode);
@@ -758,6 +761,9 @@ std::string App::settings_get_value(int row, int col) const {
             case kSidVideoBrightness: return std::to_string(std::clamp(settings_.video_brightness, 0, 100)) + "%";
             case kSidVideoColors: return std::to_string(std::clamp(settings_.video_colors, 0, 100)) + "%";
             case kSidVideoChroma: return chroma_name(settings_.video_chroma);
+            case kSidVideoDither: return dither_name(settings_.video_dither);
+            case kSidVideoBase: return base_name(settings_.video_base);
+            case kSidVideoGradSat: return std::to_string(std::clamp(settings_.video_grad_sat, 0, 100)) + "%";
             case kSidVideoRound: return settings_.video_round ? "on" : "off";
             case kSidVideoCover: return settings_.video_cover == 1 ? "thumbnail" : settings_.video_cover == 2 ? "disk" : settings_.video_cover == 3 ? "thumbnail fallback" : "cover";
             case kSidVideoClap: return settings_.video_clap == 2 ? "none" : settings_.video_clap == 0 ? "text note" : "clap";
@@ -768,6 +774,7 @@ std::string App::settings_get_value(int row, int col) const {
             case kSidUseVideo: v = settings_.video_mode; break;
             case kSidNoLyricsViz: return settings_.nolyrics_viz == 1 ? "osci" : settings_.nolyrics_viz == 2 ? "spectro" : settings_.nolyrics_viz == 3 ? "none" : "sphere";
             case kSidStereo: v = settings_.stereo; break;
+            case kSidPauseFade: v = settings_.pause_fade; break;
             case kSidBlackBg: v = settings_.black_background; break;
             case kSidShareProfiles: v = settings_.share_profiles; break;
             case kSidBookAsk: v = settings_.book_ask_bookmark; break;
@@ -795,6 +802,7 @@ std::string App::settings_get_value(int row, int col) const {
             case kSidLatinWo: v = settings_.latin_wo; break;
             case kSidLatinHanzi: return settings_.latin_hanzi == 1 ? "Chin." : settings_.latin_hanzi == 2 ? "Jap." : "Leave";
             case kSidLyricsVariants: v = settings_.lyrics_name_variants; break;
+            case kSidCliScripts: return "[ENTER] open";   // the script overlay (the command line's library and editor)
             case kSidRemoteApp: return settings_.remote_app ? "on   [ENTER] settings" : "off  [ENTER] settings";   // opens the REMOTE APP overlay
             case kSidCheckUpdate: return update_check::check_busy() ? std::string("checking ...") : std::string("[ENTER] to check");
             case kSidBookSpeed: return speed_label(settings_.book_speed);
@@ -900,8 +908,10 @@ std::vector<std::string> App::settings_options_for(int tab, int row) const {
             case kSidVideoLyrics: return {"none", "lyrics", "lyrics+transl.", "transl."};
             case kSidVideoSize: return {"regular", "cropped", "full", "framed"};
             case kSidVideoFx: { std::vector<std::string> o; for (int i = 0; i < kVideoFxShown; ++i) o.push_back(video_fx_name(kVideoFxOrder[i])); return o; }
-            case kSidVideoContrast: case kSidVideoBrightness: case kSidVideoColors: { std::vector<std::string> o; for (int i = 0; i <= 100; i += 5) o.push_back(std::to_string(i) + "%"); return o; }
+            case kSidVideoContrast: case kSidVideoBrightness: case kSidVideoColors: case kSidVideoGradSat: { std::vector<std::string> o; for (int i = 0; i <= 100; i += 5) o.push_back(std::to_string(i) + "%"); return o; }
             case kSidVideoChroma: case kSidCoverChroma: return {"off", "subtle", "medium", "strong"};
+            case kSidVideoDither: { std::vector<std::string> o; for (int i = 0; i < kDitherPatterns; ++i) o.push_back(dither_name(i)); return o; }
+            case kSidVideoBase: { std::vector<std::string> o; for (int i = 0; i < kBaseLayers; ++i) o.push_back(base_name(i)); return o; }
             case kSidVideoRound: return {"off", "on"};
             case kSidVideoCover: return {"cover", "thumbnail", "disk", "thumbnail fallback"};
             case kSidVideoClap: return {"text note", "clap", "none"};
@@ -922,6 +932,7 @@ std::vector<std::string> App::settings_options_for(int tab, int row) const {
             case kSidCoverContrast: { std::vector<std::string> o; for (int i = 0; i <= 150; i += 5) o.push_back(std::to_string(i) + "%"); return o; }
             case kSidCoverSearch: return {"Default", "Folder First", "Within File First", "Image in Folder Only", "Within File Only"};
             case kSidTrackBuffer: return {};   // a number (ENTER types it) and a "Set back to default" button (RIGHT, then ENTER)
+            case kSidCliScripts: return {};   // an action: ENTER opens the script overlay
             case kSidRemoteApp: return {};   // not a switch: ENTER / LEFT / RIGHT open the REMOTE APP overlay
             case kSidCheckUpdate: return {};   // an action: ENTER asks GitHub (handle_settings_key)
             case kSidAudioDevice: return {};   // not a switch: ENTER opens the CHOOSE AUDIO DEVICE overlay
@@ -994,10 +1005,10 @@ void App::settings_commit_edit_impl() {
         if (id == kSidVideoLyrics) { settings_.video_lyrics = v == "lyrics" ? 1 : v == "lyrics+transl." ? 2 : v == "transl." ? 3 : 0; video_pic_key_.clear(); return; }
         if (id == kSidVideoSize) { settings_.video_size = v == "cropped" ? 1 : v == "full" ? 2 : v == "framed" ? 3 : 0; video_pic_key_.clear(); return; }
         if (id == kSidVideoFx) { settings_.video_fx = video_fx_from(v); video_pic_key_.clear(); return; }
-        if (id == kSidVideoContrast || id == kSidVideoBrightness || id == kSidVideoColors) {
+        if (id == kSidVideoContrast || id == kSidVideoBrightness || id == kSidVideoColors || id == kSidVideoGradSat) {
             std::string d = v;
             if (!d.empty() && d.back() == '%') d.pop_back();
-            (id == kSidVideoContrast ? settings_.video_contrast : id == kSidVideoBrightness ? settings_.video_brightness : settings_.video_colors) = std::clamp((muisc::atoi_safe(d.c_str()) + 2) / 5 * 5, 0, 100);
+            (id == kSidVideoContrast ? settings_.video_contrast : id == kSidVideoBrightness ? settings_.video_brightness : id == kSidVideoGradSat ? settings_.video_grad_sat : settings_.video_colors) = std::clamp((muisc::atoi_safe(d.c_str()) + 2) / 5 * 5, 0, 100);
             video_pic_key_.clear();
             return;
         }
@@ -1009,6 +1020,8 @@ void App::settings_commit_edit_impl() {
         if (id == kSidVideoClap) { settings_.video_clap = v == "none" ? 2 : v == "text note" ? 0 : 1; video_pic_key_.clear(); return; }
         if (id == kSidVideoRound) { settings_.video_round = v == "on"; video_pic_key_.clear(); return; }
         if (id == kSidVideoChroma) { settings_.video_chroma = chroma_from(v); video_pic_key_.clear(); return; }
+        if (id == kSidVideoDither) { settings_.video_dither = dither_from(v); video_pic_key_.clear(); return; }
+        if (id == kSidVideoBase) { settings_.video_base = base_from(v); video_pic_key_.clear(); return; }
         if (id == kSidCoverChroma) { settings_.cover_chroma = chroma_from(v); cover_pic_key_.clear(); return; }
         if (id == kSidVideoRes) { settings_.video_res = video_res_from(v); video_pic_key_.clear(); return; }
         if (id == kSidVideoMp3) { settings_.video_mp3 = v == "true"; return; }
@@ -1184,6 +1197,10 @@ void App::settings_commit_edit_impl() {
             case kSidVizField: settings_.element_vizfield = is_true; break;
             case kSidLyricsEngine: settings_.element_lyrics = is_true; break;
             case kSidVisualizer: settings_.element_visualizer = is_true; break;
+            case kSidPauseFade:
+                settings_.pause_fade = is_true;
+                player_.set_pause_fade(is_true);
+                break;
             case kSidStereo:
                 settings_.stereo = is_true;
                 player_.set_stereo(is_true); // audible immediately for a stereo-decoded track
@@ -1364,7 +1381,10 @@ void App::settings_commit_edit_impl() {
                     int copied = 0;
                     if (fs::is_directory(copy_from, ec) && copy_from != to) {
                         fs::create_directories(to, ec);
-                        for (const auto& e : fs::directory_iterator(copy_from, ec)) {
+                        std::error_code iter_ec;   // (an explicit loop: the range-for's operator++ throws on an I/O error half way)
+                        const fs::directory_iterator iter_end;
+                        for (fs::directory_iterator it(copy_from, iter_ec); !iter_ec && it != iter_end; it.increment(iter_ec)) {
+                            const fs::directory_entry& e = *it;
                             if (!e.is_regular_file(ec) || ascii_lower_str(path_utf8(e.path().extension())) != ".txt") continue;
                             const fs::path dst = to / e.path().filename();
                             if (fs::exists(dst, ec)) continue;
@@ -1420,6 +1440,9 @@ void App::settings_cycle(int dir) {
     if (id == kSidVideoClap) status_line_ = settings_.video_clap == 1 ? "show clap loading: clap -- a small clapperboard shows while a video loads" : settings_.video_clap == 0 ? "show clap loading: text note -- the text \"video: starting ...\" shows while a video loads" : "show clap loading: none -- nothing shows while a video loads";
     if (id == kSidVideoRound) status_line_ = settings_.video_round ? "video rounded corners: on -- the corners of the picture are cut round like the corners of the UI" : "video rounded corners: off";
     if (id == kSidVideoChroma) status_line_ = std::string("video chromatic aberration: ") + chroma_name(settings_.video_chroma) + " -- red and blue are pushed apart, more towards the corners; works with every effect" + note;
+    if (id == kSidVideoGradSat) status_line_ = "video gradient saturation: " + std::to_string(settings_.video_grad_sat) + "% -- how saturated the colours of the gradient looks (Gradient, Dither Gradient, Neon Edge Gradient, Game Boy gradient) are (100 = as they are, 0 = grey)" + note;
+    if (id == kSidVideoBase) status_line_ = std::string("video base layer: ") + base_name(settings_.video_base) + " -- the structure under CRT, VHS, Glitch and the Phosphor looks: scanlines (as always), aperture grille, shadow mask, slot mask, lcd grid, or clean (none)" + note;
+    if (id == kSidVideoDither) status_line_ = std::string("video dither pattern: ") + dither_name(settings_.video_dither) + " -- the dots of the looks that dither (Game Boy, EGA 16, Dither B/W / Gradient) and of the 256-colour picture (sixel); auto = each look's own" + note;
     if (id == kSidCoverGradSat) status_line_ = "cover gradient saturation: " + std::to_string(settings_.cover_grad_sat) + "% -- how vivid the disk's gradient is between its two colours (0 = the plain blend, which fades to grey in the middle); the picture itself stays as it is" + note;
     if (id == kSidCoverChroma) status_line_ = std::string("cover chromatic aberration: ") + chroma_name(settings_.cover_chroma) + " -- for a cover that shows its own colours (Just Cover, Cover Colors above 0, the ASCII looks)" + note;
     if (id == kSidVideoRes) status_line_ = std::string("video resolution: ") + video_res_label(settings_.video_res, gfxs_.proto == GfxProto::Sixel) + (settings_.video_res == 0 ? " -- the soft look, light on the terminal" : gfxs_.proto == GfxProto::Kitty ? " -- a sharper picture in true colour; needs more of the terminal and the processor" : " -- a wider picture (Sixel has at most 256 colours)") + note;
@@ -1451,6 +1474,8 @@ void App::settings_cycle(int dir) {
         else
             status_line_ = settings_.stereo ? "stereo: on" : "stereo: off";
     }
+    if (id == kSidPauseFade) status_line_ = settings_.pause_fade ? "pause fade: on -- pause and resume fade over about 8 ms (no click)" : "pause fade: off -- pause cuts the sound at once (a click is possible)";
+    if (id == kSidCliScripts) status_line_ = "cli scripts: [ENTER] opens the script overlay (library and editor of the command line's scripts; ESC comes back here)";
     if (id == kSidNormalize) {
         status_line_ = settings_.normalize ? "normalize: on" : "normalize: off";
     }
@@ -1616,6 +1641,12 @@ void App::handle_settings_key(int key) {
     if (mode_ == Mode::Settings && settings_tab_ == 1 && settings_item_id(1, settings_row_) == kSidAudioDevice &&
         (key == '\r' || key == '\n')) {
         audio_device_open(true);   // drawn over this screen; ESC comes back here
+        return;
+    }
+    if (mode_ == Mode::Settings && settings_tab_ == 1 && settings_item_id(1, settings_row_) == kSidCliScripts &&
+        (key == '\r' || key == '\n')) {
+        cliov_->from_settings = true;   // ESC in the overlay comes back to the settings
+        cliov_open("", "");
         return;
     }
     if (mode_ == Mode::Settings && settings_tab_ == 1 && settings_item_id(1, settings_row_) == kSidCheckUpdate &&
@@ -1876,6 +1907,7 @@ void App::handle_settings_key(int key) {
             if (settings_col_ == 0) theme_open_picker(); else theme_open_creator();
             return;
         }
+        if ((settings_tab_ == 1 || settings_tab_ == 2) && settings_item_id(settings_tab_, settings_row_) == kSidVideoFx) { fxpick_open(0); return; }   // the list of all effects, three columns
         color_edit_buffer_ = settings_get_value(settings_row_, settings_col_);
         edit_caret_ = edit_anchor_ = color_edit_buffer_.size(); // caret starts at the end, as usual
         edit_owner_ = "settings"; // claim the shared caret -- see edit_focus()

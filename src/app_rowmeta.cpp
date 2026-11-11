@@ -91,7 +91,7 @@ RowMeta try_native_row_meta(const fs::path& path) {
     if (ext == ".mp3") tags = probe_id3v2_native(path);
     else if (ext == ".flac") tags = probe_flac_native(path);
     else if (ext == ".ogg" || ext == ".opus") tags = probe_ogg_native(path);
-    else if (ext == ".m4a" || ext == ".mp4" || ext == ".aac") tags = probe_mp4_native(path);
+    else if (ext == ".m4a" || ext == ".m4b" || ext == ".mp4" || ext == ".aac") tags = probe_mp4_native(path);
 
     if (tags.resolved) {
         // clean_tag_text(): a tag can hold malformed UTF-8 (cut in the middle of a character) or control characters,

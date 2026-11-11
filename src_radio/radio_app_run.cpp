@@ -1,4 +1,6 @@
+#include "app_dirs.h"
 #include "radio_app.h"
+#include "console_log.h"
 #include "string_util.h"
 #if defined(_WIN32)
 #include "win_compat.h"
@@ -32,7 +34,7 @@ RadioApp::RadioApp() {
     // Timeshift buffer (pause / rewind): a ring file in the cache folder, sized by the GENERAL tab's "Timeshift buffer".
     const char* ts_home = std::getenv("HOME");
     if (!ts_home || !*ts_home) ts_home = std::getenv("USERPROFILE");
-    timeshift_file = (std::filesystem::path(ts_home && *ts_home ? ts_home : ".") / ".cache" / "mousiki" / "radio_timeshift.pcm").string();
+    timeshift_file = (muisc::app_dirs::cache() / "radio_timeshift.pcm").string();
     apply_timeshift();
     rhist.open(storage.history_dir);
     yt.set_download_dir(storage.download_dir);
@@ -344,8 +346,10 @@ void RadioApp::frame_tick() {
         if (!ui.model.wizard_open) wizard_open_now();   // SHIFT+w from the remote: open / close the help wizard
         else { ui.model.wizard_open = false; out_clear_next = true; wizard_seen_save(); }
     }
+    cli_tick();   // timers and waiting scripts of the command line
+    capture_status();   // a new status line is one more message in the console
     // the remote app's web server follows the Remote App switch (cheap when nothing changed)
-    muisc::remote::net::configure({cfg.remote_app, cfg.remote_port, cfg.remote_pin});
+    muisc::remote::net::configure({cfg.remote_app, cfg.remote_port, cfg.remote_pin, cfg.remote_hosts, cfg.remote_cli});
     {   // ... and its phone screen, when a phone asks for it (at most ~14 a second)
         static std::chrono::steady_clock::time_point phone_built{};
         int pc = 0, pr = 0;
@@ -475,6 +479,7 @@ int RadioApp::interactive() {
     // First start of the radio after an install: greet with the help wizard,
     // the same way the music player does. Closing it writes WizardSeen=true.
     if (wizard::kEnabled && !cfg.wizard_seen) wizard_open_now();
+    if (!muisc::ConsoleLog::instance().initialized()) muisc::ConsoleLog::instance().init(muisc::LogVerbosity::Basic);   // (the console overlay shows this log)
     muisc::remote::start("radio");
     while (running) {
         frame_tick();
@@ -489,6 +494,8 @@ int RadioApp::interactive() {
             KeyCtx kc{k, arrow, nvis, menus_inject};
             if (key_wizard(kc) ||
                 key_cheat(kc) ||
+                key_cliov(kc) ||
+                key_console(kc) ||
                 key_adev(kc) ||
                 key_settings(kc) ||
                 key_history(kc) ||

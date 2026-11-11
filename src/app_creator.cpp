@@ -121,7 +121,11 @@ bool App::creator_dir_prepare() {
 void App::creator_list_refresh() {
     creator_->files.clear();
     std::error_code ec;
-    for (const auto& e : fs::directory_iterator(creator_dir(), ec)) {
+    std::error_code iter_ec;   // (an explicit loop: the range-for's operator++ throws on an I/O error half way)
+    const fs::path cdir = creator_dir();
+    const fs::directory_iterator iter_end;
+    for (fs::directory_iterator it(cdir, iter_ec); !iter_ec && it != iter_end; it.increment(iter_ec)) {
+        const fs::directory_entry& e = *it;
         if (e.is_regular_file(ec) && e.path().extension() == ".wav") creator_->files.push_back(e.path());
     }
     std::sort(creator_->files.begin(), creator_->files.end(), [](const fs::path& x, const fs::path& y) {

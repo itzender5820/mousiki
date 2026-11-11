@@ -255,7 +255,7 @@ bool RadioApp::key_settings(KeyCtx& kc) {
             bool close = false;
             if (muisc::remote_ui::key(sm.remote_ov, v, k, arrow, close)) {
                 cfg.remote_app = v.enabled; cfg.remote_port = v.port; cfg.remote_pin = v.pin;
-                muisc::remote::net::configure({cfg.remote_app, cfg.remote_port, cfg.remote_pin});
+                muisc::remote::net::configure({cfg.remote_app, cfg.remote_port, cfg.remote_pin, cfg.remote_hosts, cfg.remote_cli});
                 sm.dirty = true;
             }
             if (close) { sm.remote_ov = muisc::remote_ui::State{}; sm.status = cfg.remote_app ? "remote app on (s saves)" : "remote app off (s saves)"; }
@@ -321,6 +321,11 @@ bool RadioApp::key_settings(KeyCtx& kc) {
             if (sm.tab == 1 && std::string(rs_row_label(sm.tab, sm.row)) == "Choose Audio Device") {   // the CHOOSE AUDIO DEVICE overlay
                 if (dir == 0) adev_open(true);
                 else sm.status = "[ENTER] lists the audio devices";
+                return;
+            }
+            if (sm.tab == 1 && std::string(rs_row_label(sm.tab, sm.row)) == "CLI Scripts") {   // the script overlay (ESC comes back here)
+                if (dir == 0) cliov_open("", "", true);
+                else sm.status = "[ENTER] opens the script overlay: the scripts of the command line (CLI)";
                 return;
             }
             if (sm.tab == 1 && std::string(rs_row_label(sm.tab, sm.row)) == "Remote App") {   // opens the REMOTE APP overlay

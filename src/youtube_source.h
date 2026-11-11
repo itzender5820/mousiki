@@ -17,6 +17,10 @@ struct SongResult {
     bool from_cache = false;
 };
 
+// A YouTube video id (6-32 of letters, digits, - and _) / an address yt-dlp may be given (http or https, no spaces, at most 2048 characters).
+bool valid_video_id(const std::string& id);
+bool valid_track_url(const std::string& url);
+
 class YoutubeSource {
 public:
     explicit YoutubeSource(CacheManager& cache) : cache_(cache) {}

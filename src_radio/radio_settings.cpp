@@ -1,5 +1,6 @@
 // Radio settings: reads and writes the radio's own configuration, including its colours, the remote
 // app setting and the shared visualisation values.
+#include "app_dirs.h"
 #include "radio_settings.h"
 #include "utf8_util.h"
 #include "string_util.h"
@@ -121,6 +122,7 @@ enum RsId {
     kRsGradSpeed, kRsPulseSpeed, kRsFluidity, kRsDegr, kRsVisc, kRsBehavior, kRsBarStyle, kRsHifiRes, kRsHifiChan, kRsHifiColor, kRsHifiScale, kRsHifiAdapt, kRsHifiSplit, kRsHifiFScale, kRsHifiGain, kRsHifiRange,
     kRsScope, kRsOsciStyle,
     kRsAudioDevice,   // [ENTER]: the CHOOSE AUDIO DEVICE overlay
+    kRsCliScripts,    // [ENTER]: the script overlay
     kRsTermDefaultFont, // leave the terminal's own font alone (one value for all modes: TerminalDefaultFont= in the player's config.txt)
 };
 }
@@ -139,8 +141,8 @@ const std::vector<SettingsLine>& rs_layout(int tab) {
         {true, -1, "TERMINAL"},
         {false, kRsBlackBg, "Black Background"},
         {true, -1, ""},
-        {true, -1, "REMOTE / UPDATES"},
-        {false, kRsRemoteApp, "Remote App"},
+        {true, -1, "CLI / REMOTE / UPDATES"},
+        {false, kRsCliScripts, "CLI Scripts"}, {false, kRsRemoteApp, "Remote App"},
         {true, -1, ""},
         {true, -1, "AUDIO"},
         {false, kRsAudioDevice, "Choose Audio Device"},
@@ -254,6 +256,7 @@ std::string rs_row_value(const RadioSettings& s, int tab, int row) {
     switch (id) {
         case kRsShareProfiles: return s.share_profiles ? "true" : "false";
         case kRsAudioDevice: return (s.audio_device.empty() ? std::string("System Default") : s.audio_device) + "  [ENTER] choose";
+        case kRsCliScripts: return "[ENTER] open";   // the script overlay
         case kRsRemoteApp: return s.remote_app ? "on   [ENTER] settings" : "off  [ENTER] settings";   // opens the REMOTE APP overlay
         case kRsPlayback: return s.playback_shuffle ? "shuffle" : "list";
         case kRsStartMode: return s.start_mode == "radio" || s.start_mode == "audiobook" ? s.start_mode : "player";
@@ -540,7 +543,7 @@ namespace {
 fs::path home_config_path() {
     const char* home = std::getenv("HOME");
     if (!home || !*home) home = std::getenv("USERPROFILE");
-    if (home && *home) return fs::path(home) / ".config" / "mousiki" / "radio_config.txt";
+    if (home && *home) return muisc::app_dirs::config() / "radio_config.txt";
     return fs::path("radio_config.txt");
 }
 
@@ -560,7 +563,7 @@ int as_int(const std::string& v, int def, int lo, int hi) {
 fs::path radio_default_dir() {
     const char* home = std::getenv("HOME");
     if (!home || !*home) home = std::getenv("USERPROFILE");
-    if (home && *home) return fs::path(home) / ".config" / "mousiki";
+    if (home && *home) return muisc::app_dirs::config();
     return fs::path(".");
 }
 
@@ -765,6 +768,7 @@ const KeyAction kKeyActions[] = {
     {"SYSTEM", "Settings", "Open Settings", "s"},
     {nullptr, "Wizard", "Help Wizard", "W"},          // SHIFT+w, the same key the music player uses
     {nullptr, "Cheatsheet", "Cheatsheet", "?"},
+    {nullptr, "Console", "Console / Log / Command Line", "C"},   // the player has it on [t]: there it is a preset key
     {nullptr, "Menus", "Menus / Overlays Index", "<"},
     {nullptr, "AudioDevice", "Choose Audio Device", "°"},   // SHIFT+^ on a German keyboard; "&" by default on other layouts (key_binding)
     {nullptr, "Quit", "Quit Application", "q"},
@@ -846,7 +850,7 @@ StoragePaths resolve_storage_paths(const RadioSettings& s) {
         else {
             const char* home = std::getenv("HOME");
             if (!home || !*home) home = std::getenv("USERPROFILE");
-            o.download_dir = fs::path(home ? home : ".") / ".cache" / "mousiki";
+            o.download_dir = muisc::app_dirs::cache();
             o.download_note = "player has no DownloadFolder: its cache";
         }
     } else {
@@ -881,7 +885,7 @@ RadioSettings load_radio_settings(std::string* source_out) {
         s.black_background = player_black_background();
         if (player_share_profiles()) radio_share_profiles(s, true);
         const RemoteAppConfig rc = read_remote_app();
-        s.remote_app = rc.enabled; s.remote_port = rc.port; s.remote_pin = rc.pin;
+        s.remote_app = rc.enabled; s.remote_port = rc.port; s.remote_pin = rc.pin; s.remote_cli = rc.cli; s.remote_hosts = rc.hosts;
         return s;
     }
     if (source_out) *source_out = p.string();
@@ -1035,7 +1039,7 @@ RadioSettings load_radio_settings(std::string* source_out) {
     if (player_share_profiles()) radio_share_profiles(s, true);
     {   // Remote App: the player's config.txt holds it
         const RemoteAppConfig rc = read_remote_app();
-        s.remote_app = rc.enabled; s.remote_port = rc.port; s.remote_pin = rc.pin;
+        s.remote_app = rc.enabled; s.remote_port = rc.port; s.remote_pin = rc.pin; s.remote_cli = rc.cli; s.remote_hosts = rc.hosts;
     }
     // A radio_config.txt from before "ColorCodes=palette": 30-37 / 90-97 (text) and 40-47 / 100-107 (background) were plain 16-colour
     // codes. They become the palette numbers that look the same; the file is written once so that it carries the marker from now on.
@@ -1257,7 +1261,7 @@ bool save_radio_settings(const RadioSettings& s, std::string* err) {
     {
         const RemoteAppConfig now = read_remote_app();
         if (now.enabled != s.remote_app || now.port != s.remote_port || now.pin != s.remote_pin) {
-            RemoteAppConfig rc{s.remote_app, s.remote_port, s.remote_pin};
+            RemoteAppConfig rc{s.remote_app, s.remote_port, s.remote_pin, s.remote_cli, s.remote_hosts};
             write_remote_app(rc);
         }
     }

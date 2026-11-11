@@ -62,6 +62,31 @@ void OscilloscopeVisualizer::copy_ring_from(OscilloscopeVisualizer& src) {
     ch0_ = a; ch1_ = b; write_ = w;
 }
 
+float OscilloscopeVisualizer::recent_peak(size_t frames) {
+    const size_t n = std::min(frames, static_cast<size_t>(kRingFrames));
+    std::lock_guard<std::mutex> lk(mtx_);
+    float pk = 0.0f;
+    for (size_t i = 0; i < n; ++i) {
+        const size_t idx = (static_cast<size_t>(write_) + kRingFrames - n + i) % kRingFrames;
+        pk = std::max(pk, std::max(std::fabs(ch0_[idx]), std::fabs(ch1_[idx])));
+    }
+    return pk;
+}
+
+void OscilloscopeVisualizer::replace_ring(const float* interleaved_lr, size_t frames) {
+    if (!interleaved_lr || frames == 0) return;
+    if (frames > static_cast<size_t>(kRingFrames)) { interleaved_lr += 2 * (frames - static_cast<size_t>(kRingFrames)); frames = static_cast<size_t>(kRingFrames); }
+    std::lock_guard<std::mutex> lk(mtx_);
+    ch0_.fill(0.0f);
+    ch1_.fill(0.0f);
+    write_ = 0;
+    for (size_t i = 0; i < frames; ++i) {
+        ch0_[write_] = interleaved_lr[2 * i];
+        ch1_[write_] = interleaved_lr[2 * i + 1];
+        write_ = (write_ + 1) % kRingFrames;
+    }
+}
+
 OscilloscopeVisualizer::Measure OscilloscopeVisualizer::measure(const Params& params) {
     const int n = std::clamp(params.trace, 128, kWindow);
     double saa = 0.0, sbb = 0.0, sab = 0.0;

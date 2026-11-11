@@ -1,5 +1,6 @@
 // Radio stations: the station list file, the built-in default stations, and the URL handling for
 // station streams.
+#include "app_dirs.h"
 #include "radio_stations.h"
 #include "string_util.h"
 #include "path_utf8.h"
@@ -105,7 +106,7 @@ static void copy_if_missing(const std::string& from, const std::string& to) {
 static std::string default_file(const char* name) {
     const char* home = std::getenv("HOME");
     if (!home || !*home) home = std::getenv("USERPROFILE");
-    return home && *home ? (fs::path(home) / ".config" / "mousiki" / name).string() : std::string(name);
+    return home && *home ? (muisc::app_dirs::config() / name).string() : std::string(name);
 }
 
 static std::string alias_file_for(const std::string& stations_file) {
@@ -184,7 +185,7 @@ std::vector<Station> load_stations(std::string* source_out) {
     const char* home = std::getenv("HOME");
     if (!home || !*home) home = std::getenv("USERPROFILE");
     if (!g_stations_file.empty()) candidates.push_back(fs::path(g_stations_file));
-    if (home && *home) candidates.push_back(fs::path(home) / ".config" / "mousiki" / "stations.txt");
+    if (home && *home) candidates.push_back(muisc::app_dirs::config() / "stations.txt");
     candidates.push_back(fs::path("stations.txt"));
     for (const auto& c : candidates) {
         std::error_code ec;
@@ -218,7 +219,7 @@ bool append_station_to_file(const Station& st, const std::vector<Station>& all, 
     const char* home = std::getenv("HOME");
     if (!home || !*home) home = std::getenv("USERPROFILE");
     if (!g_stations_file.empty()) candidates.push_back(fs::path(g_stations_file));
-    if (home && *home) candidates.push_back(fs::path(home) / ".config" / "mousiki" / "stations.txt");
+    if (home && *home) candidates.push_back(muisc::app_dirs::config() / "stations.txt");
     candidates.push_back(fs::path("stations.txt"));
     // the file load_stations() used: the first candidate that exists and holds at least one station
     for (const auto& c : candidates) {
@@ -253,7 +254,7 @@ bool save_all_stations(const std::vector<Station>& all, std::string* where, std:
     const char* home = std::getenv("HOME");
     if (!home || !*home) home = std::getenv("USERPROFILE");
     if (!g_stations_file.empty()) candidates.push_back(fs::path(g_stations_file));
-    if (home && *home) candidates.push_back(fs::path(home) / ".config" / "mousiki" / "stations.txt");
+    if (home && *home) candidates.push_back(muisc::app_dirs::config() / "stations.txt");
     candidates.push_back(fs::path("stations.txt"));
     fs::path target = !g_stations_file.empty() || (home && *home) ? candidates.front() : fs::path("stations.txt");
     for (const auto& c : candidates) {
@@ -300,7 +301,7 @@ std::string presets_path() {
     if (!g_presets_file.empty()) return g_presets_file;
     const char* home = std::getenv("HOME");
     if (!home || !*home) home = std::getenv("USERPROFILE");
-    if (home && *home) return (fs::path(home) / ".config" / "mousiki" / "presets.txt").string();
+    if (home && *home) return (muisc::app_dirs::config() / "presets.txt").string();
     return "presets.txt";
 }
 
@@ -343,7 +344,7 @@ std::string station_lists_path() {
     if (!g_lists_file.empty()) return g_lists_file;
     const char* home = std::getenv("HOME");
     if (!home || !*home) home = std::getenv("USERPROFILE");
-    if (home && *home) return (fs::path(home) / ".config" / "mousiki" / "stationlists.txt").string();
+    if (home && *home) return (muisc::app_dirs::config() / "stationlists.txt").string();
     return "stationlists.txt";
 }
 

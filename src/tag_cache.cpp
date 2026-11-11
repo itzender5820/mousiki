@@ -3,6 +3,7 @@
 // One line per file, tab-separated: path, size, mtime, duration, title, artist, album, year. A tab, line break or backslash
 // inside a field is written as \t, \n, \r or \\. The first line names the format; a file with another first line is ignored
 // (read again from scratch), so a later change of the format only costs one sweep.
+#include "app_dirs.h"
 #include "tag_cache.h"
 #include "path_utf8.h"
 #include <cstdio>
@@ -71,7 +72,7 @@ TagStamp tag_stamp(const fs::path& file) {
 fs::path tag_cache_path(bool books) {
     const char* home = std::getenv("HOME");   // (UTF-8 on Windows too, see win_bootstrap_env())
     const fs::path base = home ? path_from_utf8(home) : fs::path(".");
-    return base / ".cache" / "mousiki" / (books ? "tag_cache_books.txt" : "tag_cache.txt");
+    return muisc::app_dirs::cache() / (books ? "tag_cache_books.txt" : "tag_cache.txt");
 }
 
 TagCacheMap tag_cache_load(const fs::path& file) {

@@ -70,7 +70,10 @@ public:
     // Palette picture: `hue` gets indices into palette() (216 colour cube + 24 greys), `level` is 255 everywhere. x0,y0: where the
     // frame sits in the dither pattern (keeps it still between frames).
     // The frame scaled (nearest neighbour) to w x h: shown while the decoder restarts after a resize.
+    // (when the source is at least 1.5 times as large in both directions the pixels are averaged, a plain pick would alias)
     static VideoFrame resample(const VideoFrame& f, int w, int h);
+    // The pixels of a frame averaged down to w x h (a box filter; a size that is not smaller is a plain copy / nearest pick).
+    static VideoFrame downscale(const VideoFrame& f, int w, int h);
     // Retro looks for a frame (in place). fx: 1 scanlines, 2 crt, 3 vhs, 4 glitch, 5 pixel, 6 gradient (0 = nothing). `t` = the audio time (the effects move with it:
     // paused = they stand still). `braille`: the frame becomes dots (every effect is kept mild there: dots are only on or off).
     //   scanlines  the dark gaps between the lines of a tube (2-3 pixel rows per line, a soft beam profile)
@@ -81,7 +84,7 @@ public:
     //              flash of inverted colours; in between a light scanline look
     // Deterministic for the same frame / time (tested); no allocations beyond one copy of the frame.
     // `prev`: the frame shown before this one (the interlace look combs where the two differ; nullptr = none).
-    static void apply_fx(VideoFrame& f, int fx, double t, bool braille = false, const VideoFxGradient* grad = nullptr, const VideoFrame* prev = nullptr);
+    static void apply_fx(VideoFrame& f, int fx, double t, bool braille = false, const VideoFxGradient* grad = nullptr, const VideoFrame* prev = nullptr, int dither = 0, int base = 0);   // dither: 0 auto, else a pattern of video_fx.h; base: the base layer of the tube looks (video_fx.h)
     // The grade: contrast (0..100 %: 0 = as it is, 100 = 2.5 times the distance from the middle grey), colours (0 = greyscale .. 100 = as they
     // are) and chromatic aberration (0 off .. 3 strong: red and blue are pushed apart, more towards the corners).
     static void apply_grade(VideoFrame& f, int contrast, int colors, int chroma, int brightness = 50);   // brightness 0..100: 50 = as it is, lower darker, higher brighter (a gamma curve: black and white stay)
@@ -91,7 +94,7 @@ public:
     static void apply_look(VideoFrame& f, const VideoLook& look, double t, bool braille = false, const VideoFrame* prev = nullptr);
     // The frame that was on screen before the current one (nullptr: none, or another size).
     const VideoFrame* previous_frame() const;
-    static void quantize(const VideoFrame& f, std::vector<uint8_t>& hue, std::vector<uint8_t>& level);
+    static void quantize(const VideoFrame& f, std::vector<uint8_t>& hue, std::vector<uint8_t>& level, int dither = 0);   // (dither: see apply_fx)
     static const std::vector<std::array<uint8_t, 3>>& palette();
     // Braille: `cols` x `rows` cells from a frame that has (cols * 2) x (rows * 4) dots. Each cell: the dot mask (0x2800 + mask) and the
     // mean brightness 0..255 of its dots.
@@ -127,6 +130,17 @@ private:
     bool sharp_ = false, run_sharp_ = false;
     size_t buffer_bytes_ = 32u << 20;   // (guarded by m_)
     double run_from_ = 0.0;
+    // The decoder keeps the LARGEST size asked for (the big overlay after the main screen, or the other way round): a smaller size is
+    // the same decoded frame averaged down (scaled_), so switching between the two needs no restart -- no wait for ffmpeg, no frame that
+    // moves. Only when a much smaller size has been the only one asked for for a long time the decoder is started again at that size.
+    VideoFrame scaled_;                // cur_ averaged down to scaled_w_ x scaled_h_ (valid while scaled_valid_)
+    bool scaled_valid_ = false;
+    std::chrono::steady_clock::time_point oversize_since_{};
+    // After a restart that only changed the size (the picture stays): the frames of the new decoder start a little before the one on
+    // screen and the one that looks most like it (a pixel compare at the smaller of the two sizes) takes its place, so a paused video does not move by a frame.
+    bool match_active_ = false;
+    VideoFrame match_ref_;             // the picture that was on screen (compared with the first frames of the new decoder)
+    double match_pts_ = 0.0;
     int pend_w_ = 0, pend_h_ = 0;      // a new size waiting to stay the same for a moment before the decoder restarts
     std::chrono::steady_clock::time_point pend_since_{};
     std::chrono::steady_clock::time_point restarted_at_{};

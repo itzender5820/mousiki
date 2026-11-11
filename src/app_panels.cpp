@@ -29,6 +29,7 @@
 #include "mic_capture.h"
 #include "process_util.h"
 #include "app_internal.h"
+#include "app_state_cliov.h"
 #include "update_check.h"
 #include "open_url.h"
 #include "app_settings_tables.h"
@@ -223,6 +224,7 @@ void spectro_gradient_from(const Settings& st) {
 }
 VideoFxGradient video_fx_gradient(const Settings& st) {
     VideoFxGradient g;
+    g.sat = std::clamp(st.video_grad_sat, 0, 100);
     const std::string* col[3] = {&st.viz_left_color, &st.viz_center_color, &st.viz_right_color};
     std::string own[3];
     if (st.viz_center_color.empty()) {   // a two colour gradient: the middle is halfway
@@ -535,6 +537,7 @@ void App::meta_panel_info(MetaPanel& m) const {
             const int cur_ch = book_current_chapter();
             std::string chapter = tag(4);
             if (chapter == "-") chapter = path_utf8(current_.path.stem());
+            if (cur_ch >= 0 && chapters_[static_cast<size_t>(cur_ch)].part) chapter = chapters_[static_cast<size_t>(cur_ch)].title;   // (a chapter inside the file: its own title)
             if (cur_ch >= 0) chapter = std::to_string(cur_ch + 1) + "/" + std::to_string(chapters_.size()) + "  " + chapter;
             double total = 0, done = 0; bool complete = false;
             book_totals(elapsed, total, done, complete);
@@ -1314,6 +1317,29 @@ std::vector<std::string> App::build_search_bar(int total_width) const {
         else if (scope == 2) label = "SEARCH ALBUMS";
     }
 
+    if (cs_in_search()) {   // "/cs:" -- the search of the scripts: the matches scroll in the border, ENTER opens them in the script overlay
+        label = "SEARCH SCRIPTS";
+        std::string m;
+        for (int i : cliov_->shown) m += (m.empty() ? "" : ", ") + cliov_->names[static_cast<size_t>(i)];
+        m = std::to_string(cliov_->shown.size()) + (m.empty() ? " matches" : ": " + m);
+        const int room = total_width - 5 - 5 - display_width(label) - 6;
+        if (room > 6) {
+            std::string t = marquee_or_truncate(m, room, static_cast<int>(cliov_->shown.size()) * 1000 + static_cast<int>(search_.buffer.size()), cli_marq_idx_, cli_marq_since_);
+            while (!t.empty() && t.back() == ' ') t.pop_back();
+            label += "  " + t;
+        }
+    }
+    if (cli_in_search()) {   // "/c:" -- the command line; the reply of the last command sits in the border
+        label = "COMMAND LINE";
+        if (!cli_reply_.empty()) {   // a long reply (status ...) scrolls like a long title in the list
+            const int room = total_width - 5 - 5 - display_width(label) - 6;
+            if (room > 6) {
+                std::string m = marquee_or_truncate(cli_reply_, room, cli_reply_serial_, cli_marq_idx_, cli_marq_since_);
+                while (!m.empty() && m.back() == ' ') m.pop_back();
+                label += "  " + m;
+            }
+        }
+    }
     {
         const std::string sl = sleep_->sleep_timer_label();
         if (!sl.empty()) label += "  [" + sl + "]";
@@ -1418,7 +1444,66 @@ std::string App::local_pane_label(int total_width) const {
     return display_width(tiny) <= room ? tiny : truncate_str(tiny, std::max(1, room));
 }
 
+// "/c:" shows the lines typed so far and their replies (the newest at the bottom, like a terminal; the console [t] keeps the whole
+// history); "/cs:" lists the scripts that match the search with their first command. Both take the place of the local list while the
+// search bar is a command line, and the list comes back with ESC.
+std::vector<std::string> App::build_cli_list_panel(int total_width, int height) const {
+    const bool scripts = cs_in_search();
+    const int inner = total_width - 4;
+    const std::string border_ansi = ansi_for(settings_.border_color, false);
+    const std::string border_ansi_bottom = ansi_for(settings_.border_color_bottom, false);
+    const std::string bar = border_ansi + settings_.box_vertical + "\x1b[0m";
+    const std::string list_ansi = ansi_for(settings_.list_color, false) + bg_ansi_for(settings_.list_inactive_bg_color);
+    const std::string cmd_ansi = ansi_for(settings_.list_playing_color) + bg_ansi_for(settings_.list_playing_bg_color);
+    std::vector<std::pair<std::string, int>> lines;   // text, kind: 0 reply, 1 typed line, 2 error, 3 hint
+    std::string footer;
+    if (scripts) {
+        for (int i : cliov_->shown) {
+            const size_t k = static_cast<size_t>(i);
+            std::string first;
+            if (k < cliov_->texts.size()) {
+                std::istringstream in(cliov_->texts[k]);
+                for (std::string l; std::getline(in, l);) { l = cli::trim(l); if (!l.empty() && l[0] != '#') { first = l; break; } }
+            }
+            lines.push_back({cliov_->names[k] + (first.empty() ? std::string() : "   " + first), 0});
+        }
+        if (lines.empty()) lines.push_back({"no script matches (ENTER opens the script overlay: [n] makes a new one)", 3});
+        footer = std::to_string(cliov_->shown.size()) + (cliov_->shown.size() == 1 ? " script" : " scripts");
+    } else {
+        for (const std::string& l : cli_out_) {
+            const int kind = l.compare(0, 2, "> ") == 0 ? 1 : l.find("error:") != std::string::npos ? 2 : 0;
+            const std::vector<std::string> w = wrap_lines(l, std::max(8, inner), 12);
+            for (size_t i = 0; i < w.size(); ++i) lines.push_back({(i && kind != 1 ? "    " : "") + w[i], kind});
+        }
+        if (lines.empty()) {
+            lines.push_back({"type a command: help | status | play <words> | queue <words> | volume 40 | in 45m pause", 3});
+            lines.push_back({"[ENTER] runs it, [UP]/[DOWN] earlier lines, [CTRL+RIGHT] completes, [ESC] leaves", 3});
+        }
+        footer = "[t] console: the whole history";
+    }
+    std::vector<std::string> out;
+    out.push_back(box_top(scripts ? "SCRIPTS" : "COMMAND HISTORY / OUTPUT", total_width, border_ansi));
+    // the command history is bottom-aligned (the newest line is at the bottom); the scripts start at the top
+    const int n = static_cast<int>(lines.size());
+    const int first = scripts ? 0 : std::max(0, n - height);
+    for (int row = 0; row < height; ++row) {
+        const int idx = first + row - (scripts || n >= height ? 0 : height - n);
+        std::string content;
+        std::string ansi = list_ansi;
+        if (idx >= 0 && idx < n) {
+            content = apply_font_map(lines[static_cast<size_t>(idx)].first, settings_.font_map);
+            const int kind = lines[static_cast<size_t>(idx)].second;
+            ansi = kind == 1 ? cmd_ansi : kind == 2 ? std::string("\x1b[31m") : kind == 3 ? ansi_for(settings_.list_color, false) + "\x1b[2m" : list_ansi;
+        }
+        const std::string padded = pad_right(truncate_str(content, inner), inner);
+        out.push_back(bar + " " + ansi + padded + "\x1b[0m " + bar);
+    }
+    out.push_back(box_bottom(total_width, footer, border_ansi_bottom));
+    return out;
+}
+
 std::vector<std::string> App::build_list_panel(int total_width, int height) const {
+    if (cli_in_search() || cs_in_search()) return build_cli_list_panel(total_width, height);
     bool online = (list_source_ == ListSource::Online);
     bool playlists_mode = (list_source_ == ListSource::Playlist);
     bool folders_mode = (list_source_ == ListSource::Folder);

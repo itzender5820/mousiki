@@ -148,6 +148,12 @@ VideoClap=none
 ## Show Clap Loading: what shows while a video loads, in the small field and in the big video overlay: text note ("video: starting ...") | clap (a small clapperboard in the border colours) | none
 VideoChroma=subtle
 ## chromatic aberration of the video's picture (red and blue pushed apart, more towards the corners; works with every effect): off | subtle | medium | strong
+VideoBase=scanlines
+## the structure of the screen under the tube looks (CRT, VHS, Glitch, Quiet Glitch, Phosphor Green / Amber / Green Glow): scanlines (as always) | aperture grille (Trinitron stripes + two damper wires) | shadow mask (round dots) | slot mask | lcd grid | clean (no structure); a track can have its own: Style Option
+VideoDither=interleaved noise
+## the video looks that use the gradient colours (Gradient, Dither Gradient, Neon Edge Gradient, Game Boy gradient): how saturated those colours are, 0 .. 100 (percent, steps of 5; 100 = the colours as they are, lower = paler, 0 = grey of the same brightness; 85 = default); a track can have its own: Style Option
+VideoGradientSaturation=85
+## the pattern of the dots where a look dithers (Game Boy, EGA 16, Dither B/W and Gradient) and where the picture is reduced to the 256 colours of a terminal's picture protocol (e.g. sixel): auto (each look's own) | blue noise | bayer 2x2 | bayer 4x4 | bayer 8x8 | interleaved noise (default) | golden ratio (a track can have its own: Style Option)
 VideoRound=true
 ## Rounded Corners: the corners of the video's picture are cut round like the corners of the UI (a track can have its own: Style Option): true | false
 VideoResolution=standard
@@ -382,6 +388,8 @@ TrackBufferMB=256
 ## 64 - 16384 (default 256) -- a track whose decoded audio is bigger than this many MB (about 10 MB per minute of CD-quality stereo, double at 96 kHz) is not held whole in RAM but in a moving 2-minute window; seeking inside the window is instant, a jump outside it takes a moment. A bigger value = fast seeking in longer tracks, more RAM in use
 RateCap96=true
 ## true , false (default true) -- a track above 96 kHz (e.g. 176.4 / 192 kHz) is brought down to 96 kHz; false plays it at its own rate: more RAM (the decoded audio grows with the rate, see TrackBufferMB) and the audio device must accept the rate. The next track that is loaded uses it
+PauseFade=true
+## true , false (default true) -- pausing and resuming fade the sound over about 8 ms instead of cutting it off at once (no click; music player and audio books)
 AudioDevice=
 ## the sound output of all modes, as the system names it (Settings -> GENERAL -> AUDIO -> Choose Audio Device); empty = the system's default device
 RemoteApp=false
@@ -390,6 +398,10 @@ RemoteAppPort=4747
 ## 1024 - 65535 -- the network port of the remote app (default 4747)
 RemoteAppPin=
 ## 4 - 8 digits -- the PIN the app needs; made when the remote app is switched on (mousiki --remote-info shows it)
+RemoteAppCli=false
+## true , false (default false) -- the remote app's web server also answers /api/cli: a command line of `mousiki --cli` with its reply (Home Assistant, scripts on other computers; needs the PIN, a restricted set: no quit, set, edit, alias, force, clear-queue)
+RemoteAppHosts=
+## names (comma separated, e.g. mousiki.home,nas) the remote app's web server answers to besides IP addresses and localhost; a request with any other Host is refused (DNS rebinding protection). Empty (default): addresses only
 ShareProfiles=false
 ## true , false -- the radio uses the player's oscilloscope and spectrogram settings (its own are kept as a backup and come back when off)
 

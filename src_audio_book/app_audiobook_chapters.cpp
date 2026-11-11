@@ -111,7 +111,11 @@ std::vector<fs::path> App::book_backup_files() const {
     std::vector<fs::path> out;
     std::error_code ec;
     if (book_->dir.empty()) return out;
-    for (const auto& e : fs::directory_iterator(path_from_utf8(book_->dir), ec)) {
+    std::error_code iter_ec;   // (an explicit loop: the range-for's operator++ throws on an I/O error half way)
+    const fs::path book_folder = path_from_utf8(book_->dir);
+    const fs::directory_iterator iter_end;
+    for (fs::directory_iterator it(book_folder, iter_ec); !iter_ec && it != iter_end; it.increment(iter_ec)) {
+        const fs::directory_entry& e = *it;
         const std::string n = path_utf8(e.path().filename());
         const std::string end = kBackupEnding;
         if (n.size() > end.size() && n.compare(n.size() - end.size(), end.size(), end) == 0) out.push_back(e.path());

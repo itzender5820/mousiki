@@ -26,6 +26,7 @@
 #include "mic_capture.h"
 #include "process_util.h"
 #include "app_internal.h"
+#include "app_state_cliov.h"
 #include "update_check.h"
 #include "open_url.h"
 #include "app_settings_tables.h"
@@ -639,6 +640,15 @@ void App::update_live_search_preview() {
     while (!buf.empty() && buf.front() == ' ') buf.erase(buf.begin());
     while (!buf.empty() && buf.back() == ' ') buf.pop_back();
 
+    if (cli_in_search() || cs_in_search()) {   // "c:" is the command line, "cs:" the search of the scripts: the list stays as it was before the search was opened
+        if (cs_in_search()) { cliov_->filter = cli::trim(buf.substr(buf.find(':') + 1)); cliov_refresh(); }
+        list_source_ = pre_search_list_source_;
+        if (audiobook_) folder_view_ = filter_folders(last_folder_query_);
+        else local_view_ = filter_and_rank_local_view(pre_search_local_query_);
+        selected_ = 0;
+        scroll_ = 0;
+        return;
+    }
     if (audiobook_) {   // the audio book player only searches its books (the folders): plain words, an "f:" in front is allowed
         std::string q = buf;
         if (q.size() >= 2 && ascii_lower_str(q.substr(0, 2)) == "f:") q = q.substr(2);

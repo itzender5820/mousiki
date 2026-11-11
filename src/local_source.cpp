@@ -22,7 +22,10 @@ inline std::string path_str(const fs::path& p) { return path_utf8(p); }
 } // namespace
 
 bool LocalSource::is_audio_file(const fs::path& p) {
-    static const std::set<std::string> exts = {".wav", ".mp3", ".opus", ".flac", ".ogg", ".m4a", ".aac", ".webm"};
+    // (.m4b: the audio book format; the others are what ffmpeg decodes and a music collection may hold: Windows Media, AIFF, Monkey's Audio,
+    // WavPack, Ogg audio, Matroska audio, MP2, AC-3, DSD, Musepack)
+    static const std::set<std::string> exts = {".wav", ".mp3", ".opus", ".flac", ".ogg", ".m4a", ".m4b", ".aac", ".webm",
+                                               ".wma", ".aiff", ".aif", ".ape", ".wv", ".oga", ".mka", ".mp2", ".ac3", ".dsf", ".mpc"};
     // fs::path::extension() preserves whatever case is actually stored on
     // disk -- it does not normalize it. On Linux that's rarely an issue
     // since lowercase extensions are close to universal convention there,
@@ -87,7 +90,11 @@ std::vector<LocalTrack> LocalSource::scan(const std::vector<std::string>& custom
 
         size_t before = tracks.size();
         std::map<std::string, bool> creator_dirs;   // folder -> is it the creator's (see kCreatorMarker): its files are not part of the library
-        for (const auto& entry : fs::recursive_directory_iterator(root, fs::directory_options::skip_permission_denied, ec)) {
+        // (An explicit loop: the range-for advances with the throwing operator++, so an I/O error half way through a network share
+        // would have ended the program at startup. increment(ec) stops this root's walk instead and keeps what was found.)
+        const fs::recursive_directory_iterator walk_end;
+        for (fs::recursive_directory_iterator walk(root, fs::directory_options::skip_permission_denied, ec); !ec && walk != walk_end; walk.increment(ec)) {
+            const fs::directory_entry& entry = *walk;
             // is_regular_file() with no error_code argument throws on
             // anything the OS can't stat cleanly -- which, unlike a plain
             // local folder, a OneDrive-backed folder (the common case for

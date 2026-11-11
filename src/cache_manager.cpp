@@ -1,6 +1,7 @@
 // Download cache: names and locates the files of online tracks (YouTube, SoundCloud, Bandcamp) in the
 // download folder, sanitises titles into safe file names, and records finished downloads in the
 // archive.
+#include "app_dirs.h"
 #include "cache_manager.h"
 #include "path_utf8.h"
 #include "utf8_util.h"
@@ -21,7 +22,7 @@ CacheManager::CacheManager() {
     // would re-read those bytes as ANSI, so a user profile with a
     // non-ASCII name produced a garbled base directory.
     fs::path base = home ? path_from_utf8(home) : fs::path(".");
-    cache_dir_ = base / ".cache" / "mousiki";
+    cache_dir_ = muisc::app_dirs::cache();
     download_dir_ = cache_dir_; // until Settings says otherwise (see set_download_dir)
     std::error_code ec;
     fs::create_directories(cache_dir_, ec); // ignore failure, we surface it on first write instead

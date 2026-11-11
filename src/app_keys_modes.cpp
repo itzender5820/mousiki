@@ -13,6 +13,7 @@
 #include "readlyrics_state.h"
 #include "bars_rows.h"
 #include "text_edit.h"
+#include "app_state_cliov.h"
 #include "overlay_common.h"
 #include "remote_server.h"
 #include "remote_control.h"
@@ -71,11 +72,40 @@ namespace muisc {
 // The key handlers of the overlays that used to be inline in App::handle_key (src/app_keys.cpp): one function per mode.
 
 void App::handle_console_key(int key) {
-    // ESC, or the console hotkey again, closes it. TAB changes the pane (logs / status messages), the arrow keys scroll it
-    // (SHIFT: a page), HOME goes to the oldest line, END back to the newest. A read-only view otherwise.
+    // ESC, or the console hotkey again, closes it. TAB changes the pane (logs / status messages / command line), the arrow keys scroll
+    // it (SHIFT: a page), HOME goes to the oldest line, END back to the newest. In the command pane every key is typed (so [t] does
+    // not close it: ESC clears the line first, a second ESC closes), ENTER runs the line, UP / DOWN recall earlier lines.
     const bool arrow = last_key_was_arrow();
+    if (console_pane_ == 2 && console_has_[2]) {
+        if (!arrow && key == 27) {
+            if (!cli_buf_.empty()) { cli_buf_.clear(); cli_caret_ = cli_anchor_ = 0; cli_hist_pos_ = -1; }
+            else mode_ = Mode::Browse;
+        } else if (!arrow && key == 9) {
+            console_pane_ = console_has_[0] ? 0 : 1;
+        } else if (!arrow && (key == '\r' || key == '\n')) {
+            cli_run(cli_buf_);
+            cli_buf_.clear(); cli_caret_ = cli_anchor_ = 0;
+        } else if (arrow && (key == 'A' || key == 'B')) {
+            if (!cli_hist_.empty()) {
+                const int n = static_cast<int>(cli_hist_.size());
+                cli_hist_pos_ = key == 'A' ? (cli_hist_pos_ < 0 ? n - 1 : std::max(0, cli_hist_pos_ - 1))
+                                           : (cli_hist_pos_ < 0 ? -1 : cli_hist_pos_ + 1 >= n ? -1 : cli_hist_pos_ + 1);
+                cli_buf_ = cli_hist_pos_ < 0 ? std::string() : cli_hist_[static_cast<size_t>(cli_hist_pos_)];
+                cli_caret_ = cli_anchor_ = cli_buf_.size();
+            }
+        } else if (key == kKeyCtrlRight) {   // complete (not TAB: that changes the pane)
+            const std::string done = cli_complete(cli_buf_);
+            if (!done.empty()) { cli_buf_ = done; cli_caret_ = cli_anchor_ = cli_buf_.size(); }
+            if (!cli_reply_.empty()) cli_out_.push_back("  " + cli_reply_);
+        } else {
+            edit_focus("console-cli", cli_buf_);
+            if (edit_text_key(cli_buf_, cli_caret_, cli_anchor_, key, 200, &status_line_)) cli_hist_pos_ = -1;
+        }
+        force_redraw_ = true;
+        return;
+    }
     if (!arrow && (key == 27 || key == 't' || key == 'T')) mode_ = Mode::Browse;
-    else if (!arrow && key == 9) console_pane_ ^= 1;
+    else if (!arrow && key == 9) { int p = console_pane_; for (int i = 0; i < 3; ++i) { p = (p + 1) % 3; if (console_has_[p]) break; } console_pane_ = p; }
     else if (!arrow && (key == 'v' || key == 'V')) { ConsoleLog::instance().toggle_level(); status_line_ = ConsoleLog::instance().level() == LogVerbosity::Verbose ? "verbose log: on (this session)" : "verbose log: off"; }
     else if (arrow && (key == 'A' || key == 'B')) {
         const int step = last_key_was_shifted() ? 8 : 1;
@@ -673,6 +703,43 @@ void App::handle_search_key(int key) {
         last_local_query_ = pre_search_local_query_;
         refresh_local_view();
         mode_ = Mode::Browse;
+        return;
+    }
+    if (cli_in_search()) {   // "/c:" -- the search bar is the command line: ENTER runs the line, UP / DOWN recall, ESC (above) leaves
+        if (key == '\r' || key == '\n') {
+            std::string b = search_.buffer;
+            const size_t c = b.find(':');
+            cli_run(b.substr(c + 1));
+            search_.buffer = "c:";
+            edit_caret_ = edit_anchor_ = search_.buffer.size();
+            return;
+        }
+        if (last_key_was_arrow() && (key == 'A' || key == 'B')) {
+            if (!cli_hist_.empty()) {
+                const int n = static_cast<int>(cli_hist_.size());
+                cli_hist_pos_ = key == 'A' ? (cli_hist_pos_ < 0 ? n - 1 : std::max(0, cli_hist_pos_ - 1))
+                                           : (cli_hist_pos_ < 0 ? -1 : cli_hist_pos_ + 1 >= n ? -1 : cli_hist_pos_ + 1);
+                search_.buffer = "c:" + (cli_hist_pos_ < 0 ? std::string() : cli_hist_[static_cast<size_t>(cli_hist_pos_)]);
+                edit_caret_ = edit_anchor_ = search_.buffer.size();
+            }
+            return;
+        }
+        if (key == kKeyCtrlRight) {   // complete the command word / the title (CTRL+RIGHT, not TAB)
+            const std::string done = cli_complete(search_.buffer.substr(search_.buffer.find(':') + 1));
+            if (!done.empty()) { search_.buffer = "c:" + done; edit_caret_ = edit_anchor_ = search_.buffer.size(); force_redraw_ = true; return; }
+            force_redraw_ = true;
+            return;   // (candidates or a "no match" note are in the bar's border; CTRL+RIGHT is not a word jump here)
+        }
+        edit_focus("browse-search", search_.buffer);
+        if (edit_text_key(search_.buffer, edit_caret_, edit_anchor_, key, 120, &status_line_)) { if (!cli_in_search()) update_live_search_preview(); cli_hist_pos_ = -1; }
+        return;
+    }
+    if (cs_in_search() && (key == '\r' || key == '\n')) {   // "/cs:words" -- ENTER opens the script overlay with that search
+        const std::string q = cli::trim(search_.buffer.substr(search_.buffer.find(':') + 1));
+        list_source_ = pre_search_list_source_;
+        last_local_query_ = pre_search_local_query_;
+        refresh_local_view();
+        cliov_open("", q);
         return;
     }
     if (key == '\r' || key == '\n') {

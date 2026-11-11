@@ -36,10 +36,16 @@ void Player::data_callback(ma_device* device, void* output, const void* /*input*
     Player* self = static_cast<Player*>(device->pUserData);
     float* out = static_cast<float*>(output); // interleaved stereo: frame_count * 2 floats
 
-    if (!self || !self->pcm_ || self->paused_.load()) {
+    // Paused: silence. With Pause Fade the level goes down over about 8 ms first (and up again on resume), so the cut does not click.
+    const bool want_paused = self && self->paused_.load();
+    const bool smooth = self && self->pause_fade_.load(std::memory_order_relaxed);
+    float ramp = self ? self->pause_ramp_.load(std::memory_order_relaxed) : 0.0f;
+    if (!self || !self->pcm_ || (want_paused && (!smooth || ramp <= 0.0f))) {
+        if (self) self->pause_ramp_.store(smooth ? 0.0f : 1.0f, std::memory_order_relaxed);
         std::memset(out, 0, static_cast<size_t>(frame_count) * 2 * sizeof(float));
         return;
     }
+    if (!smooth) ramp = 1.0f;
 
     StreamingPcm& pcm = *self->pcm_;
     long long cur = self->cursor_frames_.load();
@@ -138,6 +144,7 @@ void Player::data_callback(ma_device* device, void* output, const void* /*input*
 
     // Windowed: the position only moves on over frames that are actually there (after a seek the decoder needs a
     // moment to get there: that moment is a short silence, not a skipped stretch of the track).
+    const float ramp_step = 1.0f / std::max(8.0f, 0.008f * static_cast<float>(sr_now));   // 8 ms from full to silent
     long long played = 0;
     bool gap = false;
     for (ma_uint32 i = 0; i < frame_count; ++i) {
@@ -171,7 +178,11 @@ void Player::data_callback(ma_device* device, void* output, const void* /*input*
                 l = r = 0.5f * (a + b);
             }
             if (eq_run) self->eq_.process(l, r); // before volume/normalisation: tone shaping on the raw signal
-            const float g = norm_cur * gain;
+            if (smooth) {
+                if (want_paused) ramp = std::max(0.0f, ramp - ramp_step);
+                else if (ramp < 1.0f) ramp = std::min(1.0f, ramp + ramp_step);
+            }
+            const float g = norm_cur * gain * ramp;
             l *= g;
             r *= g;
         }
@@ -181,6 +192,7 @@ void Player::data_callback(ma_device* device, void* output, const void* /*input*
         if (mono_out) mono_out[i] = 0.5f * (l + r);
     }
     self->norm_cur_ = norm_cur;
+    self->pause_ramp_.store(ramp, std::memory_order_relaxed);
 
     // The visualizer wants one channel: feed it the mono mix of what was
     // actually played (the buffer is pre-sized in play(); a callback larger
@@ -267,6 +279,7 @@ bool Player::play(std::shared_ptr<StreamingPcm> pcm, double start_sec, int volum
     gain_.store(volume_pct_.load() / 100.0f);
     finished_.store(false);
     paused_.store(false);
+    pause_ramp_.store(1.0f);
     eq_.reset();       // device isn't running yet: safe to touch audio-thread state
     eq_seen_gen_ = 0;
     eq_sr_ = 0;

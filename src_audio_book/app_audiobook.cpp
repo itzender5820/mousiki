@@ -12,6 +12,7 @@
 #include "picture_formats.h"
 #include "miniz.h"
 #include "book_cue.h"
+#include "book_embedded.h"
 #include "process_util.h"
 #include "console_log.h"
 #include "cover_art.h"   // SizeCache, cover_scaled_rgb()
@@ -221,24 +222,62 @@ void App::book_refresh_view() {
     }
 }
 
-// Fills chapters_ with the audio files of the folder, in natural file name order.
+// Fills chapters_ with the audio files of the folder, in natural file name order. A file that carries chapters itself (an .m4b audio book,
+// an .mp3 with chapter frames) gives one row per chapter, like a book cut into files; chapter_files_ keeps one entry per file.
 void App::book_load_chapters(const std::string& dir) {
     chapters_.clear();
+    chapter_files_.clear();
     for (const auto& t : all_local_tracks_) {
         if (path_utf8(t.path.parent_path()) != dir) continue;
         BookChapter c;
         c.path = t.path;
         c.title = t.title;
-        chapters_.push_back(std::move(c));
+        chapter_files_.push_back(std::move(c));
     }
-    std::stable_sort(chapters_.begin(), chapters_.end(), [](const BookChapter& a, const BookChapter& b) {
+    std::stable_sort(chapter_files_.begin(), chapter_files_.end(), [](const BookChapter& a, const BookChapter& b) {
         return natural_less(path_utf8(a.path.filename()), path_utf8(b.path.filename()));
     });
+    int probed = 0;
+    for (const BookChapter& f : chapter_files_) {
+        std::vector<EmbeddedChapter> emb;
+        if (probed < 12 && embedded_chapters_worth_asking(f.path, chapter_files_.size())) { ++probed; emb = read_embedded_chapters(f.path); }
+        if (emb.empty()) { chapters_.push_back(f); continue; }
+        for (const EmbeddedChapter& e : emb) {
+            BookChapter c;
+            c.path = f.path;
+            c.title = e.title;
+            c.start = e.start;
+            c.end = e.end;
+            c.part = true;
+            chapters_.push_back(std::move(c));
+        }
+    }
+}
+
+// The row of the file `file` (its name with the ending) that holds second `sec`: for a file with embedded chapters the chapter it is in
+// (before the first: the first, after the last: the last), else the file's row. sec < 0: the first row of the file. -1: not in the book.
+int App::book_chapter_at(const std::string& file, double sec) const {
+    int first = -1, best = -1;
+    for (size_t i = 0; i < chapters_.size(); ++i) {
+        const BookChapter& c = chapters_[i];
+        if (path_utf8(c.path.filename()) != file) continue;
+        if (!c.part) return static_cast<int>(i);
+        if (first < 0) first = static_cast<int>(i);
+        if (sec >= c.start) best = static_cast<int>(i);   // (the rows of a file are in time order: the last one that starts at or before sec)
+    }
+    if (first < 0) return -1;
+    return sec < 0.0 || best < 0 ? first : best;
 }
 
 int App::book_current_chapter() const {
     if (!has_track_ || !current_.is_local) return -1;
-    for (size_t i = 0; i < chapters_.size(); ++i) if (chapters_[i].path == current_.path) return static_cast<int>(i);
+    for (size_t i = 0; i < chapters_.size(); ++i) {
+        if (chapters_[i].path != current_.path) continue;
+        if (!chapters_[i].part) return static_cast<int>(i);
+        // a file with embedded chapters: the one the playing position is in (a chapter that was just asked for counts at once)
+        const double at = book_->seek_pending && path_utf8(current_.path) == book_->seek_file ? book_->seek_sec : player_.poll_elapsed();
+        return book_chapter_at(path_utf8(current_.path.filename()), at);
+    }
     return -1;
 }
 
@@ -285,12 +324,58 @@ void App::book_fit_scroll() {
 void App::book_play_chapter(int idx) {
     if (idx < 0 || idx >= static_cast<int>(chapters_.size())) return;
     const BookChapter& c = chapters_[static_cast<size_t>(idx)];
+    qst_.selected = idx;
+    book_fit_scroll();
+    if (c.part && has_track_ && current_.is_local && current_.path == c.path && !load_in_progress_.load()) {
+        // the file of this chapter plays already: go to the chapter's start, nothing is loaded again
+        player_.seek_relative(c.start - player_.poll_elapsed());
+        if (player_.is_paused()) player_.resume();
+        book_->prev_elapsed = c.start;
+        book_->part_row = idx;
+        book_->part_el = c.start;
+        return;
+    }
     LocalTrack t;
     t.title = c.title;
     t.path = c.path;
-    qst_.selected = idx;
-    book_fit_scroll();
+    if (c.part) {   // the track is the whole file: it carries the file's title, the chapter is in the chapter pane
+        for (const BookChapter& f : chapter_files_) if (f.path == c.path) { t.title = f.title; break; }
+    }
     start_local_track(t);
+    if (c.part && c.start > 0.5) {   // once the file is loaded, on to the chapter
+        book_->seek_pending = true;
+        book_->seek_file = path_utf8(c.path);
+        book_->seek_sec = c.start;
+        book_->seek_at = std::chrono::steady_clock::now();
+    }
+    book_->part_row = idx;
+    book_->part_el = c.start;
+}
+
+// The playing position crossed from one embedded chapter into the next (not a seek: the position only moved on): the play mode of an
+// audio book decides -- on (nothing to do), repeat the chapter, stop after it.
+void App::book_part_tick() {
+    if (!has_track_ || !current_.is_local || book_->seek_pending || load_in_progress_.load()) { book_->part_row = -1; return; }
+    const int cur = book_current_chapter();
+    if (cur < 0 || !chapters_[static_cast<size_t>(cur)].part) { book_->part_row = -1; return; }
+    const double el = player_.poll_elapsed();
+    const int was = book_->part_row;
+    book_->part_row = cur;
+    const double prev = book_->part_el;
+    book_->part_el = el;
+    if (was < 0 || was == cur || was >= static_cast<int>(chapters_.size()) || cur != was + 1) return;
+    if (chapters_[static_cast<size_t>(was)].path != chapters_[static_cast<size_t>(cur)].path) return;
+    if (el < prev || el - prev > 3.0) return;   // (a jump -- a seek, a bookmark -- not the chapter coming to its end)
+    if (settings_.play_mode == 1) {   // repeat the chapter
+        const double to = chapters_[static_cast<size_t>(was)].start;
+        player_.seek_relative(to - el);
+        book_->prev_elapsed = to;
+        book_->part_row = was;
+        book_->part_el = to;
+    } else if (settings_.play_mode == 3) {   // stop after the chapter: paused at the start of the next one
+        player_.pause();
+        status_line_ = "stopped after the chapter (play mode: stop after the chapter)";
+    }
 }
 
 // n / b: the next / previous chapter of the book that plays (or is open).
@@ -1142,7 +1227,15 @@ std::vector<std::string> App::build_chapter_panel(int total_width, int height) c
             const BookChapter& c = chapters_[static_cast<size_t>(idx)];
             std::string dur;
             std::string name = c.title;
-            {
+            if (c.part) {   // a chapter inside a file: its own title and length (the last one, with no end known, has the file's duration less its start)
+                double len = c.end > c.start ? c.end - c.start : 0.0;
+                if (len <= 0.0) {
+                    std::lock_guard<std::mutex> lk(row_meta_mutex_);
+                    auto it = row_meta_cache_.find(path_utf8(c.path));
+                    if (it != row_meta_cache_.end() && it->second.duration_sec > c.start) len = it->second.duration_sec - c.start;
+                }
+                if (len > 0.0) dur = clock_text(len);
+            } else {
                 std::lock_guard<std::mutex> lk(row_meta_mutex_);
                 auto it = row_meta_cache_.find(path_utf8(c.path));
                 if (it != row_meta_cache_.end()) {
@@ -1238,9 +1331,9 @@ BookTagVals App::book_read_tags(const fs::path& file) {
 }
 
 void App::book_ov_load(int chapter) {
-    if (chapters_.empty()) return;
-    book_->ov_chapter = std::clamp(chapter, 0, static_cast<int>(chapters_.size()) - 1);
-    book_->ov_val = book_read_tags(chapters_[static_cast<size_t>(book_->ov_chapter)].path);
+    if (chapter_files_.empty()) return;
+    book_->ov_chapter = std::clamp(chapter, 0, static_cast<int>(chapter_files_.size()) - 1);
+    book_->ov_val = book_read_tags(chapter_files_[static_cast<size_t>(book_->ov_chapter)].path);
     book_->ov_orig = book_->ov_val;
     book_->ov_editing = false;
 }
@@ -1279,11 +1372,17 @@ void App::exclude_book_files(std::vector<LocalTrack>& tracks) const {
 // whose length is not known yet is skipped and `complete` is false.
 void App::book_totals(double elapsed, double& total, double& done, bool& complete) const {
     total = done = 0.0;
-    complete = !chapters_.empty();
-    const int cur = book_current_chapter();
+    complete = !chapter_files_.empty();
+    int cur = book_current_chapter();   // a row of the chapter pane; the totals run over the files: the file of that row
+    if (cur >= 0 && cur < static_cast<int>(chapters_.size())) {
+        int f = -1;
+        for (size_t i = 0; i < chapter_files_.size(); ++i)
+            if (chapter_files_[i].path == chapters_[static_cast<size_t>(cur)].path) { f = static_cast<int>(i); break; }
+        cur = f;
+    } else cur = -1;
     std::lock_guard<std::mutex> lk(row_meta_mutex_);
-    for (size_t i = 0; i < chapters_.size(); ++i) {
-        auto it = row_meta_cache_.find(path_utf8(chapters_[i].path));
+    for (size_t i = 0; i < chapter_files_.size(); ++i) {
+        auto it = row_meta_cache_.find(path_utf8(chapter_files_[i].path));
         const double d = it != row_meta_cache_.end() && it->second.duration_sec > 0 ? it->second.duration_sec : 0.0;
         if (d <= 0) { complete = false; if (static_cast<int>(i) != cur) continue; }
         total += d;
@@ -1295,9 +1394,12 @@ void App::book_totals(double elapsed, double& total, double& done, bool& complet
 bool App::book_ov_dirty() const { return book_->ov_val != book_->ov_orig; }
 
 void App::book_tags_open() {
-    if (chapters_.empty()) { status_line_ = "open a book first (ENTER on a book), then SHIFT+m edits the tags of its chapters"; return; }
-    int ch = qst_.focus ? qst_.selected : book_current_chapter();
-    if (ch < 0) ch = qst_.selected;
+    if (chapter_files_.empty()) { status_line_ = "open a book first (ENTER on a book), then SHIFT+m edits the tags of its chapters"; return; }
+    int row = qst_.focus ? qst_.selected : book_current_chapter();
+    if (row < 0) row = qst_.selected;
+    int ch = 0;   // the tag editor works on files: the row of the chapter pane (a part of a file: that file) -> the index among the files
+    if (row >= 0 && row < static_cast<int>(chapters_.size()))
+        for (size_t i = 0; i < chapter_files_.size(); ++i) if (chapter_files_[i].path == chapters_[static_cast<size_t>(row)].path) { ch = static_cast<int>(i); break; }
     book_->ov_kind = BookOv::Tags;
     book_ov_load(ch);
     book_->ov_row = 0;
@@ -1314,7 +1416,7 @@ void App::book_tags_open() {
 // 0 the file names carry no chapter number, 1 every one starts with it ("01 Title"), 2 every one ends with it ("Title 01")
 int App::book_numbering() const {
     std::vector<std::string> stems;
-    for (const BookChapter& c : chapters_) stems.push_back(path_utf8(c.path.stem()));
+    for (const BookChapter& c : chapter_files_) stems.push_back(path_utf8(c.path.stem()));
     return detect_numbering(stems);
 }
 
@@ -1323,25 +1425,25 @@ int App::book_numbering() const {
 // time (it stays, or, when it is at the end of every name, it is moved to the front).
 std::vector<std::pair<fs::path, fs::path>> App::book_rename_plan(bool whole_book) const {
     std::vector<std::pair<fs::path, fs::path>> plan;
-    if (chapters_.empty() || book_->ov_val[0] == book_->ov_orig[0]) return plan;
+    if (chapter_files_.empty() || book_->ov_val[0] == book_->ov_orig[0]) return plan;
     const int kind = book_numbering();
     std::string typed = clean_file_stem(book_->ov_val[0]);
     typed = kind == 1 ? strip_front_number(typed) : kind == 2 ? strip_end_number(typed) : typed;
     if (typed.empty()) typed = clean_file_stem(book_->ov_val[0]);
     if (typed.empty()) return plan;
     auto target = [&](const fs::path& f, const std::string& name) { return f.parent_path() / path_from_utf8(name + path_utf8(f.extension())); };
-    const size_t digits = std::max<size_t>(2, std::to_string(chapters_.size()).size());
+    const size_t digits = std::max<size_t>(2, std::to_string(chapter_files_.size()).size());
     auto padded = [&](size_t n) { std::string t = std::to_string(n); t.insert(0, digits - std::min(digits, t.size()), '0'); return t; };
     if (whole_book) {   // every file: the number of its place, then the new name
-        for (size_t i = 0; i < chapters_.size(); ++i) plan.emplace_back(chapters_[i].path, target(chapters_[i].path, padded(i + 1) + " " + typed));
+        for (size_t i = 0; i < chapter_files_.size(); ++i) plan.emplace_back(chapter_files_[i].path, target(chapter_files_[i].path, padded(i + 1) + " " + typed));
         return plan;
     }
-    for (size_t i = 0; i < chapters_.size(); ++i) {
-        const std::string own = path_utf8(chapters_[i].path.stem());
+    for (size_t i = 0; i < chapter_files_.size(); ++i) {
+        const std::string own = path_utf8(chapter_files_[i].path.stem());
         const bool is_this = static_cast<int>(i) == book_->ov_chapter;
         const std::string num = kind == 1 ? front_number(own) : kind == 2 ? end_number(own) : (is_this ? padded(i + 1) : std::string());
-        if (is_this) plan.emplace_back(chapters_[i].path, target(chapters_[i].path, num + " " + typed));
-        else if (kind == 2) plan.emplace_back(chapters_[i].path, target(chapters_[i].path, num + " " + strip_end_number(own)));   // the numbers at the end go to the front
+        if (is_this) plan.emplace_back(chapter_files_[i].path, target(chapter_files_[i].path, num + " " + typed));
+        else if (kind == 2) plan.emplace_back(chapter_files_[i].path, target(chapter_files_[i].path, num + " " + strip_end_number(own)));   // the numbers at the end go to the front
     }
     return plan;
 }
@@ -1353,7 +1455,7 @@ void App::book_ov_save(bool whole_book) {
     if (book_->job.active) { book_->ov_status = "still saving ..."; return; }
     BookTagJob job;
     auto changed = [&](int i) { return book_->ov_val[static_cast<size_t>(i)] != book_->ov_orig[static_cast<size_t>(i)]; };
-    for (size_t i = 0; i < chapters_.size(); ++i) {
+    for (size_t i = 0; i < chapter_files_.size(); ++i) {
         const bool is_this = static_cast<int>(i) == book_->ov_chapter;
         if (!whole_book && !is_this) continue;
         std::array<std::pair<bool, std::string>, 7> c;
@@ -1364,10 +1466,10 @@ void App::book_ov_save(bool whole_book) {
             c[static_cast<size_t>(r)] = {want, book_->ov_val[static_cast<size_t>(r)]};
             any = any || want;
         }
-        if (any) job.todo.emplace_back(chapters_[i].path, c);
+        if (any) job.todo.emplace_back(chapter_files_[i].path, c);
     }
-    if (!chapters_.empty()) {
-        const fs::path dir = chapters_[static_cast<size_t>(book_->ov_chapter)].path.parent_path();
+    if (!chapter_files_.empty()) {
+        const fs::path dir = chapter_files_[static_cast<size_t>(book_->ov_chapter)].path.parent_path();
         job.cue_file = BookCue::path_for(dir);
         if (changed(3)) job.cue_set.emplace_back("REM NARRATOR", book_->ov_val[3]);
         if (changed(5)) {
@@ -1447,7 +1549,8 @@ void App::book_finish_job(BookTagJob& job) {
         return;
     }
     for (const auto& r : rn) {
-        for (auto& c : chapters_) if (c.path == r.first) { c.path = r.second; c.title = path_utf8(r.second.stem()); }   // every reference follows the new name
+        for (auto& c : chapter_files_) if (c.path == r.first) { c.path = r.second; c.title = path_utf8(r.second.stem()); }   // every reference follows the new name
+        for (auto& c : chapters_) if (c.path == r.first) { c.path = r.second; if (!c.part) c.title = path_utf8(r.second.stem()); }    // (the rows: a part keeps its own title)
         if (path_utf8(current_.path) == path_utf8(r.first)) current_.path = r.second;
     }
     job.renamed = static_cast<int>(rn.size());
@@ -1517,6 +1620,7 @@ void App::book_poll() {
             book_->prev_elapsed = book_->seek_sec;
         } else if (std::chrono::steady_clock::now() - book_->seek_at > std::chrono::seconds(20)) book_->seek_pending = false;
     }
+    book_part_tick();
     book_notes_follow();
     book_automark_tick(false);
     if (book_->cut.active) { book_cut_step(); return; }
@@ -1642,13 +1746,13 @@ std::vector<std::string> App::build_book_tags_panel(int panel_w) const {
     std::vector<std::string> lines;
     lines.push_back(box_top("Book tags", W, border));
     const std::string plain_ink = ansi_for(settings_.list_color, false) + bg_ansi_for(settings_.list_inactive_bg_color);
-    const std::string head = chapters_.empty() ? std::string() :
-        "Chapter " + std::to_string(book_->ov_chapter + 1) + " of " + std::to_string(chapters_.size()) + "   " + path_utf8(chapters_[static_cast<size_t>(book_->ov_chapter)].path.filename());
+    const std::string head = chapter_files_.empty() ? std::string() :
+        "Chapter " + std::to_string(book_->ov_chapter + 1) + " of " + std::to_string(chapter_files_.size()) + "   " + path_utf8(chapter_files_[static_cast<size_t>(book_->ov_chapter)].path.filename());
     lines.push_back(framed(legend_sgr(settings_) + pad_right(truncate_str(head, inner), inner)));
     lines.push_back(framed(pad_right("", inner)));
     const int label_w = 18;
     // The file name row edits the name only: the ending (.mp3 ...) is shown after it and cannot be changed.
-    const std::string ext0 = chapters_.empty() ? std::string() : path_utf8(chapters_[static_cast<size_t>(book_->ov_chapter)].path.extension());
+    const std::string ext0 = chapter_files_.empty() ? std::string() : path_utf8(chapter_files_[static_cast<size_t>(book_->ov_chapter)].path.extension());
     const int val_w_full = std::max(8, inner - label_w - 2);
     for (int i = 0; i < kBookTagCount; ++i) {
         const bool hov = i == book_->ov_row;
@@ -1693,7 +1797,7 @@ std::vector<std::string> App::build_book_tags_panel(int panel_w) const {
             note = std::string("The chapter number is put in FRONT of every file name (\"") + ex(0) + "\", \"" + ex(1) + "\" ...) so renaming titles can never jumble the track order when the folder is sorted by name." +
                    (at_end ? " The numbers at the end of the old names are removed." : "") + "   [y] rename all   [n] back";
         else
-            note = "Your files end in their chapter number (\"" + path_utf8(chapters_[0].path.stem()) + "\"). It is moved to the FRONT of every name (\"" + ex(0) + "\" ...) so renaming titles can never jumble the track order when the folder is sorted by name.   [y] rename the folder's files   [n] back";
+            note = "Your files end in their chapter number (\"" + path_utf8(chapter_files_[0].path.stem()) + "\"). It is moved to the FRONT of every name (\"" + ex(0) + "\" ...) so renaming titles can never jumble the track order when the folder is sorted by name.   [y] rename the folder's files   [n] back";
     } else if (book_->ov_confirm) note = "Unsaved changes: [y] save this chapter  [n] discard  [ESC] keep editing";
     else if (note.empty() && book_->ov_val[0] != book_->ov_orig[0]) note = "[a] renames the whole book (\"01 " + truncate_str(clean_file_stem(book_->ov_val[0]), 22) + "\", \"02 ...\"); [s] renames this chapter and puts its chapter number in front of the name";
     else if (note.empty() && book_ov_dirty()) note = "unsaved changes";

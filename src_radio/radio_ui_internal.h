@@ -412,6 +412,11 @@ std::vector<LegendGroup> stations_legend_groups(const StationsOverlay& so);
 std::vector<std::string> build_stations_overlay(const Style& s, const UiModel& m, const RadioStatus& st, int W, int rows);
 std::string fmt_clock_len(double sec);
 std::vector<std::string> build_history_menu(const Style& s, const UiModel& m, int W, int rows);
+// The command line of the radio (radio_ui_cli.cpp): the STATIONS pane while the SEARCH box holds "c:" / "cs:", the console overlay, the
+// script overlay. The pane rows are `rows` strings of exactly `inner` columns; `title` / `foot` go on the box's borders.
+std::vector<std::string> cli_pane_rows(const Style& s, const UiModel& m, int inner, int rows, std::string& title, std::string& foot);
+std::vector<std::string> build_console(const Style& s, const UiModel& m, int W, int rows);
+std::vector<std::string> build_cliov(const Style& s, const UiModel& m, int W, int rows);
 std::vector<std::string> build_theme_picker(const RadioSettings& c, const SettingsModel& sm, int W, int rows);
 std::vector<std::string> build_theme_io(const RadioSettings& c, const SettingsModel& sm, int W, int rows);
 std::vector<std::string> build_settings_impl(const RadioSettings& c, const SettingsModel& sm, int W, int rows, const SettingsModel* cr);

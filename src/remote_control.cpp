@@ -25,6 +25,9 @@
 #include "settings.h"
 #include "version.h"
 #include "path_utf8.h"
+#include "cli_core.h"
+#include <map>
+#include <thread>
 
 namespace muisc::remote {
 
@@ -67,6 +70,7 @@ bool write_atomic(const fs::path& target, const std::string& text) {
     return true;
 }
 
+int g_client_serial = 0;
 Clock::time_point g_last_running{};
 Clock::time_point g_last_poll{};
 Clock::time_point g_last_status{};
@@ -97,7 +101,8 @@ void start(const char* mode) {
     fs::create_directories(dir(), ec);
     // commands left over from an earlier run must not fire now
     for (fs::directory_iterator it(dir(), ec), end; !ec && it != end; it.increment(ec)) {
-        if (it->path().extension() == ".cmd") { std::error_code e2; fs::remove(it->path(), e2); }
+        const std::string fn = path_utf8(it->path().filename());
+        if (it->path().extension() == ".cmd" || fn.rfind("reply-", 0) == 0) { std::error_code e2; fs::remove(it->path(), e2); }
     }
     write_running(mode);
     g_last_poll = g_last_status = Clock::time_point{};
@@ -115,6 +120,20 @@ void stop() {
 void tick(const char* mode) {
     if (!g_started) return;
     if (Clock::now() - g_last_running >= std::chrono::seconds(2)) write_running(mode);
+}
+
+namespace {
+bool id_ok(const std::string& id) {
+    if (id.empty() || id.size() > 48) return false;
+    for (char c : id) if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_')) return false;
+    return true;
+}
+}  // namespace
+
+void reply(const std::string& id, bool ok, const std::string& text) {
+    if (id.compare(0, 4, "net-") == 0) { net::deliver_reply(id, ok, text); return; }   // an HTTP request waits for it
+    if (!g_started || !id_ok(id)) return;
+    write_atomic(dir() / ("reply-" + id + ".txt"), std::string(ok ? "ok\n" : "error\n") + text + (text.empty() || text.back() == '\n' ? "" : "\n"));
 }
 
 std::vector<Command> poll() {
@@ -141,8 +160,21 @@ std::vector<Command> poll() {
         std::error_code e2;
         fs::remove(p, e2);
         if (++taken > 16) continue;   // a flood is dropped, not queued
-        if (line.size() > 40) continue;
         while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+        if (line.rfind("cli ", 0) == 0 && line.size() <= 700) {   // "cli <id or -> <the command line>": text, answered through a reply file
+            std::istringstream cs(line.substr(4));
+            Command t;
+            t.name = "cli";
+            cs >> t.id;
+            std::getline(cs, t.arg);
+            while (!t.arg.empty() && t.arg.front() == ' ') t.arg.erase(t.arg.begin());
+            for (char& ch : t.arg) if (static_cast<unsigned char>(ch) < 32) ch = ' ';
+            if (t.id == "-") t.id.clear();
+            if (!t.id.empty() && !id_ok(t.id)) t.id.clear();
+            if (!t.arg.empty()) out.push_back(t);
+            continue;
+        }
+        if (line.size() > 40) continue;
         std::istringstream ss(line);
         Command c;
         ss >> c.name >> c.arg;
@@ -180,7 +212,7 @@ void publish_status(const std::vector<std::pair<std::string, std::string>>& kv) 
 bool is_client_call(int argc, char** argv) {
     if (argc < 2) return false;
     const std::string a = argv[1];
-    return a == "--cmd" || a == "--status" || a == "--remote-help" || a == "--remote-info" || a == "--help" || a == "-h" ||
+    return a == "--cmd" || a == "--cli" || a == "--query" || a == "--run" || a == "--scripts" || a == "--status" || a == "--remote-help" || a == "--remote-info" || a == "--help" || a == "-h" ||
            a == "--version" || a == "-v";
 }
 
@@ -191,7 +223,14 @@ void usage(std::ostream& o) {
          "  mousiki --cmd <command> [value]     e.g.  mousiki --cmd next      mousiki --cmd volume 60      mousiki --cmd seek +10\n"
          "  mousiki --cmd --help                this list (also: mousiki --cmd help, mousiki --remote-help)\n"
          "  mousiki --status                    prints what is playing (state, title, artist, position, volume, mode ...)\n"
-         "  mousiki --remote-info               the address and PIN of the remote app (Settings -> GENERAL -> REMOTE / UPDATES -> Remote App)\n\n"
+         "  mousiki --remote-info               the address and PIN of the remote app (Settings -> GENERAL -> CLI / REMOTE / UPDATES -> Remote App)\n"
+         "\nCommand lines (text commands, chains, scripts; the same as the CLI inside Mousiki: /c: in the search bar, [t] console):\n"
+         "  mousiki --cmd play \"beta tune\"       any name that is no numeric command below is sent as a command line\n"
+         "  mousiki --cli \"volume 30; next\"      a chain (commands separated by ;)\n"
+         "  mousiki --query get volume          like --cli, but waits for the answer and prints it (exit code 0 ok, 3 error, 4 no answer; --timeout <s>)\n"
+         "  mousiki --run night                 runs the script night.cli of the cli folder (<config folder>/cli/);  mousiki --scripts lists them\n"
+         "  mousiki --status --json | --format \"{artist} - {title}\" | volume     the status as JSON / a template / one value\n"
+         "  A command that cannot be undone (quit, clear-queue) is refused from outside unless written  force quit.\n\n"
          "Commands:\n"
          "  play-pause  play  pause  stop       toggle / start / pause (radio: timeshift pause) / stop\n"
          "  next  prev  shuffle                 next / previous track or station, shuffle next (radio: a random station);\n"
@@ -220,7 +259,8 @@ void general_help(std::ostream& o) {
     o << "Mousiki Plus v" << MOUSIKI_VERSION << " -- terminal music (-video), radio and audio book player\n\n"
          "  mousiki                    start (the player, or the radio when Start Mode is radio)\n"
          "  mousiki --cmd <command>    control a running Mousiki (mousiki --cmd --help lists the commands)\n"
-         "  mousiki --status           what is playing in the running Mousiki\n"
+         "  mousiki --status           what is playing in the running Mousiki (--json, --format, or one key)\n"
+         "  mousiki --query <line>     a command line for the running Mousiki, with its answer (--cli: without; --run <script>)\n"
          "  mousiki --remote-info      address and PIN of the remote app (phone)\n"
          "  mousiki --version          the version\n"
          "  mousiki --help             this text\n\n"
@@ -231,7 +271,7 @@ void general_help(std::ostream& o) {
 void remote_info(std::ostream& o) {
     const RemoteAppConfig rc = read_remote_app();
     if (!rc.enabled) {
-        o << "The remote app is off. Switch it on in Settings -> GENERAL -> REMOTE / UPDATES -> Remote App (player or radio).\n";
+        o << "The remote app is off. Switch it on in Settings -> GENERAL -> CLI / REMOTE / UPDATES -> Remote App (player or radio).\n";
         return;
     }
     const std::string ip = net::lan_address();
@@ -268,12 +308,111 @@ int client_main(int argc, char** argv) {
         }
     }
 
+    if (a1 == "--scripts") {   // the scripts of the command line (no running program needed)
+        for (const std::string& n : cli::script_names()) std::cout << n << "\n";
+        return 0;
+    }
     if (a1 == "--status") {
         if (!alive) { std::cerr << "Mousiki is not running.\n"; return 1; }
         std::ifstream f(status_file());
-        if (!f) { std::cout << "mode=" << mode << "\nstate=unknown\n"; return 0; }
-        std::cout << f.rdbuf();
+        std::map<std::string, std::string> kv;
+        if (!f) kv = {{"mode", mode}, {"state", "unknown"}};
+        for (std::string l; f && std::getline(f, l);) { const size_t eq = l.find('='); if (eq != std::string::npos) kv[l.substr(0, eq)] = l.substr(eq + 1); }
+        std::string fmt, want;   // --status --json | --status --format "{artist} - {title}" | --status <key>
+        for (int i = 2; i < argc; ++i) {
+            const std::string a = argv[i];
+            if (a == "--json") want = "json";
+            else if (a == "--format" && i + 1 < argc) { want = "format"; fmt = argv[++i]; }
+            else if (a[0] != '-') want = "key:" + a;
+        }
+        if (want == "json") {
+            static const char* const kNum[] = {"position_sec", "duration_sec", "volume", "queue_len"};
+            std::cout << "{";
+            bool first = true;
+            for (const auto& [k, v] : kv) {
+                bool num = false;
+                for (const char* n : kNum) if (k == n) num = !v.empty() && v.find_first_not_of("0123456789.-") == std::string::npos;
+                std::string e;
+                for (char ch : v) { if (ch == '"' || ch == '\\') { e += '\\'; e += ch; } else if (static_cast<unsigned char>(ch) < 32) e += ' '; else e += ch; }
+                std::cout << (first ? "" : ", ") << "\"" << k << "\": " << (num ? e : "\"" + e + "\"");
+                first = false;
+            }
+            std::cout << "}\n";
+        } else if (want == "format") {
+            std::string out;
+            for (size_t i = 0; i < fmt.size(); ++i) {
+                const size_t close = fmt[i] == '{' ? fmt.find('}', i) : std::string::npos;
+                if (close == std::string::npos) { out += fmt[i]; continue; }
+                const auto it = kv.find(fmt.substr(i + 1, close - i - 1));
+                out += it == kv.end() ? "" : it->second;
+                i = close;
+            }
+            std::cout << out << "\n";
+        } else if (want.rfind("key:", 0) == 0) {
+            const auto it = kv.find(want.substr(4));
+            if (it == kv.end()) return 2;
+            std::cout << it->second << "\n";
+        } else for (const auto& [k, v] : kv) std::cout << k << "=" << v << "\n";
         return 0;
+    }
+    // --cli / --query / --run: a command line (text) for the running program; --query (or --wait) waits for the answer
+    {
+        std::vector<std::string> words;
+        bool wait = false;
+        double timeout = 5.0;
+        bool as_cli = a1 == "--cli" || a1 == "--query" || a1 == "--run";
+        if (a1 == "--query") wait = true;
+        for (int i = 2; i < argc; ++i) {
+            const std::string a = argv[i];
+            if (a == "--wait") wait = true;
+            else if (a == "--timeout" && i + 1 < argc) { timeout = std::clamp(std::atof(argv[++i]), 0.5, 600.0); wait = true; }
+            else words.push_back(a);
+        }
+        if (a1 == "--cmd") {   // a command with a number is the old file command; anything else is a command line, as with --cli
+            if (!words.empty() && !known(words[0])) as_cli = true;                       // a name that is no numeric command: a command line (the program decides)
+            else if (!words.empty() && words[0] == "play" && words.size() >= 2 && !arg_ok(words[1])) as_cli = true;   // play <words>
+            // (a known command with a bad value is refused here as before: exit code 2)
+        }
+        if (as_cli) {
+            if (words.empty()) { std::cerr << "mousiki: " << a1 << " needs a command, e.g.  mousiki --query status   mousiki --cli \"volume 30; next\"\n"; return 2; }
+            std::string line;
+            if (a1 == "--run") line = "run " + words[0];
+            else if (words.size() == 1) line = words[0];
+            else for (size_t i = 0; i < words.size(); ++i) {
+                const bool q = words[i].find_first_of(" ;\t") != std::string::npos;
+                line += (i ? " " : "") + (q ? "\"" + words[i] + "\"" : words[i]);
+            }
+            if (line.size() > 600) { std::cerr << "mousiki: the command line is too long (600 characters; put it in a script and use --run)\n"; return 2; }
+            if (!alive) { std::cerr << "Mousiki is not running.\n"; return 1; }
+            const long long ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+            int& serial2 = g_client_serial;
+            char idb[64];
+            const int sn = serial2++ % 10000;
+            std::snprintf(idb, sizeof idb, "%013lld-%lld-%d", ms, static_cast<long long>(MOUSIKI_GETPID()), sn);
+            const std::string id = idb;
+            char name[96];
+            std::snprintf(name, sizeof name, "%013lld-%08lld-%04d.cmd", ms, static_cast<long long>(MOUSIKI_GETPID()), sn);
+            if (!write_atomic(dir() / name, "cli " + (wait ? id : std::string("-")) + " " + line + "\n")) { std::cerr << "mousiki: cannot write to " << path_utf8(dir()) << "\n"; return 1; }
+            if (!wait) return 0;
+            const fs::path rp = dir() / ("reply-" + id + ".txt");
+            const auto until = Clock::now() + std::chrono::milliseconds(static_cast<long long>(timeout * 1000));
+            while (Clock::now() < until) {
+                std::ifstream rf(rp);
+                if (rf) {
+                    std::string first, rest, l;
+                    std::getline(rf, first);
+                    while (std::getline(rf, l)) rest += l + "\n";
+                    rf.close();
+                    std::error_code e3;
+                    fs::remove(rp, e3);
+                    (first == "ok" ? std::cout : std::cerr) << rest;
+                    return first == "ok" ? 0 : 3;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(40));
+            }
+            std::cerr << "mousiki: no answer within " << timeout << " s (the command may still run)\n";
+            return 4;
+        }
     }
 
     // --cmd <name> [arg]
@@ -286,7 +425,7 @@ int client_main(int argc, char** argv) {
     if (!alive) { std::cerr << "Mousiki is not running.\n"; return 1; }
 
     const long long ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-    static int serial = 0;   // two commands in the same millisecond must not share a name
+    int& serial = g_client_serial;   // two commands in the same millisecond must not share a name (and keep their order)
     char name[64];
     std::snprintf(name, sizeof name, "%013lld-%08lld-%04d.cmd", ms, static_cast<long long>(MOUSIKI_GETPID()), serial++ % 10000);
     if (!write_atomic(dir() / name, c.name + (c.arg.empty() ? "" : " " + c.arg) + "\n")) {

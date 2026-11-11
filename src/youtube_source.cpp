@@ -7,6 +7,28 @@
 
 namespace muisc {
 
+bool valid_video_id(const std::string& id) {
+    if (id.size() < 6 || id.size() > 32) return false;   // (YouTube's are 11 characters)
+    for (unsigned char c : id)
+        if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' || c == '-')) return false;
+    return true;
+}
+
+bool valid_track_url(const std::string& url) {
+    if (url.size() > 2048 || (url.compare(0, 7, "http://") != 0 && url.compare(0, 8, "https://") != 0)) return false;
+    for (unsigned char c : url) if (c <= 32 || c == 127) return false;   // no spaces / control characters
+    return true;
+}
+
+// One download of the best audio into <stem>.<ext>: the address goes last, after `--` (so it can never be read as an option).
+static ProcResult yt_dlp_download(const std::vector<std::string>& options, const std::string& address) {
+    std::vector<std::string> argv = {"yt-dlp"};
+    argv.insert(argv.end(), options.begin(), options.end());
+    argv.push_back("--");
+    argv.push_back(address);
+    return run_capture(argv, /*merge_stderr=*/true);
+}
+
 // yt-dlp --print "%(title)s\t%(artist,uploader)s" "ytsearch1:QUERY"
 // gives us a title before we commit to a deterministic cache filename.
 static bool probe_title(const std::string& query, std::string& id, std::string& title, std::string& artist) {
@@ -55,11 +77,14 @@ std::optional<SongResult> YoutubeSource::resolve(const std::string& query, std::
         return result;
     }
 
+    if (!valid_video_id(id)) {
+        if (error_out) *error_out = "yt-dlp returned something that is no video id";
+        return std::nullopt;
+    }
     const std::string url = "https://www.youtube.com/watch?v=" + id;
-    ProcResult r = run_capture({"yt-dlp", "-4", "--no-warnings",
-                                "--extractor-args", "youtube:player_client=android;player_skip=webpage,configs,js",
-                                "-x", "-f", "bestaudio/best", "--audio-format", "opus", "--audio-quality", "0",
-                                "-o", path_utf8(cached.parent_path() / cached.stem()) + ".%(ext)s", url}, /*merge_stderr=*/true);
+    ProcResult r = yt_dlp_download({"-4", "--no-warnings", "--extractor-args", "youtube:player_client=android;player_skip=webpage,configs,js",
+                                    "-x", "-f", "bestaudio/best", "--audio-format", "opus", "--audio-quality", "0",
+                                    "-o", path_utf8(cached.parent_path() / cached.stem()) + ".%(ext)s"}, url);
 
     if (!cache_.is_cached(key, "opus")) {
         if (error_out) *error_out = "yt-dlp download failed:\n" + r.out;
@@ -75,6 +100,10 @@ std::optional<SongResult> YoutubeSource::resolve(const std::string& query, std::
 std::optional<SongResult> YoutubeSource::resolve_by_id(const std::string& video_id, const std::string& title,
                                                          const std::string& artist, std::string* error_out) {
     if (video_id.find("://") != std::string::npos) {
+        if (!valid_track_url(video_id)) {   // (http / https only, no spaces: never something yt-dlp could read as an option)
+            if (error_out) *error_out = "not a track address";
+            return std::nullopt;
+        }
         // SoundCloud / Bandcamp: the id is the track's page URL. The audio is kept as the site delivers it (MP3, Opus,
         // AAC ...) -- no second lossy conversion -- so the cached file has whatever extension that is.
         static const char* const kExts[] = {"opus", "mp3", "m4a", "aac", "ogg", "flac", "wav", "webm"};
@@ -84,8 +113,8 @@ std::optional<SongResult> YoutubeSource::resolve_by_id(const std::string& video_
         };
         if (auto hit = find_cached()) return SongResult{title, artist, *hit, true};
         const fs::path stem = cache_.path_for(title, "opus");
-        ProcResult r = run_capture({"yt-dlp", "--no-warnings", "-x", "-f", "bestaudio/best",
-                                    "-o", path_utf8(stem.parent_path() / stem.stem()) + ".%(ext)s", video_id}, /*merge_stderr=*/true);
+        ProcResult r = yt_dlp_download({"--no-warnings", "-x", "-f", "bestaudio/best",
+                                       "-o", path_utf8(stem.parent_path() / stem.stem()) + ".%(ext)s"}, video_id);
         if (auto got = find_cached()) return SongResult{title, artist, *got, false};
         if (error_out) *error_out = "yt-dlp download failed:\n" + r.out;
         return std::nullopt;
@@ -97,11 +126,14 @@ std::optional<SongResult> YoutubeSource::resolve_by_id(const std::string& video_
         return result;
     }
 
+    if (!valid_video_id(video_id)) {
+        if (error_out) *error_out = "not a video id: " + video_id.substr(0, 40);
+        return std::nullopt;
+    }
     const std::string url = "https://www.youtube.com/watch?v=" + video_id;
-    ProcResult r = run_capture({"yt-dlp", "-4", "--no-warnings",
-                                "--extractor-args", "youtube:player_client=android;player_skip=webpage,configs,js",
-                                "-x", "-f", "bestaudio/best", "--audio-format", "opus", "--audio-quality", "0",
-                                "-o", path_utf8(cached.parent_path() / cached.stem()) + ".%(ext)s", url}, /*merge_stderr=*/true);
+    ProcResult r = yt_dlp_download({"-4", "--no-warnings", "--extractor-args", "youtube:player_client=android;player_skip=webpage,configs,js",
+                                    "-x", "-f", "bestaudio/best", "--audio-format", "opus", "--audio-quality", "0",
+                                    "-o", path_utf8(cached.parent_path() / cached.stem()) + ".%(ext)s"}, url);
 
     if (!cache_.is_cached(key, "opus")) {
         if (error_out) *error_out = "yt-dlp download failed:\n" + r.out;

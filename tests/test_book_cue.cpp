@@ -51,6 +51,7 @@ TEST(book_cue_set_get_and_remove) {
     CHECK_EQ(r.get("REM PUBLISHER"), std::string());
     CHECK(r.save(f));
     CHECK(slurp(f).find("PUBLISHER") == std::string::npos);
+    CHECK(!fs::exists(fs::path(f).concat(".tmp")));   // saved through a temp file that was renamed over the cue
     std::error_code ec;
     fs::remove_all(d, ec);
 }

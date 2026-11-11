@@ -803,6 +803,11 @@ std::vector<std::string> build_lists(const Style& s, const UiModel& m, const Rad
     if (m.search_lists) pane_label = "STATION LISTS (ENTER: show the stations)";
     else if (!m.active_list.empty()) pane_label = "STATIONS (LIST: " + utf8_take(m.active_list, 24) + " - ESC: all)";
     else pane_label = std::string("STATIONS (") + (m.sort_az ? "sort: A-Z" : "sort: list order") + ")";   // SHIFT+t
+    // "c:" / "cs:" in the SEARCH box: the pane shows the command history with its replies / the scripts that match (radio_ui_cli.cpp)
+    const bool cli_pane = search_is_cli(m.search) || search_is_cs(m.search);
+    std::string cli_foot;
+    std::vector<std::string> cli_rows;
+    if (cli_pane) cli_rows = cli_pane_rows(s, m, left_w - 4, list_rows, pane_label, cli_foot);
     left.push_back(box_top(s, left_w, pane_label, s.border));
     const int inner = left_w - 4;
     // "NNN| name | genre | tail": number, separators and the 10-column tail are fixed, name/genre share the rest.
@@ -818,6 +823,7 @@ std::vector<std::string> build_lists(const Style& s, const UiModel& m, const Rad
     const int lcursor = std::clamp(m.lcursor, 0, std::max(0, lvis_n - 1));
     const int lfirst = follow_scroll(scroll_id(2), lcursor, list_rows, lvis_n);
     for (int r = 0; r < list_rows; ++r) {
+        if (cli_pane) { left.push_back(box_line(s, cli_rows[static_cast<size_t>(r)], s.border)); continue; }
         if (m.search_lists) {   // "p:" -- the STATIONS pane lists the saved station lists instead
             const int li = lfirst + r;
             if (li >= lvis_n) {
@@ -858,7 +864,7 @@ std::vector<std::string> build_lists(const Style& s, const UiModel& m, const Rad
     }
     if (m.search_focus || vis_n == 0 || m.search_lists) m.marquee_row = -1;   // nothing hovered: the next hover restarts the scroll
     const int hidden = m.search_lists ? std::max(0, lvis_n - (lfirst + list_rows)) : std::max(0, vis_n - (first + list_rows));
-    left.push_back(box_bottom(s, left_w, hidden > 0 ? "( " + std::to_string(hidden) + " more )" : "", s.border_bottom));
+    left.push_back(box_bottom(s, left_w, cli_pane ? cli_foot : hidden > 0 ? "( " + std::to_string(hidden) + " more )" : "", s.border_bottom));
 
     // PRESETS (16 keys), filled row by row; as many columns as the box height needs (4 rows -> 4 columns).
     std::vector<std::string> right;

@@ -1,5 +1,6 @@
 // Settings: reads and writes config.txt, converts colour names to terminal codes, and holds the
 // defaults and the key bindings of the program.
+#include "app_dirs.h"
 #include "settings.h"
 #include "utf8_util.h"
 #include "string_util.h"
@@ -110,12 +111,13 @@ RGB ansi256_to_rgb(int idx) {
 
 // The config files are written to "<name>.tmp" first and then renamed over the real one: a crash or a power cut in the middle
 // of a save leaves the old file, never a cut-off one. (When the rename fails -- a file system without it -- it is written in place.)
-bool write_text_atomic(const fs::path& p, const std::string& text) {
+bool write_text_atomic(const fs::path& p, const std::string& text, bool binary) {
     fs::path tmp = p;
     tmp += ".tmp";
     std::error_code ec;
+    const std::ios::openmode mode = binary ? (std::ios::trunc | std::ios::binary) : std::ios::trunc;
     {
-        std::ofstream out(tmp, std::ios::trunc);
+        std::ofstream out(tmp, mode);
         if (!out.is_open()) return false;
         out << text;
         out.flush();
@@ -124,7 +126,7 @@ bool write_text_atomic(const fs::path& p, const std::string& text) {
     fs::rename(tmp, p, ec);
     if (!ec) return true;
     fs::remove(tmp, ec);
-    std::ofstream direct(p, std::ios::trunc);
+    std::ofstream direct(p, mode);
     if (!direct.is_open()) return false;
     direct << text;
     return direct.good();
@@ -607,7 +609,7 @@ fs::path config_path() {
     // would re-read those bytes as ANSI, so a user profile with a
     // non-ASCII name produced a garbled base directory.
     fs::path base = home ? path_from_utf8(home) : fs::path(".");
-    return base / ".config" / "mousiki" / "config.txt";
+    return muisc::app_dirs::config() / "config.txt";
 }
 
 // Legacy path for migration
@@ -618,7 +620,7 @@ static fs::path legacy_settings_path() {
     // would re-read those bytes as ANSI, so a user profile with a
     // non-ASCII name produced a garbled base directory.
     fs::path base = home ? path_from_utf8(home) : fs::path(".");
-    return base / ".config" / "mousiki" / "settings.txt";
+    return muisc::app_dirs::config() / "settings.txt";
 }
 
 // =====================================================================
@@ -913,6 +915,7 @@ const SimpleSetting kSimpleSettings[] = {
     SIMPLE_PERCENT("VideoContrast", "video_contrast", video_contrast, false, "\n## 0 .. 100 (percent, steps of 5) -- more contrast for the video's picture (0 = as it is)\n"),
     SIMPLE_PERCENT("VideoBrightness", "video_brightness", video_brightness, true, "\n## 0 .. 100 (percent, steps of 5) -- the brightness of the video's picture (50 = as it is, lower = darker, higher = brighter; a track can have its own: Style Option)\n"),
     SIMPLE_PERCENT("VideoColors", "video_colors", video_colors, false, "\n## 0 .. 100 (percent, steps of 5) -- the video's colours (0 = greyscale, 100 = as they are)\n"),
+    SIMPLE_PERCENT("VideoGradientSaturation", nullptr, video_grad_sat, false, "\n## 0 .. 100 (percent, steps of 5) -- the video looks that use the gradient colours (Gradient, Dither Gradient, Neon Edge Gradient, the Game Boy gradient looks): how saturated those colours are (100 = the colours as they are, lower = paler, 0 = grey of the same brightness; 85 = default); a track can have its own: Style Option\n"),
     SIMPLE_QUOTED("UpperLeftCorner", "upper_left_corner", box_upper_left, ";\n"),
     SIMPLE_QUOTED("UpperRightCorner", "upper_right_corner", box_upper_right, ";\n"),
     SIMPLE_QUOTED("BottomLeftCorner", "bottom_left_corner", box_lower_left, ";\n"),
@@ -946,6 +949,60 @@ const SimpleSetting* find_simple_setting(const std::string& key) {
     return nullptr;
 }
 }  // namespace
+
+namespace {
+bool cli_setting_allowed(const SimpleSetting& e) {
+    if (!(e.flag || e.num) || e.str || e.colour || e.quoted) return false;
+    const std::string k = e.key;
+    for (const char* bad : {"Remote", "Pin", "Port", "Password", "Token", "Path", "Folder", "UseMode", "Hotkey", "Key", "Update", "Proxy"})
+        if (k.find(bad) != std::string::npos) return false;
+    return true;
+}
+const SimpleSetting* cli_find_setting(const std::string& key) {
+    auto lower = [](std::string x) { for (char& c : x) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); return x; };
+    const std::string lk = lower(key);
+    for (const SimpleSetting& e : kSimpleSettings) if (cli_setting_allowed(e) && lower(e.key) == lk) return &e;
+    return nullptr;
+}
+}  // namespace
+
+std::vector<std::string> cli_setting_names() {
+    std::vector<std::string> out;
+    for (const SimpleSetting& e : kSimpleSettings) if (cli_setting_allowed(e)) out.push_back(e.key);
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+std::string cli_setting_get(const Settings& cs, const std::string& key, bool* found) {
+    const SimpleSetting* e = cli_find_setting(key);
+    if (found) *found = e != nullptr;
+    if (!e) return "";
+    Settings& s = const_cast<Settings&>(cs);   // (the accessors give a reference; the value is only read)
+    return e->flag ? (e->flag(s) ? "true" : "false") : std::to_string(e->num(s));
+}
+
+std::string cli_setting_set(Settings& s, const std::string& key, const std::string& value, std::string* canonical_key) {
+    const SimpleSetting* e = cli_find_setting(key);
+    if (!e) return "unknown setting \"" + key + "\" (settings lists the ones that can be set)";
+    if (canonical_key) *canonical_key = e->key;
+    std::string v = trim_ws(value);
+    if (e->flag) {
+        std::string l;
+        for (char c : v) l += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (l == "toggle") { e->flag(s) = !e->flag(s); return ""; }
+        if (l == "true" || l == "on" || l == "yes" || l == "1") { e->flag(s) = true; return ""; }
+        if (l == "false" || l == "off" || l == "no" || l == "0") { e->flag(s) = false; return ""; }
+        return std::string(e->key) + " is on / off (or toggle)";
+    }
+    char* end = nullptr;
+    const long n = std::strtol(v.c_str(), &end, 10);
+    if (v.empty() || end == v.c_str() || *end) return std::string(e->key) + " needs a number from " + std::to_string(e->lo) + " to " + std::to_string(e->hi);
+    if (n < e->lo || n > e->hi) return std::string(e->key) + " is " + std::to_string(e->lo) + " .. " + std::to_string(e->hi);
+    int val = static_cast<int>(n);
+    if (e->step) val = std::clamp((val + e->step / 2) / e->step * e->step, e->lo, e->hi);
+    e->num(s) = val;
+    return "";
+}
 
 static bool apply_simple_setting(Settings& s, const std::string& key, const std::string& value) {
     const SimpleSetting* e = find_simple_setting(key);
@@ -1078,7 +1135,7 @@ static Settings load_from_config(const fs::path& path) {
             {"ElimentDisk", "Eliment_disk"}, {"ElimentDummyButtons", "Element_dummy_buttons"},
             {"ElimentQueue", "Eliment_queue"}, {"ElimentWaveForm", "Eliment_waveform_progress_bar"},
             {"ElimentLyrics", "Eliment_lyrics"}, {"VizLyricsField", "Eliment_vizfield"}, {"LyricsPlaceholderBall", "Eliment_lyrics_placeholder_ball"},
-            {"LyricViz", "lyric_viz"}, {"NoLyricsViz", "nolyrics_viz"}, {"VizDefault", "viz_default"}, {"NoVideoViz", "novideo_viz"}, {"VideoMode", "video_mode"}, {"VideoLyrics", "video_lyrics"}, {"VideoAuto", "video_auto"}, {"VideoCover", "video_cover"}, {"VideoSize", "video_size"}, {"VideoFx", "video_fx"}, {"VideoResolution", "video_resolution"}, {"VideoContrast", "video_contrast"}, {"VideoColors", "video_colors"}, {"VideoChroma", "video_chroma"}, {"VideoRound", "video_round"}, {"VideoBrightness", "video_brightness"}, {"VideoClap", "video_clap"}, {"CoverChroma", "cover_chroma"}, {"VideoBuffer", "video_buffer"}, {"VideoMp3", "video_mp3"}, {"VideoFullLyrics", "video_full_lyrics"}, {"VideoDownHeight", "video_down_height"}, {"VideoView", "video_view"},
+            {"LyricViz", "lyric_viz"}, {"NoLyricsViz", "nolyrics_viz"}, {"VizDefault", "viz_default"}, {"NoVideoViz", "novideo_viz"}, {"VideoMode", "video_mode"}, {"VideoLyrics", "video_lyrics"}, {"VideoAuto", "video_auto"}, {"VideoCover", "video_cover"}, {"VideoSize", "video_size"}, {"VideoFx", "video_fx"}, {"VideoResolution", "video_resolution"}, {"VideoContrast", "video_contrast"}, {"VideoColors", "video_colors"}, {"VideoChroma", "video_chroma"}, {"VideoDither", "video_dither"}, {"VideoBase", "video_base"}, {"VideoRound", "video_round"}, {"VideoBrightness", "video_brightness"}, {"VideoClap", "video_clap"}, {"CoverChroma", "cover_chroma"}, {"VideoBuffer", "video_buffer"}, {"VideoMp3", "video_mp3"}, {"VideoFullLyrics", "video_full_lyrics"}, {"VideoDownHeight", "video_down_height"}, {"VideoView", "video_view"},
             {"Visualizer", "Eliment_visualizer"},
             {"VisualizerFluidity", "visualizer_fluidity"}, {"DiskRotationSpeed", "disk_rotation_speed"},
             {"VisualizerDegradationSpeed", "visualizer_degradation_speed"}, {"VisualizerViscosity", "visualizer_viscosity"},
@@ -1231,6 +1288,12 @@ static Settings load_from_config(const fs::path& path) {
             s.reduce_motion_paused = !(v == "false" || v == "0" || v == "off" || v == "no");
             continue;
         }
+        if (key == "PauseFade") {
+            std::string v = trim_ws(unquote(value));
+            for (char& ch : v) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+            s.pause_fade = !(v == "false" || v == "0" || v == "off" || v == "no");
+            continue;
+        }
         if (key == "RateCap96") {
             std::string v = trim_ws(unquote(value));
             for (char& ch : v) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
@@ -1247,6 +1310,13 @@ static Settings load_from_config(const fs::path& path) {
             std::string v = trim_ws(unquote(value));
             for (char& ch : v) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
             s.remote_app = (v == "true" || v == "1" || v == "on" || v == "yes");
+            continue;
+        }
+        if (key == "RemoteAppHosts") { s.remote_hosts = trim_ws(unquote(value)); continue; }
+        if (key == "RemoteAppCli") {
+            std::string v = trim_ws(unquote(value));
+            for (char& ch : v) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+            s.remote_cli = (v == "true" || v == "1" || v == "on" || v == "yes");
             continue;
         }
         if (key == "RemoteAppPort") { const int pt = muisc::atoi_safe(trim_ws(unquote(value)).c_str()); if (pt >= 1024 && pt <= 65535) s.remote_port = pt; continue; }
@@ -1291,6 +1361,8 @@ static Settings load_from_config(const fs::path& path) {
             continue;
         }
         if (key == "video_round") { const std::string v = ascii_lower_str(trim_ws(unquote(value))); if (v == "true" || v == "yes" || v == "1" || v == "on") s.video_round = true; else if (v == "false" || v == "no" || v == "0" || v == "off") s.video_round = false; continue; }   // (anything else leaves the default)
+        if (key == "video_base") { s.video_base = base_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
+        if (key == "video_dither") { s.video_dither = dither_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
         if (key == "video_chroma") { s.video_chroma = chroma_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
         if (key == "cover_chroma") { s.cover_chroma = chroma_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
         if (key == "video_resolution") { s.video_res = video_res_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
@@ -1766,6 +1838,11 @@ RemoteAppConfig read_remote_app() {
             const int pt = muisc::atoi_safe(v.c_str());
             if (pt >= 1024 && pt <= 65535) rc.port = pt;
         } else if (k == "RemoteAppPin") rc.pin = v;
+        else if (k == "RemoteAppHosts") rc.hosts = v;
+        else if (k == "RemoteAppCli") {
+            for (char& ch : v) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+            rc.cli = v == "true" || v == "1" || v == "on" || v == "yes";
+        }
     }
     return rc;
 }
@@ -2086,9 +2163,12 @@ static void write_settings(std::ostream& out, const Settings& s) {
     write_simple_setting(out, s, "VideoContrast");
     write_simple_setting(out, s, "VideoBrightness");
     write_simple_setting(out, s, "VideoColors");
+    write_simple_setting(out, s, "VideoGradientSaturation");
     out << "VideoRound=" << tf(s.video_round) << "\n## Rounded Corners: the corners of the video's picture are cut round like the corners of the UI (a track can have its own: Style Option): true | false\n";
     out << "VideoClap=" << (s.video_clap == 2 ? "none" : s.video_clap == 0 ? "text note" : "clap") << "\n## Show Clap Loading: what shows while a video loads, in the small field and in the big video overlay: text note (\"video: starting ...\") | clap (a small clapperboard in the border colours) | none\n";
     out << "VideoChroma=" << chroma_name(s.video_chroma) << "\n## chromatic aberration of the video's picture (red and blue pushed apart, more towards the corners; works with every effect): off | subtle | medium | strong\n";
+    out << "VideoBase=" << base_name(s.video_base) << "\n## the structure of the screen under the tube looks (CRT, VHS, Glitch, Quiet Glitch, Phosphor Green / Amber / Green Glow): scanlines (default) | aperture grille | shadow mask | slot mask | lcd grid | clean (a track can have its own: Style Option)\n";
+    out << "VideoDither=" << dither_name(s.video_dither) << "\n## the pattern of the dots where a look dithers (Game Boy, EGA 16, Dither B/W and Gradient) and where the picture is reduced to the 256 colours of a terminal's picture protocol (e.g. sixel): auto (each look's own) | blue noise | bayer 2x2 | bayer 4x4 | bayer 8x8 | interleaved noise (default) | golden ratio (a track can have its own: Style Option)\n";
     out << "VideoResolution=" << video_res_name(s.video_res) << "\n";
     out << "## the sharpness of the video's picture: standard (up to 640 px wide, Sixel 480; the soft look) | high (1280 px, Sixel 720; Kitty in true colour) | full (1920 px, Sixel 960; Kitty in true colour). Wider pictures need more of the terminal and the processor\n";
     out << "VideoBuffer=" << s.video_buffer << "\n";
@@ -2174,7 +2254,10 @@ write_simple_setting(out, s, "VideoLayout");
     out << "FullScreen=" << (s.full_screen ? "true" : "false") << "\n## true , false -- ask the terminal for full screen when Mousiki starts (overrides TerminalCols / TerminalRows while on)\n";
     out << "ReduceMotionWhenPaused=" << (s.reduce_motion_paused ? "true" : "false") << "\n## true , false (default true) -- paused (or with nothing playing) and untouched for a few seconds, the screen is redrawn only about 10 times a second (the disk turns slower, the sphere is calmer) -- much less CPU and terminal traffic (a screen that has not changed for 2 seconds is looked at only 4 times a second); any key brings the full frame rate back at once.\n";
     out << "RateCap96=" << (s.rate_cap_96 ? "true" : "false") << "\n## true , false (default true) -- a track above 96 kHz (e.g. 176.4 / 192 kHz) is brought down to 96 kHz; false plays it at its own rate: more RAM (the decoded audio grows with the rate, see TrackBufferMB) and the audio device must accept the rate. The next track that is loaded uses it\n";
+    out << "PauseFade=" << (s.pause_fade ? "true" : "false") << "\n## true , false (default true) -- pausing and resuming fade the sound over about 8 ms instead of cutting it off at once (no click; music player and audio books)\n";
     out << "MediaKeys=" << (s.media_keys ? "true" : "false") << "\n## true , false -- the system's media controls: Windows shows Mousiki in the media pop-up and its media keys work, Linux shows it in the desktop's media widgets (MPRIS; playerctl works), macOS shows Now Playing and handles the media keys (read at the next start; player and radio)\n";
+    out << "RemoteAppCli=" << (s.remote_cli ? "true" : "false") << "\n## true , false (default false) -- the remote app's web server also answers /api/cli: a command line of `mousiki --cli` with its reply (Home Assistant, scripts on other computers; needs the PIN, a restricted set: no quit, set, edit, alias, force, clear-queue)\n";
+    out << "RemoteAppHosts=" << s.remote_hosts << "\n## names (comma separated, e.g. mousiki.home,nas) the remote app's web server answers to besides IP addresses and localhost; a request with any other Host is refused (DNS rebinding protection). Empty (default): addresses only\n";
     out << "PlaybackMode=" << play_mode_name(s.play_mode) << "\n## list , loop , shuffle , stop , queue then stop\n"
         << "## shuffle never reorders the queue: n and the end of a track play its next title, only # picks a random one of it\n";
     write_simple_setting(out, s, "VisualizerDegradationSpeed");

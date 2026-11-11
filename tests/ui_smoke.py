@@ -572,8 +572,8 @@ def paging_and_translit_row(binary, root, scripts):
                     return line
             return ""
         # GENERAL tab: Playback, Start Mode, Display queue, MODES ON/OFF AND ORDER (6 rows), AUDIO (5 rows),
-        # TERMINAL: Black Background, then Use Terminal Settings (row 15, after AUDIO with Choose Audio Device)
-        for _ in range(15):
+        # TERMINAL: Black Background, then Use Terminal Settings (row 16, after AUDIO with Choose Audio Device and Pause Fade)
+        for _ in range(16):
             sess.send(b"\x1b[B", 0.1)
         check("Use Terminal Settings" in find("Use Terminal Settings") and "false" in find("Use Terminal Settings"),
               "use terminal settings: the row exists and is false by default")
@@ -604,8 +604,8 @@ def paging_and_translit_row(binary, root, scripts):
         check("32" in find("Terminal Size") and "28" not in find("Terminal Size"), "terminal size: ENTER on the button sets it back to 120 x 32")
         sess.send(b"\x1b[B", 0.2)
         check("Full Screen" in find("Full Screen") and "false" in find("Full Screen"), "full screen: the row exists and is off by default")
-        for _ in range(11):
-            sess.send(b"\x1b[B", 0.1)   # down to Translit. Kanji (past Reduce Motion When Paused and REMOTE / UPDATES; TEXT AND TRANSLITERATION is last)
+        for _ in range(12):
+            sess.send(b"\x1b[B", 0.1)   # down to Translit. Kanji (past Reduce Motion When Paused and CLI / REMOTE / UPDATES, with CLI Scripts; TEXT AND TRANSLITERATION is last)
         def row():
             return find("Translit. Kanji")
         def settle(word, limit=8.0):   # a slow machine draws the row a moment after the key: wait for it (up to `limit` s)
@@ -1731,7 +1731,7 @@ def disk_field_setting(binary, root, scripts):
         t = sess.text()
         check("DISK / COVER OPTIONS" in t and "Eliment Disk / Cover" in t and "Album Cover" in t, "disk field: the tab has DISK and DISK / COVER OPTIONS")
         check(t.index("Disk Speed") < t.index("DISK / COVER OPTIONS") < t.index("Album Cover"), "disk field: Disk Speed is under DISK, Album Cover under DISK / COVER OPTIONS")
-        for _ in range(18):                                 # to Eliment Disk (after Lyrics/Viz Default: When No Lyrics Show, When No Video Shows, Lyrics Alignment, Lyrics Animation, Include Lyrics, Video Size, Effect, Contrast, Colors, Chromatic Aberration, Rounded Corners, Show Clap Loading, Disk/Cover/Thumbnail, Resolution, Buffer, yt-dlp mp3 from mp4)
+        for _ in range(21):                                 # to Eliment Disk (after Lyrics/Viz Default: When No Lyrics Show, When No Video Shows, Lyrics Alignment, Lyrics Animation, Include Lyrics, Video Size, Effect, Contrast, Colors, Chromatic Aberration, Dither Pattern, Base Layer, Rounded Corners, Show Clap Loading, Disk/Cover/Thumbnail, Resolution, Buffer, yt-dlp mp3 from mp4)
             sess.send(b"\x1b[B", 0.2)
         sess.pump(0.6)
         check("Show Disk / Cover" in sess.text(), "disk field: the row says Show Disk / Cover")
@@ -2100,7 +2100,8 @@ def video_overlays(binary, root, scripts):
         check("Include Lyrics" in t and "Disk/Cover/Thumbnail" in t and "Manually Couple Local Files" in t and "Quick Search/Down. YT" in t and "General Fetch Videos Menu" in t and "Delete Current Video" in t and "Refetch this Video" in t, "video overlay: the rows are listed")
         check("Video Size" in t and "Effect" in t and "Full Screen Video" in t, "video overlay: picture size, effect and full screen video rows are listed")
         check("Contrast" in t and "Colors" in t and "Chromatic Aberration" in t and "Resolution" in t and "Buffer" in t, "video overlay: contrast, colors, chromatic aberration, resolution and buffer rows")
-        for _ in range(16):   # (to "Manually Couple Local Files", under "Full Screen Video"; Show Clap Loading is the row before it)
+        check("Dither Pattern" in t and "< interleaved noise >" in t, "video overlay: the Dither Pattern row is listed, interleaved noise by default")
+        for _ in range(19):   # (to "Manually Couple Local Files", under "Full Screen Video"; Show Clap Loading is the row before it)
             sess.send(b"\x1b[B", 0.2)
         sess.wait_for(lambda t: "> Manually Couple Local Files" in t, 15.0)   # (the keys may be late on a busy machine: not before the row is reached)
         sess.send("\r", 1.0)
@@ -2135,6 +2136,225 @@ def video_overlays(binary, root, scripts):
         check("Video Option" in sess.text(), "meta editor: the [ Video Option ] button is there")
         sess.send(b"\x1b", 0.8)
         check(sess.alive(), "video overlays: the program is still running")
+    finally:
+        sess.kill()
+
+
+def video_fx_picker(binary, root, scripts):
+    """ENTER on the Effect row of the VIDEO overlay opens the effect list (three columns); arrows move, ENTER chooses, ESC leaves it.
+    The Base Layer row cycles and is written to config.txt."""
+    home = os.path.join(root, "fxp_home")
+    lib = os.path.join(root, "music")
+    cfg = os.path.join(home, ".config", "mousiki", "config.txt")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    with open(cfg, "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nHKeyVideo=Y\nWizardSeen=true\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "Alpha Song" in sess.text():
+                break
+        sess.send("Y", 1.0)
+        for _ in range(12):
+            if "> Effect" in sess.text():
+                break
+            sess.send(b"\x1b[B", 0.25)
+        check("> Effect" in sess.text() and "< Off >" in sess.text(), "effect picker: the Effect row is reached, Off at first")
+        sess.send("\r", 1.0)
+        t = sess.text()
+        check("VIDEO EFFECT" in t and "Phosphor Green Glow" in t and "Night Vision" in t and "Game Boy High-Res Gradient" in t and "CGA" in t and "C64" in t, "effect picker: ENTER lists all the effects, the new ones too: %r" % t[:0])
+        rows = [l for l in t.splitlines() if "Off" in l and "Phosphor Amber" in l and "Game Boy Low-Res B/W" in l]
+        check(bool(rows), "effect picker: the effects stand in columns side by side")
+        sess.send(b"\x1b", 0.8)
+        t = sess.text()
+        check("VIDEO EFFECT" not in t and "< Off >" in t, "effect picker: ESC leaves the effect as it was")
+        sess.send("\r", 1.0)
+        sess.send(b"\x1b[B", 0.3)          # Scanlines
+        sess.send(b"\x1b[B", 0.3)          # CRT
+        sess.send("\r", 1.2)
+        t = sess.text()
+        check("VIDEO EFFECT" not in t and "< CRT >" in t, "effect picker: arrows + ENTER choose an effect (CRT)")
+        with open(cfg, encoding="utf-8") as f:
+            c = f.read()
+        check("VideoFx=crt" in c, "effect picker: the choice is written to config.txt")
+        sess.send("\r", 1.0)
+        sess.send(b"\x1b[C", 0.3)          # right: one column on
+        sess.send("\r", 1.2)
+        t = sess.text()
+        check("VIDEO EFFECT" not in t and "< CRT >" not in t, "effect picker: the right arrow goes to the next column")
+        # the Base Layer row
+        for _ in range(12):
+            if "> Base Layer" in sess.text():
+                break
+            sess.send(b"\x1b[B", 0.25)
+        check("> Base Layer" in sess.text() and "< scanlines >" in sess.text(), "base layer: the row is listed, scanlines by default")
+        sess.send(b"\x1b[C", 0.6)
+        check("< aperture grille >" in sess.text(), "base layer: the right arrow changes it")
+        with open(cfg, encoding="utf-8") as f:
+            c = f.read()
+        check("VideoBase=aperture grille" in c, "base layer: written to config.txt")
+        # Settings -> ANIMA/VIZ: ENTER on the Video Effect row
+        sess.send(b"\x1b", 0.8)
+        sess.send("s", 1.2)
+        sess.send(b"\t", 0.5)
+        sess.send(b"\t", 0.8)
+        hit = False
+        for _ in range(70):
+            sess.send(b"\x1b[B", 0.15)
+            sess.pump(0.3)
+            if "Preview: Video Effect" in sess.text():
+                hit = True
+                break
+        check(hit, "effect picker: the Video Effect row of the settings is reached")
+        sess.send("\r", 1.0)
+        t = sess.text()
+        check("VIDEO EFFECT" in t and "Phosphor Green Glow" in t, "effect picker: ENTER in Settings opens the list too")
+        sess.send(b"\x1b[B", 0.3)
+        sess.send("\r", 1.2)
+        t = sess.text()
+        check("VIDEO EFFECT" not in t and "video effect: Dither B/W" in t, "effect picker: Settings takes the choice (Dither B/W, one below Halftone where the picker started)")
+        check(sess.alive(), "effect picker: the program is still running")
+    finally:
+        sess.kill()
+
+
+def book_embedded_chapters(binary, root, scripts):
+    """Audio book: an .m4b with three embedded chapters lists them as three rows with their own titles; ENTER on the second plays it
+    from its start (the chapter shown is 2) and n goes on to the third."""
+    import subprocess
+    if shutil.which("ffmpeg") is None:
+        print("  skipped: embedded chapters (ffmpeg is not installed on this machine)")
+        return
+    home = os.path.join(root, "bec_home")
+    books = os.path.join(root, "bec_books")
+    book = os.path.join(books, "Embedded Book")
+    os.makedirs(book)
+    meta = os.path.join(root, "bec_meta.txt")
+    with open(meta, "w", encoding="utf-8") as f:
+        f.write(";FFMETADATA1\n")
+        for i, (a, b, t) in enumerate([(0, 10, "Alpha Intro"), (10, 20, "Beta Middle"), (20, 30, "Gamma End")]):
+            f.write("[CHAPTER]\nTIMEBASE=1/1000\nSTART=%d\nEND=%d\ntitle=%s\n" % (a * 1000, b * 1000, t))
+    r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=300:duration=30", "-i", meta, "-map_metadata", "1",
+                        "-c:a", "aac", "-f", "ipod", os.path.join(book, "story.m4b")], capture_output=True)
+    if r.returncode != 0:
+        print("  (skipped: ffmpeg could not make the test .m4b: %s)" % r.stderr.decode("utf-8", "replace")[:120])
+        return
+    cfgdir = os.path.join(home, ".config", "mousiki")
+    os.makedirs(cfgdir)
+    with open(os.path.join(cfgdir, "config.txt"), "w", encoding="utf-8") as f:
+        f.write("AudioBookPath=%s\nStartMode=audiobook\nUseTerminalSettings=true\n" % books)
+    sess = Session(binary, home, scripts, {"MOUSIKI_NULL_AUDIO": "1"}, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.5)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Embedded Book" in sess.text():
+                break
+        sess.send(b"\r", 2.0)       # open the book
+        t = ""
+        for _ in range(30):          # ffprobe runs on opening
+            t = sess.text()
+            if "Gamma End" in t:
+                break
+            sess.pump(0.5)
+        check("Alpha Intro" in t and "Beta Middle" in t and "Gamma End" in t, "embedded chapters: the three chapters of the .m4b are listed as rows")
+        if "Gamma End" not in t:
+            sess.dump("embedded chapters list")
+        check("story" not in t.replace("Embedded", ""), "embedded chapters: the file itself is not listed as one row")
+        sess.send(b"\r", 2.0)       # the first chapter plays (nothing was playing: no question)
+        sess.send(b"\x1b[B", 0.8)
+        sess.send(b"\r", 1.0)       # the second chapter: the question about a bookmark in the one that is left
+        for _ in range(10):
+            if "Going on to" in sess.text():
+                break
+            sess.pump(0.5)
+        check("Going on to Beta Middle" in sess.text(), "embedded chapters: the question names the chapter by its title, not by the file")
+        sess.send("n", 2.5)          # no bookmark
+        t = ""
+        for _ in range(10):
+            t = sess.text()
+            if "2/3" in t and "Beta Middle" in t:
+                break
+            sess.pump(0.5)
+        check("2/3" in t and "Beta Middle" in t, "embedded chapters: the second chapter plays (shown as 2/3 with its title)")
+        sess.send("n", 1.5)          # the next-chapter key, then no bookmark
+        sess.send("n", 2.5)
+        t = sess.text()
+        check("3/3" in t and "Gamma End" in t, "embedded chapters: n goes on to the third chapter")
+        check(sess.alive(), "embedded chapters: still running")
+        # play modes inside one file: "stop after the chapter" pauses where the next one starts, "repeat" jumps back to the chapter's start
+        sess.send(b"\x1b[A", 0.8)
+        sess.send(b"\x1b[A", 0.8)
+        sess.send(b"\r", 1.0)       # chapter 1 again (the question about the bookmark, then it plays)
+        sess.send("n", 2.0)
+        sess.send("m", 0.8)          # on -> repeat
+        sess.send("m", 0.8)          # repeat -> stop after
+        t = ""
+        for _ in range(40):          # chapter 1 is 10 s long: playback pauses where chapter 2 starts (the button turns to PLAY)
+            t = sess.text()
+            if "2/3" in t and "PLAY" in t:
+                break
+            sess.pump(0.5)
+        check("2/3" in t and "PLAY" in t and "PAUSE" not in t, "embedded chapters: stop after the chapter pauses where the next embedded chapter starts")
+        sess.send("p", 1.0)          # on from there: chapter 2 plays
+        check("PAUSE" in sess.text() and "2/3" in sess.text(), "embedded chapters: p goes on with chapter 2")
+        sess.send("q", 1.5)
+    finally:
+        sess.kill()
+
+
+def video_dither_option(binary, root, scripts):
+    """VIDEO SETTINGS overlay: the Dither Pattern row steps through the patterns with the arrows (round and round) and is saved as VideoDither=."""
+    home = os.path.join(root, "vd_home")
+    lib = os.path.join(root, "music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    cfg = os.path.join(home, ".config", "mousiki", "config.txt")
+    with open(cfg, "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nHKeyVideo=Y\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Alpha Song" in sess.text():
+                break
+        sess.send("Y", 1.0)
+        for _ in range(20):
+            if "> Dither Pattern" in sess.text():
+                break
+            sess.send(b"\x1b[B", 0.2)
+        sess.pump(0.4)
+        check("> Dither Pattern" in sess.text() and "< interleaved noise >" in sess.text(), "dither pattern: the row is reached and says interleaved noise (the default)")
+        def saved():
+            try:
+                return open(cfg, encoding="utf-8").read()
+            except OSError:
+                return ""
+        for want in ("golden ratio", "auto", "blue noise", "bayer 2x2", "bayer 4x4", "bayer 8x8", "interleaved noise"):
+            sess.send(b"\x1b[C", 0.6)
+            check("< %s >" % want in sess.text(), "dither pattern: the next one is %s" % want)
+            check("VideoDither=%s" % want in saved(), "dither pattern: %s is saved in the config" % want)
+        sess.send(b"\x1b[D", 0.6)
+        check("< bayer 8x8 >" in sess.text(), "dither pattern: left arrow goes back one")
+        sess.send(b"\x1b[B", 0.8)                          # the next row: Base Layer (batch 257), then Gradient Saturation
+        check("> Base Layer" in sess.text() and "< scanlines >" in sess.text(), "base layer: the row is under the dither pattern, scanlines by default")
+        sess.send(b"\x1b[B", 0.8)
+        check("> Gradient Saturation" in sess.text() and "< 85 % >" in sess.text(), "gradient saturation: the row is under the dither pattern and says 85 % (the default)")
+        sess.send(b"\x1b[C", 0.6)
+        check("< 90 % >" in sess.text() and "VideoGradientSaturation=90" in saved(), "gradient saturation: right arrow makes it 90 % and it is saved")
+        sess.send(b"\x1b[D", 0.5)
+        sess.send(b"\x1b[D", 0.6)
+        check("< 80 % >" in sess.text() and "VideoGradientSaturation=80" in saved(), "gradient saturation: left arrow twice makes it 80 %")
+        check(sess.alive(), "dither pattern: the program is still running")
     finally:
         sess.kill()
 
@@ -2569,7 +2789,7 @@ def video_fullscreen_sizes(binary, root, scripts):
         check("Effect:" not in sess.text() and sess.alive(), "full screen video: v closes it again")
         # the overlay does not depend on the Video mode: with it off a track with a video still shows its picture
         sess.send("Y", 1.0)
-        for _ in range(15):
+        for _ in range(20):
             if "> Use Video in Lyrics Field" in sess.text():
                 break
             sess.send(b"\x1b[B", 0.2)
@@ -2589,6 +2809,647 @@ def video_fullscreen_sizes(binary, root, scripts):
         check("Effect:" in t and "No video for this track." not in t and any(0x2800 <= ord(ch) <= 0x28FF for ch in t),
               "full screen video: shows the picture with the Video mode off")
         sess.send("v", 1.0)
+    finally:
+        sess.kill()
+
+
+def cli_scripts_overlay(binary, root, scripts):
+    """The script overlay (library left, editor right): open, edit, save, run, new, filter; /cs: searches the scripts."""
+    home = os.path.join(root, "cs_home")
+    lib = os.path.join(root, "cs_music")
+    cfgdir = os.path.join(home, ".config", "mousiki")
+    os.makedirs(os.path.join(cfgdir, "cli"))
+    make_wav(os.path.join(lib, "Alpha Song.wav"), 30)
+    with open(os.path.join(cfgdir, "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % lib)
+    with open(os.path.join(cfgdir, "cli", "night.cli"), "w", encoding="utf-8") as f:
+        f.write("# quiet\nvolume 25\nvolume +5\n")
+    with open(os.path.join(cfgdir, "cli", "morning.cli"), "w", encoding="utf-8") as f:
+        f.write("volume 60\n")
+    sess = Session(binary, home, scripts, {}, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Alpha Song" in sess.text():
+                break
+        sess.send("/", 0.5)
+        sess.send("cs:pause", 0.6)
+        check("SEARCH SCRIPTS" in sess.text() and "0 matches" in sess.text(), "scripts: /cs: searches the scripts (no match for 'pause' yet)")
+        sess.send(b"\x15", 0.2) if False else None
+        sess.send(b"\x1b", 0.6)
+        sess.send("/", 0.5)
+        sess.send("cs:volume", 0.6)
+        check("2: " in sess.text() and "night" in sess.text(), "scripts: /cs:volume finds both scripts by their text: ")
+        check("2 scripts" in sess.text() and "volume 60" in sess.text() and "volume 25" in sess.text(), "scripts: /cs: lists the matches in the library pane (name and first command)")
+        sess.send("\r", 1.2)
+        text = sess.text()
+        check("SCRIPTS (2)" in text and "EDITOR" in text and "morning.cli" in text, "scripts: ENTER on /cs: opens the script overlay with the search applied and the first match loaded")
+        check("volume 60" in text and "night" in text, "scripts: library on the left, the script's text in the editor on the right")
+        sess.send(b"\x12", 1.2)   # CTRL+R: run the editor text
+        check("(done)" in sess.text() or "volume 30%" in sess.text(), "scripts: CTRL+R runs the script and the answers show in OUTPUT")
+        sess.send(b"\x1b[B", 0.4)
+        sess.send("\r", 0.8)
+        check("volume 25" in sess.text() and "night.cli" in sess.text(), "scripts: ENTER in the library loads the selected script")
+        sess.send(b"\x1b[F", 0.3)   # End
+        sess.send("\r", 0.2)
+        sess.send("echo hello", 0.4)
+        check("echo hello" in sess.text() and "night.cli *" in sess.text(), "scripts: typing edits the buffer and marks it changed")
+        sess.send(b"\x13", 0.8)   # CTRL+S
+        check("saved night.cli" in sess.text() and "night.cli *" not in sess.text(), "scripts: CTRL+S saves")
+        check("echo hello" in open(os.path.join(cfgdir, "cli", "night.cli"), encoding="utf-8").read(), "scripts: the file on disk has the new line")
+        sess.send(b"\x1b", 0.8)   # leave: unchanged text closes at once
+        check("EDITOR" not in sess.text(), "scripts: ESC closes the overlay when nothing is unsaved")
+        sess.send("/", 0.4)
+        sess.send("c:", 0.4)
+        sess.send("open scripts\r", 1.0)
+        check("SCRIPTS (4)" in sess.text(), "scripts: `open scripts` in the command line opens it (startup, aliases and the two scripts)")
+        sess.send("n", 0.5)
+        sess.send("brand-new\r", 1.0)
+        check("brand-new" in sess.text() and os.path.exists(os.path.join(cfgdir, "cli", "brand-new.cli")), "scripts: [n] makes a new script file")
+        sess.send(b"\t", 0.3)
+        sess.send("x", 0.5)
+        sess.send(b"\x1b", 0.5)
+        sess.send(b"\x1b", 0.8)
+        sess.send(b"\x1b", 0.8)
+        check(sess.alive(), "scripts: the program is still running")
+    finally:
+        sess.kill()
+
+
+def cli_core(binary, root, scripts):
+    """The command line's chains, timers, aliases, set/get, confirmations, scripts, the startup file and `mousiki --query` from outside."""
+    import subprocess
+    home = os.path.join(root, "cc_home")
+    lib = os.path.join(root, "cc_music")
+    cfgdir = os.path.join(home, ".config", "mousiki")
+    os.makedirs(os.path.join(cfgdir, "cli"))
+    make_wav(os.path.join(lib, "Alpha Song.wav"), 60)
+    make_wav(os.path.join(lib, "Beta Tune.wav"), 60)
+    with open(os.path.join(cfgdir, "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % lib)
+    with open(os.path.join(cfgdir, "cli", "quiet.cli"), "w", encoding="utf-8") as f:
+        f.write("# a script\nvolume 20\nwait 1s\nvolume +5\n")
+    with open(os.path.join(cfgdir, "cli", "startup.cli"), "w", encoding="utf-8") as f:
+        f.write("volume 33\n")
+    env = dict(os.environ, HOME=home, XDG_CONFIG_HOME=os.path.join(home, ".config"))
+
+    sess = Session(binary, home, scripts, {}, quiet_stderr=True)
+
+    def outside(*args, timeout=15):
+        # (the terminal of the program has to be read meanwhile, or it blocks writing its screen and cannot answer)
+        p = subprocess.Popen([binary] + list(args), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        t0 = time.time()
+        while p.poll() is None and time.time() - t0 < timeout:
+            sess.pump(0.2)
+        if p.poll() is None:
+            p.kill()
+        return p.returncode, (p.stdout.read() or "").strip()
+
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Alpha Song" in sess.text():
+                break
+        sess.pump(3.0)
+        code, out = outside("--query", "get", "volume")
+        check(code == 0 and out == "33", "cli core: startup.cli ran at the start (volume 33) and --query get volume answers: %r" % out)
+        code, out = outside("--query", "volume 40; volume +5; get volume")
+        check(code == 0 and out.endswith("45"), "cli core: a chain from outside runs in order: %r" % out)
+        code, out = outside("--query", "quit")
+        check(code == 3 and "force" in out, "cli core: quit from outside is refused without force: %r (%d)" % (out, code))
+        code, out = outside("--query", "no-such-command")
+        check(code == 3 and "unknown command" in out, "cli core: an unknown command is an error with exit code 3")
+        code, out = outside("--query", "set", "RemoteAppPin", "1234")
+        check(code == 3, "cli core: set does not reach the remote app PIN")
+        code, out = outside("--query", "set VideoGradientSaturation 60; get VideoGradientSaturation")
+        check(code == 0 and out.endswith("60"), "cli core: set changes a number setting and get reads it: %r" % out)
+        check("VideoGradientSaturation=60" in open(os.path.join(cfgdir, "config.txt"), encoding="utf-8").read(), "cli core: set saved it in config.txt")
+        code, out = outside("--query", "run", "quiet", timeout=20)
+        check(code == 0 and "running quiet" in out, "cli core: run <script> works (waits inside it): %r" % out)
+        code, out = outside("--query", "get volume")
+        check(out == "25", "cli core: the script finished its volume +5 after the wait: %r" % out)
+        sess.pump(1.6)   # (the status file is written about once a second)
+        code, out = outside("--status", "--json")
+        check(code == 0 and out.startswith("{") and '"volume": 25' in out, "cli core: --status --json: %r" % out[:80])
+        code, out = outside("--status", "--format", "vol {volume}")
+        check(code == 0 and out == "vol 25", "cli core: --status --format: %r" % out)
+        code, out = outside("--query", "in 1s volume 11")
+        check(code == 0 and "timer" in out, "cli core: in <time> <command> sets a timer")
+        sess.pump(2.5)
+        code, out = outside("--query", "get volume")
+        check(out == "11", "cli core: the timer fired: %r" % out)
+        code, out = outside("--query", "alias night = volume 15; echo night")
+        code, out = outside("--query", "night")
+        check(code == 0 and "night" in out, "cli core: an alias runs its commands: %r" % out)
+        code, out = outside("--query", "if playing echo yes")
+        check(code == 0 and ("yes" in out) == ("(playing)" in out), "cli core: if <condition> <command> runs the command only when the condition holds: %r" % out)
+        # typed
+        sess.send("/", 0.5)
+        sess.send("c:", 0.5)
+        sess.send("queue alpha; queue beta\r", 1.2)
+        check("queued Beta Tune" in sess.text(), "cli core: a typed chain runs both (the last reply shows): ")
+        sess.send("clear-queue\r", 1.0)
+        check("cannot be undone" in sess.text() and "yes" in sess.text(), "cli core: clear-queue asks for yes")
+        sess.send("yes\r", 1.0)
+        sess.send("queue\r", 1.0)
+        check("queue: 0" in sess.text(), "cli core: yes cleared the queue")
+        sess.send("play beta\r", 1.5)
+        sess.send("status\r", 0.8)
+        first = sess.text().split("\n")[1] if "\n" in sess.text() else ""
+        sess.pump(3.0)
+        second = sess.text().split("\n")[1] if "\n" in sess.text() else ""
+        check("COMMAND LINE" in sess.text() and first != second, "cli core: a long reply scrolls in the bar's border (marquee)")
+        sess.send(b"\x1b", 0.6)
+        check(sess.alive(), "cli core: the program is still running")
+    finally:
+        sess.kill()
+
+
+def cli_commands(binary, root, scripts):
+    """/c: turns the search bar into a command line (ENTER runs, ESC leaves); the console's third pane is a command line too."""
+    home = os.path.join(root, "cli_home")
+    lib = os.path.join(root, "cli_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    make_wav(os.path.join(lib, "Alpha Song.wav"), 30)
+    make_wav(os.path.join(lib, "Beta Tune.wav"), 30)
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % lib)
+    sess = Session(binary, home, scripts, {}, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Alpha Song" in sess.text():
+                break
+        sess.send("/", 0.5)
+        sess.send("c:", 0.6)
+        check("COMMAND LINE" in sess.text(), "cli: /c: turns the search bar into COMMAND LINE")
+        check("COMMAND HISTORY / OUTPUT" in sess.text() and "type a command" in sess.text(), "cli: /c: shows the command history pane in place of the library list (a hint while it is empty)")
+        sess.send("play beta\r", 1.5)
+        check("playing Beta Tune" in sess.text(), "cli: play <words> starts the first match and the reply sits in the search bar")
+        check("> play beta" in sess.text() and "  playing Beta Tune" in sess.text().replace("playing Beta Tune", "  playing Beta Tune"), "cli: the typed line and its reply are listed in the library pane")
+        sess.send("volume 42\r", 1.0)
+        check("-> 42%" in sess.text(), "cli: volume 42 sets the volume and says what it was")
+        sess.send("bogus\r", 0.8)
+        check("unknown command" in sess.text(), "cli: an unknown command is named")
+        sess.send("queue alpha\r", 0.8)
+        check("queued Alpha Song" in sess.text(), "cli: queue <words> adds the first match")
+        sess.send("pla", 0.4)
+        sess.send(b"\x1b[1;5C", 0.6)
+        check("c:play" in sess.text().replace("/c:", "c:") and "playback-mode" in sess.text(), "cli: CTRL+RIGHT completes a command word up to what the candidates share (pla -> play) and lists them")
+        sess.send(b"\x1b[1;5C", 0.5)
+        sess.send("alp", 0.4)
+        sess.send(b"\x1b[1;5C", 0.8)
+        check("c:play Alpha Song" in sess.text().replace("/c:", "c:"), "cli: CTRL+RIGHT completes the title after play")
+        sess.send(b"\x15", 0.3)   # CTRL+u clears the line
+        sess.send(b"\x1b[A", 0.5)
+        check("c:queue alpha" in sess.text().replace("/c:", "c:"), "cli: UP recalls the last line")
+        sess.send(b"\x1b", 0.8)
+        check("COMMAND LINE" not in sess.text() and "SEARCH LOCAL" in sess.text(), "cli: ESC leaves the command line like any search")
+        check("COMMAND HISTORY" not in sess.text() and "Alpha Song" in sess.text(), "cli: ESC brings the library list back")
+        sess.send("t", 1.0)
+        check("COMMAND LINE" in sess.text() and "STATUS MESSAGES" in sess.text() and "CONSOLE / LOGS" in sess.text(), "console: the third pane COMMAND LINE is at the bottom")
+        sess.send(b"\t", 0.4)
+        sess.send(b"\t", 0.5)
+        sess.send("status\r", 1.0)
+        check("playing:" in sess.text() and "vol 42%" in sess.text(), "console: status in the command pane answers")
+        sess.send("t", 0.5)
+        check("> t" in sess.text(), "console: keys are typed in the command pane (t does not close it)")
+        sess.send(b"\x1b", 0.5)
+        sess.send(b"\x1b", 0.8)
+        check("COMMAND LINE" not in sess.text(), "console: ESC clears the line, the next ESC closes the console")
+        check(sess.alive(), "cli: the program is still running")
+    finally:
+        sess.kill()
+
+
+def cli_replies_hooks(binary, root, scripts):
+    """Run 3 of the CLI: every command answers with what happened; hooks.cli reacts to events; /api/cli (RemoteAppCli) answers with JSON."""
+    import subprocess, urllib.request, json as _json
+    home = os.path.join(root, "cr_home")
+    lib = os.path.join(root, "cr_music")
+    cfgdir = os.path.join(home, ".config", "mousiki")
+    os.makedirs(os.path.join(cfgdir, "cli"))
+    make_wav(os.path.join(lib, "Alpha Song.wav"), 60)
+    make_wav(os.path.join(lib, "Beta Tune.wav"), 60)
+    port = 47631
+    with open(os.path.join(cfgdir, "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nRemoteApp=true\nRemoteAppPort=%d\nRemoteAppPin=135246\nRemoteAppCli=true\n" % (lib, port))
+    with open(os.path.join(cfgdir, "cli", "hooks.cli"), "w", encoding="utf-8") as f:
+        f.write("# hooks\non track-change = volume 12\non pause = volume 22\non resume = volume 33\n")
+    env = dict(os.environ, HOME=home, XDG_CONFIG_HOME=os.path.join(home, ".config"))
+    sess = Session(binary, home, scripts, {}, quiet_stderr=True)
+
+    def q(line, timeout=15):
+        p = subprocess.Popen([binary, "--query", line], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        t0 = time.time()
+        while p.poll() is None and time.time() - t0 < timeout:
+            sess.pump(0.2)
+        if p.poll() is None:
+            p.kill()
+        return p.returncode, (p.stdout.read() or "").strip()
+
+    def http(line, wait=8):
+        import threading
+        res = {}
+        def run():
+            try:
+                u = "http://127.0.0.1:%d/api/cli?pin=135246&wait=%d&line=%s" % (port, wait, urllib.request.quote(line))
+                with urllib.request.urlopen(u, timeout=wait + 5) as r:
+                    res["code"], res["body"] = r.status, r.read().decode("utf-8")
+            except urllib.error.HTTPError as e:
+                res["code"], res["body"] = e.code, e.read().decode("utf-8")
+            except Exception as e:
+                res["code"], res["body"] = 0, str(e)
+        t = threading.Thread(target=run)
+        t.start()
+        t0 = time.time()
+        while t.is_alive() and time.time() - t0 < wait + 6:
+            sess.pump(0.2)
+        t.join(1)
+        return res.get("code", 0), res.get("body", "")
+
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Alpha Song" in sess.text():
+                break
+        sess.pump(3.5)   # (the hooks wait for the startup)
+        code, out = q("pause")
+        check(code == 0 and ("nothing is playing" in out or out.startswith("paused:")), "cli replies: pause answers with the state: %r" % out)
+        other, other_title = ("beta", "Beta Tune") if "Alpha" in out else ("alpha", "Alpha Song")   # (the program loads one of them, paused)
+        code, out = q("play " + other)
+        check(code == 0 and ("playing " + other_title) in out, "cli replies: play <words>: %r" % out)
+        sess.pump(1.0)
+        code, out = q("get volume")
+        check(out == "12", "cli hooks: on track-change ran (volume 12): %r" % out)
+        code, out = q("pause")
+        check(code == 0 and out.startswith("paused: " + other_title) and "/" in out and "vol" in out, "cli replies: pause names the title, position and volume: %r" % out)
+        sess.pump(1.0)
+        code, out = q("get volume")
+        check(out == "22", "cli hooks: on pause ran (volume 22): %r" % out)
+        code, out = q("pause")
+        check("already paused" in out, "cli replies: a second pause says it was already paused: %r" % out)
+        code, out = q("stop")
+        check("stop pauses" in out and other_title in out, "cli replies: stop explains that it pauses: %r" % out)
+        code, out = q("play")
+        check(out.startswith("resumed: " + other_title), "cli replies: play resumes and says what: %r" % out)
+        sess.pump(1.0)
+        code, out = q("get volume")
+        check(out == "33", "cli hooks: on resume ran (volume 33): %r" % out)
+        code, out = q("play")
+        check("already playing" in out, "cli replies: play while playing: %r" % out)
+        code, out = q("seek 5")
+        check("seek +5 s ->" in out and other_title in out, "cli replies: seek shows where it landed: %r" % out)
+        code, out = q("mute")
+        check(out.startswith("muted") and "volume" in out, "cli replies: mute: %r" % out)
+        code, out = q("unmute")
+        check(out.startswith("sound on"), "cli replies: unmute: %r" % out)
+        code, out = q("volume 30")
+        check("-> 30%" in out, "cli replies: volume shows the change: %r" % out)
+        code, out = q("playback-mode")
+        check("playback mode:" in out and "->" in out, "cli replies: playback-mode names old and new: %r" % out)
+        code, out = q("hooks")
+        check("3 hooks" in out and "on pause = volume 22" in out, "cli hooks: the hooks command lists them: %r" % out)
+        # the web server's endpoint
+        code, body = http("status")
+        check(code == 200 and '"ok":true' in body and other_title in body, "cli http: /api/cli answers with JSON: %s %r" % (code, body[:120]))
+        code, body = http("quit")
+        check(code == 200 and '"ok":false' in body and "not allowed over the network" in body, "cli http: quit is refused over the network: %r" % body[:120])
+        code, body = http("force quit")
+        check('"ok":false' in body, "cli http: force is refused over the network: %r" % body[:120])
+        code, body = http("set VideoGradientSaturation 10")
+        check('"ok":false' in body, "cli http: set is refused over the network")
+        code, body = http("queue clear")
+        check('"ok":false' in body, "cli http: queue clear is refused over the network")
+        code, body = http("volume 40; get volume")
+        check(code == 200 and '"lines":["volume' in body and '"40"]' in body, "cli http: a chain gives one line per command: %r" % body[:160])
+        check(sess.alive(), "cli replies: the program is still running")
+    finally:
+        sess.kill()
+
+
+def radio_cli(binary, root, scripts):
+    """The radio's command line from outside: stations, tune, pause / play / stop replies, volume, chains, timers, errors, no quit."""
+    import subprocess
+    home = os.path.join(root, "radiocli_home")
+    cfgdir = os.path.join(home, ".config", "mousiki")
+    os.makedirs(os.path.join(cfgdir, "cli"))
+    with open(os.path.join(cfgdir, "stations.txt"), "w", encoding="utf-8") as f:
+        f.write("# name | genre | country | codec | kbps | url | [*] favorite\nPlain Station | Rock | US | MP3 | 128 | http://127.0.0.1:9/c | *\nJazz Night | Jazz | DE | MP3 | 128 | http://127.0.0.1:9/j | *\n")
+    with open(os.path.join(cfgdir, "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nStartMode=radio\nWizardSeen=true\n" % os.path.join(root, "music"))
+    with open(os.path.join(cfgdir, "cli", "calm.cli"), "w", encoding="utf-8") as f:
+        f.write("volume 20\necho calm\n")
+    env = dict(os.environ, HOME=home, XDG_CONFIG_HOME=os.path.join(home, ".config"), MOUSIKI_RADIO_NULL="1")
+    sess = Session(binary, home, scripts, {"MOUSIKI_RADIO_NULL": "1"})
+
+    def q(line, timeout=15):
+        p = subprocess.Popen([binary, "--query", line], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        t0 = time.time()
+        while p.poll() is None and time.time() - t0 < timeout:
+            sess.pump(0.2)
+        if p.poll() is None:
+            p.kill()
+        return p.returncode, (p.stdout.read() or "").strip()
+
+    try:
+        sess.wait_for(lambda t: "Plain Station" in t)
+        sess.send(b"\x1b", 0.5)
+        sess.pump(1.0)
+        code, out = q("stations")
+        check(code == 0 and "2 stations" in out and "Jazz Night" in out, "radio cli: stations lists them: %r" % out)
+        code, out = q("stations jazz")
+        check(code == 0 and "1 station" in out and "Plain" not in out, "radio cli: stations <words> filters: %r" % out)
+        code, out = q("tune jazz")
+        check(code == 0 and out.startswith("tuning: Jazz Night") and "[2/2]" in out, "radio cli: tune <words>: %r" % out)
+        code, out = q("tune 9")
+        check(code == 3 and "no station 9" in out, "radio cli: tune with a wrong number is an error: %r" % out)
+        code, out = q("volume 40")
+        check(code == 0 and "-> 40%" in out, "radio cli: volume says old -> new: %r" % out)
+        code, out = q("mute; unmute")
+        check(code == 0 and "muted" in out and "sound on" in out, "radio cli: a chain answers with every reply: %r" % out)
+        code, out = q("get volume")
+        check(out == "40", "radio cli: get volume: %r" % out)
+        code, out = q("status")
+        check(code == 0 and ("Jazz Night" in out or "stopped" in out) and "vol 40%" in out or "stopped" in out, "radio cli: status: %r" % out)
+        code, out = q("stop")
+        check(code == 0 and ("stopped" in out), "radio cli: stop says what happened: %r" % out)
+        code, out = q("quit")
+        check(code == 3 and "mousiki --cmd quit" in out, "radio cli: quit is refused: %r" % out)
+        code, out = q("bogus")
+        check(code == 3 and "unknown command" in out, "radio cli: an unknown command is an error: %r" % out)
+        code, out = q("run calm")
+        check(code == 0 and "calm" in out, "radio cli: run <script>: %r" % out)
+        code, out = q("get volume")
+        check(out == "20", "radio cli: the script's volume applied: %r" % out)
+        code, out = q("in 1s volume 55")
+        sess.pump(2.5)
+        code, out = q("get volume")
+        check(out == "55", "radio cli: a timer fired: %r" % out)
+        code, out = q("help seek")
+        check(code == 0 and "seek <seconds>" in out, "radio cli: help <command>: %r" % out)
+        check(sess.alive(), "radio cli: the radio is still running")
+    finally:
+        sess.kill()
+
+
+def settings_cli_row(binary, root, scripts):
+    """Settings -> GENERAL: the category CLI / REMOTE / UPDATES with the row CLI Scripts (ENTER opens the script overlay, ESC returns) and
+    the Pause Fade row in AUDIO."""
+    home = os.path.join(root, "scr_home")
+    lib = os.path.join(root, "scr_music")
+    cfgdir = os.path.join(home, ".config", "mousiki")
+    os.makedirs(os.path.join(cfgdir, "cli"))
+    make_wav(os.path.join(lib, "Alpha Song.wav"), 30)
+    with open(os.path.join(cfgdir, "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % lib)
+    with open(os.path.join(cfgdir, "cli", "night.cli"), "w", encoding="utf-8") as f:
+        f.write("volume 25\n")
+    sess = Session(binary, home, scripts, {}, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Alpha Song" in sess.text():
+                break
+        sess.send("s", 1.5)
+        sess.send(b"\t", 0.6)
+        def find(label):
+            for line in sess.screen.display:
+                if label in line and "Preview:" not in line:
+                    return line
+            return ""
+        for _ in range(13):          # Playback, Start Mode, Display queue, 6 mode rows, Choose Audio Device, Stereo, Normalize, Track Buffer, Rate Cap
+            sess.send(b"\x1b[B", 0.1)
+        sess.send(b"\x1b[B", 0.4)    # Pause Fade
+        check("Pause Fade" in find("Pause Fade") and "true" in find("Pause Fade"), "pause fade: the row exists in AUDIO and is true by default: %r" % find("Pause Fade"))
+        sess.send(b"\x1b[C", 0.6)
+        check("false" in find("Pause Fade"), "pause fade: RIGHT switches it off")
+        sess.send(b"\x1b[D", 0.6)
+        check("true" in find("Pause Fade"), "pause fade: LEFT switches it on again")
+        for _ in range(5):           # Black Background, Use Terminal Settings, Terminal Size, Full Screen, Reduce Motion
+            sess.send(b"\x1b[B", 0.15)
+        sess.send(b"\x1b[B", 0.5)    # CLI Scripts
+        check("CLI / REMOTE / UPDATES" in sess.text() and "CLI Scripts" in find("CLI Scripts"), "cli row: the category is CLI / REMOTE / UPDATES and has the row CLI Scripts")
+        check("[ENTER] open" in find("CLI Scripts"), "cli row: the row says [ENTER] open")
+        sess.send(b"\r", 1.0)
+        check("SCRIPTS (" in sess.text() and "EDITOR" in sess.text(), "cli row: ENTER opens the script overlay")
+        sess.send(b"\x1b", 1.0)
+        check("CLI Scripts" in find("CLI Scripts") and "GENERAL" in sess.text(), "cli row: ESC in the overlay comes back to the settings")
+        check(sess.alive(), "cli row: the program is still running")
+    finally:
+        sess.kill()
+
+
+def radio_cli_extras(binary, root, scripts):
+    """The radio's aliases, `set` / `settings` and hooks (batch 256)."""
+    import subprocess
+    home = os.path.join(root, "radioextras_home")
+    cfgdir = os.path.join(home, ".config", "mousiki")
+    os.makedirs(os.path.join(cfgdir, "cli"))
+    with open(os.path.join(cfgdir, "stations.txt"), "w", encoding="utf-8") as f:
+        f.write("# name | genre | country | codec | kbps | url | [*] favorite\nPlain Station | Rock | US | MP3 | 128 | http://127.0.0.1:9/c | *\nJazz Night | Jazz | DE | MP3 | 128 | http://127.0.0.1:9/j | *\n")
+    with open(os.path.join(cfgdir, "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nStartMode=radio\nWizardSeen=true\n" % os.path.join(root, "music"))
+    with open(os.path.join(cfgdir, "cli", "hooks.cli"), "w", encoding="utf-8") as f:
+        f.write("# hooks\non station-change = volume 22\non stream-error = volume 11\non track-change = volume 99\n")
+    env = dict(os.environ, HOME=home, XDG_CONFIG_HOME=os.path.join(home, ".config"), MOUSIKI_RADIO_NULL="1")
+    sess = Session(binary, home, scripts, {"MOUSIKI_RADIO_NULL": "1"})
+
+    def q(line, timeout=15):
+        p = subprocess.Popen([binary, "--query", line], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        t0 = time.time()
+        while p.poll() is None and time.time() - t0 < timeout:
+            sess.pump(0.2)
+        if p.poll() is None:
+            p.kill()
+        return p.returncode, (p.stdout.read() or "").strip()
+
+    try:
+        sess.wait_for(lambda t: "Plain Station" in t)
+        sess.send(b"\x1b", 0.5)
+        sess.pump(1.0)
+        code, out = q("alias")
+        check(code == 0 and "no aliases" in out, "radio alias: none at first: %r" % out)
+        code, out = q("alias night = volume 25; mute")
+        check(code == 0 and out.startswith("alias night = volume 25; mute"), "radio alias: defined: %r" % out)
+        code, out = q("night")
+        check(code == 0 and "volume" in out and "-> 25%" in out and "muted" in out, "radio alias: runs its commands: %r" % out)
+        check(os.path.exists(os.path.join(cfgdir, "cli", "aliases.cli")), "radio alias: saved in aliases.cli")
+        code, out = q("alias volume = stop")
+        check(code == 3 and "is a command" in out, "radio alias: a command name cannot be an alias: %r" % out)
+        code, out = q("unalias night")
+        check(code == 0 and "removed" in out, "radio unalias: %r" % out)
+        code, out = q("night")
+        check(code == 3 and "unknown command" in out, "radio alias: gone after unalias: %r" % out)
+        code, out = q("settings pulse")
+        check(code == 0 and "PulseWave=true" in out, "radio settings: lists with values: %r" % out)
+        code, out = q("set PulseWave off")
+        check(code == 0 and "PulseWave=false (saved)" in out, "radio set: changes and saves: %r" % out)
+        code, out = q("get pulsewave")
+        check(code == 0 and out == "false", "radio get: reads a setting: %r" % out)
+        with open(os.path.join(cfgdir, "config.txt"), encoding="utf-8") as f:
+            cfg = f.read()
+        check("PulseWave=false" in cfg or os.path.exists(os.path.join(cfgdir, "radio_config.txt")), "radio set: written to the config file")
+        code, out = q("set PulseWave maybe")
+        check(code == 3 and "on / off" in out, "radio set: a bad value is an error: %r" % out)
+        code, out = q("set Nothing on")
+        check(code == 3 and "unknown setting" in out, "radio set: an unknown setting is an error: %r" % out)
+        code, out = q("hooks")
+        check(code == 0 and "on station-change = volume 22" in out and "track-change" not in out, "radio hooks: lists the radio's hooks only: %r" % out)
+        code, out = q("volume 50")
+        check(code == 0 and "50%" in out, "radio hooks: start volume: %r" % out)
+        code, out = q("tune jazz")
+        sess.pump(3.0)
+        code, out = q("get volume")
+        check(out in ("22", "11"), "radio hooks: station-change / stream-error ran its command (volume %s)" % out)
+    finally:
+        sess.kill()
+
+
+def radio_cli_typed(binary, root, scripts):
+    """The radio's typed command line: "c:" in the SEARCH box (history + output in the STATIONS pane), "cs:" (the scripts), the console
+    (SHIFT+c: log + command line) and the CLI Scripts row of the settings."""
+    home = os.path.join(root, "radiotyped_home")
+    cfgdir = os.path.join(home, ".config", "mousiki")
+    os.makedirs(os.path.join(cfgdir, "cli"))
+    with open(os.path.join(cfgdir, "stations.txt"), "w", encoding="utf-8") as f:
+        f.write("# name | genre | country | codec | kbps | url | [*] favorite\nPlain Station | Rock | US | MP3 | 128 | http://127.0.0.1:9/c | *\nJazz Night | Jazz | DE | MP3 | 128 | http://127.0.0.1:9/j | *\n")
+    with open(os.path.join(cfgdir, "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nStartMode=radio\nWizardSeen=true\n" % os.path.join(root, "music"))
+    with open(os.path.join(cfgdir, "cli", "calm.cli"), "w", encoding="utf-8") as f:
+        f.write("# quiet\nvolume 20\necho calm\n")
+    with open(os.path.join(cfgdir, "cli", "party.cli"), "w", encoding="utf-8") as f:
+        f.write("volume 80\n")
+    sess = Session(binary, home, scripts, {"MOUSIKI_RADIO_NULL": "1"})
+    try:
+        sess.wait_for(lambda t: "Plain Station" in t)
+        sess.send(b"\x1b", 0.5)
+        sess.pump(1.0)
+        sess.send("/", 0.5)
+        sess.send("c:", 0.6)
+        t = sess.text()
+        check("COMMAND HISTORY / OUTPUT" in t and "type a command" in t, "radio c:: the STATIONS pane turns into the command history: %r" % t[:0])
+        check("Plain Station" not in t.split("PRESETS")[0].split("SEARCH")[-1], "radio c:: the stations are not filtered by the typed text")
+        sess.send("stations", 0.3)
+        sess.send(b"\r", 0.8)
+        t = sess.text()
+        check("> stations" in t and "2 stations" in t, "radio c:: ENTER runs the line, the pane shows it and the answer")
+        sess.send("volume 33", 0.3)
+        sess.send(b"\r", 0.8)
+        check("-> 33%" in sess.text(), "radio c:: volume answers old -> new")
+        sess.send("quit", 0.3)
+        sess.send(b"\r", 0.8)
+        check("radio with [q]" in sess.text() and sess.alive(), "radio c:: quit is refused with the key that closes the radio")
+        sess.send(b"\x1b[A", 0.5)
+        check("quit" in sess.text().split("SEARCH")[1] if "SEARCH" in sess.text() else True, "radio c:: UP recalls the last line")
+        sess.send(b"\x1b", 0.6)
+        sess.send(b"\x1b", 0.6)
+        t = sess.text()
+        check("Plain Station" in t and "COMMAND HISTORY" not in t, "radio c:: ESC leaves the command line, the stations are back")
+        # cs: -- the scripts
+        sess.send("/", 0.5)
+        sess.send("cs:", 0.8)
+        t = sess.text()
+        check("SCRIPTS (4)" in t and "calm" in t and "volume 20" in t and "party" in t, "radio cs:: the pane lists the scripts with their first command: %r" % "")
+        sess.send("calm", 0.8)
+        t = sess.text()
+        check("SCRIPTS (1)" in t and "party" not in t.split("PRESETS")[0], "radio cs:: typing narrows the list")
+        sess.send(b"\r", 1.0)
+        t = sess.text()
+        check("EDITOR" in t and "calm.cli" in t and "volume 20" in t, "radio cs:: ENTER opens the script overlay with the first match loaded")
+        sess.send(b"\x12", 1.0)   # CTRL+R: run
+        check("calm" in sess.text() and "(done)" in sess.text(), "radio script overlay: CTRL+R runs the editor text and shows the answers")
+        sess.send(b"\x1b", 1.0)
+        check("EDITOR" not in sess.text() and "Plain Station" in sess.text(), "radio script overlay: ESC closes it")
+        # the console
+        sess.send("C", 1.0)
+        t = sess.text()
+        check("CONSOLE" in t and "session started" in t and "CLI: " in t, "radio console: SHIFT+c shows the log (with the typed commands)")
+        check("STATUS MESSAGES" in t and "COMMAND LINE" in t, "radio console: the log, the STATUS MESSAGES and the COMMAND LINE boxes are all there")
+        sess.send("v", 0.8)                  # verbose log: a status message
+        t = sess.text()
+        check("verbose log: on" in t.split("STATUS MESSAGES")[1].split("COMMAND LINE")[0], "radio console: a status line shows in the STATUS MESSAGES box")
+        sess.send(b"\t", 0.6)               # log -> status messages
+        sess.send(b"\t", 0.6)               # -> command line
+        sess.send("echo hello", 0.3)
+        sess.send(b"\r", 0.8)
+        t = sess.text()
+        check("> echo hello" in t and "hello" in t, "radio console: the command pane runs a line")
+        sess.send(b"\x1b", 0.6)
+        sess.send(b"\x1b", 0.8)
+        check("CONSOLE" not in sess.text() and "Plain Station" in sess.text(), "radio console: ESC clears the line, a second ESC closes it")
+        # the settings row
+        sess.send("s", 1.2)
+        sess.send(b"\t", 0.6)
+        for _ in range(9):
+            sess.send(b"\x1b[B", 0.15)
+        sess.pump(0.4)
+        check("CLI / REMOTE / UPDATES" in sess.text() and "CLI Scripts" in sess.text(), "radio settings: the category is CLI / REMOTE / UPDATES with the row CLI Scripts")
+        sess.send(b"\r", 1.0)
+        check("EDITOR" in sess.text() and "SCRIPTS (" in sess.text(), "radio settings: ENTER on CLI Scripts opens the script overlay")
+        sess.send(b"\x1b", 1.0)
+        check("CLI Scripts" in sess.text() and "GENERAL" in sess.text(), "radio settings: ESC in the overlay comes back to the settings")
+        check(sess.alive(), "radio typed cli: the radio is still running")
+    finally:
+        sess.kill()
+
+
+def xdg_dirs(binary, root, scripts):
+    """XDG_CONFIG_HOME / XDG_CACHE_HOME: the config (and the cli scripts) are read from, and the log written to, the XDG folders."""
+    import subprocess
+    home = os.path.join(root, "xdg_home")
+    xc = os.path.join(root, "xdg_conf")
+    xk = os.path.join(root, "xdg_cache")
+    lib = os.path.join(root, "xdg_music")
+    os.makedirs(os.path.join(xc, "mousiki", "cli"))
+    os.makedirs(home)
+    make_wav(os.path.join(lib, "Alpha Song.wav"), 30)
+    with open(os.path.join(xc, "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nWizardSeen=true\n" % lib)
+    with open(os.path.join(xc, "mousiki", "cli", "startup.cli"), "w", encoding="utf-8") as f:
+        f.write("volume 41\n")
+    env = dict(os.environ, HOME=home, XDG_CONFIG_HOME=xc, XDG_CACHE_HOME=xk)
+    sess = Session(binary, home, scripts, {"XDG_CONFIG_HOME": xc, "XDG_CACHE_HOME": xk}, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "Alpha Song" in sess.text():
+                break
+        check("Alpha Song" in sess.text(), "xdg: the music path of $XDG_CONFIG_HOME/mousiki/config.txt is used")
+        sess.pump(3.5)
+        p = subprocess.Popen([binary, "--query", "get volume"], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        t0 = time.time()
+        while p.poll() is None and time.time() - t0 < 15:
+            sess.pump(0.2)
+        out = (p.stdout.read() or "").strip()
+        check(out == "41", "xdg: startup.cli of the XDG config folder ran, and --query finds the running program: %r" % out)
+        check(os.path.isdir(os.path.join(xk, "mousiki")), "xdg: the cache folder is $XDG_CACHE_HOME/mousiki")
+        check(not os.path.exists(os.path.join(home, ".config", "mousiki", "config.txt")), "xdg: no config was made under ~/.config")
     finally:
         sess.kill()
 
@@ -2858,6 +3719,26 @@ def run_scenario(name, binary, root, scripts):
         selftest_command(binary, scripts)
     elif name == "search_key":
         search_key(binary, root, scripts)
+    elif name == "cli_commands":
+        cli_commands(binary, root, scripts)
+    elif name == "settings_cli_row":
+        settings_cli_row(binary, root, scripts)
+    elif name == "xdg_dirs":
+        xdg_dirs(binary, root, scripts)
+    elif name == "radio_cli":
+        radio_cli(binary, root, scripts)
+    elif name == "video_fx_picker":
+        video_fx_picker(binary, root, scripts)
+    elif name == "radio_cli_extras":
+        radio_cli_extras(binary, root, scripts)
+    elif name == "radio_cli_typed":
+        radio_cli_typed(binary, root, scripts)
+    elif name == "cli_core":
+        cli_core(binary, root, scripts)
+    elif name == "cli_replies_hooks":
+        cli_replies_hooks(binary, root, scripts)
+    elif name == "cli_scripts_overlay":
+        cli_scripts_overlay(binary, root, scripts)
     elif name == "waterfall_view":
         waterfall_view(binary, root, scripts)
     elif name == "translation_lines":
@@ -2885,7 +3766,7 @@ def run_scenario(name, binary, root, scripts):
 
 
 SCENARIOS = ["narrow80", "narrow100", "main", "read_lyrics_play", "karaoke_timing", "book_speed_and_devices", "paging_and_translit_row",
-             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "radio_organigram", "radio_idle_rate", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "bulk_add_options", "bulk_add_flow", "translation_editor", "translation_create", "play_mode_back", "disk_border_setting", "translation_paste_undo", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key", "video_overlays", "video_pair_tags", "video_fetch_flow", "video_fetch_restore", "settings_video_preview", "video_files_tab", "video_library_modes", "video_fullscreen_sizes", "video_translation_tab", "organigram_menu", "scope_spectro_overlays", "radio_waterfall", "radio_station_edit"]
+             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "radio_organigram", "radio_idle_rate", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "bulk_add_options", "bulk_add_flow", "translation_editor", "translation_create", "play_mode_back", "disk_border_setting", "translation_paste_undo", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key", "video_overlays", "video_dither_option", "book_embedded_chapters", "cli_commands", "cli_core", "radio_cli", "radio_cli_typed", "radio_cli_extras", "video_fx_picker", "xdg_dirs", "settings_cli_row", "cli_replies_hooks", "cli_scripts_overlay", "video_pair_tags", "video_fetch_flow", "video_fetch_restore", "settings_video_preview", "video_files_tab", "video_library_modes", "video_fullscreen_sizes", "video_translation_tab", "organigram_menu", "scope_spectro_overlays", "radio_waterfall", "radio_station_edit"]
 
 
 def main():

@@ -122,7 +122,7 @@ void make_sample_cover(CoverImage& c) {
 PvKind kind_of(int id, const Settings& s) {
     switch (id) {
         case kSidLyrAlign: case kSidLyrAnim: case kSidUseLyrics: return kPvLyrics;
-        case kSidUseVideo: case kSidVideoLyrics: case kSidVideoSize: case kSidVideoFx: case kSidVideoRes: case kSidVideoBuffer: case kSidVideoMp3: case kSidVideoContrast: case kSidVideoBrightness: case kSidVideoColors: case kSidVideoChroma: case kSidVideoRound: return kPvVideo;   // (a sample video; the lyrics preview when it is not there)
+        case kSidUseVideo: case kSidVideoLyrics: case kSidVideoSize: case kSidVideoFx: case kSidVideoRes: case kSidVideoBuffer: case kSidVideoMp3: case kSidVideoContrast: case kSidVideoBrightness: case kSidVideoColors: case kSidVideoChroma: case kSidVideoDither: case kSidVideoBase: case kSidVideoGradSat: case kSidVideoRound: return kPvVideo;   // (a sample video; the lyrics preview when it is not there)
         case kSidVideoCover: return kPvNone;
         case kSidVideoClap: return kPvClap;
         case kSidDisk: case kSidDiskSpeed: case kSidDiskBorder: return kPvDisk;
@@ -671,7 +671,7 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
         if (fr && (fr->w != dw || fr->h != dh)) { vscaled = VideoPlayer::resample(*fr, dw, dh); fr = &vscaled; }
         {
             VideoLook look;
-            look.fx = settings_.video_fx; look.contrast = settings_.video_contrast; look.brightness = settings_.video_brightness; look.colors = settings_.video_colors; look.chroma = settings_.video_chroma;
+            look.fx = settings_.video_fx; look.contrast = settings_.video_contrast; look.brightness = settings_.video_brightness; look.colors = settings_.video_colors; look.chroma = settings_.video_chroma; look.dither = settings_.video_dither; look.base = settings_.video_base;
             if (video_fx_uses_gradient(look.fx)) look.grad = video_fx_gradient(settings_);
             if (fr && look.active()) { vfx = *fr; VideoPlayer::apply_look(vfx, look, vt, !picture, V.previous_frame()); fr = &vfx; }
         }
@@ -806,7 +806,7 @@ void App::settings_preview_draw(std::ostringstream& frame, int W, int MAX_Y, int
         g.active = true;
         g.fresh = out.vfresh || resized;
         if (g.fresh) {
-            VideoPlayer::quantize(*out.vframe, g.hue, g.level);
+            VideoPlayer::quantize(*out.vframe, g.hue, g.level, settings_.video_dither);
             if (settings_.video_round) {   // Video Rounded Corners: the corners cut round, like in the main screen (a quarter circle of about half a cell)
                 const int rp = std::clamp(g.w / std::max(1, out.vcols) * 11 / 20, 2, std::min(g.w, g.h) / 2);
                 const float rf = static_cast<float>(rp);

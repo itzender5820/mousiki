@@ -27,6 +27,7 @@
 #include "book_cue.h"
 #include "book_split.h"
 #include "cover_art.h"
+#include "cli_core.h"
 #include "cover_store.h"
 #include "disk_art.h"
 #include "remote_server.h"
@@ -62,7 +63,7 @@
 namespace muisc {
 namespace org { struct Theme; }   // (organigram.h)
 
-enum class Mode { Browse, Search, Settings, ColorEdit, Console, Cheatsheet, BulkAdd, RetryLyrics, Playlist, MetaEdit, CoverFetch, History, ClearQueue, OsciMenu, NormMenu, BarsMenu, Equalizer, SleepTimer, LyricsEdit, Karaoke, SpectroMenu, Wizard, ReadLyrics, Creator, MenuIndex, UpdateNotice, QueueToPlaylist, BookOverlay, AudioDevice, VideoMenu, VideoLink, VideoSearch, VideoFetch };
+enum class Mode { Browse, Search, Settings, ColorEdit, Console, Cheatsheet, BulkAdd, RetryLyrics, Playlist, MetaEdit, CoverFetch, History, ClearQueue, OsciMenu, NormMenu, BarsMenu, Equalizer, SleepTimer, LyricsEdit, Karaoke, SpectroMenu, Wizard, ReadLyrics, Creator, MenuIndex, UpdateNotice, QueueToPlaylist, BookOverlay, AudioDevice, VideoMenu, VideoLink, VideoSearch, VideoFetch, CliScripts };
 enum class ListSource { Local, Online, Playlist, Folder };
 
 // One row of the main UI's "/f:" folder list: a folder that directly
@@ -339,6 +340,15 @@ private:
     // The options panel inside the full screen video (SHIFT+s): the track's own effect, contrast, colours and chromatic aberration, the same
     // choices (and storage) as the video rows of the Style Option overlay.
     bool video_opts_open_ = false;
+    // The VIDEO EFFECT picker (app_fxpick.cpp): ENTER on a Video Effect row opens it over the menu (3 columns, arrow keys, ENTER, ESC).
+    struct FxPick { bool open = false; int target = 0; int cursor = 0; int current = 0; bool with_default = false; };   // target: 0 Settings, 1 VIDEO overlay, 2 VIDEO OPTIONS panel, 3 Style Option
+    FxPick fxpick_;
+    std::vector<int> fxpick_entries() const;
+    void fxpick_open(int target);
+    void fxpick_apply(int fx);
+    bool fxpick_key(int key, bool arrow);
+    std::vector<std::string> build_fxpick_panel(int W, int& panel_w) const;
+    void draw_fxpick(std::ostringstream& frame, int W) const;   // over what the frame has drawn so far (with a picture protocol it replaces the panel under it: see app_render.cpp)
     int video_opts_sel_ = 0;
     bool video_opts_pair_ = false;   // the playing track is a song paired with a video: the row "Use mp4 audio for this song" is listed
     bool song_paired_with_video(const fs::path& track) const;   // not a video itself, the Video mode is on and a video belongs to it
@@ -921,9 +931,6 @@ private:
     // header). The data itself lives in HistoryStore history_ (appended to on
     // the main thread only, persisted to ~/.cache/mousiki/history/history.json
     // after every finished track and again at shutdown).
-    int history_tab_ = 0;              // 0=History, 1=Top Tracks, 2=Top Playlists, 3=Habits
-    static constexpr int kHistTabs = 4;
-    static constexpr int kHistTabTop = 1, kHistTabPlaylists = 2, kHistTabHabits = 3;
     // current_: the `current_*` data of this feature, grouped (they were 5 loose members of App)
     struct CurrentState {
         // Playlist context of the track being played / loaded (see QueueItem::playlist). pending_ is set by
@@ -949,29 +956,14 @@ private:
     PendingBulkVideo bulk_video_;
     void drop_temp_streams(const fs::path& keep, bool all = false);
     void bulk_video_pump();
-    int history_selected_ = 0;         // cursor within tabs 0/1
-    int history_scroll_ = 0;           // manual scroll offset (tab 2's content)
-    int history_view_top_ = 0;         // first visible list row on tabs 0/1 (window moves only when the cursor leaves it)
-    bool history_most_first_ = true;   // 'r' on the Top Tracks tab
-    std::vector<HistoryTopRow> history_top_view_; // rebuilt by history_refresh_top()
-    std::string history_status_;       // footer status line, set by 'r' / the queue adds
-    // Top Tracks tab only: it is split into two stacked panes. 0 = the track
-    // list (Up/Down move its cursor), 1 = the "ADD SMART HISTORY TO QUEUE"
-    // pane below it: a 4 x 4 grid of lists (column 0 Top 10/25/50/100, then
-    // top of the week/month/quarter/year, top by time of day, and the
-    // "rediscover" lists). Arrows move in the grid, Enter queues the list,
-    // TAB toggles the panes, ESC leaves the grid for the track list.
-    int history_pane_ = 0;
-    int history_add_sel_ = 0;          // row 0..3 in the smart grid
-    int history_add_col_ = 0;          // column 0..3 in the smart grid
-    static constexpr int kHistoryAddCounts[4] = {10, 25, 50, 100};
-    static constexpr int kSmartListSize = 25; // every smart list except column 0
+    struct HistState;   // the overlay's cursor / tab / scroll state, defined in app_state_hist.h (only the files that use it include that)
+    std::unique_ptr<HistState> hist_;   // allocated in the constructor
     HistoryStore history_;             // the store itself (also used outside this overlay)
 
     void history_open();               // HKeyHistory entry point
     void history_refresh_top();        // rebuilds history_top_view_ from history_
     void handle_history_key(int key);
-    // Both non-const: they clamp history_selected_/history_scroll_ against the
+    // Both non-const: they clamp hist_->selected/scroll against the
     // content they actually ended up drawing (see the window code at the end
     // of build_history_panel()).
     void build_history_screen(std::ostringstream& frame, int W, int player_h);
@@ -1030,6 +1022,9 @@ private:
     mutable OscilloscopeVisualizer scope_;
     mutable std::string last_lyrics_status_;
     mutable double viz_dt_ = 0.08;
+    double present_lead_s_ = 0.0;     // how far ahead of the playing position the big overlay's picture and scope are drawn (about one terminal write), 0 = not
+    void scope_ring_ahead(OscilloscopeVisualizer& dst, double lead_s) const;   // dst takes the audio of the moment lead_s ahead of the playing position, when the track's samples are at hand (else the newest audio as it is)
+    double last_build_ms_ = 15.0;     // how long the last frame took to build (the lead of write_frame_wait_nearly_idle)
     // gfxs_: the `gfx_*` data of this feature, grouped (they were 7 loose members of App)
     struct GfxState {
         // The scope as a pixel image (Settings osci_style 1): filled while the lyrics column is built, emitted by run().
@@ -1152,9 +1147,60 @@ private:
     std::vector<std::string> status_history_;       // "[HH:MM:SS] message", oldest first (the last kMaxStatusHistory)
     std::vector<std::string> status_seen_;          // the last value of each message line that was looked at
     void capture_status();
-    int console_pane_ = 0;                          // 0 = logs, 1 = status messages: the pane the arrow keys scroll
+    mutable int console_pane_ = 0;                          // 0 = logs, 1 = status messages: the pane the arrow keys scroll
     mutable int console_up_[2] = {0, 0};            // lines scrolled up from the newest, per pane (0 = following the newest)
     void build_console_screen(std::ostringstream& frame, int W, int target_height) const;
+    // The command line (CLI): "/c:" in the search bar and the third pane of the console overlay. cli_run() runs one line and returns the
+    // reply (also kept in cli_out_); the commands are those of `mousiki --cmd` plus status / search / play / queue / ... (app_cli.cpp).
+    void remote_apply(const remote::Command& c);   // one remote-control command (app_remote.cpp)
+    std::string cli_buf_;                          // the console's command pane: the line being typed
+    size_t cli_caret_ = 0, cli_anchor_ = 0;
+    std::vector<std::string> cli_hist_;            // lines run so far (UP / DOWN recall them), oldest first
+    int cli_hist_pos_ = -1;                        // -1: not browsing the history
+    std::vector<std::string> cli_out_;             // "> line" and its reply, newest last (the last 200)
+    std::string cli_reply_;                        // the last reply: shown in the search bar's border while /c: is open
+    std::vector<cli::Job> cli_jobs_;               // running scripts / chains (one that waits stays here)
+    std::vector<cli::Timer> cli_timers_;           // `in 10m pause`
+    int cli_timer_serial_ = 0;
+    std::map<std::string, std::string> cli_aliases_;
+    bool cli_aliases_loaded_ = false;
+    struct { std::string line; std::chrono::steady_clock::time_point until{}; } cli_confirm_;   // a caution command waits for `yes`
+    // hooks.cli (on <event> = <commands>): what was there at the last look, and the limit that stops a hook that triggers itself
+    struct CliHookSnap { bool valid = false, has = false, paused = false; std::string key; size_t queue = 0; };
+    CliHookSnap cli_hook_snap_;
+    cli::HookLimiter cli_hook_limit_;
+    bool cli_hook_warned_ = false;
+    bool cli_hook_track_pending_ = false;   // a track-change waits for the new title to be really playing (its load sets the volume anew)
+    std::chrono::steady_clock::time_point cli_hook_track_at_{};   // (a title that starts paused / is paused and resumed while it loads is one event: track-change)
+    void cli_hooks_tick();
+    void cli_fire_hook(const std::string& event);
+    bool cli_startup_done_ = false;
+    std::chrono::steady_clock::time_point cli_started_at_{};
+    int cli_reply_serial_ = 0;                     // a new reply restarts the marquee of the search bar's border
+    mutable int cli_marq_idx_ = -1;
+    mutable std::chrono::steady_clock::time_point cli_marq_since_{};
+    void cli_tick();                               // once per frame: timers, waits, the startup script
+    std::string cli_exec(const std::string& line, cli::Job& job, bool& ok, bool forced);   // one command
+    void cli_step(cli::Job& job);                  // runs the lines of a job until it ends or has to wait
+    void cli_finish(cli::Job& job);
+    std::string cli_run(const std::string& line, cli::Origin origin = cli::Origin::Typed, const std::string& reply_id = std::string());   // a line (maybe several commands) from outside the typing
+    cli::State cli_state() const;
+    std::string cli_complete(const std::string& line);
+    // The script overlay (Mode::CliScripts): `open scripts`, `edit [name]`, or ENTER on "/cs:words" in the search bar
+    struct CliOvState;
+    std::unique_ptr<CliOvState> cliov_;
+    void cliov_open(const std::string& name, const std::string& filter);
+    void cliov_refresh();                          // reads the scripts again and applies the filter
+    void cliov_load(const std::string& name);      // puts a script into the editor
+    bool cliov_save();
+    void cliov_run(bool from_editor);
+    void handle_cliov_key(int key);
+    void build_cliov_screen(std::ostringstream& frame, int W, int target_height) const;
+    bool cs_in_search() const;                     // the search bar holds "cs:" (searching the scripts)   // CTRL+RIGHT: the line with its command word or its title completed ("" = nothing to add; hints go to cli_reply_)
+    bool cli_in_search() const;
+    // The library pane while "/c:" or "/cs:" is typed: the command history with the replies / the matching scripts (app_panels.cpp)
+    std::vector<std::string> build_cli_list_panel(int total_width, int height) const;                    // the search bar holds "c:" (CLI mode)
+    mutable bool console_has_[3] = {true, true, true};   // which console panes are on screen (set while drawing)
 
     // --- cheatsheet overlay (HKeyCheatsheet) ----------------------------
     // Scroll position within the key table (the table is longer than a small terminal can show,
@@ -1836,8 +1882,12 @@ private:
     void act_cycle_play_mode(int dir = 1);      // m: list -> repeat -> shuffle -> stop -> queue then stop
     void act_wizard_toggle();        // SHIFT+w from the remote control: open / close the help wizard
     // --- audio book player (app_audiobook.cpp) ---
-    struct BookChapter { fs::path path; std::string title; };
-    std::vector<BookChapter> chapters_;       // its chapters, in natural file name order (shown in the chapter pane)
+    // One row of the chapter pane: a file, or (part) one of the chapters a file carries itself (an .m4b): start / end are seconds in the file.
+    struct BookChapter { fs::path path; std::string title; double start = 0.0; double end = -1.0; bool part = false; };
+    std::vector<BookChapter> chapters_;       // its chapters, in natural file name order (shown in the chapter pane); a file with embedded chapters gives one row per chapter
+    std::vector<BookChapter> chapter_files_;  // the same without the parts: one entry per FILE (the tag editor, the renames and the totals work on files)
+    int book_chapter_at(const std::string& file_name, double sec) const;   // the row of that file that holds second `sec` (a plain file: its row); -1 when the file is not in the book
+    void book_part_tick();                    // an embedded chapter ended (the position moved on into the next): repeat / stop after it, as the play mode says
     void book_build_view();                   // folder_view_ for book_->nav (a flat list while a search is typed)
     void book_refresh_view();                 // the books list (left pane) from the scanned library
     void book_load_chapters(const std::string& dir);
@@ -1955,7 +2005,7 @@ private:
     bool book_notes_key(int key);
     std::vector<std::string> build_book_notes_panel(int panel_w, int panel_h) const;
     int book_ov_width(int term_w) const;
-    int book_chapter_of(const std::string& file) const;   // chapter index by file name, -1 when none
+    int book_chapter_of(const std::string& file, double sec = -1.0) const;   // chapter row by file name (sec >= 0: the embedded chapter that holds it), -1 when none
     std::string scanned_book_path_;           // the AUDIO BOOK PATH the library was scanned with (a change meanwhile means a rescan)
     void exclude_book_files(std::vector<LocalTrack>& tracks) const;   // the music player's library leaves out what lies in the audio book folder
     void book_totals(double elapsed, double& total, double& done, bool& complete) const;   // length of the book / listened so far (sums the known chapter lengths)

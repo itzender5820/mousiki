@@ -19,19 +19,22 @@ namespace muisc::remote {
 
 struct Command {
     std::string name;   // one of known_commands()
-    std::string arg;    // "" or a short number such as "60", "+10", "-30"
+    std::string arg;    // "" or a short number such as "60", "+10", "-30"; for name "cli": the command line (text)
+    std::string id;     // "cli" only: the reply is written to reply-<id>.txt when this is not empty
+    bool from_net = false;   // "cli" only: it came over the network (the web server): the restricted set of commands
 };
 
 // ---- inside the program -------------------------------------------------------------------------------------------------
 void start(const char* mode);                 // "player" | "radio": create the folder, drop stale commands, mark the program as running
 void stop();                                  // remove the marker (quit, or switching to the other mode)
 void tick(const char* mode);                  // keeps the marker fresh; call every frame (cheap)
+void reply(const std::string& id, bool ok, const std::string& text);   // answers a "cli" command that came with an id
 std::vector<Command> poll();                  // the commands that arrived since the last call (at most 16; throttled to ~10 Hz)
 void publish_status(const std::vector<std::pair<std::string, std::string>>& kv);   // throttled to ~1 Hz; call every frame
 double number(const std::string& arg, double fallback);   // "+10" -> 10, "" -> fallback
 
 // ---- the command line ---------------------------------------------------------------------------------------------------
-bool is_client_call(int argc, char** argv);   // --cmd / --status / --remote-help
+bool is_client_call(int argc, char** argv);   // --cmd / --cli / --query / --run / --scripts / --status / --remote-help
 int client_main(int argc, char** argv);       // exit code: 0 sent, 1 nothing running, 2 wrong usage
 
 std::vector<std::string> known_commands();

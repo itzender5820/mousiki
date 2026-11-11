@@ -579,6 +579,8 @@ std::vector<std::string> render_radio_frame_inner(const UiModel& m, const RadioS
     m.spectro_skip[2] = m.spectro_skip[3] = 0;
     if (m.wizard_open) return build_wizard(s, m, std::clamp(m.cols, kUiCols, kMaxCols), std::max(m.rows, kUiRows));
     if (m.cheat_open) return build_cheatsheet(s, m, std::clamp(m.cols, kUiCols, kMaxCols), std::max(m.rows, kUiRows));
+    if (m.cliov.open) return build_cliov(s, m, std::clamp(m.cols, kUiCols, kMaxCols), std::max(m.rows, kUiRows));
+    if (m.con.open) return build_console(s, m, std::clamp(m.cols, kUiCols, kMaxCols), std::max(m.rows, kUiRows));
     if (m.hmenu.open) return build_history_menu(s, m, std::clamp(m.cols, kUiCols, kMaxCols), std::max(m.rows, kUiRows));
     if (m.settings.open && !peek) return build_settings(cfg, m.settings, std::clamp(m.cols, kUiCols, kMaxCols), std::max(m.rows, kUiRows));
     if (m.lmenu.open) return build_lists_menu(s, m, st, std::clamp(m.cols, kUiCols, kMaxCols), std::max(m.rows, kUiRows));

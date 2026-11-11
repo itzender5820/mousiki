@@ -1,130 +1,11 @@
 #pragma once
-// The tables of the Settings screen (the REFERENCE tab's hotkey rows, the row ids and layouts of the GENERAL and ANIMA/VIZ
-// tabs). Shared by app.cpp and app_settings.cpp; nothing here is part of the program's interface.
+// The row ids (SetId) and the layouts of the GENERAL and ANIMA/VIZ tabs of the Settings screen. The layouts themselves are built
+// in app_settings_tables.cpp; the REFERENCE tab's hotkey rows are in app_settings_ref.h. Nothing here is part of the program's interface.
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace muisc {
-
-struct RefHotkeyRow { const char* header; const char* action; const char* label; };
-inline const RefHotkeyRow kRefRows[] = {
-    // --- Playback ---
-    {"PLAYBACK", "HKeyPlay", "Play Selected"},
-    {nullptr, "HKeyTogglePlayPause", "Toggle Play / Pause"}, // was missing from this tab entirely
-    {nullptr, "HKeyPlayNextSong", "Next Track"},
-    {nullptr, "HKeyPlayPreviousSong", "Prev Track"},
-    {nullptr, "HKeyShuffleNext", "Shuffle Next"},
-    {nullptr, "HKeyCyclePlayMode", "Cycle Play Mode"},
-    {nullptr, "HKeyCyclePlayModeBack", "Cycle Play Mode Back"},
-    {nullptr, "HKeySeekForward", "Seek Forward"},
-    {nullptr, "HKeySeekBackward", "Seek Backward"},
-    {nullptr, "HKeyIncreaseVolume", "Volume Up"},
-    {nullptr, "HKeyDecreaseVolume", "Volume Down"},
-    {nullptr, "HKeyToggleMute", "Toggle Mute"},
-    {nullptr, "HKeyToggleNormalize", "Toggle Normalize"},
-    {nullptr, "HKeyBarsMenu", "Spectrum Bars Options"}, // style, the Hi-Fi rows, motion; under the upper pane
-    {nullptr, "HKeyNormMenu", "Normalization Tuning"}, // on/off, target level, max boost, live
-    {nullptr, "HKeySleepTimer", "Sleep Timer"},       // 15/30/60/90/120 min or stop after the current song
-    {nullptr, "HKeyCreator", "Creator"},              // text / picture -> oscilloscope music or spectrogram sound
-    // --- Navigation & View ---
-    {"NAVIGATION & VIEW", "HKeyNavigateUp", "Navigate Up"},
-    {nullptr, "HKeyNavigateDown", "Navigate Down"},
-    {nullptr, "HKeySwitchBetweenCards", "Switch Cards"},
-    {nullptr, "HKeyFilterForFolder", "Filter By Folder"},
-    {nullptr, "HKeyClearFilter", "Clear Filter"},
-    {nullptr, "HKeyCycleSortMode", "Cycle Sort Mode"},
-    {nullptr, "HKeyToggleMetaOnly", "Show Metadata Only"}, // list rows: metadata instead of filename
-    {nullptr, "HKeyTranslit", "Latin Letters On/Off"},     // Japanese / Korean / Chinese text in Latin letters
-    {nullptr, "HKeyToggleWaveform", "Toggle Waveform"},
-    {nullptr, "HKeyFolderOverlay", "Big Folder Overlay"}, // folder tree of the library, `f` shows a folder in the list
-    {nullptr, "HKeyConvertOverlay", "File Conversion Overlay"}, // convert high resolution files to MP3 / AAC / Opus
-    {nullptr, "HKeyListOverlay", "Big List Overlay"}, // larger LOCAL AUDIO FILES pane floated over the main UI
-    {nullptr, "HKeyQueueOverlay", "Big Queue Overlay"}, // larger QUEUE pane floated over the main UI
-    {nullptr, "HKeyRefreshUi", "Refresh UI"},
-    // --- Lyrics & karaoke ---
-    {"VIZ, LYRICS & KARAOKE", "HKeyToggleLyrics", "Viz./Lyrics Cycle Forward"},
-    {nullptr, "HKeyToggleLyricsBack", "Viz./Lyrics Cycle Backward"},
-    {nullptr, "HKeyRetryLyrics", "Refetch Lyrics"},
-    {nullptr, "HKeyKaraoke", "Karaoke Overlay"},
-    {nullptr, "HKeyVideoFetch", "Open Fetch Videos"},
-    {nullptr, "HKeyVideoFx", "Video Effect (Next, This Track)"},
-    {nullptr, "HKeyVideoFxBack", "Video Effect (Previous, This Track)"},
-    {nullptr, "HKeyVideoFull", "Full Screen Video"},
-    {nullptr, "HKeyVideo", "Video Overlay"},          // video files in the library + the "video" view (picture with the lyric line)
-    {nullptr, "HKeyLyricsTiming", "Lyrics Timing Overlay"},   // shift synced lyrics earlier / later
-    {nullptr, "HKeyReadLyrics", "Read and Translate Overlay"},       // saved lyrics as text, files + translations
-    {nullptr, "HKeyKaraokeBigger", "Karaoke Lyrics Bigger"},  // inside the karaoke overlay (size 1-5)
-    {nullptr, "HKeyKaraokeSmaller", "Karaoke Lyrics Smaller"},
-    // --- Visualizations ---
-    {"VISUALIZATIONS", "HKeyOscMenu", "Oscilloscope Tuning"},  // the SHIFT+o overlay, live
-    {nullptr, "HKeySpectroMenu", "Spectrogram Options"},
-    {nullptr, "HKeySpectroFull", "Spectrogram Full Screen"},
-    {nullptr, "HKeyScopeBig", "Oscilloscope Full Screen"},   // YT left, XY right, grid
-    {nullptr, "HKeyScopeWindow", "Scope Window"},     // the oscilloscope in its own (graphics card) window
-    {nullptr, "HKeySpectroWindow", "Spectrogram Window"}, // the spectrogram in its own (graphics card) window
-    // --- Search ---
-    {"SEARCH", "HKeySearch", "Search Local"},   // the prefixes typed in the box (y: sc: b: p: f: r: a:) are fixed, see the cheat sheet
-    // --- Queue ---
-    {"QUEUE", "HKeyAddHoveringSongToQueue", "Add To Queue (Next)"},
-    {nullptr, "HKeyRemoveHoveringSongFromQueue", "Remove From Queue"},
-    {nullptr, "HKeyQueueMoveUp", "Queue Move Up"},
-    {nullptr, "HKeyQueueMoveDown", "Queue Move Down"},
-    {nullptr, "HKeyClearQueue", "Clear Queue"},
-    {nullptr, "HKeyQueueAddEnd", "Add To End Of Queue"},
-    {nullptr, "HKeyQueueLock", "Lock Queue"},
-    {nullptr, "HKeyQueueMoveTop", "Queue Move To Top"},
-    {nullptr, "HKeyQueueMoveBottom", "Queue Move To Bottom"},
-    {nullptr, "HKeyQueueUndoClear", "Undo Clear Queue"},
-    {nullptr, "HKeyQueueToPlaylist", "Save Queue As Playlist"},
-    {nullptr, "HKeyBulkAdd", "Bulk Add (Playlist Link)"},
-    {nullptr, "HKeyAddToPlaylist", "Add Track To Playlist"},
-    // --- Playlists ---
-    {"PLAYLISTS", "HKeyPlaylist", "Open Playlist Editor"}, // opens the playlist create/manage screen
-    // --- Meta editor ---
-    {"META EDITOR", "HKeyMetaEditor", "Open Meta Editor"}, // edit file names/tags, AcoustID fetch
-    {nullptr, "HKeyCoverFetch", "Open Cover Fetch"},
-    {nullptr, "HKeyStyleOptions", "Open Style Options"},   // the cover look of the playing track       // fetch album covers (MusicBrainz / Cover Art Archive)
-    {nullptr, "HKeyFetchTags", "Fetch Missing Tags (Meta Editor)"}, // the highlighted title, inside the meta data editor
-    {nullptr, "HKeyBookmark", "Set Bookmark (Audio Book)"}, // the same key as the spectrum bars overlay, which the audio book mode does not use
-    // --- Listening history ---
-    {"HISTORY", "HKeyHistory", "Open Listening History"}, // HISTORY / TOP TRACKS / TOP PLAYLISTS / HABITS overlay
-    // --- Equalizer ---
-    {"EQUALIZER", "HKeyEqualizer", "Open Equalizer"}, // 10-band EQ with presets
-    // --- Downloads ---
-    {"DOWNLOADS", "HKeyDownloadStream", "Download Stream"},
-    // --- System ---
-    {"LIBRARY", "HKeyRescan", "Rescan Library"},   // pick up files that were added while the app runs
-    {"SYSTEM", "HKeySetting", "Open Settings"},
-    {nullptr, "HKeyModeNext", "Next Mode"},      // music player -> radio -> audio books (SHIFT and + on a German keyboard)
-    {nullptr, "HKeyModePrev", "Previous Mode"},
-    {nullptr, "HKeyCoverPrev", "Cover Look Back"},      // plain disk -> the cover modes (audio books: default picture -> cover)
-    {nullptr, "HKeyCoverNext", "Cover Look Forward"},
-    {nullptr, "HKeyConsole", "Console / Logs"},
-    {nullptr, "HKeyAudioDevice", "Choose Audio Device"},
-    {nullptr, "HKeyWizard", "Help Wizard"},
-    {nullptr, "HKeyCheatsheet", "Cheatsheet"},
-    {nullptr, "HKeyMenus", "Menus / Overlays Index"},
-    {nullptr, "HKeyQuit", "Quit Application"},
-};
-inline constexpr int kRefRowCount = sizeof(kRefRows) / sizeof(kRefRows[0]);
-
-// The one-line, read-only note drawn first on the tab (with a blank spacer
-// line above it, same as a header) and before the hotkeys start. Not
-// selectable -- it costs a display line, same as a header, but no entry in
-// the row-index space below.
-inline const char* const kRefNote = "KEYS NOT LISTED HERE ARE FIXED. SEE CHEAT SHEET FOR THE FULL LIST OF COMMANDS, `?`";
-
-// Selectable row range of this tab, in order:
-//
-//     kRefStart .. kRefEnd-1          rebindable hotkeys (kRefRows)
-//     kRefEnd ..                      font-map rows (read-only)
-//
-// Every row-index translation on this tab (ref_display_row(), the scroll
-// window, settings_max_row(), the Enter-to-edit guard) has to go through
-// these two constants.
-inline constexpr int kRefStart = 1;   // selectable row 0 is the "Reset All Keys To Default" line, right under the note
-inline constexpr int kRefEnd = kRefStart + kRefRowCount;
 
 // The GENERAL tab (tab 1, formerly ON/OFF) and the ANIMA/VIZ tab (tab 2) are laid out as categories: a header line, then its rows. Every
 // selectable row has an id (SetId, the same numbers on both tabs); settings_row_ counts the selectable rows of the tab
@@ -133,7 +14,7 @@ inline constexpr int kRefEnd = kRefStart + kRefRowCount;
 enum SetId {
     kSidVizField, kSidDisk, kSidDummy, kSidQueue, kSidWave, kSidLyricsEngine, kSidLyricViz, kSidVisualizer, kSidNoLyricsViz,
     kSidStereo, kSidNormalize, kSidMetaOnly, kSidEmoji, kSidMarquee, kSidUseLyrics, kSidUseOsci, kSidUseSpectro, kSidUseSphere,
-    kSidOrder1, kSidOrder2, kSidOrder3, kSidOrder4, kSidOrder5, kSidUseVideo, kSidNoVideoViz, kSidVideoSize, kSidVideoFx, kSidVideoContrast, kSidVideoBrightness, kSidVideoColors, kSidVideoChroma, kSidVideoRound, kSidVideoClap, kSidVideoCover, kSidVideoRes, kSidVideoBuffer, kSidVideoMp3, kSidCoverChroma,
+    kSidOrder1, kSidOrder2, kSidOrder3, kSidOrder4, kSidOrder5, kSidUseVideo, kSidNoVideoViz, kSidVideoSize, kSidVideoFx, kSidVideoContrast, kSidVideoBrightness, kSidVideoColors, kSidVideoChroma, kSidVideoDither, kSidVideoBase, kSidVideoGradSat, kSidVideoRound, kSidVideoClap, kSidVideoCover, kSidVideoRes, kSidVideoBuffer, kSidVideoMp3, kSidCoverChroma,
     kSidPlayback, kSidStartMode, kSidBlackBg, kSidShareProfiles, kSidRemoteApp, kSidUpdateCheck, kSidMediaKeys, kSidUseTermSettings, kSidTermSize, kSidFullScreen, kSidLatinLookup, kSidLatinMacrons, kSidLatinWo, kSidLatinHanzi, kSidLyricsVariants, kSidRateCap, kSidTrackBuffer,
     kSidVisFluidity, kSidWaveStyle, kSidDiskSpeed, kSidVisDegr, kSidVisVisc, kSidLyrAlign, kSidLyrAnim,
     kSidVolIndicator,
@@ -146,6 +27,8 @@ enum SetId {
     kSidBarStyle, kSidHifiRes, kSidHifiChan, kSidHifiColor, kSidHifiScale, kSidHifiAdapt, kSidHifiSplit, kSidHifiFScale, kSidHifiGain, kSidHifiRange, kSidBarBehavior,   // SPECTRUM BARS: classic / Hi-Fi and the three rows only Hi-Fi shows
     kSidReduceMotion,  // TERMINAL: a low frame rate while paused and untouched
     kSidDiskBorder,    // DISK: the ":  :" column between the disk and the meta data on / off
+    kSidPauseFade,     // AUDIO: pause / resume fade over about 8 ms (no click)
+    kSidCliScripts,    // CLI / REMOTE / UPDATES: [ENTER] opens the script overlay
     kSidAudioDevice,   // the sound output: shows the device in use, [ENTER] opens the CHOOSE AUDIO DEVICE overlay
 };
 // True while the audio book player is the mode that runs (set by App::run()): its GENERAL and ANIMA/VIZ tabs leave out what only
@@ -154,151 +37,8 @@ inline bool g_settings_book_layout = false;
 // True while the bars style is Hi-Fi (set by App): only then the Hi-Fi rows of SPECTRUM BARS are listed.
 inline bool g_settings_hifi_rows = false;
 struct SetLine { bool header; int id; const char* text; };   // a category header, or a row (id + label)
-inline const std::vector<SetLine>& settings_layout(int tab) {
-    static const std::vector<SetLine> on_off = {
-        {true, -1, "MODES"},
-        {false, kSidPlayback, "Playback"}, {false, kSidStartMode, "Start Mode"}, {false, kSidQueue, "Display queue"},
-        {true, -1, ""},
-        {true, -1, "MODES ON/OFF AND ORDER"},   // SHIFT and + / SHIFT and - walk through the modes that are on, in this order
-        {false, kSidUseModePlayer, "Use Music Player"}, {false, kSidUseModeRadio, "Use Radio"}, {false, kSidUseModeBook, "Use Audio Books"},
-        {false, kSidModeOrder1, "Mode Order 1"}, {false, kSidModeOrder2, "Mode Order 2"}, {false, kSidModeOrder3, "Mode Order 3"},
-        {true, -1, ""},
-        {true, -1, "AUDIO"},
-        {false, kSidAudioDevice, "Choose Audio Device"},
-        {false, kSidStereo, "Stereo Sound"}, {false, kSidNormalize, "Normalize Volume"}, {false, kSidTrackBuffer, "Track Buffer (MB)"},
-        {false, kSidRateCap, "Rate Cap at 96 kHz"},
-        {true, -1, ""},
-        {true, -1, "TERMINAL"},
-        {false, kSidBlackBg, "Black Background"}, {false, kSidUseTermSettings, "Use Terminal Settings"}, {false, kSidTermSize, "Terminal Size"},
-        {false, kSidFullScreen, "Full Screen"}, {false, kSidReduceMotion, "Reduce Motion When Paused"},
-        {true, -1, ""},
-        {true, -1, "REMOTE / UPDATES"},
-        {false, kSidRemoteApp, "Remote App"}, {false, kSidMediaKeys, "Media Keys"},
-        {false, kSidUpdateCheck, "Update Notice"}, {false, kSidCheckUpdate, "Check Update"},
-        {true, -1, ""},
-        {true, -1, "TEXT AND TRANSLITERATION (JAP./KOR./CHIN.)"},
-        {false, kSidTermDefaultFont, "Terminal Default Font"},
-        {false, kSidEmoji, "Replace Emoji"}, {false, kSidMarquee, "Marquee Scrolling"},
-        {false, kSidLatinMacrons, "Latin Macrons"}, {false, kSidLatinWo, "Latin Wo"}, {false, kSidLatinHanzi, "Translit. Kanji"}, {false, kSidLatinLookup, "Latin Name Lookup"}, {false, kSidLyricsVariants, "Lyrics Name Variants"},
-    };
-    // A header with an empty text is the blank line before the next header (every header but the first has one).
-    static const std::vector<SetLine> anima = {
-        {true, -1, "LYRICS/VIZ FIELD"},
-        {false, kSidLyricViz, "Lyrics/Viz Default"}, {false, kSidNoLyricsViz, "When No Lyrics Show"},
-        {false, kSidNoVideoViz, "When No Video Shows"},
-        {true, -1, ""},
-        {true, -1, "LYRICS"},
-        {false, kSidLyrAlign, "Lyrics Alignment"}, {false, kSidLyrAnim, "Lyrics Animation"},
-        {true, -1, ""},
-        {true, -1, "VIDEO"},
-        {false, kSidVideoLyrics, "Include Lyrics"}, {false, kSidVideoSize, "Video Size"}, {false, kSidVideoFx, "Video Effect"}, {false, kSidVideoContrast, "Video Contrast"}, {false, kSidVideoBrightness, "Video Brightness"}, {false, kSidVideoColors, "Video Colors"}, {false, kSidVideoChroma, "Video Chromatic Aberration"}, {false, kSidVideoRound, "Video Rounded Corners"}, {false, kSidVideoClap, "Show Clap Loading"}, {false, kSidVideoCover, "Disk/Cover/Thumbnail"}, {false, kSidVideoRes, "Video Resolution"}, {false, kSidVideoBuffer, "Video Buffer"}, {false, kSidVideoMp3, "yt-dlp mp3 from mp4"},
-        {true, -1, ""},
-        {true, -1, "DISK"},
-        {false, kSidDisk, "Eliment Disk / Cover"}, {false, kSidDiskSpeed, "Disk Speed"}, {false, kSidDiskBorder, "Disk Border"},
-        {true, -1, ""},
-        {true, -1, "DISK / COVER OPTIONS"},
-        {false, kSidAlbumCover, "Album Cover"}, {false, kSidCoverMode, "Cover Mode"},
-        {false, kSidCoverContrast, "Cover Contrast"}, {false, kSidCoverBrightness, "Cover Brightness"},
-        {false, kSidCoverColors, "Cover Colors"}, {false, kSidCoverGradSat, "Cover Gradient Saturation"}, {false, kSidCoverChroma, "Cover Chromatic Aberration"}, {false, kSidCoverSearch, "Cover Search"},
-        {true, -1, ""},
-        {true, -1, "SEEK AND VOLUME"},
-        {false, kSidDummy, "Dummy Buttons"}, {false, kSidVolIndicator, "Volume Indicator"},
-        {true, -1, ""},
-        {true, -1, "SPECTRUM BARS"},   // the bars under the meta data
-        {false, kSidVisualizer, "On/Off"},
-        {false, kSidBarStyle, "Bars Style"},
-        {false, kSidHifiRes, "Hi-Fi Resolution"}, {false, kSidHifiChan, "Hi-Fi Channels"}, {false, kSidHifiColor, "Hi-Fi Color"}, {false, kSidHifiScale, "Hi-Fi Height"}, {false, kSidHifiAdapt, "Hi-Fi Adapt Height"}, {false, kSidHifiSplit, "Hi-Fi Channel Gap"}, {false, kSidHifiFScale, "Hi-Fi Frequency Scale"}, {false, kSidHifiGain, "Hi-Fi Gain (dB)"}, {false, kSidHifiRange, "Hi-Fi Range (dB)"},
-        {false, kSidBarBehavior, "Bars Behavior"}, {false, kSidVisFluidity, "Bars Fluidity"}, {false, kSidVisDegr, "Bars Degradation"}, {false, kSidVisVisc, "Bars Viscosity"},
-        {true, -1, ""},
-        {true, -1, "PROGRESS WAVEFORM"},   // the braille waveform in the progress bar
-        {false, kSidWave, "On/Off"},
-        {false, kSidWaveStyle, "Waveform Style"},
-        {true, -1, ""},
-        {true, -1, "OSCI/SPECTRO SETTINGS"},
-        {false, kSidShareProfiles, "Modes Share Settings"},
-        {true, -1, ""},
-        {true, -1, "VIZ/LYRICS ORDER"},
-        {false, kSidOrder1, "Viz Order 1"}, {false, kSidOrder2, "Viz Order 2"},
-        {false, kSidOrder3, "Viz Order 3"}, {false, kSidOrder4, "Viz Order 4"}, {false, kSidOrder5, "Viz Order 5"},
-        {true, -1, ""},
-        {true, -1, "MAIN UI VIZ/LYRICS FIELD"},   // the field right of the meta data
-        {false, kSidVizField, "Viz/Lyrics Field"}, {false, kSidUseLyrics, "Use Lyrics Engine"}, {false, kSidUseVideo, "Use Video"},
-        {false, kSidUseOsci, "Use Oscilloscope"},                                            // false: left out entirely
-        {false, kSidUseSpectro, "Use Spectrogram"}, {false, kSidUseSphere, "Use Sphere"},    // (not in the "." cycle)
-    };
-    // The audio book player: the same tabs without what only the music player uses (the play mode, the lyrics, the disk's
-    // speed, the display queue), the lyrics view called "notes", the disk's place taken by the book cover.
-    static const std::vector<SetLine> book_on_off = {
-        {true, -1, "MODES"},
-        {false, kSidStartMode, "Start Mode"},
-        {true, -1, ""},
-        {true, -1, "MODES ON/OFF AND ORDER"},
-        {false, kSidUseModePlayer, "Use Music Player"}, {false, kSidUseModeRadio, "Use Radio"}, {false, kSidUseModeBook, "Use Audio Books"},
-        {false, kSidModeOrder1, "Mode Order 1"}, {false, kSidModeOrder2, "Mode Order 2"}, {false, kSidModeOrder3, "Mode Order 3"},
-        {true, -1, ""},
-        {true, -1, "BOOKMARKS"},
-        {false, kSidBookAsk, "Ask for Bookmark"},
-        {true, -1, ""},
-        {true, -1, "TERMINAL"},
-        {false, kSidBlackBg, "Black Background"}, {false, kSidUseTermSettings, "Use Terminal Settings"}, {false, kSidTermSize, "Terminal Size"},
-        {false, kSidFullScreen, "Full Screen"}, {false, kSidReduceMotion, "Reduce Motion When Paused"},
-        {true, -1, ""},
-        {true, -1, "REMOTE / UPDATES"},
-        {false, kSidRemoteApp, "Remote App"}, {false, kSidMediaKeys, "Media Keys"},
-        {false, kSidUpdateCheck, "Update Notice"}, {false, kSidCheckUpdate, "Check Update"},
-        {true, -1, ""},
-        {true, -1, "AUDIO"},
-        {false, kSidAudioDevice, "Choose Audio Device"}, {false, kSidBookSpeed, "Playback Speed"},
-        {false, kSidStereo, "Stereo Sound"}, {false, kSidNormalize, "Normalize Volume"}, {false, kSidTrackBuffer, "Track Buffer (MB)"},
-        {false, kSidRateCap, "Rate Cap at 96 kHz"},
-        {true, -1, ""},
-        {true, -1, "TEXT"},
-        {false, kSidTermDefaultFont, "Terminal Default Font"},
-        {false, kSidEmoji, "Replace Emoji"}, {false, kSidMarquee, "Marquee Scrolling"},
-    };
-    static const std::vector<SetLine> book_anima = {
-        {true, -1, "NOTES/VIZ FIELD"},
-        {false, kSidLyricViz, "Notes/Viz Default"}, {false, kSidNoLyricsViz, "When No Notes Show"},
-        {true, -1, ""},
-        {true, -1, "BOOK COVER"},
-        {false, kSidBookCover, "Book Cover"}, {false, kSidDiskBorder, "Disk Border"}, {false, kSidBookCoverWave, "Book Gradient Wave"}, {false, kSidCoverContrast, "Cover Contrast"},
-        {false, kSidCoverBrightness, "Cover Brightness"}, {false, kSidCoverColors, "Cover Colors"},
-        {true, -1, ""},
-        {true, -1, "SEEK AND VOLUME"},
-        {false, kSidDummy, "Dummy Buttons"}, {false, kSidVolIndicator, "Volume Indicator"},
-        {true, -1, ""},
-        {true, -1, "SPECTRUM BARS"},
-        {false, kSidVisualizer, "On/Off"},
-        {false, kSidBarStyle, "Bars Style"},
-        {false, kSidHifiRes, "Hi-Fi Resolution"}, {false, kSidHifiChan, "Hi-Fi Channels"}, {false, kSidHifiColor, "Hi-Fi Color"}, {false, kSidHifiScale, "Hi-Fi Height"}, {false, kSidHifiAdapt, "Hi-Fi Adapt Height"}, {false, kSidHifiSplit, "Hi-Fi Channel Gap"}, {false, kSidHifiFScale, "Hi-Fi Frequency Scale"}, {false, kSidHifiGain, "Hi-Fi Gain (dB)"}, {false, kSidHifiRange, "Hi-Fi Range (dB)"},
-        {false, kSidBarBehavior, "Bars Behavior"}, {false, kSidVisFluidity, "Bars Fluidity"}, {false, kSidVisDegr, "Bars Degradation"}, {false, kSidVisVisc, "Bars Viscosity"},
-        {true, -1, ""},
-        {true, -1, "PROGRESS WAVEFORM"},
-        {false, kSidWave, "On/Off"},
-        {false, kSidWaveStyle, "Waveform Style"},
-        {true, -1, ""},
-        {true, -1, "OSCI/SPECTRO SETTINGS"},
-        {false, kSidShareProfiles, "Modes Share Settings"},
-        {true, -1, ""},
-        {true, -1, "VIZ/NOTES ORDER"},
-        {false, kSidOrder1, "Viz Order 1"}, {false, kSidOrder2, "Viz Order 2"},
-        {false, kSidOrder3, "Viz Order 3"}, {false, kSidOrder4, "Viz Order 4"},
-        {true, -1, ""},
-        {true, -1, "MAIN UI VIZ/NOTES FIELD"},
-        {false, kSidVizField, "Viz/Notes Field"}, {false, kSidUseLyrics, "Use Book Notes"},
-        {false, kSidUseOsci, "Use Oscilloscope"},
-        {false, kSidUseSpectro, "Use Spectrogram"}, {false, kSidUseSphere, "Use Sphere"},
-    };
-    const std::vector<SetLine>& base = g_settings_book_layout ? (tab == 1 ? book_on_off : book_anima) : (tab == 1 ? on_off : anima);
-    if (g_settings_hifi_rows) return base;
-    // without Hi-Fi the three Hi-Fi rows are left out (one filtered copy per layout, kept)
-    static std::vector<std::pair<const std::vector<SetLine>*, std::vector<SetLine>>> cache;
-    for (const auto& c : cache) if (c.first == &base) return c.second;
-    std::vector<SetLine> f;
-    for (const auto& l : base) if (l.header || (l.id != kSidHifiRes && l.id != kSidHifiChan && l.id != kSidHifiColor && l.id != kSidHifiScale && l.id != kSidHifiAdapt && l.id != kSidHifiSplit && l.id != kSidHifiFScale && l.id != kSidHifiGain && l.id != kSidHifiRange)) f.push_back(l);
-    cache.emplace_back(&base, std::move(f));
-    return cache.back().second;
-}
+// The layout of tab 1 (GENERAL) / 2 (ANIMA/VIZ): categories and rows (defined in app_settings_tables.cpp).
+const std::vector<SetLine>& settings_layout(int tab);
 inline int settings_item_count(int tab) {
     int n = 0;
     for (const auto& l : settings_layout(tab)) if (!l.header) ++n;

@@ -3,7 +3,10 @@
 // ("BatBadBut") nor expand %NAME%. The text checks run on every platform; the round trip through a real cmd.exe on Windows.
 #include "test_framework.h"
 #include "process_util.h"
+#include <atomic>
+#include <chrono>
 #include <fstream>
+#include <thread>
 #include <string>
 #include <vector>
 
@@ -65,5 +68,41 @@ TEST(cmd_round_trip_through_a_real_cmd_exe) {
     std::string got = r.out;
     while (!got.empty() && (got.back() == '\n' || got.back() == '\r')) got.pop_back();
     CHECK_EQ(got, want);
+}
+#endif
+
+#if !defined(_WIN32)
+// The capture pipe must not leak into a child that another thread starts at the same moment: the reader would otherwise wait for
+// THAT child's exit (an ffprobe stuck behind a radio ffmpeg). One thread keeps starting "sleep 1" while two others capture "true".
+TEST(a_captured_command_never_waits_for_an_unrelated_child) {
+    std::atomic<bool> stop{false};
+    std::atomic<long long> worst_ms{0};
+    std::thread sleeper([&] {
+        while (!stop.load()) {
+            auto c = spawn_capture({"sleep", "1"}, false);
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            if (c) c->kill();
+            c.reset();
+            // (killed at once would hide the leak: keep one alive for a while every so often)
+            auto d = spawn_capture({"sleep", "1"}, false);
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            (void)d;
+        }
+    });
+    auto worker = [&] {
+        for (int i = 0; i < 150; ++i) {
+            const auto t0 = std::chrono::steady_clock::now();
+            run_capture({"true"});
+            const long long ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+            long long w = worst_ms.load();
+            while (ms > w && !worst_ms.compare_exchange_weak(w, ms)) {}
+        }
+    };
+    std::thread a(worker), b(worker);
+    a.join();
+    b.join();
+    stop = true;
+    sleeper.join();
+    CHECK(worst_ms.load() < 500);   // with a leaked write end this was up to 1000 ms (the sleeper's lifetime)
 }
 #endif

@@ -2,6 +2,7 @@
 // track paths when files move.
 #include "playlist_manager.h"
 #include "path_utf8.h"
+#include "settings.h"   // write_text_atomic()
 #include <algorithm>
 #include <fstream>
 #include <system_error>
@@ -46,8 +47,10 @@ std::vector<PlaylistSummary> PlaylistManager::list(const fs::path& dir) {
         const fs::path folder = imported ? dir / kImportedDir : dir;
         std::error_code ec;
         if (!fs::exists(folder, ec) || !fs::is_directory(folder, ec)) continue;
-        for (auto& entry : fs::directory_iterator(folder, ec)) {
-            if (ec) break;
+        std::error_code iter_ec;   // (an explicit loop: the range-for's operator++ throws on an I/O error half way)
+        const fs::directory_iterator iter_end;
+        for (fs::directory_iterator it(folder, iter_ec); !iter_ec && it != iter_end; it.increment(iter_ec)) {
+            const fs::directory_entry& entry = *it;
             std::error_code fec;
             if (!entry.is_regular_file(fec) || fec) continue;
             fs::path p = entry.path();
@@ -80,8 +83,10 @@ int PlaylistManager::rename_paths(const fs::path& dir,
     for (const fs::path& folder : {dir, dir / kImportedDir}) {
     std::error_code ec;
     if (!fs::is_directory(folder, ec)) continue;
-    for (auto& entry : fs::directory_iterator(folder, ec)) {
-        if (ec) break;
+    std::error_code iter_ec;
+    const fs::directory_iterator iter_end;
+    for (fs::directory_iterator it(folder, iter_ec); !iter_ec && it != iter_end; it.increment(iter_ec)) {
+        const fs::directory_entry& entry = *it;
         std::error_code fec;
         if (!entry.is_regular_file(fec) || fec) continue;
         fs::path p = entry.path();
@@ -156,14 +161,12 @@ bool PlaylistManager::save(const fs::path& dir, const Playlist& pl, std::string*
     }
 
     fs::path file = folder / path_from_utf8(sanitize_name(pl.name) + ".txt");
-    std::ofstream out(file, std::ios::trunc);
-    if (!out.is_open()) {
+    std::string text = "# mousiki playlist: " + pl.name + "\n";
+    for (const auto& t : pl.tracks) text += path_utf8(t.path) + "\n";
+    if (!write_text_atomic(file, text)) {   // (temp file + rename: a crash never leaves a cut-off playlist)
         if (error) *error = "could not open file for writing";
         return false;
     }
-
-    out << "# mousiki playlist: " << pl.name << "\n";
-    for (const auto& t : pl.tracks) out << path_utf8(t.path) << "\n";
     return true;
 }
 

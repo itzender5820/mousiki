@@ -160,7 +160,8 @@ struct Ui {
         const StationList* al = active_list_ptr();
         if (!al) model.active_list.clear();
         // while the box searches the LISTS ("p:") the stations are not filtered by what is typed there
-        const std::string q = model.search_lists ? std::string() : model.search;
+        // ... nor while it is the command line ("c:") or the search of the scripts ("cs:")
+        const std::string q = (model.search_lists || search_is_cli(model.search) || search_is_cs(model.search)) ? std::string() : model.search;
         model.visible = al ? filter(q, &al->items) : filter(q);
         sort_by_name(model.visible, model.sort_az);
         model.cursor = std::clamp(model.cursor, 0, std::max(0, static_cast<int>(model.visible.size()) - 1));

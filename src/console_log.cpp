@@ -1,5 +1,6 @@
 // The console log behind the t console: keeps the last lines in memory, writes them to a log file, and
 // records commands with their output at the chosen verbosity.
+#include "app_dirs.h"
 #include "console_log.h"
 #include "path_utf8.h"
 #include <chrono>
@@ -21,7 +22,7 @@ static fs::path log_dir() {
     // would re-read those bytes as ANSI, so a user profile with a
     // non-ASCII name produced a garbled base directory.
     fs::path base = home ? path_from_utf8(home) : fs::path(".");
-    return base / ".cache" / "mousiki" / "logs";
+    return muisc::app_dirs::cache() / "logs";
 }
 
 static std::string now_hms() {
@@ -46,6 +47,7 @@ ConsoleLog& ConsoleLog::instance() {
 void ConsoleLog::init(LogVerbosity level) {
     std::lock_guard<std::mutex> lk(mutex_);
     level_ = level;
+    initialized_ = true;
     lines_.clear();
     prev_lines_.clear();
 
@@ -76,6 +78,11 @@ void ConsoleLog::init(LogVerbosity level) {
                              std::string(level_ == LogVerbosity::Verbose ? "verbose" : "basic") + ") =====";
     if (out.is_open()) out << head << "\n";
     lines_.push_back(head);
+}
+
+bool ConsoleLog::initialized() const {
+    std::lock_guard<std::mutex> lk(mutex_);
+    return initialized_;
 }
 
 LogVerbosity ConsoleLog::toggle_level() {
