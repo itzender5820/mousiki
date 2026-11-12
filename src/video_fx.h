@@ -63,13 +63,14 @@ inline int video_buffer_seconds(int mb, int res, bool sixel) {
 }
 
 // Video Base Layer (VideoBase=): the structure of the screen under the tube looks (CRT, VHS, Glitch, Quiet Glitch, the Phosphor looks):
-// 0 scanlines (as it always was), 1 aperture grille (Trinitron: vertical RGB stripes and two thin damper wires), 2 shadow mask (round dots
-// in a delta pattern), 3 slot mask (stripes with slots), 4 LCD grid (square pixels with dark gaps), 5 clean (no structure at all).
-inline constexpr int kBaseLayers = 6;
+// 0 scanlines (as it always was), 1 aperture grille (Trinitron: vertical RGB stripes), 2 shadow mask (round dots in a delta pattern),
+// 3 slot mask (stripes with slots), 4 clean (no structure at all; the default). (The "lcd grid" of the first 5.1.0 drafts is gone: a name
+// that is not known any more reads as clean.)
+inline constexpr int kBaseLayers = 5;
 inline const char* base_name(int b) {
-    switch (b) { case 1: return "aperture grille"; case 2: return "shadow mask"; case 3: return "slot mask"; case 4: return "lcd grid"; case 5: return "clean"; default: return "scanlines"; }
+    switch (b) { case 1: return "aperture grille"; case 2: return "shadow mask"; case 3: return "slot mask"; case 4: return "clean"; default: return "scanlines"; }
 }
-inline int base_from(const std::string& s) { for (int i = 0; i < kBaseLayers; ++i) if (s == base_name(i) || s == std::to_string(i)) return i; return 0; }
+inline int base_from(const std::string& s) { for (int i = 0; i < kBaseLayers; ++i) if (s == base_name(i) || s == std::to_string(i)) return i; return kBaseLayers - 1; }
 
 // The colours of the "gradient" look: left / centre / right stop of the visualizer gradient (RGB).
 // Dither pattern (a toggle that works with every look that dithers: Game Boy, EGA 16, Dither B/W and Gradient, and the reduction to the 256
@@ -99,7 +100,7 @@ inline int chroma_from(const std::string& s) { return s == "subtle" || s == "1" 
 // aberration, then the effect.
 struct VideoLook {
     int fx = 0, contrast = 0, colors = 100, chroma = 0, brightness = 50;
-    int base = 0;     // the base layer under the tube looks (0 scanlines .. kBaseLayers - 1)
+    int base = 4;     // the base layer under the tube looks (0 scanlines .. kBaseLayers - 1; 4 = clean)
     int dither = 0;   // the dither pattern (0 auto .. kDitherPatterns - 1); only changes how the dithering looks, so it is not part of active()
     VideoFxGradient grad;
     bool active() const { return fx > 0 || contrast > 0 || colors < 100 || chroma > 0 || brightness != 50; }

@@ -16,12 +16,12 @@ enum VMenuRow : int {
     kVmSize,            // Video Size
     kVmRounded,         // Rounded Corners
     kVmEffect,          // Effect
+    kVmBase,            // Base Layer (right under the effect it belongs to)
     kVmContrast,
     kVmBrightness,
     kVmColors,
     kVmChroma,          // Chromatic Aberration
     kVmDither,          // Dither Pattern
-    kVmBase,            // Base Layer
     kVmGradSat,         // Video Gradient Saturation (0 .. 100 %)
     kVmResolution,
     kVmBuffer,
@@ -39,12 +39,12 @@ enum VMenuRow : int {
 // The VIDEO OPTIONS panel of the big video (SHIFT+s): the track's own video look. kVoMp4Audio is only listed for a song paired with a video.
 enum VOptsRow : int {
     kVoEffect,
+    kVoBase,
     kVoContrast,
     kVoBrightness,
     kVoColors,
     kVoChroma,
     kVoDither,
-    kVoBase,
     kVoGradSat,
     kVoResolution,
     kVoRounded,
@@ -67,12 +67,12 @@ enum StyleRow : int {
     kStVideoLyrics,     // Use Lyrics on Video
     kStVideoSize,
     kStVideoEffect,
+    kStVideoBase,
     kStVideoContrast,
     kStVideoBrightness,
     kStVideoColors,
     kStVideoChroma,
     kStVideoDither,
-    kStVideoBase,
     kStVideoGradSat,
     kStVideoResolution,
     kStVideoRounded,

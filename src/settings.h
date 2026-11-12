@@ -127,7 +127,7 @@ struct Settings : VizPrefs {
     int video_chroma = 1;             // Video Chromatic Aberration (VideoChroma=; default subtle): 0 off, 1 subtle, 2 medium, 3 strong
     int video_grad_sat = 85;          // Video Gradient Saturation (VideoGradientSaturation=): 0 .. 100 in steps of 5 (%): the gradient colours of the video looks as they are at 100, paler towards 0 (grey); 85 = default
     int video_dither = 5;             // Video Dither Pattern (VideoDither=): 0 auto (each look's own), 1 blue noise, 2 bayer 2x2, 3 bayer 4x4, 4 bayer 8x8, 5 interleaved noise (default), 6 golden ratio
-    int video_base = 0;               // Video Base Layer (VideoBase=): the structure under the tube looks: 0 scanlines (default), 1 aperture grille, 2 shadow mask, 3 slot mask, 4 lcd grid, 5 clean
+    int video_base = 4;               // Video Base Layer (VideoBase=): the structure under the tube looks: 0 scanlines, 1 aperture grille, 2 shadow mask, 3 slot mask, 4 clean (default)
     int cover_chroma = 0;             // Cover Chromatic Aberration (CoverChroma=): the same, for covers that show their own colours
     int video_res = 0;                // Video Resolution (VideoResolution=): 0 standard, 1 high, 2 full (see video_fx.h)
     int video_buffer = 32;            // Video Buffer (VideoBuffer=): MB of decoded frames the decoder keeps ahead of the picture

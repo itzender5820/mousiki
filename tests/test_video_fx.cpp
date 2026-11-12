@@ -2,6 +2,7 @@
 #include <algorithm>
 #include "test_framework.h"
 #include "video_player.h"
+#include "settings.h"
 
 using namespace muisc;
 
@@ -174,12 +175,11 @@ TEST(video_base_layers) {
         for (int y = 90; y < 120; ++y) { const int v = a.rgb[(static_cast<size_t>(y) * W + 200) * 3 + 1]; lo = std::min(lo, v); hi = std::max(hi, v); }
         return hi - lo;
     };
-    const VideoFrame lines = make(2, 0), grille = make(2, 1), mask = make(2, 2), slot = make(2, 3), lcd = make(2, 4), clean = make(2, 5);
+    const VideoFrame lines = make(2, 0), grille = make(2, 1), mask = make(2, 2), slot = make(2, 3), clean = make(2, 4);
     CHECK(row_var(lines) > 20);      // scanlines: the rows differ
     CHECK(col_var(grille) > 40);     // an aperture grille: vertical stripes
     CHECK(col_var(mask) > 20);       // a shadow mask: dots
     CHECK(col_var(slot) > 40);
-    CHECK(col_var(lcd) > 40 && row_var(lcd) > 20);   // an lcd grid: gaps both ways
     CHECK(row_var(clean) < 6 && col_var(clean) < 20);   // clean: the vignette's slope only, no structure
     CHECK(grille.rgb != lines.rgb && mask.rgb != grille.rgb && clean.rgb != lines.rgb);
     // Scanlines itself (1) and the effects that do not use the layer ignore it
@@ -208,6 +208,17 @@ TEST(video_base_layers) {
     CHECK(l.sig() != s0);
     l.fx = 21; const std::string t0 = l.sig(); l.base = 0;
     CHECK_EQ(l.sig(), t0);
+}
+
+// Clean is the default; the old "lcd grid" (gone) reads as clean, a number or a name of the five layers as itself.
+TEST(video_base_layer_default_and_names) {
+    CHECK_EQ(kBaseLayers, 5);
+    CHECK_EQ(base_from("clean"), 4);
+    CHECK_EQ(base_from("lcd grid"), 4);
+    CHECK_EQ(base_from("scanlines"), 0);
+    CHECK_EQ(base_from("slot mask"), 3);
+    CHECK_EQ(Settings().video_base, 4);
+    CHECK_EQ(VideoLook().base, 4);
 }
 
 // The phosphor looks are tinted all the way down: the black of a tube is faintly green (or amber), not grey; the glow variant keeps square corners (no curved glass, no black bezel).

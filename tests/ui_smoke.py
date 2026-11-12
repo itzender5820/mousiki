@@ -2195,7 +2195,9 @@ def video_fx_picker(binary, root, scripts):
             if "> Base Layer" in sess.text():
                 break
             sess.send(b"\x1b[B", 0.25)
-        check("> Base Layer" in sess.text() and "< scanlines >" in sess.text(), "base layer: the row is listed, scanlines by default")
+        check("> Base Layer" in sess.text() and "< clean >" in sess.text(), "base layer: the row is listed, clean by default")
+        sess.send(b"\x1b[C", 0.6)
+        check("< scanlines >" in sess.text(), "base layer: the right arrow goes round to scanlines")
         sess.send(b"\x1b[C", 0.6)
         check("< aperture grille >" in sess.text(), "base layer: the right arrow changes it")
         with open(cfg, encoding="utf-8") as f:
@@ -2259,9 +2261,8 @@ def video_base_per_track(binary, root, scripts):
         sess.send("v", 2.0)
         sess.send("S", 1.0)
         check("VIDEO OPTIONS" in sess.text() and "Video Base Layer" in sess.text(), "base layer per track: SHIFT+s opens VIDEO OPTIONS of the big video")
-        for _ in range(6):
-            sess.send(b"\x1b[B", 0.2)   # Contrast .. Dither, then Base Layer
-        check("Video Base Layer" in sess.text() and "as in Settings (scanlines)" in sess.text(), "base layer per track: the row reads as in Settings (scanlines) at first")
+        sess.send(b"\x1b[B", 0.3)   # Base Layer is right under the Video Effect row
+        check("Video Base Layer" in sess.text() and "as in Settings (clean)" in sess.text(), "base layer per track: the row reads as in Settings (clean) at first")
         sess.send(b"\x1b[C", 0.6)
         check("\u25c0 scanlines \u25b6" in sess.text(), "base layer per track: RIGHT gives the track its own base layer (scanlines)")
         sess.send(b"\x1b[C", 0.6)
@@ -2271,14 +2272,12 @@ def video_base_per_track(binary, root, scripts):
         sess.send("S", 1.0)
         check("VIDEO OPTIONS" not in sess.text(), "base layer per track: SHIFT+s closes the panel")
         sess.send("S", 1.0)
-        for _ in range(6):
-            sess.send(b"\x1b[B", 0.2)
+        sess.send(b"\x1b[B", 0.3)
         check("\u25c0 shadow mask \u25b6" in sess.text(), "base layer per track: the choice is still there after closing and opening the panel")
         sess.send(b"\x7f", 0.6)           # DEL: back to as in Settings
-        check("as in Settings (scanlines)" in sess.text() and "\u25c0 shadow mask" not in sess.text(), "base layer per track: DEL puts the row back to as in Settings")
+        check("as in Settings (clean)" in sess.text() and "\u25c0 shadow mask" not in sess.text(), "base layer per track: DEL puts the row back to as in Settings")
         # the effect list from this panel: beside the panel, which stays visible
-        for _ in range(6):
-            sess.send(b"\x1b[A", 0.2)
+        sess.send(b"\x1b[A", 0.3)
         sess.send(b"\r", 1.2)
         t = sess.text()
         check("VIDEO EFFECT" in t and "VIDEO OPTIONS" in t and "Video Base Layer" in t, "effect list from VIDEO OPTIONS: the list opens and the panel stays visible")
@@ -2401,11 +2400,15 @@ def video_dither_option(binary, root, scripts):
             if "Alpha Song" in sess.text():
                 break
         sess.send("Y", 1.0)
+        base_seen = False
         for _ in range(20):
+            if "> Base Layer" in sess.text() and "< clean >" in sess.text():
+                base_seen = True
             if "> Dither Pattern" in sess.text():
                 break
             sess.send(b"\x1b[B", 0.2)
         sess.pump(0.4)
+        check(base_seen, "base layer: the row sits under the effect, clean by default")
         check("> Dither Pattern" in sess.text() and "< interleaved noise >" in sess.text(), "dither pattern: the row is reached and says interleaved noise (the default)")
         def saved():
             try:
@@ -2418,9 +2421,7 @@ def video_dither_option(binary, root, scripts):
             check("VideoDither=%s" % want in saved(), "dither pattern: %s is saved in the config" % want)
         sess.send(b"\x1b[D", 0.6)
         check("< bayer 8x8 >" in sess.text(), "dither pattern: left arrow goes back one")
-        sess.send(b"\x1b[B", 0.8)                          # the next row: Base Layer (batch 257), then Gradient Saturation
-        check("> Base Layer" in sess.text() and "< scanlines >" in sess.text(), "base layer: the row is under the dither pattern, scanlines by default")
-        sess.send(b"\x1b[B", 0.8)
+        sess.send(b"\x1b[B", 0.8)                          # the next row: Gradient Saturation
         check("> Gradient Saturation" in sess.text() and "< 85 % >" in sess.text(), "gradient saturation: the row is under the dither pattern and says 85 % (the default)")
         sess.send(b"\x1b[C", 0.6)
         check("< 90 % >" in sess.text() and "VideoGradientSaturation=90" in saved(), "gradient saturation: right arrow makes it 90 % and it is saved")

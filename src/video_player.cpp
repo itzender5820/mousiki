@@ -254,7 +254,7 @@ const uint8_t kC64[16][3] = {{0, 0, 0}, {255, 255, 255}, {104, 55, 43}, {112, 16
                              {111, 79, 37}, {67, 57, 0}, {154, 103, 89}, {68, 68, 68}, {108, 108, 108}, {154, 210, 132}, {108, 94, 181}, {149, 149, 149}};
 
 // The base layer of the tube looks: a small tile of per-channel multipliers (the screen's structure) repeated over the picture. The tile's
-// average is brought to about 0.9 so the picture keeps its brightness. kind: 1 aperture grille, 2 shadow mask, 3 slot mask, 4 lcd grid.
+// average is brought to about 0.9 so the picture keeps its brightness. kind: 1 aperture grille, 2 shadow mask, 3 slot mask.
 // `strength` 0..1 (VHS and the glitch use a lighter structure than the tube looks). Only for pictures that have the pixels to show it.
 struct BaseTile {
     int tw = 1, th = 1;
@@ -284,7 +284,7 @@ BaseTile fx_base_tile(int kind, int mx, float strength) {
                     const float lit = std::clamp(1.35f - std::sqrt(dx * dx + dy * dy) / rad, 0.0f, 1.0f);
                     at(x, y, c) = dim * 0.55f + (1.0f - dim * 0.55f) * lit;
                 }
-    } else if (kind == 3) {   // slot mask: stripes with slots, the slots of neighbouring triads are staggered
+    } else {   // slot mask (kind 3): stripes with slots, the slots of neighbouring triads are staggered
         const int sh = 3 * mx, gap = mx;
         t.tw = 6 * mx; t.th = sh + gap;
         t.m.assign(static_cast<size_t>(t.tw) * t.th * 3, dim);
@@ -295,15 +295,6 @@ BaseTile fx_base_tile(int kind, int mx, float strength) {
                 const bool slot_gap = yy >= sh;
                 for (int c = 0; c < 3; ++c) at(x, y, c) = slot_gap ? dim * 0.45f : ((x / mx) % 3 == c ? 1.0f : dim);
             }
-    } else {   // lcd grid: every pixel is three vertical sub-pixels with a dark line to its right and below
-        t.tw = 4 * mx; t.th = 4 * mx;
-        t.m.assign(static_cast<size_t>(t.tw) * t.th * 3, 1.0f);
-        const float gapv = 1.0f - 0.78f * strength;
-        for (int y = 0; y < t.th; ++y)
-            for (int x = 0; x < t.tw; ++x) {
-                const bool gx = x >= 3 * mx, gy = y >= 3 * mx;
-                for (int c = 0; c < 3; ++c) at(x, y, c) = (gx || gy) ? gapv : ((x / mx) % 3 == c ? 1.0f : 1.0f - 0.45f * strength);
-            }
     }
     double sum = 0.0;
     for (float v : t.m) sum += v;
@@ -313,8 +304,8 @@ BaseTile fx_base_tile(int kind, int mx, float strength) {
     return t;
 }
 void fx_apply_base(uint8_t* px, int w, int h, int kind, float strength) {
-    if (kind < 1 || kind > 4 || w < 160) return;   // (a small picture has no pixels for a mask)
-    const int mx = std::clamp((w + 240) / 480, 1, 4);
+    if (kind < 1 || kind > 3 || w < 160) return;   // (a small picture has no pixels for a mask)
+    const int mx = std::clamp((w + 480) / 720, 1, 3);   // (the cell of the structure: 1 pixel per sub-pixel up to about 1000 pixels wide, fine on a big picture too)
     const BaseTile tile = fx_base_tile(kind, mx, strength);
     par_rows(h, [&](int ry0, int ry1) {
         for (int y = ry0; y < ry1; ++y) {
@@ -735,12 +726,19 @@ void VideoPlayer::apply_fx(VideoFrame& f, int fx, double t, bool braille, const 
                         for (int x = bx; x < x1; ++x)
                             for (int k = 0; k < 3; ++k) sum[k] += src[static_cast<size_t>(y) * stride + 3 * static_cast<size_t>(x) + k];
                     const float n = static_cast<float>((x1 - bx) * (y1 - by));
-                    const float r = sum[0] / n, g = sum[1] / n, b = sum[2] / n;
+                    float r = sum[0] / n, g = sum[1] / n, b = sum[2] / n;
+                    // (the picture is first made punchier -- a CGA game was drawn with strong colours -- and the candidates that are mostly a
+                    // grey (black and white, or cyan and magenta mixed to a lilac grey) lose against a colour when the picture has a colour)
+                    const float lum = 0.30f * r + 0.59f * g + 0.11f * b;
+                    r = std::clamp(lum + (r - lum) * 1.3f, 0.0f, 255.0f); g = std::clamp(lum + (g - lum) * 1.3f, 0.0f, 255.0f); b = std::clamp(lum + (b - lum) * 1.3f, 0.0f, 255.0f);
+                    const float chroma = std::max({r, g, b}) - std::min({r, g, b});   // 0..255
                     size_t best = 0;
                     float bd = 1e30f;
                     for (size_t i = 0; i < mixes.size(); ++i) {
                         const float dr = r - mixes[i].c[0], dg = g - mixes[i].c[1], db = b - mixes[i].c[2];
-                        const float dd = 0.30f * dr * dr + 0.59f * dg * dg + 0.11f * db * db;
+                        float dd = 0.30f * dr * dr + 0.59f * dg * dg + 0.11f * db * db;
+                        const float mc = std::max({mixes[i].c[0], mixes[i].c[1], mixes[i].c[2]}) - std::min({mixes[i].c[0], mixes[i].c[1], mixes[i].c[2]});
+                        if (mc < chroma) dd += 0.18f * (chroma - mc) * (chroma - mc);   // a grey candidate for a coloured picture: dearer
                         if (dd < bd) { bd = dd; best = i; }
                     }
                     const Mix& m = mixes[best];
@@ -985,7 +983,7 @@ void VideoPlayer::apply_fx(VideoFrame& f, int fx, double t, bool braille, const 
         }
     }
     // the base layer: the structure of the screen under the tube looks (the scanlines of base 0 are drawn by the looks themselves)
-    if (base >= 1 && !braille && video_fx_uses_base(fx)) {
+    if (base >= 1 && base <= 3 && !braille && video_fx_uses_base(fx)) {
         const float strength = fx == 3 ? 0.55f : (fx == 4 || fx == 7) ? 0.5f : 1.0f;
         fx_apply_base(px, w, h, base, strength);
     }

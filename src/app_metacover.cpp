@@ -571,11 +571,11 @@ std::vector<std::string> App::build_meta_sty_panel(int screen_w) const {
             case kStVideoLyrics: return {"Use Lyrics on Video", vo.lyrics >= 0 ? std::string(lyr_mode_name(vo.lyrics)) : std::string("as in VIDEO SETTINGS (") + lyr_mode_name(settings_.video_lyrics) + ")"};
             case kStVideoSize: return {"Video Size", vo.size >= 0 ? std::string(size_names[vo.size]) : std::string("as in VIDEO SETTINGS (") + size_names[std::clamp(settings_.video_size, 0, 3)] + ")"};
             case kStVideoEffect: return {"Video Effect", vo.fx >= 0 ? std::string(video_fx_name(vo.fx)) : std::string("VIDEO SETTINGS (") + video_fx_name(settings_.video_fx) + ")"};
+            case kStVideoBase: return {"Video Base Layer", vo.base >= 0 ? std::string(base_name(vo.base)) : std::string("as in Settings (") + base_name(settings_.video_base) + ")"};
             case kStVideoContrast: return {"Video Contrast", pct(vo.contrast, settings_.video_contrast)};
             case kStVideoBrightness: return {"Video Brightness", pct(vo.brightness, settings_.video_brightness)};
             case kStVideoColors: return {"Video Colors", pct(vo.colors, settings_.video_colors)};
             case kStVideoChroma: return {"Video Chromatic Aberration", vo.chroma >= 0 ? std::string(chroma_name(vo.chroma)) : std::string("as in Settings (") + chroma_name(settings_.video_chroma) + ")"};
-            case kStVideoBase: return {"Video Base Layer", vo.base >= 0 ? std::string(base_name(vo.base)) : std::string("as in Settings (") + base_name(settings_.video_base) + ")"};
             case kStVideoDither: return {"Video Dither Pattern", vo.dither >= 0 ? std::string(dither_name(vo.dither)) : std::string("as in Settings (") + dither_name(settings_.video_dither) + ")"};
             case kStVideoGradSat: return {"Video Gradient Saturation", pct(vo.gsat, settings_.video_grad_sat)};
             case kStVideoResolution: return {"Video Resolution", vo.res >= 0 ? std::string(video_res_name(vo.res)) : std::string("as in Settings (") + video_res_name(settings_.video_res) + ")"};

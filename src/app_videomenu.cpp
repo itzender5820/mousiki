@@ -240,12 +240,12 @@ std::vector<std::string> App::build_video_opts_panel() const {
     struct Row { const char* label; std::string value; };
     std::vector<Row> rows = {
         {"Video Effect", o.fx >= 0 ? std::string(video_fx_name(o.fx)) : std::string("VIDEO SETTINGS (") + video_fx_name(settings_.video_fx) + ")"},
+        {"Video Base Layer", o.base >= 0 ? std::string(base_name(o.base)) : std::string("as in Settings (") + base_name(settings_.video_base) + ")"},
         {"Video Contrast", pct(o.contrast, settings_.video_contrast)},
         {"Video Brightness", pct(o.brightness, settings_.video_brightness)},
         {"Video Colors", pct(o.colors, settings_.video_colors)},
         {"Video Chromatic Aberration", o.chroma >= 0 ? std::string(chroma_name(o.chroma)) : std::string("as in Settings (") + chroma_name(settings_.video_chroma) + ")"},
         {"Video Dither Pattern", o.dither >= 0 ? std::string(dither_name(o.dither)) : std::string("as in Settings (") + dither_name(settings_.video_dither) + ")"},
-        {"Video Base Layer", o.base >= 0 ? std::string(base_name(o.base)) : std::string("as in Settings (") + base_name(settings_.video_base) + ")"},
         {"Video Gradient Saturation", pct(o.gsat, settings_.video_grad_sat)},
         {"Video Resolution", o.res >= 0 ? std::string(video_res_name(o.res)) : std::string("as in Settings (") + video_res_name(settings_.video_res) + ")"},
         {"Video Rounded Corners", o.round >= 0 ? std::string(o.round ? "on" : "off") : std::string("as in Settings (") + (settings_.video_round ? "on" : "off") + ")"},
@@ -429,6 +429,7 @@ std::vector<std::string> App::build_video_menu_panel() const {
     lines.push_back(row(entry(vmenu_sel_ == kVmSize, "Video Size", std::string("< ") + (settings_.video_size == 1 ? "cropped" : settings_.video_size == 2 ? "full" : settings_.video_size == 3 ? "framed" : "regular") + " >"), vmenu_sel_ == kVmSize));
     lines.push_back(row(entry(vmenu_sel_ == kVmRounded, "Rounded Corners", toggle(settings_.video_round)), vmenu_sel_ == kVmRounded));
     lines.push_back(row(entry(vmenu_sel_ == kVmEffect, "Effect", std::string("< ") + video_fx_name(settings_.video_fx) + " >"), vmenu_sel_ == kVmEffect));
+    lines.push_back(row(entry(vmenu_sel_ == kVmBase, "Base Layer", std::string("< ") + base_name(settings_.video_base) + " >"), vmenu_sel_ == kVmBase));
     {
         auto pct = [&](int v) { return std::string("< ") + std::to_string(std::clamp(v, 0, 100)) + " % >"; };
         lines.push_back(row(entry(vmenu_sel_ == kVmContrast, "Contrast", pct(settings_.video_contrast)), vmenu_sel_ == kVmContrast));
@@ -436,7 +437,6 @@ std::vector<std::string> App::build_video_menu_panel() const {
         lines.push_back(row(entry(vmenu_sel_ == kVmColors, "Colors", pct(settings_.video_colors)), vmenu_sel_ == kVmColors));
         lines.push_back(row(entry(vmenu_sel_ == kVmChroma, "Chromatic Aberration", std::string("< ") + chroma_name(settings_.video_chroma) + " >"), vmenu_sel_ == kVmChroma));
         lines.push_back(row(entry(vmenu_sel_ == kVmDither, "Dither Pattern", std::string("< ") + dither_name(settings_.video_dither) + " >"), vmenu_sel_ == kVmDither));
-        lines.push_back(row(entry(vmenu_sel_ == kVmBase, "Base Layer", std::string("< ") + base_name(settings_.video_base) + " >"), vmenu_sel_ == kVmBase));
         lines.push_back(row(entry(vmenu_sel_ == kVmGradSat, "Gradient Saturation", pct(settings_.video_grad_sat)), vmenu_sel_ == kVmGradSat));
         lines.push_back(row(entry(vmenu_sel_ == kVmResolution, "Resolution", std::string("< ") + video_res_label(settings_.video_res, gfxs_.proto == GfxProto::Sixel) + " >"), vmenu_sel_ == kVmResolution));
         lines.push_back(row(entry(vmenu_sel_ == kVmBuffer, "Buffer", "< " + std::to_string(settings_.video_buffer) + " MB >"), vmenu_sel_ == kVmBuffer));

@@ -739,8 +739,8 @@ Cover behind Disk looks, the ASCII looks), its own Cover Contrast, Cover Brightn
 Colors, Cover Gradient Saturation and Cover Chromatic Aberration, and the look of its whole ALBUM (no album tag: of that folder). With
 the Video mode on a row "Use Disk/Cover/Thumbnail" sets the cover / video thumbnail / disk of THIS track (the
 same choice as in Cover Options; the VIDEO SETTINGS overlay holds the default). [<-][->] change a row (with the
-Video mode on more rows: Video of this track on / off, Video Size, Video Effect, Video Contrast, Video
-Brightness, Video Colors, Video Chromatic Aberration, Video Dither Pattern, Video Base Layer, Video Gradient Saturation,
+Video mode on more rows: Video of this track on / off, Video Size, Video Effect, Video Base Layer, Video Contrast, Video
+Brightness, Video Colors, Video Chromatic Aberration, Video Dither Pattern, Video Gradient Saturation,
 for this track only),
 [DEL] or [d] puts it back to "as in Settings". [t] switches between a real picture
 (Kitty / Sixel terminals, the default) and braille dots. A wide terminal adds a preview of the cover with
@@ -1268,7 +1268,7 @@ SETTING[[Header]]                       [WHAT IT DOES][[Header]]
 [Video Chromatic Aberration][[Legend]]    Colour fringes; works with every effect. Cover Chromatic Aberration
                               does the same for covers.
 [Video Base Layer][[Legend]]              The structure under CRT, VHS, Glitch, Quiet Glitch and the Phosphor looks: scanlines
-                              (default), aperture grille, shadow mask, slot mask, lcd grid, clean.
+                              (as it was), aperture grille, shadow mask, slot mask, clean (default); right under Video Effect.
 [Video Dither Pattern][[Legend]]          The dots of the looks that dither (Game Boy, EGA 16, Dither B/W /
                               Gradient) and of the 256-colour picture (sixel): interleaved noise
                               (default), auto, blue noise, bayer 2x2 / 4x4 / 8x8, golden ratio.
@@ -1385,9 +1385,9 @@ Like a real scope in X-Y mode. Wide stereo fills the area, a phase-shifted tone 
 A nearly mono track fades over to a phase portrait instead of a flat line.
 
 TUNING OVERLAY:[[Header]] [SHIFT+o] opens it, the picture changes live while the music plays.
-[SHIFT+i] / [SHIFT+u] switch straight to the spectrogram options / full screen.
 )WIZ",
-R"WIZ(Scope mode       XY, YT, XY + YT (overlap), XY + YT (row), XY + YT (column)
+R"WIZ([SHIFT+i] / [SHIFT+u] switch straight to the spectrogram options / full screen.
+Scope mode       XY, YT, XY + YT (overlap), XY + YT (row), XY + YT (column)
 Osci style       braille (works in any terminal) / image (pixels, needs Kitty graphics or Sixel)
 Frame rate       30 / 45 / 60 / 90 / 120 / 165 fps
 Osci music mode  for oscilloscope music: the unprocessed signal and a fixed scale
@@ -1515,9 +1515,9 @@ KEYS IN THE EQUALIZER: [[Header]]
 [<-/->]    pick a band                 [UP]/[DOWN]   +/- 1 dB
 [,] / [.]  previous / next preset      [0]           set the band to 0 dB
 [SPACE]    equalizer on / off          [R]           back to Flat
-[S]        save the curve as your own preset (up to 24)
 )WIZ",
-R"WIZ([DEL]      delete the selected custom preset (press twice)
+R"WIZ([S]        save the curve as your own preset (up to 24)
+[DEL]      delete the selected custom preset (press twice)
 
 PRESETS: [[Header]]
 Twelve presets are built in (Flat, Bass Boost, Treble Boost, Vocal, Rock, Pop, Jazz, Classical,
@@ -1681,9 +1681,9 @@ Files that moved or were deleted are skipped, and the status line says how many 
 2.8.1 SETTINGS BASICS [[Header]]
 
 OPEN:[[Header]] [s] opens the settings, always on the first tab. Six tabs:
-COLORS; GENERAL; ANIMA/VIZ; PATHS; REFERENCE; ABOUT APP ([TAB] steps through them)
 )WIZ",
-R"WIZ(
+R"WIZ(COLORS; GENERAL; ANIMA/VIZ; PATHS; REFERENCE; ABOUT APP ([TAB] steps through them)
+
 MOVING AND EDITING: [[Header]]
 [UP]/[DOWN]  previous / next row         [<-/->]  step through the values of a row, applied at once
 [ENTER]      edit the value as free text
@@ -1804,9 +1804,9 @@ marquee.
 
 [Terminal Size:][[Legend]]                                    columns x rows (default 120 x 32, which shows 4 rows in
                                                   the list and the queue) Use [<-/->] to choose the field
-                                                  or the [ Set back to default ] button, where [ENTER]
 )WIZ",
-R"WIZ(                                                  makes input possible / resets the value. Choosing 0 =
+R"WIZ(                                                  or the [ Set back to default ] button, where [ENTER]
+                                                  makes input possible / resets the value. Choosing 0 =
                                                   leaves the terminal alone, similar to setting the
                                                   previous option to true. Minimum is set to at least 100 x
                                                   28. At the end terminal decides: xterm, GNOME Terminal,
@@ -1904,9 +1904,9 @@ version that is used by Mousiki, in case you didn't install it via the installer
 excluded from your build and want to use it later). Wihtout pykakasi some Kanji signs for
 Japanese transliteration may remain. Less a problem for Chines/Korean Transliteration. With the
 package janome too (pip install janome) Japanese lines are cut into words (watashi wa anata ga
-suki desu) instead of one long word; Korean keeps the spaces of the text, Chinese is written
 )WIZ",
-R"WIZ(syllable by syllable. This
+R"WIZ(suki desu) instead of one long word; Korean keeps the spaces of the text, Chinese is written
+syllable by syllable. This
 has only been tested well with Japanese language, so feel free to report issues in order for
 me to adjust / extend the transliteration function in the future. 
 
@@ -1965,7 +1965,7 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
 [Video Brightness][[Legend]]                                  50 % = as it is, lower darker, higher brighter.
 [Video Colors][[Legend]]                                      0 = greyscale .. 100 % as they are.
 [Video Chromatic Aberration][[Legend]] Red and blue pushed apart: off / subtle / medium / strong.
-[Video Base Layer][[Legend]] The structure under the tube looks: scanlines / aperture grille / shadow mask / slot mask / lcd grid / clean.
+[Video Base Layer][[Legend]] The structure under the tube looks: scanlines / aperture grille / shadow mask / slot mask / clean (default).
 [Video Dither Pattern][[Legend]] The dots of the dithering looks and of the 256-colour picture (sixel): interleaved noise (default) / auto / blue noise / bayer 2x2 / 4x4 / 8x8 / golden ratio.
 [Gradient Saturation][[Legend]] How saturated the gradient looks' colours are (100 = as they are, 0 = grey; default 85 %).
 [Video Rounded Corners][[Legend]] Cut the picture's corners round, like the UI: off / on (per track in Style Option).
@@ -2006,9 +2006,9 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
                                                   4. Cover behind Disk v2 - the same, but the dots
                                                   themselves turn smoothly around the centre.
                                                   5. Cover behind Disk (Full Anima) - the same, but the
-                                                  dots follow the exact braille animation of the disk:
 )WIZ",
-R"WIZ(                                                  rotated and rounded to the dot grid, some of them come
+R"WIZ(                                                  dots follow the exact braille animation of the disk:
+                                                  rotated and rounded to the dot grid, some of them come
                                                   and go as it turns (the effect of the disk look of the
                                                   Volume Indicator).
                                                   6. Cover ASCII - the cover as braille dots in its own
@@ -2095,10 +2095,10 @@ R"WIZ(                                                  rotated and rounded to t
                                                   oscilloscope is using... [<-/->] switch between the two
                                                   values of the row, [ENTER] changes the options.
                                                   Default: the moving braille blocks (disk), in all modes.
-
-[SPECTRUM BARS:][[Header]]               
 )WIZ",
-R"WIZ([On/Off:][[Legend]]                                           shows or hides the spectrum bars under the meta data
+R"WIZ(
+[SPECTRUM BARS:][[Header]]               
+[On/Off:][[Legend]]                                           shows or hides the spectrum bars under the meta data
                                                   field.
 
 [Bars Style:][[Legend]]                                       Classic is the bar display as before. Hi-Fi is a stereo

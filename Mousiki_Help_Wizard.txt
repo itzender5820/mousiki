@@ -733,8 +733,8 @@ Cover behind Disk looks, the ASCII looks), its own Cover Contrast, Cover Brightn
 Colors, Cover Gradient Saturation and Cover Chromatic Aberration, and the look of its whole ALBUM (no album tag: of that folder). With
 the Video mode on a row "Use Disk/Cover/Thumbnail" sets the cover / video thumbnail / disk of THIS track (the
 same choice as in Cover Options; the VIDEO SETTINGS overlay holds the default). [<-][->] change a row (with the
-Video mode on more rows: Video of this track on / off, Video Size, Video Effect, Video Contrast, Video
-Brightness, Video Colors, Video Chromatic Aberration, Video Dither Pattern, Video Base Layer, Video Gradient Saturation,
+Video mode on more rows: Video of this track on / off, Video Size, Video Effect, Video Base Layer, Video Contrast, Video
+Brightness, Video Colors, Video Chromatic Aberration, Video Dither Pattern, Video Gradient Saturation,
 for this track only),
 [DEL] or [d] puts it back to "as in Settings". [t] switches between a real picture
 (Kitty / Sixel terminals, the default) and braille dots. A wide terminal adds a preview of the cover with
@@ -1257,7 +1257,7 @@ SETTING[[Header]]                       [WHAT IT DOES][[Header]]
 [Video Chromatic Aberration][[Legend]]    Colour fringes; works with every effect. Cover Chromatic Aberration
                               does the same for covers.
 [Video Base Layer][[Legend]]              The structure under CRT, VHS, Glitch, Quiet Glitch and the Phosphor looks: scanlines
-                              (default), aperture grille, shadow mask, slot mask, lcd grid, clean.
+                              (as it was), aperture grille, shadow mask, slot mask, clean (default); right under Video Effect.
 [Video Dither Pattern][[Legend]]          The dots of the looks that dither (Game Boy, EGA 16, Dither B/W /
                               Gradient) and of the 256-colour picture (sixel): interleaved noise
                               (default), auto, blue noise, bayer 2x2 / 4x4 / 8x8, golden ratio.
@@ -1949,7 +1949,7 @@ Latin letters are switched with ["] (SHIFT+' on a US keyboard, SHIFT+2 on a Germ
 [Video Brightness][[Legend]]                                  50 % = as it is, lower darker, higher brighter.
 [Video Colors][[Legend]]                                      0 = greyscale .. 100 % as they are.
 [Video Chromatic Aberration][[Legend]] Red and blue pushed apart: off / subtle / medium / strong.
-[Video Base Layer][[Legend]] The structure under the tube looks: scanlines / aperture grille / shadow mask / slot mask / lcd grid / clean.
+[Video Base Layer][[Legend]] The structure under the tube looks: scanlines / aperture grille / shadow mask / slot mask / clean (default).
 [Video Dither Pattern][[Legend]] The dots of the dithering looks and of the 256-colour picture (sixel): interleaved noise (default) / auto / blue noise / bayer 2x2 / 4x4 / 8x8 / golden ratio.
 [Gradient Saturation][[Legend]] How saturated the gradient looks' colours are (100 = as they are, 0 = grey; default 85 %).
 [Video Rounded Corners][[Legend]] Cut the picture's corners round, like the UI: off / on (per track in Style Option).
