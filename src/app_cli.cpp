@@ -89,7 +89,7 @@ const Cmd kCmds[] = {
     {"yes",           "",                            "confirm what was asked",                                  0, false, false},
     {"clear",         "",                            "clear the reply rows",                                    0, false, false},
     {"quit",          "",                            "quit Mousiki",                                            0, true,  true},
-    {"help",          "[command]",                   "this list (into the log); help <command> for one",        3, false, false},
+    {"help",          "[command]",                   "this list (typed: into the log); help <command> for one", 3, false, false},
 };
 const Cmd* find_cmd(const std::string& n) {
     for (const Cmd& c : kCmds) if (n == c.name) return &c;
@@ -174,6 +174,19 @@ void App::cli_step(cli::Job& job) {
         }
         bool ok = true;
         const std::string reply = cli_exec(parts.empty() ? line : parts[0], job, ok, false);
+        if (job.retry) {   // a title is still loading and the command could not start: the same line again in a moment (not shown, not counted)
+            job.retry = false;
+            --job.executed;
+            job.lines.push_front((soft ? "-" : "") + (parts.empty() ? line : parts[0]));
+            job.waiting = true;
+            job.wait_until = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
+            break;
+        }
+        if (job.silent) {   // a title was started: its answer comes with the settle line, which is next in the job
+            job.silent = false;
+            if (job.waiting) break;
+            continue;
+        }
         const std::string shown = ok ? reply : "error: " + reply;
         job.out.push_back(shown);
         if (job.origin == Origin::Typed) {
@@ -291,6 +304,50 @@ void App::cli_fire_hook(const std::string& event) {
 std::string App::cli_exec(const std::string& line_in, cli::Job& job, bool& ok, bool forced) {
     std::string line = cli::trim(line_in);
     auto fail = [&](const std::string& m) { ok = false; return m; };
+    // "Title - Artist  01:23/03:45  vol 60%": what the playback commands answer with (the user sees what happened, not just "ok")
+    auto track_line = [&]() -> std::string {
+        if (!has_track_) return std::string();
+        const TrackMetadata md = display_metadata();
+        return md.name + (md.artist != "-" && !md.artist.empty() ? " - " + md.artist : std::string())
+               + "  " + clock_text(player_.poll_elapsed()) + "/" + clock_text(static_cast<double>(total_sec_))
+               + "  vol " + std::to_string(player_.volume()) + "%" + (muted_ ? " (muted)" : "");
+    };
+    auto with_artist = [](const std::string& a) { return a.empty() || a == "-" ? std::string() : " - " + a; };
+    auto state_word = [&]() -> std::string { return !has_track_ ? "stopped" : player_.is_paused() ? "paused" : "playing"; };
+    // The command has started a title (it loads in the background): the answer waits for it (see Job::settle_cmd). false: nothing is loading.
+    auto settle = [&](const std::string& cmd, const std::string& text, const std::string& was) -> bool {
+        if (!load_in_progress_.load()) return false;
+        job.settle_cmd = cmd; job.settle_text = text; job.settle_was = was;
+        job.load_waits = 0;
+        job.lines.push_front(cli::kSettleLine);
+        job.silent = true;
+        return true;
+    };
+
+    // The answer of a command that started a title, once the title has loaded (see Job::settle_cmd): waits (silently) while it loads.
+    if (line == cli::kSettleLine) {
+        if (load_in_progress_.load() && job.load_waits < cli::kMaxLoadWaits) {
+            ++job.load_waits;
+            --job.executed;   // (a wait is not a new line)
+            job.lines.push_front(cli::kSettleLine);
+            job.waiting = true;
+            job.wait_until = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
+            job.silent = true;
+            return std::string();
+        }
+        const bool late = load_in_progress_.load();   // (still loading after the longest wait: the answer says so)
+        job.load_waits = 0;
+        const std::string cmd = job.settle_cmd, text = job.settle_text, was = job.settle_was;
+        job.settle_cmd.clear(); job.settle_text.clear(); job.settle_was.clear();
+        if (late) return cmd + ": the title is still loading (it plays when it is there)";
+        if (!text.empty()) return text;
+        const std::string now = has_track_ ? display_metadata().name : std::string();
+        const std::string was_note = was.empty() || was == now ? std::string() : "  (was: " + was + ")";
+        if (cmd == "next") return "next: " + track_line() + was_note;
+        if (cmd == "prev") return "previous: " + track_line() + was_note;
+        if (cmd == "shuffle") return "shuffled to: " + track_line() + "  (queue " + std::to_string(queue_.size()) + ")";
+        return "playing: " + track_line();   // track <n>
+    }
     std::string name = line, arg;
     if (const size_t sp = line.find_first_of(" \t"); sp != std::string::npos) { name = line.substr(0, sp); arg = cli::trim(line.substr(sp + 1)); }
     name = ascii_lower_str(name);
@@ -330,6 +387,20 @@ std::string App::cli_exec(const std::string& line_in, cli::Job& job, bool& ok, b
     if (cmd.arg == 2 && arg.empty()) return fail(name + " needs a number, e.g. " + name + " 60");
     if ((cmd.arg == 1 || cmd.arg == 2) && !arg.empty() && !numeric_arg(arg)) return fail(name + " needs a number, e.g. " + name + (cmd.arg == 2 ? " 60" : " 10"));
 
+    // A command that starts a title waits while another title is still loading (the app would refuse it -- "still loading the previous track" --
+    // and the answer would claim that it worked); `track n` says at once when the list has no title n.
+    const bool starts_title = !audiobook_ && (name == "next" || name == "prev" || name == "shuffle" || name == "track" ||
+                                              (name == "play" && !arg.empty() && !numeric_arg(arg)));
+    if (name == "track" && !audiobook_) {
+        const int k = static_cast<int>(remote::number(arg, 0));
+        if (k < 1 || k > static_cast<int>(local_view_.size())) return fail("track " + arg + ": no such title (the list has " + std::to_string(local_view_.size()) + ")");
+    }
+    if (starts_title) {
+        if (load_in_progress_.load() && job.load_waits < cli::kMaxLoadWaits) { ++job.load_waits; job.retry = true; return std::string(); }
+        if (load_in_progress_.load()) return fail(name + ": the previous title is still loading (try again in a moment)");
+        job.load_waits = 0;
+    }
+
     // --- commands that need text or the app's own logic ---
     if (name == "help") {
         std::ostringstream o;
@@ -337,6 +408,11 @@ std::string App::cli_exec(const std::string& line_in, cli::Job& job, bool& ok, b
             const Cmd* c = find_cmd(ascii_lower_str(arg));
             if (!c) return fail("no command \"" + arg + "\"");
             return std::string(c->name) + (c->usage[0] ? " " : "") + c->usage + "  --  " + c->help + (c->caution ? "  (asks for yes; force in scripts)" : "");
+        }
+        if (job.origin != Origin::Typed) {   // from outside (`mousiki --query help`, a script) there is nobody to look into the log: the list is the answer
+            std::string r = "commands (a line may hold several, separated by ;  help <command> for one):";
+            for (const Cmd& c : kCmds) r += std::string("\n  ") + c.name + (c.usage[0] ? " " : "") + c.usage + "  --  " + c.help + (c.caution ? "  [needs force]" : "");
+            return r;
         }
         log_event("CLI help: commands (a line may hold several, separated by ;  ESC leaves  UP/DOWN history  CTRL+RIGHT completes):");
         for (const Cmd& c : kCmds) log_event(std::string("CLI help:   ") + c.name + (c.usage[0] ? " " : "") + c.usage + "  --  " + c.help + (c.caution ? "  [asks for yes]" : ""));
@@ -421,9 +497,8 @@ std::string App::cli_exec(const std::string& line_in, cli::Job& job, bool& ok, b
         if (k >= w.size()) return fail("if <condition> <command>");
         bool cok = true;
         const bool yes = cli::eval_condition(cond, cli_state(), cok);
-        std::string rest;
-        const size_t pos = arg.find(w[k]);
-        rest = pos == std::string::npos ? w[k] : arg.substr(pos);
+        const size_t pos = cli::word_start(arg, k);   // (not arg.find(w[k]): the command word may also be part of the condition)
+        const std::string rest = pos == std::string::npos ? w[k] : arg.substr(pos);
         if (!yes) return "(not " + cond + ")";
         job.lines.push_front(rest);
         return "(" + cond + ")";
@@ -530,16 +605,6 @@ std::string App::cli_exec(const std::string& line_in, cli::Job& job, bool& ok, b
         return n.empty() ? "script overlay" : "editing " + n;
     }
     if (name == "rescan") { rescan_library(); return "scanning the music folders"; }
-    // "Title - Artist  01:23/03:45  vol 60%": what the playback commands answer with (the user sees what happened, not just "ok")
-    auto track_line = [&]() -> std::string {
-        if (!has_track_) return std::string();
-        const TrackMetadata md = display_metadata();
-        return md.name + (md.artist != "-" && !md.artist.empty() ? " - " + md.artist : std::string())
-               + "  " + clock_text(player_.poll_elapsed()) + "/" + clock_text(static_cast<double>(total_sec_))
-               + "  vol " + std::to_string(player_.volume()) + "%" + (muted_ ? " (muted)" : "");
-    };
-    auto with_artist = [](const std::string& a) { return a.empty() || a == "-" ? std::string() : " - " + a; };
-    auto state_word = [&]() -> std::string { return !has_track_ ? "stopped" : player_.is_paused() ? "paused" : "playing"; };
     if (name == "status") {
         if (!has_track_) return std::string("nothing playing  vol ") + std::to_string(player_.volume()) + "%  queue " + std::to_string(queue_.size());
         return state_word() + ": " + track_line() + "  mode " + play_mode_name(settings_.play_mode) + "  queue " + std::to_string(queue_.size());
@@ -548,8 +613,11 @@ std::string App::cli_exec(const std::string& line_in, cli::Job& job, bool& ok, b
         if (audiobook_) return fail("in the audio book player use: book-open <n>, track <n>");
         const std::vector<LocalTrack> hits = filter_and_rank_local_view(cli::unquote(arg));
         if (hits.empty()) return fail("no local title matches \"" + arg + "\"");
+        const std::string was = has_track_ ? display_metadata().name : std::string();
         start_local_track(hits.front());
-        return "playing " + hits.front().title + with_artist(hits.front().folder_artist) + (hits.size() > 1 ? "  (+" + std::to_string(hits.size() - 1) + " more matches)" : std::string());
+        const std::string text = "playing " + hits.front().title + with_artist(hits.front().folder_artist) + (hits.size() > 1 ? "  (+" + std::to_string(hits.size() - 1) + " more matches)" : std::string());
+        if (settle("play", text, was)) return std::string();   // (the answer comes when the title has loaded: `play x; seek 30` seeks in x)
+        return text;
     }
     if (name == "play") {
         if (!has_track_) return fail("nothing is loaded: play <words> plays a title, track <n> plays title n of the list");
@@ -624,6 +692,7 @@ std::string App::cli_exec(const std::string& line_in, cli::Job& job, bool& ok, b
     const int was_mode = settings_.play_mode;
     remote_apply({name, arg, "", false});
     if (name == "quit") return "bye";
+    if ((name == "next" || name == "prev" || name == "shuffle" || name == "track") && !audiobook_ && settle(name, "", was_title)) return std::string();
     const std::string tl = track_line();
     if (name == "pause" || name == "stop") {
         if (!had) return "nothing is playing";
@@ -633,7 +702,10 @@ std::string App::cli_exec(const std::string& line_in, cli::Job& job, bool& ok, b
     if (name == "play-pause") return !had ? fail("nothing is loaded: play <words> plays a title") : (player_.is_paused() ? "paused: " : "playing: ") + tl;
     if (name == "next" || name == "prev") {
         if (!has_track_) return std::string(name == "next" ? "no next title" : "no previous title") + (was_queue ? "" : " (queue empty)");
-        return std::string(name == "next" ? "next: " : "previous: ") + tl + (was_title.empty() || was_title == display_metadata().name ? "" : "  (was: " + was_title + ")");
+        // (a title that was started is answered by the settle line above; getting here with the same title means nothing was started)
+        if (!was_title.empty() && was_title == display_metadata().name)
+            return std::string("no ") + (name == "next" ? "next" : "previous") + " title: " + (name == "next" ? "the list ends here" : "this is the first title") + " (playback mode " + play_mode_name(settings_.play_mode) + ")  " + tl;
+        return std::string(name == "next" ? "next: " : "previous: ") + tl + (was_title.empty() ? "" : "  (was: " + was_title + ")");
     }
     if (name == "shuffle") return has_track_ ? "shuffled to: " + tl + "  (queue " + std::to_string(queue_.size()) + ")" : fail("nothing to shuffle (empty list)");
     if (name == "seek") {

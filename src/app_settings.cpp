@@ -763,6 +763,7 @@ std::string App::settings_get_value(int row, int col) const {
             case kSidVideoChroma: return chroma_name(settings_.video_chroma);
             case kSidVideoDither: return dither_name(settings_.video_dither);
             case kSidVideoBase: return base_name(settings_.video_base);
+            case kSidVideoFxContrast: return fxc_name(settings_.video_fxc);
             case kSidVideoGradSat: return std::to_string(std::clamp(settings_.video_grad_sat, 0, 100)) + "%";
             case kSidVideoRound: return settings_.video_round ? "on" : "off";
             case kSidVideoCover: return settings_.video_cover == 1 ? "thumbnail" : settings_.video_cover == 2 ? "disk" : settings_.video_cover == 3 ? "thumbnail fallback" : "cover";
@@ -770,6 +771,7 @@ std::string App::settings_get_value(int row, int col) const {
             case kSidCoverChroma: return chroma_name(settings_.cover_chroma);
             case kSidVideoRes: return video_res_label(settings_.video_res, gfxs_.proto == GfxProto::Sixel);
             case kSidVideoBuffer: return std::to_string(settings_.video_buffer) + " MB";
+            case kSidVideoFps: return settings_.video_fps >= 60 ? "60" : "25";
             case kSidVideoMp3: return settings_.video_mp3 ? "true" : "false";
             case kSidUseVideo: v = settings_.video_mode; break;
             case kSidNoLyricsViz: return settings_.nolyrics_viz == 1 ? "osci" : settings_.nolyrics_viz == 2 ? "spectro" : settings_.nolyrics_viz == 3 ? "none" : "sphere";
@@ -777,6 +779,7 @@ std::string App::settings_get_value(int row, int col) const {
             case kSidPauseFade: v = settings_.pause_fade; break;
             case kSidBlackBg: v = settings_.black_background; break;
             case kSidShareProfiles: v = settings_.share_profiles; break;
+            case kSidSpectroHistory: v = settings_.spectro_history; break;
             case kSidBookAsk: v = settings_.book_ask_bookmark; break;
             case kSidAlbumCover: v = settings_.album_cover; break;
             case kSidCoverMode: return settings_.cover_mode == 0 ? "Just Cover" : settings_.cover_mode == 1 ? "Cover with Gradient" : settings_.cover_mode == 4 ? "Cover behind Disk (Full Anima)" : settings_.cover_mode == 5 ? "Cover ASCII" : settings_.cover_mode == 6 ? "Cover ASCII with Gradient" : settings_.cover_mode == 3 ? "Cover behind Disk v2" : "Cover behind Disk";
@@ -912,11 +915,13 @@ std::vector<std::string> App::settings_options_for(int tab, int row) const {
             case kSidVideoChroma: case kSidCoverChroma: return {"off", "subtle", "medium", "strong"};
             case kSidVideoDither: { std::vector<std::string> o; for (int i = 0; i < kDitherPatterns; ++i) o.push_back(dither_name(i)); return o; }
             case kSidVideoBase: { std::vector<std::string> o; for (int i = 0; i < kBaseLayers; ++i) o.push_back(base_name(i)); return o; }
+            case kSidVideoFxContrast: { std::vector<std::string> o; for (int i = 0; i < kFxContrasts; ++i) o.push_back(fxc_name(i)); return o; }
             case kSidVideoRound: return {"off", "on"};
             case kSidVideoCover: return {"cover", "thumbnail", "disk", "thumbnail fallback"};
             case kSidVideoClap: return {"text note", "clap", "none"};
             case kSidVideoRes: return {video_res_label(0, gfxs_.proto == GfxProto::Sixel), video_res_label(1, gfxs_.proto == GfxProto::Sixel), video_res_label(2, gfxs_.proto == GfxProto::Sixel)};
             case kSidVideoMp3: return {"false", "true"};
+            case kSidVideoFps: return {"25", "60"};
             case kSidVideoBuffer: { std::vector<std::string> o; for (int c : kVideoBufferChoices) o.push_back(std::to_string(c) + " MB"); return o; }
             case kSidOrder1: case kSidOrder2: case kSidOrder3: case kSidOrder4: case kSidOrder5: return {"sphere", "osci", "spectro", viz_row_name(3), "video"};
             case kSidModeOrder1: case kSidModeOrder2: case kSidModeOrder3: return {mode_row_name(0), mode_row_name(1), mode_row_name(2)};
@@ -1022,9 +1027,11 @@ void App::settings_commit_edit_impl() {
         if (id == kSidVideoChroma) { settings_.video_chroma = chroma_from(v); video_pic_key_.clear(); return; }
         if (id == kSidVideoDither) { settings_.video_dither = dither_from(v); video_pic_key_.clear(); return; }
         if (id == kSidVideoBase) { settings_.video_base = base_from(v); video_pic_key_.clear(); return; }
+        if (id == kSidVideoFxContrast) { settings_.video_fxc = fxc_from(v); video_pic_key_.clear(); return; }
         if (id == kSidCoverChroma) { settings_.cover_chroma = chroma_from(v); cover_pic_key_.clear(); return; }
         if (id == kSidVideoRes) { settings_.video_res = video_res_from(v); video_pic_key_.clear(); return; }
         if (id == kSidVideoMp3) { settings_.video_mp3 = v == "true"; return; }
+        if (id == kSidVideoFps) { settings_.video_fps = v == "60" ? 60 : 25; return; }
         if (id == kSidVideoBuffer) { const int mb = muisc::atoi_safe(v.c_str()); int best = kVideoBufferChoices[0]; for (int c : kVideoBufferChoices) if (mb >= c) best = c; settings_.video_buffer = best; return; }
         if (id == kSidNoVideoViz) {
             if (v == "lyrics") settings_.novideo_viz = 4;
@@ -1222,6 +1229,7 @@ void App::settings_commit_edit_impl() {
                 break;
             case kSidBlackBg: settings_.black_background = is_true; break;   // the render loop applies it
             case kSidShareProfiles: settings_.share_profiles = is_true; break;   // the radio reads it when it starts
+            case kSidSpectroHistory: settings_.spectro_history = is_true; break;   // the main loop acts on it every frame (app.cpp)
             case kSidBookAsk: settings_.book_ask_bookmark = is_true; break;
             case kSidBookCover: settings_.book_cover = is_true; break;
             case kSidBookCoverWave: settings_.book_cover_wave = is_true; break;
@@ -1441,12 +1449,15 @@ void App::settings_cycle(int dir) {
     if (id == kSidVideoRound) status_line_ = settings_.video_round ? "video rounded corners: on -- the corners of the picture are cut round like the corners of the UI" : "video rounded corners: off";
     if (id == kSidVideoChroma) status_line_ = std::string("video chromatic aberration: ") + chroma_name(settings_.video_chroma) + " -- red and blue are pushed apart, more towards the corners; works with every effect" + note;
     if (id == kSidVideoGradSat) status_line_ = "video gradient saturation: " + std::to_string(settings_.video_grad_sat) + "% -- how saturated the colours of the gradient looks (Gradient, Dither Gradient, Neon Edge Gradient, Game Boy gradient) are (100 = as they are, 0 = grey)" + note;
+    if (id == kSidVideoFxContrast) status_line_ = std::string("video effect contrast: ") + fxc_name(settings_.video_fxc) + " -- how hard the blacks and whites of Scanlines, CRT, VHS, Glitch, Pixel, Gradient, Film, Silent Film, Interlace, Technicolor and LaserDisc are: full (no softening: the deepest blacks), reduced (the default), low (the shadows keep their detail); the palette looks (Game Boy, Dither, CGA ...) are never touched" + note;
     if (id == kSidVideoBase) status_line_ = std::string("video base layer: ") + base_name(settings_.video_base) + " -- the structure under CRT, VHS, Glitch and the Phosphor looks: scanlines, aperture grille, shadow mask, slot mask, or clean (none, the default)" + note;
     if (id == kSidVideoDither) status_line_ = std::string("video dither pattern: ") + dither_name(settings_.video_dither) + " -- the dots of the looks that dither (Game Boy, EGA 16, Dither B/W / Gradient) and of the 256-colour picture (sixel); auto = each look's own" + note;
     if (id == kSidCoverGradSat) status_line_ = "cover gradient saturation: " + std::to_string(settings_.cover_grad_sat) + "% -- how vivid the disk's gradient is between its two colours (0 = the plain blend, which fades to grey in the middle); the picture itself stays as it is" + note;
     if (id == kSidCoverChroma) status_line_ = std::string("cover chromatic aberration: ") + chroma_name(settings_.cover_chroma) + " -- for a cover that shows its own colours (Just Cover, Cover Colors above 0, the ASCII looks)" + note;
     if (id == kSidVideoRes) status_line_ = std::string("video resolution: ") + video_res_label(settings_.video_res, gfxs_.proto == GfxProto::Sixel) + (settings_.video_res == 0 ? " -- the soft look, light on the terminal" : gfxs_.proto == GfxProto::Kitty ? " -- a sharper picture in true colour; needs more of the terminal and the processor" : " -- a wider picture (Sixel has at most 256 colours)") + note;
-    if (id == kSidVideoBuffer) status_line_ = "video buffer: " + std::to_string(settings_.video_buffer) + " MB of decoded frames kept ahead (about " + std::to_string(video_buffer_seconds(settings_.video_buffer, settings_.video_res, gfxs_.proto == GfxProto::Sixel)) + " s of a 16:9 picture at this resolution)" + note;
+    if (id == kSidVideoBuffer) status_line_ = "video buffer: " + std::to_string(settings_.video_buffer) + " MB of decoded frames kept ahead (about " + std::to_string(video_buffer_seconds(settings_.video_buffer, settings_.video_res, gfxs_.proto == GfxProto::Sixel, settings_.video_fps)) + " s of a 16:9 picture at this resolution and frame rate)" + note;
+    if (id == kSidVideoFps) status_line_ = settings_.video_fps >= 60 ? "video frame rate: 60 -- the video's own rate, up to 60 pictures a second: smoother motion; up to 2.4 times the decoding, effect and terminal work" + note
+                                                                 : "video frame rate: 25 -- every video at 25 pictures a second (light on the processor and the terminal)" + note;
     if (id == kSidVideoMp3) status_line_ = settings_.video_mp3 ? "yt-dlp mp3 from mp4: true -- SEARCH YT also saves the sound of a video as an mp3 song when no song is the target (CTRL+o in SEARCH YT changes it for one download)" : "yt-dlp mp3 from mp4: false -- SEARCH YT downloads only the video (CTRL+o in SEARCH YT asks for the mp3 for one download; CTRL+3 in FETCH VIDEOS -> VIDEO FILES makes one from a file)";
     if (id == kSidVideoFx) status_line_ = std::string("video effect: ") + video_fx_name(settings_.video_fx) + note;
     if (id == kSidNoVideoViz) {
@@ -1514,6 +1525,8 @@ void App::settings_cycle(int dir) {
                                                                      : "black background: off -- the terminal keeps its own background";
     if (id == kSidShareProfiles) status_line_ = settings_.share_profiles ? "modes share settings: on -- the radio uses these oscilloscope / spectrogram settings (its own come back when this is off)"
                                                                          : "modes share settings: off -- the radio keeps its own oscilloscope / spectrogram settings";
+    if (id == kSidSpectroHistory) status_line_ = settings_.spectro_history ? "keep spectrogram history: on -- the spectrogram analyses the sound while a track plays, shown or not (a complete picture when opened; about 11 MB of RAM)"
+                                                                           : "keep spectrogram history: off -- it analyses only while a spectrogram is shown and gives its memory back after 10 s without one (less RAM; it starts empty when opened)";
     if (id == kSidBookCover) status_line_ = settings_.book_cover ? "book cover: on"
                                                                  : "book cover: off -- the standard picture";
     if (id == kSidBookCoverWave) status_line_ = settings_.book_cover_wave ? "book gradient wave: true -- colour wave over the cover"

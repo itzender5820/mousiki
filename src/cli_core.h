@@ -15,6 +15,9 @@ std::string trim(const std::string& s);
 std::vector<std::string> split_chain(const std::string& line);
 // "play \"beta tune\" now" -> {"play", "beta tune", "now"}
 std::vector<std::string> split_words(const std::string& s);
+// The byte offset in `s` where word number `index` (as split_words counts them) begins, or npos: what is left of a line from a word on
+// (`if volume>50 volume 20`: the command starts at the word after the condition, wherever else its text may occur in the line)
+size_t word_start(const std::string& s, size_t index);
 // "\"a b\"" -> "a b"; anything else as it is
 std::string unquote(const std::string& s);
 // "90", "90s", "10m", "2h", "1h30m", "1.5m" -> seconds (0 < sec <= max_sec); false for anything else
@@ -82,7 +85,18 @@ struct Job {
     int executed = 0;                   // the lines run (a script that calls itself ends at 1000)
     std::string label;                  // the first line, for the log
     bool to_overlay = false;            // the replies also go to the script overlay's output rows
+    // A title loads in the background: a command that starts one (next, prev, shuffle, track, play <words>) does not answer at once. The job
+    // waits for the load (a pseudo line, kSettleLine) and then answers with the title that really plays; the lines after it wait too, so
+    // `next; next; get title` does what it says. (App::cli_exec / cli_step)
+    bool silent = false;                // the command that just ran has nothing to show now: its answer comes with the settle line
+    bool retry = false;                 // the command could not start (a title is still loading): the same line again in 0.1 s, nothing shown
+    int load_waits = 0;                 // 0.1 s waits for a load so far (before a command and after it): at most kMaxLoadWaits each
+    std::string settle_cmd;             // next, prev, shuffle, track, play: what the settle line answers for
+    std::string settle_text;            // play <words>: the answer is known (the matched title), the title only has to be loaded
+    std::string settle_was;             // the title that played before
 };
+constexpr const char* kSettleLine = "\x01settle";   // (a line no person types: the pseudo command that waits for a title to load)
+constexpr int kMaxLoadWaits = 40;                   // 4 s: a `mousiki --query` gives up after 5 s
 struct Timer {
     std::chrono::steady_clock::time_point at{};
     std::string line;

@@ -101,6 +101,7 @@ struct RadioSettings : VizPrefs {
     // --- looks / tuning (config file only for now; the settings screen has the colours only) ----------
     // --- the GENERAL tab ---------------------------------------------------------------------------
     bool on_air_ascii = true;                   // the ON AIR sign (with its colour wave)
+    bool sign_border = true;                    // the " : : " column between the ON AIR / OFF AIR sign and the station info (false: the sign sits in the middle of that space)
     bool pulse_wave = true;                     // the faint circle burst behind the sign
     bool dummy_buttons = true;                  // the <<< MUTE >>> boxes next to the frequency band
     bool volume_gradient = false;               // "gradient" right of the Volume indicator: the filled bar takes the oscilloscope colours (osci_left -> osci_right)

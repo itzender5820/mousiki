@@ -7,6 +7,7 @@ namespace muisc {
 struct VideoTiming {
     std::atomic<double> look_ms{0.0}, quant_ms{0.0}, encode_ms{0.0}, scope_ms{0.0};   // (scope_ms: the oscilloscope picture of the big video overlay)
     std::atomic<double> grade_ms{0.0}, fx_ms{0.0};   // the look split: the colour grade (contrast, colours, brightness, chromatic aberration) and the effect
+    std::atomic<bool> worker{false};                 // the last picture was made by the video worker (video_pipe.h), not on the UI thread
     std::atomic<int> threads{1}, fx{0};              // threads the looks used last, and the effect number
 };
 inline VideoTiming& video_timing() {

@@ -701,6 +701,77 @@ NativeId3Tags probe_mp4_native(const fs::path& path) {
     return result;
 }
 
+namespace {
+
+// A WAV file (RIFF / WAVE): the chunk list is walked by its headers alone (the audio is never read), for the `fmt ` chunk (the duration) and a
+// LIST / INFO chunk (title, artist, album, year). `ok` only when the whole list was walked and nothing unusual was met: a chunk that runs out of
+// the file, a `data` chunk with no size or a size the file does not have (a streamed or cut file), an ID3 tag chunk (ffprobe reads that one), a
+// huge LIST, more than 256 chunks. Everything else is left to ffprobe, as before.
+struct WavInfo {
+    bool ok = false;
+    uint32_t seconds = 0;   // 0: unknown (a format whose bytes per second are only an average, or no `fmt `)
+    std::string title, artist, album, year;
+};
+
+WavInfo walk_wav(int fd, long long file_size) {
+    WavInfo w;
+    uint8_t hdr[12];
+    if (file_size < 12 || pread_at(fd, hdr, 12, 0) != 12 || std::memcmp(hdr, "RIFF", 4) != 0 || std::memcmp(hdr + 8, "WAVE", 4) != 0) return w;
+    const uint32_t riff = read_le32(hdr + 4);
+    const long long limit = (riff >= 4 && riff != 0xFFFFFFFFu && 8 + static_cast<long long>(riff) <= file_size) ? 8 + static_cast<long long>(riff) : file_size;
+    long long pos = 12;
+    uint32_t tag = 0, byte_rate = 0;
+    long long data_bytes = -1;
+    int n = 0;
+    for (; n < 256 && pos + 8 <= limit; ++n) {
+        uint8_t ch[8];
+        if (pread_at(fd, ch, 8, pos) != 8) return w;
+        const uint32_t sz = read_le32(ch + 4);
+        const long long body = pos + 8;
+        if (std::memcmp(ch, "data", 4) == 0) {
+            if (sz == 0 || sz == 0xFFFFFFFFu || body + static_cast<long long>(sz) > limit) return w;
+            data_bytes = sz;
+        } else {
+            if (body + static_cast<long long>(sz) > limit) return w;
+            if (std::memcmp(ch, "fmt ", 4) == 0) {
+                uint8_t f[16];
+                if (sz < 16 || pread_at(fd, f, 16, body) != 16) return w;
+                tag = uint32_t(f[0]) | (uint32_t(f[1]) << 8);
+                byte_rate = read_le32(f + 8);
+            } else if (std::memcmp(ch, "id3 ", 4) == 0 || std::memcmp(ch, "ID3 ", 4) == 0) {
+                return w;
+            } else if (std::memcmp(ch, "LIST", 4) == 0 && sz >= 4) {
+                if (sz > 65536) return w;
+                std::vector<uint8_t> b(sz);
+                if (pread_at(fd, b.data(), sz, body) != static_cast<long long>(sz)) return w;
+                if (std::memcmp(b.data(), "INFO", 4) == 0) {
+                    size_t p = 4;
+                    while (p + 8 <= b.size()) {
+                        const uint32_t isz = read_le32(&b[p + 4]);
+                        if (p + 8 + static_cast<size_t>(isz) > b.size()) break;
+                        size_t len = 0;
+                        while (len < isz && b[p + 8 + len] != 0) ++len;   // (a text ends at its first NUL)
+                        const std::string text(reinterpret_cast<const char*>(&b[p + 8]), len);
+                        if (std::memcmp(&b[p], "INAM", 4) == 0 && w.title.empty()) w.title = text;
+                        else if (std::memcmp(&b[p], "IART", 4) == 0 && w.artist.empty()) w.artist = text;
+                        else if (std::memcmp(&b[p], "IPRD", 4) == 0 && w.album.empty()) w.album = text;
+                        else if (std::memcmp(&b[p], "ICRD", 4) == 0 && w.year.empty()) w.year = year_from_tag(text);
+                        p += 8 + static_cast<size_t>(isz) + (isz & 1);
+                    }
+                }
+            }
+        }
+        pos = body + static_cast<long long>(sz) + (sz & 1);
+    }
+    if (n >= 256 && pos + 8 <= limit) return w;   // (too many chunks: not a normal file)
+    w.ok = true;
+    if (byte_rate > 0 && data_bytes >= 0 && (tag == 1 || tag == 3 || tag == 0xFFFE))   // PCM / float / extensible: the bytes per second are exact
+        w.seconds = static_cast<uint32_t>(std::min<long long>(data_bytes / byte_rate, 0xFFFFFFFFLL));
+    return w;
+}
+
+}  // namespace
+
 uint32_t probe_duration_native(const fs::path& path) {
     int fd = open_for_probe(path);
     if (fd < 0) return 0;
@@ -718,9 +789,26 @@ uint32_t probe_duration_native(const fs::path& path) {
     else if (ext == ".opus" || ext == ".ogg") duration = parse_ogg_duration(fd, st.st_size);
     else if (ext == ".mp3") duration = parse_mp3_duration(fd, st.st_size);
     else if (ext == ".flac") duration = parse_flac_duration(fd);
+    else if (ext == ".wav") duration = walk_wav(fd, st.st_size).seconds;
 
     close_probe(fd);
     return duration;
+}
+
+NativeId3Tags probe_wav_native(const fs::path& path) {
+    NativeId3Tags result;
+    int fd = open_for_probe(path);
+    if (fd < 0) return result;
+    const long long size = file_size_of(fd);
+    const WavInfo w = size > 0 ? walk_wav(fd, size) : WavInfo();
+    close_probe(fd);
+    if (!w.ok) return result;
+    result.resolved = true;   // (no INFO list = a file with no tags: that is the answer)
+    result.title = w.title;
+    result.artist = w.artist;
+    result.album = w.album;
+    result.year = w.year;
+    return result;
 }
 
 } // namespace muisc

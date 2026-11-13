@@ -118,7 +118,7 @@ int theme_index(const RadioSettings& s, const std::vector<themes::Theme>& all) {
 namespace {
 enum RsId {
     kRsPlayback, kRsStartMode, kRsUseModePlayer, kRsUseModeRadio, kRsUseModeBook, kRsModeOrder1, kRsModeOrder2, kRsModeOrder3, kRsBlackBg, kRsShareProfiles, kRsRemoteApp,
-    kRsOnAir, kRsPulse, kRsDummy, kRsVolIndicator, kRsVisualizer, kRsStereo, kRsNormalize, kRsTuneNoise, kRsMarquee, kRsTimeshift, kRsUseOsci, kRsUseSpectro,
+    kRsOnAir, kRsSignBorder, kRsPulse, kRsDummy, kRsVolIndicator, kRsVisualizer, kRsStereo, kRsNormalize, kRsTuneNoise, kRsMarquee, kRsTimeshift, kRsUseOsci, kRsUseSpectro,
     kRsGradSpeed, kRsPulseSpeed, kRsFluidity, kRsDegr, kRsVisc, kRsBehavior, kRsBarStyle, kRsHifiRes, kRsHifiChan, kRsHifiColor, kRsHifiScale, kRsHifiAdapt, kRsHifiSplit, kRsHifiFScale, kRsHifiGain, kRsHifiRange,
     kRsScope, kRsOsciStyle,
     kRsAudioDevice,   // [ENTER]: the CHOOSE AUDIO DEVICE overlay
@@ -146,7 +146,7 @@ const std::vector<SettingsLine>& rs_layout(int tab) {
         {true, -1, ""},
         {true, -1, "AUDIO"},
         {false, kRsAudioDevice, "Choose Audio Device"},
-        {false, kRsOnAir, "On air ascii"}, {false, kRsPulse, "Pulse wave"}, {false, kRsDummy, "Dummy buttons"},
+        {false, kRsOnAir, "On air ascii"}, {false, kRsSignBorder, "Sign border"}, {false, kRsPulse, "Pulse wave"}, {false, kRsDummy, "Dummy buttons"},
         {false, kRsStereo, "Stereo sound"}, {false, kRsNormalize, "Normalize volume"},
         {false, kRsTuneNoise, "Tuning noise"}, {false, kRsTimeshift, "Timeshift buffer"},
         {false, kRsUseOsci, "Use oscilloscope"}, {false, kRsUseSpectro, "Use spectrogram"},   // false: not in the "." cycle (the window still works)
@@ -232,6 +232,7 @@ std::string fmt_speed(double v) {
 bool* flag_of(RadioSettings& s, int id) {
     switch (id) {
         case kRsOnAir: return &s.on_air_ascii;
+        case kRsSignBorder: return &s.sign_border;
         case kRsPulse: return &s.pulse_wave;
         case kRsDummy: return &s.dummy_buttons;
         case kRsVisualizer: return &s.element_visualizer;
@@ -950,6 +951,7 @@ RadioSettings load_radio_settings(std::string* source_out) {
         }
     }
     if (auto v = get("OnAirAscii")) s.on_air_ascii = as_bool(*v, s.on_air_ascii);
+    if (auto v = get("SignBorder")) s.sign_border = as_bool(*v, s.sign_border);
     if (auto v = get("UseOscilloscope")) s.use_osci = as_bool(*v, s.use_osci);
     if (auto v = get("UseSpectrogram")) s.use_spectro = as_bool(*v, s.use_spectro);
     if (auto v = get("WizardSeen")) s.wizard_seen = as_bool(*v, s.wizard_seen);
@@ -1121,6 +1123,8 @@ static void write_radio_file(std::ostream& o, const RadioSettings& s) {
          "##              AUDIO\n"
          "##-------------------------------------------\n\n"
          "OnAirAscii=" << (s.on_air_ascii ? "true" : "false") << "\n"
+         "# the \" : : \" column between the ON AIR / OFF AIR sign and the station info: true | false (the sign sits in the middle of that space)\n"
+         "SignBorder=" << (s.sign_border ? "true" : "false") << "\n"
          "PulseWave=" << (s.pulse_wave ? "true" : "false") << "\n"
          "DummyButtons=" << (s.dummy_buttons ? "true" : "false") << "\n"
          "# what the VOLUME BAR is drawn with: # | \xE2\xA0\xB6 | \xE2\xA3\xBF | \xE2\xA1\xBE\xE2\xA3\xBD (a fixed row, not repeating) | disk (the braille effect of the disk)\n"

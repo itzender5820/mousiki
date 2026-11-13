@@ -4,6 +4,7 @@
 #include "cover_art.h"
 #include "process_util.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -758,4 +759,61 @@ TEST(video_downscale_averages) {
     CHECK_EQ(o.w, 2); CHECK_EQ(o.h, 1);
     CHECK_EQ(static_cast<int>(o.rgb[0]), 50);     // (0 + 100) / 2, both rows
     CHECK_EQ(static_cast<int>(o.rgb[3]), 228);    // (200 + 255) / 2 = 227.5 -> 228
+}
+
+// Video Frame Rate (batch 278): 25 decodes every video at 25 pictures a second (as before); 60 at the video's own rate, up to 60.
+TEST(video_decode_rate_is_25_or_the_videos_own_up_to_60) {
+    int n = 0, d = 0;
+    VideoPlayer::decode_rate(25, 30000, 1001, n, d); CHECK_EQ(n, 25); CHECK_EQ(d, 1);
+    VideoPlayer::decode_rate(60, 30000, 1001, n, d); CHECK_EQ(n, 30000); CHECK_EQ(d, 1001);   // (29.97 exactly: no picture doubled or dropped)
+    VideoPlayer::decode_rate(60, 50, 1, n, d); CHECK_EQ(n, 50); CHECK_EQ(d, 1);
+    VideoPlayer::decode_rate(60, 60000, 1001, n, d); CHECK_EQ(n, 60000); CHECK_EQ(d, 1001);
+    VideoPlayer::decode_rate(60, 120, 1, n, d); CHECK_EQ(n, 60); CHECK_EQ(d, 1);              // (faster footage: 60)
+    VideoPlayer::decode_rate(60, 24000, 1001, n, d); CHECK_EQ(n, 24000); CHECK_EQ(d, 1001);   // (a film stays at its 23.976)
+    VideoPlayer::decode_rate(60, 0, 0, n, d); CHECK_EQ(n, 25); CHECK_EQ(d, 1);                // (rate unknown: 25)
+    VideoPlayer::decode_rate(60, 1, 2, n, d); CHECK_EQ(n, 25); CHECK_EQ(d, 1);                // (a slide show of half a picture a second: 25 as before)
+}
+
+TEST(video_decoder_runs_at_25_or_the_videos_own_rate_and_switches_in_place) {
+    const std::string file = make_test_video("t50.mp4", 6, 50);
+    if (file.empty()) return;
+    VideoPlayer v;
+    CHECK(v.set_source(file));
+    CHECK_NEAR(v.source_fps(), 50.0, 0.01);
+    int w = 0, h = 0;
+    v.fit(160, 90, 1.0, w, h);
+    // the pictures the clock passes through, in steps of 10 ms: their times show the rate
+    auto play = [&](double from, double to, std::vector<double>& pts) {
+        const VideoFrame* fr = nullptr;
+        for (int i = 0; i < 100 && !fr; ++i) { fr = v.frame_for(from, w, h, true); if (!fr) std::this_thread::sleep_for(std::chrono::milliseconds(50)); }
+        for (double t = from; t < to; t += 0.01) {
+            bool fresh = false;
+            const VideoFrame* f = v.frame_for(t, w, h, true, &fresh);
+            if (f && fresh && (pts.empty() || f->pts > pts.back() + 1e-9)) pts.push_back(f->pts);
+            double next = 0.0;
+            if (v.next_pts(next)) CHECK(next > (f ? f->pts : -1.0));   // (the next picture waiting comes after the one shown)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    };
+    auto median_step = [](const std::vector<double>& pts) {
+        std::vector<double> d;
+        for (size_t i = 1; i < pts.size(); ++i) d.push_back(pts[i] - pts[i - 1]);
+        if (d.empty()) return 0.0;
+        std::sort(d.begin(), d.end());
+        return d[d.size() / 2];
+    };
+    v.set_rate_mode(25);
+    std::vector<double> a;
+    play(0.0, 1.0, a);
+    CHECK_EQ(v.frames_per_second(), 25);
+    CHECK_NEAR(median_step(a), 0.04, 0.002);
+    CHECK(a.size() >= 18);
+    // 60: the video's own 50 a second, from the picture on screen on (no restart from zero)
+    v.set_rate_mode(60);
+    std::vector<double> b;
+    play(1.0, 2.0, b);
+    CHECK_EQ(v.frames_per_second(), 50);
+    CHECK_NEAR(median_step(b), 0.02, 0.002);
+    CHECK(b.size() >= 30);
+    CHECK(!b.empty() && b.front() >= 0.9);
 }

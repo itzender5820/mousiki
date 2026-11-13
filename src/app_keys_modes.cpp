@@ -699,12 +699,15 @@ void App::handle_search_key(int key) {
         // Cancel: put the view back exactly as it was before '/' was
         // pressed, discarding whatever the live preview below was
         // showing.
+        search_.preview_pending = false;
         list_source_ = pre_search_list_source_;
         last_local_query_ = pre_search_local_query_;
         refresh_local_view();
         mode_ = Mode::Browse;
         return;
     }
+    // The keys that read the list below the box need it up to date: what was typed earlier in this pass of the loop is searched now, in one scan.
+    if (key == '\r' || key == '\n' || (last_key_was_arrow() && (key == 'A' || key == 'B'))) flush_live_search_preview();
     if (cli_in_search()) {   // "/c:" -- the search bar is the command line: ENTER runs the line, UP / DOWN recall, ESC (above) leaves
         if (key == '\r' || key == '\n') {
             std::string b = search_.buffer;
@@ -731,7 +734,7 @@ void App::handle_search_key(int key) {
             return;   // (candidates or a "no match" note are in the bar's border; CTRL+RIGHT is not a word jump here)
         }
         edit_focus("browse-search", search_.buffer);
-        if (edit_text_key(search_.buffer, edit_caret_, edit_anchor_, key, 120, &status_line_)) { if (!cli_in_search()) update_live_search_preview(); cli_hist_pos_ = -1; }
+        if (edit_text_key(search_.buffer, edit_caret_, edit_anchor_, key, 120, &status_line_)) { if (!cli_in_search()) request_live_search_preview(); cli_hist_pos_ = -1; }
         return;
     }
     if (cs_in_search() && (key == '\r' || key == '\n')) {   // "/cs:words" -- ENTER opens the script overlay with that search
@@ -791,7 +794,7 @@ void App::handle_search_key(int key) {
     }
     edit_focus("browse-search", search_.buffer);
     const bool search_changed = edit_text_key(search_.buffer, edit_caret_, edit_anchor_, key, 120, &status_line_);
-    if (search_changed) { update_live_search_preview(); search_.nav_moved = false; }
+    if (search_changed) { request_live_search_preview(); search_.nav_moved = false; }
     return;
 }
 

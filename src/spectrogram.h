@@ -17,7 +17,9 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <iosfwd>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -103,6 +105,12 @@ public:
     void changed_columns(const SpectroSettings& s, int w, int& first, int& last);
     int rate() const { return rate_; }
     void reset();
+    // Gives all the memory back (the history, the kept samples, the caches) and switches the feed off: the next update() that finds samples
+    // waiting starts afresh. Cheap when nothing is held. UI thread.
+    void release();
+    // The bytes the analysis holds right now (0 until the first samples were analysed, and after release()); the feed ring is not counted: it
+    // is only touched as far as the audio has written into it.
+    size_t memory_bytes() const;
     // scroll: the picture moves on `px` pixels at a time (SpectroGfx makes the steps even when a terminal picture
     // cannot be sent for every pixel)
     void set_scroll_step(int px) { scroll_step_ = std::max(1, px); }
@@ -129,15 +137,19 @@ public:
     // (with the resolution "high" the picture uses the 64 colour registers of spectro_palette_view(): index = register * 4)
 
 private:
-    struct Shape { int rate = 0, fft = 0, win = 0, span = 0, ch = 0; };
+    struct Shape { int rate = 0, fft = 0, win = 0, span = 0, ch = 0; bool wf = false; };
+    void resize_raw(size_t frames);                  // another length of the kept samples: the newest ones stay
     void configure(const SpectroSettings& s, int rate);
     void column(uint64_t c);                         // FFT column c (its window ends at sample (c + 1) * hop_)
     void prepare(const SpectroSettings& s, int h);   // rows -> bins for a channel `h` pixels high (once per render)
     int value_at(uint64_t col, int ch, int y);       // 0..255 of row y (0 = top) of a channel, cached per column
 
     // feed (lock-free single producer / single consumer)
+    // (calloc: the pages are not touched until the audio writes into them, so an analyzer that is never fed -- the settings preview's, the
+    // creator's -- costs no memory)
     static constexpr size_t kFeed = 1u << 17;
-    std::vector<float> feed_ = std::vector<float>(2 * kFeed, 0.0f);
+    struct FeedFree { void operator()(float* p) const { std::free(p); } };
+    std::unique_ptr<float, FeedFree> feed_{static_cast<float*>(std::calloc(2 * kFeed, sizeof(float)))};
     std::atomic<size_t> fw_{0}, fr_{0};
     std::atomic<bool> on_{false};
     std::atomic<int> feed_rate_{44100};
@@ -148,15 +160,16 @@ private:
     int hop_ = 441;                     // samples per column
     int fft_ = 4096, bins_ = 2048, win_ = 2048;
     std::vector<float> window_;
-    // The signal itself (16 bit stereo) for the last minute: a changed window size, zero padding, time span or channel
-    // setting is computed again from it at once, instead of starting empty.
+    // The signal itself (16 bit stereo) for the time one page of the picture covers (and a little more): a changed window size, zero padding
+    // or channel setting is computed again from it at once, instead of starting empty. It is only allocated when the first samples arrive.
     std::vector<int16_t> raw_;
     size_t raw_cap_ = 0;                // frames
     uint64_t raw_total_ = 0;            // frames received since the last reset
     void* fft_cfg_ = nullptr;
     std::vector<float> fft_in_;
     std::vector<float> fft_out_;        // complex, interleaved
-    // history: per column and channel `bins_` dB values, quantized to 8 bit (-140 .. +10 dB)
+    // history: per column and channel `bins_` dB values, quantized to 8 bit (-140 .. +10 dB). One page of columns and a few more
+    // (the picture never reaches further back than a page); the waterfall looks back two pages.
     size_t cap_ = 0;                    // columns kept
     uint64_t ncols_ = 0;                // columns made so far
     std::vector<uint8_t> hist_;
@@ -186,6 +199,17 @@ private:
 
 // The one analyzer of the program (player and radio share it; only one of them plays at a time).
 SpectroAnalyzer& spectro();
+// When does the player's analysis run, and when does its memory go back (App::spectro_keep_analysing())? `hidden_s` = seconds since a spectrogram was
+// last on screen. With a track and Keep Spectrogram History on it runs for as long as the track plays; with the history off it runs while a spectrogram
+// is shown and for kSpectroIdleFreeSeconds after (a menu over it for a moment leaves no gap). The memory is released once no spectrogram has been
+// shown for that long and the analysis is not running.
+constexpr double kSpectroIdleFreeSeconds = 10.0;
+struct SpectroKeep { bool analyse; bool release; };
+inline SpectroKeep spectro_keep_policy(bool has_track, bool history, bool on_screen, double hidden_s) {
+    const bool grace = hidden_s < kSpectroIdleFreeSeconds;
+    const bool analyse = has_track && (on_screen || history || grace);
+    return {analyse, !analyse && !on_screen && !grace};
+}
 // Audio thread: forwards to spectro().push().
 void spectro_feed_push(const float* lr, size_t frames, int rate);
 bool spectro_feed_active();

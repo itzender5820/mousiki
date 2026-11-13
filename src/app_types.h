@@ -7,12 +7,7 @@ namespace muisc {
 namespace app_types {
 namespace fs = std::filesystem;
 
-struct SearchIdx {
-    std::string key;
-    std::string title_n, folder_artist_n;
-    std::string tag_title_n, artist_n, album_n;
-    bool tags_seen = false;
-};
+using SearchIdx = ::muisc::SearchIdx;   // (library_search.h)
 
 struct VideoDownload {
     bool active = false;

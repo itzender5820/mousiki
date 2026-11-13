@@ -228,6 +228,7 @@ void usage(std::ostream& o) {
          "  mousiki --cmd play \"beta tune\"       any name that is no numeric command below is sent as a command line\n"
          "  mousiki --cli \"volume 30; next\"      a chain (commands separated by ;)\n"
          "  mousiki --query get volume          like --cli, but waits for the answer and prints it (exit code 0 ok, 3 error, 4 no answer; --timeout <s>)\n"
+         "  mousiki --query help                every text command with its words (player, audio book or radio, whichever runs)\n"
          "  mousiki --run night                 runs the script night.cli of the cli folder (<config folder>/cli/);  mousiki --scripts lists them\n"
          "  mousiki --status --json | --format \"{artist} - {title}\" | volume     the status as JSON / a template / one value\n"
          "  A command that cannot be undone (quit, clear-queue) is refused from outside unless written  force quit.\n\n"

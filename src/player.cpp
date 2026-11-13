@@ -234,7 +234,8 @@ void Player::data_callback(ma_device* device, void* output, const void* /*input*
     }
     // a seek (seek_relative) while this block was being made wins over the position this block reached
     self->ts_last_cur_ = new_cur;
-    self->cursor_frames_.compare_exchange_strong(cur, new_cur);
+    if (self->cursor_frames_.compare_exchange_strong(cur, new_cur))
+        self->clock_stamp_ns_.store(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(), std::memory_order_relaxed);
 }
 
 bool Player::play(std::shared_ptr<StreamingPcm> pcm, double start_sec, int volume_pct,
@@ -411,6 +412,16 @@ double Player::poll_elapsed() const {
     const int sr = sample_rate_.load();
     if (sr <= 0) return 0.0;
     return static_cast<double>(cursor_frames_.load()) / sr;
+}
+
+double Player::smooth_elapsed() const {
+    const double base = poll_elapsed();
+    const long long stamp = clock_stamp_ns_.load(std::memory_order_relaxed);
+    if (paused_.load() || stamp == 0) return base;
+    const long long now = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    const double dt = static_cast<double>(now - stamp) / 1e9;
+    if (dt < 0.0 || dt > 0.25) return base;   // (no step for a long time: the device stands, so does the clock)
+    return base + dt * speed();
 }
 
 void Player::stop() {

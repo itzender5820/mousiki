@@ -972,15 +972,19 @@ static void write_frame_now(const std::string& frame_in) {
 }
 
 
-// A frame with a big picture (a video) takes the terminal 30-100 ms to swallow. It is handed to a writer thread so the next frame can be
-// built meanwhile; anything else that writes to the terminal first waits until the writer is idle (write_frame_drain()), so the order of
-// the escape sequences is never mixed. MOUSIKI_SYNC_WRITE=1 writes every frame in place again.
+// A frame with a big picture (a video) takes the terminal 30-150 ms to swallow. While a picture is shown every frame is handed to a writer
+// thread and the loop goes on at once: a frame that comes while the writer is busy is added to the one waiting (nothing is lost, the order
+// stays), and the loop sends no new picture until the terminal has taken the one before (write_frame_picture_busy()) -- so the keys and the
+// screen keep their pace and the picture comes as fast as the terminal manages, always the newest. Anything else that writes to the terminal
+// first waits until the writer is idle (write_frame_drain()), so the order of the escape sequences is never mixed. MOUSIKI_SYNC_WRITE=1
+// writes every frame in place again.
 namespace {
 struct AsyncWriter {
     std::mutex mu;
     std::condition_variable cv;
     std::string pending;
     bool has = false, busy = false, started = false;
+    bool pending_pic = false, busy_pic = false;   // the frame waiting / being written holds a picture
     std::atomic<double> last_ms{0.0};
     std::chrono::steady_clock::time_point started_at{};   // (when the write that is running began; read under mu)
     void loop() {
@@ -991,6 +995,8 @@ struct AsyncWriter {
             pending.clear();
             has = false;
             busy = true;
+            busy_pic = pending_pic;
+            pending_pic = false;
             const auto t0 = std::chrono::steady_clock::now();
             started_at = t0;
             lk.unlock();
@@ -998,6 +1004,7 @@ struct AsyncWriter {
             last_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
             lk.lock();
             busy = false;
+            busy_pic = false;
             cv.notify_all();
         }
     }
@@ -1027,31 +1034,29 @@ bool write_frame_async_allowed() {
 double write_frame_async(std::string frame) {
     AsyncWriter& w = writer();
     const auto t0 = std::chrono::steady_clock::now();
+    const bool pic = frame.size() >= 32 * 1024;   // (a frame this big holds a picture: text frames are a few KiB)
     {
         std::unique_lock<std::mutex> lk(w.mu);
         if (!w.started) { w.started = true; std::thread([&w] { w.loop(); }).detach(); }
-        w.cv.wait(lk, [&] { return !w.has && !w.busy; });   // (the frame before is still being written: the time the picture waits for the terminal)
-        w.pending = std::move(frame);
+        // (the frames that wait are text and the odd picture that had to go with them; should a terminal stop reading altogether, the loop waits
+        // here rather than heaping up frames without end)
+        w.cv.wait(lk, [&] { return w.pending.size() < (8u << 20); });
+        w.pending += frame;
         w.has = true;
+        w.pending_pic = w.pending_pic || pic;
     }
     w.cv.notify_all();
     return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 }
 
+bool write_frame_picture_busy() {
+    AsyncWriter& w = writer();
+    std::lock_guard<std::mutex> lk(w.mu);
+    return w.started && (w.busy_pic || w.pending_pic);
+}
+
 double write_frame_last_ms() { return writer().last_ms.load(); }
 
-// Waits until the frame being written is about to be done (it took as long as the last one: last_ms; `lead_ms` less, the time the next
-// frame needs to be built), so the picture and the scope are made from the freshest audio instead of from the moment the terminal began
-// to swallow the one before. Never waits longer than the last write took (+ a little), and not at all when nothing is being written.
-void write_frame_wait_nearly_idle(double lead_ms) {
-    AsyncWriter& w = writer();
-    std::unique_lock<std::mutex> lk(w.mu);
-    if (!w.started) return;
-    const double expect = std::min(250.0, w.last_ms.load());
-    const auto wake = w.started_at + std::chrono::microseconds(static_cast<long long>(std::max(0.0, expect - std::max(0.0, lead_ms)) * 1000.0));
-    const auto limit = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
-    while ((w.busy || w.has) && std::chrono::steady_clock::now() < wake && std::chrono::steady_clock::now() < limit) w.cv.wait_until(lk, std::min(wake, limit));
-}
 
 int TerminalIO::rows() const {
 #if defined(_WIN32)
@@ -1254,7 +1259,122 @@ static int codepoint_width(uint32_t cp) {
 //         uint32_t cp = utf8_decode(clean, i);
 //         int w = codepoint_width(cp);
 
-bool diff_frame_lines(const std::string& body, std::vector<std::string>& prev, std::string& out) {
+namespace {
+
+// ---- the sub-line diff of diff_frame_lines() -------------------------------------------------------------------------------------
+// A line is cut into units: a glyph that takes exactly one column (kind 0: printable ASCII, box drawing and block elements, braille -- every
+// glyph of the animations), an SGR sequence (kind 1), any other glyph (kind 2) or a glyph that joins the one before it (kind 3: width 0, Indic).
+// A line with anything else in it (another escape sequence, a control character, malformed UTF-8) is not cut: it is sent whole, as before.
+struct FrameUnit { size_t pos, len; uint8_t kind; };
+struct FrameTok {
+    std::vector<FrameUnit> u;
+    bool ok = false;
+};
+
+bool frame_one_column(uint32_t cp) { return (cp >= 0x20 && cp <= 0x7E) || (cp >= 0x2500 && cp <= 0x259F) || (cp >= 0x2800 && cp <= 0x28FF); }
+
+void frame_tokenize(const std::string& s, FrameTok& t) {
+    t.u.clear();
+    t.ok = false;
+    size_t i = 0;
+    while (i < s.size()) {
+        const unsigned char c = static_cast<unsigned char>(s[i]);
+        if (c == 0x1B) {
+            if (i + 1 >= s.size() || s[i + 1] != '[') return;
+            size_t j = i + 2;
+            while (j < s.size() && ((s[j] >= '0' && s[j] <= '9') || s[j] == ';' || s[j] == ':')) ++j;
+            if (j >= s.size() || s[j] != 'm') return;   // another CSI sequence (a cursor move, an erase ...)
+            t.u.push_back({i, j + 1 - i, 1});
+            i = j + 1;
+            continue;
+        }
+        if (c < 0x20 || c == 0x7F) return;
+        if (c < 0x80) { t.u.push_back({i, 1, 0}); ++i; continue; }
+        const size_t len = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 0;
+        if (len == 0 || i + len > s.size()) return;
+        uint32_t cp = len == 2 ? (c & 0x1Fu) : len == 3 ? (c & 0x0Fu) : (c & 0x07u);
+        for (size_t k = 1; k < len; ++k) {
+            const unsigned char cc = static_cast<unsigned char>(s[i + k]);
+            if ((cc & 0xC0) != 0x80) return;
+            cp = (cp << 6) | (cc & 0x3Fu);
+        }
+        const uint8_t kind = frame_one_column(cp) ? 0 : (is_indic_codepoint(cp) || codepoint_width(cp) == 0) ? 3 : 2;
+        t.u.push_back({i, len, kind});
+        i += len;
+    }
+    t.ok = true;
+}
+
+// The colours and attributes in force after the first `upto` units: the SGR sequences since the last reset.
+std::string frame_sgr_state(const std::string& s, const FrameTok& t, size_t upto) {
+    std::string st;
+    for (size_t j = 0; j < upto; ++j) {
+        if (t.u[j].kind != 1) continue;
+        const char* p = s.data() + t.u[j].pos;
+        const size_t len = t.u[j].len;
+        if ((len == 3 && p[2] == 'm') || (len == 4 && p[2] == '0' && p[3] == 'm')) st.clear();
+        else st.append(p, len);
+    }
+    return st;
+}
+
+// Writes the part of line `b` that differs from `a` (what the terminal shows) at its place in row `row` (1-based): the units both lines share at
+// the start stay on screen, so do the ones they share at the end when what lies between has the same width and the same colours reach their first glyph.
+// false: the line is not fit for that (see above) or nothing is saved -- the caller sends it whole.
+bool frame_diff_line(const std::string& a, const std::string& b, FrameTok& ta, FrameTok& tb, const std::string& row, std::string& out) {
+    frame_tokenize(a, ta);
+    frame_tokenize(b, tb);
+    if (!ta.ok || !tb.ok) return false;
+    const size_t na = ta.u.size(), nb = tb.u.size();
+    auto same = [&](size_t x, size_t y) {
+        const FrameUnit &ua = ta.u[x], &ub = tb.u[y];
+        return ua.kind == ub.kind && ua.len == ub.len && a.compare(ua.pos, ua.len, b, ub.pos, ub.len) == 0;
+    };
+    size_t k = 0;   // units at the start that are the same (glyphs of one column, colours)
+    while (k < na && k < nb && ta.u[k].kind <= 1 && same(k, k)) ++k;
+    // a mark that joins the glyph before it is sent with that glyph (a mark sent alone would pile up on the old one)
+    auto first_glyph = [](const FrameTok& t, size_t from) -> int {
+        for (size_t j = from; j < t.u.size(); ++j) if (t.u[j].kind != 1) return t.u[j].kind;
+        return -1;
+    };
+    while (k > 0 && (first_glyph(ta, k) == 3 || first_glyph(tb, k) == 3)) {
+        --k;
+        while (k > 0 && ta.u[k].kind == 1) --k;
+    }
+    size_t m = 0;   // units at the end that are the same
+    while (m < na - k && m < nb - k && ta.u[na - 1 - m].kind <= 1 && same(na - 1 - m, nb - 1 - m)) ++m;
+    if (m > 0) {
+        // they stay where they are only when everything between is of one column per glyph, as wide in the old line as in the new, and the colours that
+        // reach the first of them are the same
+        bool fit = true;
+        size_t wa = 0, wb = 0;
+        for (size_t j = k; j < na - m && fit; ++j) { if (ta.u[j].kind >= 2) fit = false; else if (ta.u[j].kind == 0) ++wa; }
+        for (size_t j = k; j < nb - m && fit; ++j) { if (tb.u[j].kind >= 2) fit = false; else if (tb.u[j].kind == 0) ++wb; }
+        if (fit && wa != wb) fit = false;
+        if (fit) {   // the colours in force at the first glyph of the shared end (a reset in front of it makes them the same whatever came before)
+            size_t sa = na - m;
+            while (sa < na && ta.u[sa].kind == 1) ++sa;
+            if (sa < na && frame_sgr_state(a, ta, sa) != frame_sgr_state(b, tb, nb - m + (sa - (na - m)))) fit = false;
+        }
+        if (!fit) m = 0;
+    }
+    if (k == 0 && m == 0) return false;
+    const size_t base = out.size();
+    size_t columns = 0;
+    for (size_t j = 0; j < k; ++j) if (tb.u[j].kind == 0) ++columns;
+    const size_t from = k < nb ? tb.u[k].pos : b.size();
+    const size_t to = m > 0 ? tb.u[nb - m].pos : b.size();
+    out += "\x1b[" + row + ';' + std::to_string(columns + 1) + "H\x1b[0m";
+    out += frame_sgr_state(b, tb, k);
+    out.append(b, from, to - from);
+    if (m > 0) out += "\x1b[0m";
+    if (out.size() - base >= row.size() + 9 + b.size()) { out.resize(base); return false; }   // (no shorter than the whole line: send that)
+    return true;
+}
+
+}  // namespace
+
+bool diff_frame_lines(const std::string& body, std::vector<std::string>& prev, std::string& out, bool whole_lines) {
     std::vector<std::string> lines;
     size_t from = 0;
     while (from < body.size()) {
@@ -1267,9 +1387,12 @@ bool diff_frame_lines(const std::string& body, std::vector<std::string>& prev, s
     }
     const bool same_shape = lines.size() == prev.size();
     if (same_shape) {
+        FrameTok ta, tb;
         for (size_t i = 0; i < lines.size(); ++i) {
             if (lines[i] == prev[i]) continue;
-            out += "\x1b[" + std::to_string(i + 1) + ";1H\x1b[0m";
+            const std::string row = std::to_string(i + 1);
+            if (!whole_lines && frame_diff_line(prev[i], lines[i], ta, tb, row, out)) continue;
+            out += "\x1b[" + row + ";1H\x1b[0m";
             out += lines[i];
         }
     }

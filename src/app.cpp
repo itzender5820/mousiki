@@ -831,6 +831,45 @@ void App::toggle_latin_letters() {
     force_redraw_ = true;
 }
 
+// The lyrics field of the main screen shows synced lyrics (not the video view, not a visual) and a translation of them is saved.
+bool App::main_lyrics_translation_possible(std::string* label) const {
+    if (mode_ != Mode::Browse || audiobook_ || !has_track_ || !settings_.lyrics_on() || (settings_.video_mode && settings_.video_view)) return false;
+    std::vector<LyricLine> lines;
+    {
+        std::lock_guard<std::mutex> lock(lyrics_.mutex);
+        if (!lyrics_.ready) return false;
+        lines = lyrics_.result.lines;
+    }
+    if (lines.empty()) return false;
+    const std::vector<VTr>& all = video_translations(lines);
+    if (all.empty()) return false;
+    if (label) *label = all[static_cast<size_t>(std::clamp(vfull_tr_idx_, 0, static_cast<int>(all.size()) - 1))].label;
+    return true;
+}
+
+void App::main_translit_key() {
+    std::string label;
+    const auto hk = settings_.hotkeys.find("HKeyTranslit");
+    const std::string key = hk != settings_.hotkeys.end() && !hk->second.empty() ? pretty_key(hk->second) : std::string("\"");
+    if (!main_lyrics_translation_possible(&label)) {   // (no lyrics with a translation on the field: the plain Latin letters switch)
+        main_lyr_tr_ = false;
+        toggle_latin_letters();
+        return;
+    }
+    if (main_lyr_tr_) {                                 // the third stop -> the original
+        main_lyr_tr_ = false;
+        if (settings_.latin_letters) toggle_latin_letters();
+        status_line_ = "Lyrics: original (Latin letters off, no translation)";
+    } else if (settings_.latin_letters) {               // the second stop -> the translation
+        main_lyr_tr_ = true;
+        status_line_ = "Lyrics: translation" + (label.empty() ? std::string() : " (" + label + ")") + " -- " + key + " again: the original";
+    } else {                                            // the first stop -> Latin letters
+        toggle_latin_letters();
+        status_line_ = "Lyrics: Latin letters -- " + key + " again: the translation";
+    }
+    force_redraw_ = true;
+}
+
 void App::log_event(const std::string& msg) {
     status_line_ = msg;
     ConsoleLog::instance().log_basic(msg);
@@ -1082,9 +1121,22 @@ void App::run_poll_terminal(TerminalIO& term, bool& gfx_shown) {
         handle_key(key);
         if (mode_ == Mode::Settings || mode_ == Mode::ColorEdit) settings_update_dirty();
     }
+    flush_live_search_preview();   // (the typing of this pass: one search for all the keys, before the frame is drawn)
 }
 
 // One pass of the main loop, part 2: the background jobs, the playback clock, the animations and the listening history.
+// The spectrogram's analysis (spectrogram.h) holds several MB: the samples it keeps and the history of its columns. With Keep Spectrogram History on
+// (the default) it runs for as long as a track plays, shown or not, so the picture is complete when it is opened. With it off it runs while a
+// spectrogram is on screen and ten seconds after (a menu or another view over it for a moment leaves no gap). Whenever it does not run and none has
+// been on screen for ten seconds, the memory goes back to the system (a track that ended, the history switched off); it is allocated again on demand.
+bool App::spectro_keep_analysing(bool on_screen) {
+    const auto now = std::chrono::steady_clock::now();
+    if (on_screen || spectro_.hidden_since == std::chrono::steady_clock::time_point{}) spectro_.hidden_since = now;
+    const SpectroKeep k = spectro_keep_policy(has_track_, settings_.spectro_history, on_screen, std::chrono::duration<double>(now - spectro_.hidden_since).count());
+    if (k.release) spectro().release();   // (nothing to do when nothing is held)
+    return k.analyse;
+}
+
 void App::run_tick() {
     poll_pending_search();
     poll_pending_load();
@@ -1121,12 +1173,9 @@ void App::run_tick() {
     maybe_autosave();
     remote_poll();             // `mousiki --cmd ...` and the status file
 
-    // A picture (video, scope image) is still being written: begin this frame when that is nearly done, so what it shows (the scope above all)
-    // comes from the audio of the moment it is written, not from a whole terminal write earlier.
+    // (The loop does not wait for the writer: a picture is only made and sent when the terminal has taken the one before -- see
+    // write_frame_picture_busy() -- so the screen and the keys go on while the terminal swallows a picture.)
     if (gfx_.active && gfxs_.proto != GfxProto::None) {
-        static double build_ema = 15.0;
-        write_frame_wait_nearly_idle(build_ema + 3.0);
-        build_ema = build_ema * 0.9 + last_build_ms_ * 0.1;
         static double wr_ema = 0.0;
         wr_ema = wr_ema * 0.9 + std::min(250.0, write_frame_last_ms()) * 0.1;
         present_lead_s_ = wr_ema > 20.0 ? 0.8 * wr_ema / 1000.0 : 0.0;
@@ -1253,6 +1302,7 @@ int App::run() {
     std::vector<std::string> prev_lines;   // the main screen's lines as last sent (diff_frame_lines)
     std::string last_floating;             // the overlay part of the last frame
     auto last_frame_written_at = std::chrono::steady_clock::now();
+    auto last_whole_lines_at = std::chrono::steady_clock::now();   // the last frame whose changed lines were all sent whole (not as parts)
     bool gfx_shown = false;
     unsigned long gfx_tick = 0;
 
@@ -1325,8 +1375,14 @@ int App::run() {
         // The spectrogram's analysis keeps running while a track is loaded, shown or not (a menu or another view over it, a pause): it
         // is cheap, and the history is there when the picture is opened again -- before, the feed was switched off whenever a frame did not
         // draw it, so what was played meanwhile was missing (gaps after an overlay, an empty picture when opened during a pause).
-        if (has_track_) spectro().update(layout_spectro_on_ ? layout_spectro_ : settings_.spectro);
-        else if (!spectro_.used || !main_frame) spectro().set_visible(false);
+        // Keep Spectrogram History (Settings): off = the analysis runs only while a spectrogram is on screen. In both cases the memory of the analysis
+        // (several MB: the kept samples and the history) goes back to the system once no spectrogram has been shown for ten seconds and nothing is being
+        // kept for later (no track, or the history switched off).
+        const bool sp_on_screen = spectro_.used && main_frame;
+        if (spectro_keep_analysing(sp_on_screen)) spectro().update(layout_spectro_on_ ? layout_spectro_ : settings_.spectro);
+        else if (!sp_on_screen) spectro().set_visible(false);
+        // (the Settings preview's own analysis: its memory goes back as soon as Settings / the colour editor are left)
+        if (mode_ != Mode::Settings && mode_ != Mode::ColorEdit) { if (SpectroAnalyzer* pv = settings_preview_spectro()) pv->release(); }
         // the Settings preview box: its spectrogram is a picture too (settings_preview.cpp)
         const bool pv_img = (mode_ == Mode::Settings || mode_ == Mode::ColorEdit) && pv_spectro_area_[0] >= 0 && sp_proto != 0 && settings_preview_spectro();
         if (frame_str.find("\x1b[2J") != std::string::npos) { spectro_.gfx.invalidate(); creator_->spectro_gfx.invalidate(); pv_spectro_gfx_.invalidate(); }
@@ -1334,6 +1390,9 @@ int App::run() {
         if (sixel_on && (!gfx_shown || frame_str.find("\x1b[2J") != std::string::npos)) { gfx_.fresh = true; gfx2_.fresh = true; }
         const auto frame_now = std::chrono::steady_clock::now();
         std::string wire;   // ONE write per frame (text + picture): two writes let the terminal paint in between = flicker
+        // The picture must go in this very write (the text around it was written for it -- a panel came or went, a whole frame under a Sixel
+        // overlay): it is sent even while the terminal is still taking the picture before.
+        bool pic_urgent = false;
         // (no heal frame under the frozen Style Option overlay: the whole screen written again every two seconds makes the picture blink)
         // (Cover Options in the meta editor: its preview is a Sixel picture too -- a whole-frame write puts the editor's text into its cells)
         const bool cov_pic = gfxs_.proto == GfxProto::Sixel && mode_ == Mode::MetaEdit && meta_->cov_open;
@@ -1348,7 +1407,11 @@ int App::run() {
             if (main_len != std::string::npos && frame_str.compare(0, 3, "\x1b[H") == 0) {
                 std::string d;
                 const std::string body = frame_str.substr(3, main_len - 3);
-                if (diff_frame_lines(body, prev_lines, d)) {
+                // (every 2 s the changed lines go out whole: what is left on screen of a stray write or a terminal's own repaint of a line that
+                // keeps changing is written over again -- the parts of a line that does not change are never sent otherwise)
+                const bool whole_lines = frame_now - last_whole_lines_at > std::chrono::seconds(2);
+                if (whole_lines) last_whole_lines_at = frame_now;
+                if (diff_frame_lines(body, prev_lines, d, whole_lines)) {
                     if (!heal && floating == last_floating) {
                         // what follows the lines continues where the whole frame would have left the cursor
                         const long nl = static_cast<long>(std::count(body.begin(), body.end(), '\n'));
@@ -1367,7 +1430,7 @@ int App::run() {
             }
             // Style Option overlay: a whole frame (another row selected) writes the screen's text again, also in the picture's cells
             // (Sixel shows that text until the picture is sent): the pictures go out again in this same write.
-            if ((sty_frozen || cov_pic) && sixel_on && !diffed) { gfx_.fresh = true; if (gfx2_.active) gfx2_.fresh = true; }
+            if ((sty_frozen || cov_pic) && sixel_on && !diffed) { gfx_.fresh = true; if (gfx2_.active) gfx2_.fresh = true; pic_urgent = true; }
             // A floating panel (a question, the "<" menu, a small overlay) came or went: the text it left over the picture's cells
             // must be wiped. Sixel keeps its picture only while the cells are skipped, so then the cells are written as spaces and
             // the picture is sent again in the same write (nothing shows in between).
@@ -1382,7 +1445,8 @@ int App::run() {
                 if ((floating_changed && std::memcmp(last_rect, float_rect_, sizeof(last_rect)) != 0) || (heal && !floating.empty() && !sty_frozen)) { spectro_.gfx.invalidate(); creator_->spectro_gfx.invalidate(); }
                 std::memcpy(last_rect, float_rect_, sizeof(last_rect));
             }
-            if (sixel_on && floating_changed && gfx_.active) { gfx_.fresh = true; if (gfx2_.active) gfx2_.fresh = true; }   // (the second picture's cells are blanked too: it goes out again in the same write)
+            if (sixel_on && floating_changed && gfx_.active) { gfx_.fresh = true; if (gfx2_.active) gfx2_.fresh = true; }
+            if (floating_changed || resend_pic) pic_urgent = true;   // (Kitty too: the hole for the panel is cut into the picture)   // (the second picture's cells are blanked too: it goes out again in the same write)
             last_floating = floating;
             last_frame_str = std::move(frame_str);
             last_frame_written_at = frame_now;
@@ -1395,9 +1459,15 @@ int App::run() {
             const int cap = gfx_picture_cap(gfxs_.proto, settings_.image_scale);   // Kitty 60, Sixel 30 (full) / 60 (half, third)
             const unsigned long every = static_cast<unsigned long>(std::max(1, (settings_.osci().frame_rate + cap / 2) / cap));
             gfxs_.due = (gfx_tick % every) == 0;
+            // The terminal is still taking the last picture (the writer thread): a new one waits (it is owed and goes out with the first frame
+            // after); only a picture that must go with this frame's text, or a first one, is sent at once.
+            const bool hold_pic = !pic_urgent && !gfx_urgent_ && write_frame_async_allowed() && write_frame_picture_busy();
+            gfx_urgent_ = false;
             if (gfxs_.ok && gfx_.active && gfxs_.proto != GfxProto::None) {
                 const bool visible = gfx_.crop < gfx_.cols;
-                if (visible && (gfx_.fresh || !gfx_shown)) {
+                if (visible && gfx_.fresh && gfx_shown && hold_pic) gfx_owed_ = true;
+                else if (visible && (gfx_.fresh || !gfx_shown || gfx_owed_)) {
+                    gfx_owed_ = false;
                     const auto enc0 = std::chrono::steady_clock::now();
                     wire += gfx_emit(gfxs_.proto, gfx_);
                     video_timing().encode_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - enc0).count();
@@ -1422,7 +1492,8 @@ int App::run() {
             if (gfxs_.ok && gfx_.active && gfx2_.active && gfxs_.proto != GfxProto::None) {
                 if (gfx2_.crop >= gfx2_.cols) {
                     if (gfx2_shown_) { wire += gfx_clear(gfxs_.proto, 1); gfx2_shown_ = false; }
-                } else if (gfx2_.fresh || !gfx2_shown_) { wire += gfx_emit(gfxs_.proto, gfx2_); gfx2_shown_ = true; }
+                } else if (gfx2_.fresh && gfx2_shown_ && hold_pic) gfx2_owed_ = true;
+                else if (gfx2_.fresh || !gfx2_shown_ || gfx2_owed_) { wire += gfx_emit(gfxs_.proto, gfx2_); gfx2_shown_ = true; gfx2_owed_ = false; }
             } else if (gfx2_shown_) {
                 wire += gfx_clear(gfxs_.proto, 1);
                 gfx2_shown_ = false;
@@ -1464,7 +1535,8 @@ int App::run() {
             const auto built = std::chrono::steady_clock::now();
             const size_t wire_kib = wire.size() / 1024;
             // a frame with a picture goes to the writer thread: the next frame is built while the terminal swallows this one
-            const bool async_write = gfx_.active && wire_kib >= 32 && write_frame_async_allowed();
+            // (while a picture is shown, every frame goes to the writer -- also the small ones: a direct write would wait for the picture before it)
+            const bool async_write = gfx_.active && write_frame_async_allowed();
             if (async_write) write_frame_async(std::move(wire)); else write_frame(wire);
             const auto done = std::chrono::steady_clock::now();
             const double build_ms = std::chrono::duration<double, std::milli>(built - frame_start).count();
@@ -1474,7 +1546,7 @@ int App::run() {
             if ((build_ms > 40.0 || write_ms > 40.0 || (async_write && write_frame_last_ms() > 40.0)) && gfx_.active && done - last_slow >= std::chrono::milliseconds(400)) {
                 last_slow = done;
                 ConsoleLog::instance().log_basic("slow frame: built in " + std::to_string(static_cast<int>(build_ms)) + " ms, " + (async_write ? "waited " + std::to_string(static_cast<int>(write_ms)) + " ms for the writer (the terminal took " + std::to_string(static_cast<int>(write_frame_last_ms())) + " ms for the last frame), " : "the terminal took " + std::to_string(static_cast<int>(write_ms)) + " ms, ") +
-                                                 std::to_string(wire_kib) + " KiB (picture " + std::to_string(gfx_.w) + "x" + std::to_string(gfx_.h) + "; look " +
+                                                 std::to_string(wire_kib) + " KiB (picture " + std::to_string(gfx_.w) + "x" + std::to_string(gfx_.h) + "; look " + (video_timing().worker.load() ? "(on the worker) " : "") +
                                                  std::to_string(static_cast<int>(video_timing().look_ms.load())) + " ms [grade " + std::to_string(static_cast<int>(video_timing().grade_ms.load())) + ", effect " +
                                                  std::to_string(video_timing().fx.load()) + ": " + std::to_string(static_cast<int>(video_timing().fx_ms.load())) + ", threads " + std::to_string(video_timing().threads.load()) + "], colours " + std::to_string(static_cast<int>(video_timing().quant_ms.load())) + " ms, encoding " +
                                                  std::to_string(static_cast<int>(video_timing().encode_ms.load())) + " ms, scope " + std::to_string(static_cast<int>(video_timing().scope_ms.load())) + " ms)");
@@ -1500,11 +1572,22 @@ int App::run() {
             const bool resting = settings_.reduce_motion_paused && mode_ == Mode::Browse && (!has_track_ || player_.is_paused()) &&
                                  std::chrono::steady_clock::now() - last_input_ > std::chrono::seconds(3) && still_frames >= 20;
             if (resting) fps = std::min(fps, 4);
-            // A video on the screen: the screen is looked at often enough to show every picture of the film when it is due. At the lowest frame
-            // rate (30) a 25 or 30 fps film beat against the screen's own rhythm and pictures were shown twice or skipped (not smooth).
-            if (settings_.video_mode && (settings_.video_view || video_full_) && has_track_ && !player_.is_paused() && video_.has_video())
-                fps = std::max(fps, 60);
-            const auto until = frame_start + std::chrono::microseconds(1000000 / fps);
+            // A video on the screen: the loop wakes up at the moment the next picture of the film is due (its time against the audio clock), so
+            // every picture is shown at its own moment. (It used to wake 60 times a second: a 25 fps film then showed its pictures for 33 and 50 ms
+            // in turn -- an uneven motion.) While the decoder has nothing waiting (starting, a seek) it looks 60 times a second as before.
+            auto until = frame_start + std::chrono::microseconds(1000000 / fps);
+            if (settings_.video_mode && (settings_.video_view || video_full_) && has_track_ && !player_.is_paused() && video_.has_video()) {
+                double npts = 0.0;
+                if (video_.next_pts(npts)) {
+                    double tnow = player_.smooth_elapsed() + present_lead_s_;   // (the time video_draw() picks the picture for)
+                    const double vdur = video_.duration();
+                    if (vdur > 1.0 && tnow >= vdur) tnow = std::fmod(tnow, vdur);   // (a video shorter than the track plays again from its start)
+                    const double wait_s = std::clamp((npts - tnow) / std::max(0.25, player_.speed()), 0.0, 0.1);
+                    until = std::min(until, std::chrono::steady_clock::now() + std::chrono::microseconds(static_cast<long long>(wait_s * 1e6) + 500));
+                } else {
+                    until = std::min(until, frame_start + std::chrono::microseconds(1000000 / 60));
+                }
+            }
             const int r0 = term.rows(), c0 = term.cols();
             // A frame is never shorter than ~5 ms, so a flood of input (mouse reports, a held key) cannot make the loop spin.
             const auto floor_t = std::min(until, frame_start + std::chrono::milliseconds(5));
@@ -1518,7 +1601,10 @@ int App::run() {
                     continue;
                 }
                 const int left = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(until - now).count()) + 1;
-                if (term.wait_input(std::min(left, resting ? 100 : 40))) { woke_for_input = true; break; }   // (in slices of at most 40 ms: the terminal size is looked at in between)
+                // a picture is owed (the terminal was busy with the one before): the moment the writer is done the loop goes on and sends it
+                const bool owed = picture_owed() && write_frame_async_allowed();
+                if (owed && !write_frame_picture_busy()) break;
+                if (term.wait_input(std::min(left, owed ? 3 : resting ? 100 : 40))) { woke_for_input = true; break; }   // (in slices of at most 40 ms: the terminal size is looked at in between)
                 false_wakes = 0;                                                               // it did wait: input does not stay signalled
                 if (term.rows() != r0 || term.cols() != c0) break;
             }

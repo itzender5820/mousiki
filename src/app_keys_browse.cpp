@@ -68,8 +68,8 @@ bool App::browse_open_key(const std::string& action, int key, int lookup_key, si
     (void)key; (void)lookup_key; (void)list_len;
     if (action == "HKeyRescan") {   // SHIFT+r: new files copied / uploaded while the app runs
         rescan_now();
-    } else if (action == "HKeyTranslit") {   // SHIFT+' : Japanese / Korean / Chinese text in Latin letters, on / off
-        toggle_latin_letters();
+    } else if (action == "HKeyTranslit") {   // SHIFT+' : Japanese / Korean / Chinese text in Latin letters, on / off (with synced lyrics that have a translation: also the translation)
+        main_translit_key();
     } else if (action == "HKeyLyricsTiming") {   // lyrics timing overlay
         lyrics_edit_open();
     } else if (action == "HKeyStyleOptions") {   // SHIFT+s: the Style Option overlay of the playing track

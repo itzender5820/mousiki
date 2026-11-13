@@ -68,8 +68,8 @@ namespace muisc {
 // Tries to fully resolve a row -- duration AND tags -- using nothing but
 // in-process header parsing (native_duration.h): no subprocess, safe to
 // call from the render thread. For a well-formed tag in a format this
-// covers (MP3/ID3v2, FLAC/Ogg/Opus's Vorbis comments, or M4A/MP4/AAC's
-// iTunes-style atoms -- covers every format probe_duration_native()
+// covers (MP3/ID3v2, FLAC/Ogg/Opus's Vorbis comments, M4A/MP4/AAC's
+// iTunes-style atoms, or the INFO list of a WAV -- covers every format probe_duration_native()
 // already parses for duration) this is a complete answer on its own. For
 // anything it can't handle (an unsupported/unusual tag layout, or a
 // container this doesn't recognize at all), it comes back with whatever
@@ -92,6 +92,7 @@ RowMeta try_native_row_meta(const fs::path& path) {
     else if (ext == ".flac") tags = probe_flac_native(path);
     else if (ext == ".ogg" || ext == ".opus") tags = probe_ogg_native(path);
     else if (ext == ".m4a" || ext == ".m4b" || ext == ".mp4" || ext == ".aac") tags = probe_mp4_native(path);
+    else if (ext == ".wav") tags = probe_wav_native(path);
 
     if (tags.resolved) {
         // clean_tag_text(): a tag can hold malformed UTF-8 (cut in the middle of a character) or control characters,

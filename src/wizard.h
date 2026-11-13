@@ -140,4 +140,10 @@ int page_title_width(int page);   // the width of the title shown in the top bor
 // Non-empty when the text could not be read or has a problem (shown on the first page).
 const std::string& problems();
 
+// The text of the wizard is read and split into pages when it is first needed, and each page is turned into coloured cells only when it is
+// drawn. release_memory() gives all of it back (the frontends call it when the wizard is closed): the next opening reads it again, which takes
+// a few milliseconds. memory_held(): the document is in memory (for tests).
+void release_memory();
+bool memory_held();
+
 } // namespace wizard

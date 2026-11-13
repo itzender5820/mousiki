@@ -8,8 +8,14 @@
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
+#include <list>
+#include <memory>
+#include <mutex>
 #include <sstream>
 #include <utility>
+#if defined(__GLIBC__)
+#include <malloc.h>
+#endif
 
 #include "help_search.h"
 #include "text_edit.h"
@@ -82,8 +88,7 @@ struct Cell {
 
 struct Page {
     bool toc = false;
-    std::vector<std::string> raw;                 // as written (trailing blanks removed)
-    std::vector<std::vector<Cell>> lines;         // parsed
+    std::vector<std::string> raw;                 // as written (trailing blanks removed); the cells of a page are made when it is drawn (cells_of)
     std::vector<int> line_entry;                  // toc pages: the entry of each line, else -1
     std::string number;                           // "2.1.1" / ""
     std::string norm_title;                       // upper-case letters and digits of the first line, without the number
@@ -399,11 +404,29 @@ void build_doc(Doc& d, const std::string& text) {
         prev_group = p.group;
     }
 
-    // parse the lines for drawing
-    for (Page& p : d.pages) {
-        p.lines.clear();
-        for (const std::string& r : p.raw) p.lines.push_back(parse_cells(r, p.toc));
-    }
+}
+
+// The cells of a page (one per column: the character and its colour role) are made when the page is drawn, and the last few pages looked at are
+// kept: parsing every page when the wizard opens cost ~40 bytes for each character of the whole text (about 10 MB), for good.
+std::vector<std::vector<Cell>> parse_page(const Page& p) {
+    std::vector<std::vector<Cell>> v;
+    v.reserve(p.raw.size());
+    for (const std::string& r : p.raw) v.push_back(parse_cells(r, p.toc));
+    return v;
+}
+
+std::list<std::pair<const Page*, std::vector<std::vector<Cell>>>> g_cells;   // the newest first
+constexpr size_t kCellPagesKept = 3;
+
+const std::vector<std::vector<Cell>>& cells_of(const Page& p) {
+    for (auto it = g_cells.begin(); it != g_cells.end(); ++it)
+        if (it->first == &p) {
+            g_cells.splice(g_cells.begin(), g_cells, it);
+            return g_cells.front().second;
+        }
+    g_cells.emplace_front(&p, parse_page(p));
+    while (g_cells.size() > kCellPagesKept) g_cells.pop_back();
+    return g_cells.front().second;
 }
 
 std::string read_file(const std::string& path) {
@@ -414,29 +437,35 @@ std::string read_file(const std::string& path) {
     return ss.str();
 }
 
+std::mutex g_doc_mu;
+std::unique_ptr<Doc> g_doc;   // made when the wizard is first needed, given back by release_memory()
+
+std::unique_ptr<Doc> make_doc() {
+    auto up = std::make_unique<Doc>();
+    Doc& out = *up;
+    std::string text;
+    if (const char* env = std::getenv("MOUSIKI_WIZARD_FILE")) {
+        if (*env) {
+            text = read_file(env);
+            if (text.empty()) out.problems = std::string("MOUSIKI_WIZARD_FILE: cannot read ") + env + " (using the built-in text)";
+        }
+    }
+    if (text.empty())
+        for (const char* const* c = kWizardTextChunks; *c; ++c) text += *c;
+    build_doc(out, text);
+    if (out.pages.empty()) {
+        Page p;
+        p.raw = {"THE HELP WIZARD HAS NO TEXT [[Header]]", "", "Mousiki_Help_Wizard.txt did not contain a [[New Page]]."};
+        p.line_entry.assign(p.raw.size(), -1);
+        out.pages.push_back(p);
+    }
+    return up;
+}
+
 const Doc& doc() {
-    static const Doc d = [] {
-        Doc out;
-        std::string text;
-        if (const char* env = std::getenv("MOUSIKI_WIZARD_FILE")) {
-            if (*env) {
-                text = read_file(env);
-                if (text.empty()) out.problems = std::string("MOUSIKI_WIZARD_FILE: cannot read ") + env + " (using the built-in text)";
-            }
-        }
-        if (text.empty())
-            for (const char* const* c = kWizardTextChunks; *c; ++c) text += *c;
-        build_doc(out, text);
-        if (out.pages.empty()) {
-            Page p;
-            p.raw = {"THE HELP WIZARD HAS NO TEXT [[Header]]", "", "Mousiki_Help_Wizard.txt did not contain a [[New Page]]."};
-            for (const std::string& r : p.raw) p.lines.push_back(parse_cells(r, false));
-            p.line_entry.assign(p.raw.size(), -1);
-            out.pages.push_back(p);
-        }
-        return out;
-    }();
-    return d;
+    std::lock_guard<std::mutex> lk(g_doc_mu);
+    if (!g_doc) g_doc = make_doc();
+    return *g_doc;
 }
 
 int last_page() { return static_cast<int>(doc().pages.size()) - 1; }
@@ -563,18 +592,20 @@ struct Laid {
 
 // The widest line and the most lines of the contents pages: they are centred as one block, so that every one of them
 // keeps its place when the selection moves from one to the next.
+int g_toc_bw = -1, g_toc_bh = 0;   // (set once from the contents pages; reset by release_memory())
 void toc_extent(int& w, int& h) {
-    static int bw = -1, bh = 0;
-    if (bw < 0) {
-        bw = 0;
+    if (g_toc_bw < 0) {
+        g_toc_bw = 0;
+        g_toc_bh = 0;
         for (const Page& p : doc().pages) {
             if (!p.toc) continue;
-            bh = std::max(bh, static_cast<int>(p.lines.size()));
-            for (const auto& l : p.lines) bw = std::max(bw, static_cast<int>(l.size()));
+            const auto cells = parse_page(p);   // (not kept: only the sizes are wanted)
+            g_toc_bh = std::max(g_toc_bh, static_cast<int>(cells.size()));
+            for (const auto& l : cells) g_toc_bw = std::max(g_toc_bw, static_cast<int>(l.size()));
         }
     }
-    w = bw;
-    h = bh;
+    w = g_toc_bw;
+    h = g_toc_bh;
 }
 
 Laid layout(const Page& p, int inner, int margin, const State& st, const std::vector<std::string>& disk) {
@@ -596,7 +627,7 @@ Laid layout(const Page& p, int inner, int margin, const State& st, const std::ve
         }
         if (!room) text_w = cw;
         std::vector<Row> text;
-        for (const auto& cells : p.lines)
+        for (const auto& cells : cells_of(p))
             for (auto& piece : wrap_cells(cells, text_w, &out.wrapped)) text.push_back(to_row(piece));
         // the disk keeps the place it has in a 120x30 terminal: centred in the 26 rows below the blank row there
         constexpr int kDiskTopRow = 5;
@@ -628,12 +659,13 @@ Laid layout(const Page& p, int inner, int margin, const State& st, const std::ve
     if (p.toc) toc_extent(toc_w, toc_h);
     const int block_w = std::min(cw, toc_w);
     const int off = p.toc ? std::max(0, (cw - block_w) / 2) : 0;       // a contents page is centred as a block
-    for (size_t li = 0; li < p.lines.size(); ++li) {
+    const std::vector<std::vector<Cell>>& lines = cells_of(p);
+    for (size_t li = 0; li < lines.size(); ++li) {
         out.line_row.push_back(static_cast<int>(out.rows.size()));
         const bool selected = p.toc && p.line_entry[li] >= 0 && p.line_entry[li] == st.toc;
         if (selected) {
             std::string text;
-            for (const Cell& c : p.lines[li]) text += c.ch;
+            for (const Cell& c : lines[li]) text += c.ch;
             const int w = cp_len(text);
             Row r;
             if (off > 0) r.push_back({Role::Text, spaces(off), 0.0f});
@@ -642,7 +674,7 @@ Laid layout(const Page& p, int inner, int margin, const State& st, const std::ve
             out.rows.push_back(std::move(r));
             continue;
         }
-        for (auto& piece : wrap_cells(p.lines[li], p.toc ? std::max(cw - off, 8) : cw, &out.wrapped)) {
+        for (auto& piece : wrap_cells(lines[li], p.toc ? std::max(cw - off, 8) : cw, &out.wrapped)) {
             Row r = to_row(piece);
             if (off > 0) r.insert(r.begin(), Span{Role::Text, spaces(off), 0.0f});
             out.rows.push_back(std::move(r));
@@ -674,9 +706,11 @@ struct PageText {
     std::vector<std::string> lines;     // plain text of each line (the markers removed); blank lines stay, so the index is the page line
 };
 
+std::unique_ptr<std::vector<PageText>> g_index;   // made by the first search, given back by release_memory()
+
 const std::vector<PageText>& search_index() {
-    static const std::vector<PageText> idx = [] {
-        std::vector<PageText> v;
+    if (!g_index) {
+        auto v = std::make_unique<std::vector<PageText>>();
         const Doc& d = doc();
         for (size_t i = 0; i < d.pages.size(); ++i) {
             const Page& p = d.pages[i];
@@ -685,11 +719,11 @@ const std::vector<PageText>& search_index() {
             t.page = static_cast<int>(i);
             for (const std::string& r : p.raw) t.lines.push_back(plain_text(r));
             t.title = t.lines.empty() ? std::string() : t.lines[0];
-            v.push_back(std::move(t));
+            v->push_back(std::move(t));
         }
-        return v;
-    }();
-    return idx;
+        g_index = std::move(v);
+    }
+    return *g_index;
 }
 
 int popcount32(unsigned v) { int n = 0; for (; v; v >>= 1) n += static_cast<int>(v & 1u); return n; }
@@ -1167,6 +1201,27 @@ int page_title_width(int page) {
     return cp_len(t);
 }
 
-const std::string& problems() { return doc().problems; }
+const std::string& problems() {
+    static std::string copy;   // (a copy: the document itself is given back by release_memory())
+    copy = doc().problems;
+    return copy;
+}
+
+void release_memory() {
+    std::lock_guard<std::mutex> lk(g_doc_mu);
+    g_cells.clear();
+    g_index.reset();
+    g_doc.reset();
+    g_toc_bw = -1;
+    g_toc_bh = 0;
+#if defined(__GLIBC__)
+    malloc_trim(0);   // (the freed text would otherwise stay in the process: a heap does not shrink by itself)
+#endif
+}
+
+bool memory_held() {
+    std::lock_guard<std::mutex> lk(g_doc_mu);
+    return g_doc != nullptr;
+}
 
 } // namespace wizard

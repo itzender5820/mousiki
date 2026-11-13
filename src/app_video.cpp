@@ -336,6 +336,7 @@ VideoLook App::video_look_for(const fs::path& track) const {
     l.chroma = o.chroma >= 0 ? o.chroma : settings_.video_chroma;
     l.dither = o.dither >= 0 ? o.dither : settings_.video_dither;
     l.base = o.base >= 0 ? o.base : settings_.video_base;
+    l.fxc = o.fxc >= 0 ? o.fxc : settings_.video_fxc;
     if (video_fx_uses_gradient(l.fx)) { l.grad = video_fx_gradient(settings_); if (o.gsat >= 0) l.grad.sat = o.gsat; }
     return l;
 }
@@ -610,6 +611,7 @@ bool App::video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, 
     // A picture reaches the screen about one terminal write after it was chosen (a sixel frame takes the terminal 50-150 ms): the frame shown is the
     // one for the moment it will be on screen, so the picture is not that much behind the sound. Only while it plays, only with a picture
     // protocol (a text frame is written at once), and at most a quarter of a second.
+    if (!vp && has_track_ && !paused) t = std::max(t, player_.smooth_elapsed());   // (between the steps of the sound device: see Player::smooth_elapsed)   // (between the steps of the sound device: see Player::smooth_elapsed)
     if (!paused) t += present_lead_s_;
     // A video shorter than the track plays again from its start for the rest of the time; a longer one is simply cut off with the track.
     const double vdur = V.duration();
@@ -617,6 +619,7 @@ bool App::video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, 
     bool fresh = false;
     V.set_buffer_mb(settings_.video_buffer);
     V.set_sharp(video_res_for() > 0);
+    V.set_rate_mode(settings_.video_fps);
     // While the audio of a new track is still being handed to the device (launch_device_play_async()), the playback time is still the one of
     // the track before: a decoder started now would begin at that time and show a frame from the middle of the new video (or of the one
     // before, when [n] is hit fast), then restart at 0. So nothing is started until the new audio clock is in.
@@ -664,16 +667,16 @@ bool App::video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, 
     const VideoLook look = video_look_for(LT);
     const int fx = look.fx;
     const bool round_corners = video_round_for(LT);
-    // the interlace look combs against the frame before: cut and scaled like the frame itself
+    // the interlace look combs against the frame before: cut and scaled like the frame itself (only made when a picture is made from it)
     VideoFrame prev_shown;
-    const VideoFrame* prevp = nullptr;
-    if (fx == 17 && frame) {
-        if (const VideoFrame* pf = V.previous_frame()) {
-            prev_shown = (pf->w != dw || pf->h != dh) ? VideoPlayer::resample(*pf, dw, dh) : *pf;
-            if (cx0 != 0 || cy0 != 0 || outw != dw || outh != dh) prev_shown = VideoPlayer::crop(prev_shown, cx0, cy0, outw, outh);
-            prevp = &prev_shown;
-        }
-    }
+    auto prev_for_fx = [&]() -> const VideoFrame* {
+        if (fx != 17 || !frame) return nullptr;
+        const VideoFrame* pf = V.previous_frame();
+        if (!pf) return nullptr;
+        prev_shown = (pf->w != dw || pf->h != dh) ? VideoPlayer::resample(*pf, dw, dh) : *pf;
+        if (cx0 != 0 || cy0 != 0 || outw != dw || outh != dh) prev_shown = VideoPlayer::crop(prev_shown, cx0, cy0, outw, outh);
+        return &prev_shown;
+    };
     if (frame && picture) {
         GfxFrame& g = second_slot ? gfx2_ : gfx_;
         // the lyric box cuts a hole into the picture: its cells, relative to the picture
@@ -684,10 +687,10 @@ bool App::video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, 
             if (c0 < c1 && r0 < r1) { cut_c = c0 - lead; cut_r = r0 - top; cut_w = c1 - c0; cut_h = r1 - r0; }
         }
         const int trim = trim_right ? std::max(1, outw / std::max(1, vcols) / 2) : 0;   // (half a cell of the picture is left out at the right: see video_field_rows)
-        const std::string key = std::to_string(dw) + "x" + std::to_string(dh) + "|" + std::to_string(outw) + "x" + std::to_string(outh) + "|" + std::to_string(vcols) + "x" + std::to_string(vrows) + "|" +
-                                std::to_string(abs_col + lead) + "|" + std::to_string(cx0) + "," + std::to_string(cy0) + "|" + std::to_string(cut_c) + "," + std::to_string(cut_r) + "," + std::to_string(cut_w) + "," + std::to_string(cut_h) + "|" + look.sig() + "|" + std::to_string(settings_.video_res) + "|" + (round_corners ? "r" : "-") + std::to_string(trim);
-        const bool resized = key != video_pic_key_ || g.w != outw || g.h != outh || g.level.size() != static_cast<size_t>(outw) * outh;
         const bool tc = gfxs_.proto == GfxProto::Kitty && video_res_for() > 0;   // true colour (high / full resolution on Kitty)
+        const std::string key = std::to_string(dw) + "x" + std::to_string(dh) + "|" + std::to_string(outw) + "x" + std::to_string(outh) + "|" + std::to_string(vcols) + "x" + std::to_string(vrows) + "|" +
+                                std::to_string(abs_col + lead) + "|" + std::to_string(cx0) + "," + std::to_string(cy0) + "|" + std::to_string(cut_c) + "," + std::to_string(cut_r) + "," + std::to_string(cut_w) + "," + std::to_string(cut_h) + "|" + look.sig() + "|" + std::to_string(settings_.video_res) + "|" + (round_corners ? "r" : "-") + std::to_string(trim) + (tc ? "|t" : "|p");
+        const bool resized = key != video_pic_key_ || g.w != outw || g.h != outh || g.level.size() != static_cast<size_t>(outw) * outh;
         g.plain = true; g.direct = true; g.scale = 1; g.truecolor = tc;
         g.out_cw = cw0; g.out_ch = ch0;
         g.cols = vcols; g.rows = vrows; g.w = outw; g.h = outh;
@@ -697,39 +700,43 @@ bool App::video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, 
         g.opaque = settings_.black_background;
         g.erase = !settings_.black_background;
         g.active = true;
-        g.fresh = fresh || resized;
-        if (g.fresh) {
+        VideoPicParams pp;
+        pp.look = look; pp.t = t; pp.truecolor = tc; pp.round_corners = round_corners;
+        pp.vcols = vcols; pp.vrows = vrows; pp.trim = trim;
+        pp.cut_c = cut_c; pp.cut_r = cut_r; pp.cut_w = cut_w; pp.cut_h = cut_h;
+        // A heavy look (20-40 ms of a frame) is made by a worker (video_pipe.h) so the screen and the keys do not wait for it: the picture is taken at
+        // a later pass of the loop, and a frame that comes while the worker is busy replaces the one that waits. A new size / look / cut is made on the
+        // spot (it must be on screen at once). The preview of another track (`vp`) always works on the spot: it shares the slot with the playing one.
+        VideoPipe& pipe = video_pipe_[second_slot ? 1 : 0];
+        // The terminal is still taking the picture before (the writer thread, write_frame_picture_busy()): a new frame of the film is not made into
+        // a picture now -- it would wait anyway, and a newer one comes meanwhile. It is owed: the first pass after the terminal is done makes the
+        // newest frame there is. (A new size or place is made at once: it must be on screen at once.) So the film is shown as fast as the terminal
+        // takes it, every picture the newest, and the loop -- the keys, the sound's clock -- never waits for the terminal.
+        bool& owed = video_owed_[second_slot ? 1 : 0];
+        const bool hold = vp == nullptr && !resized && write_frame_async_allowed() && write_frame_picture_busy();
+        bool make = fresh || owed;
+        if (make && hold) { owed = true; make = false; }
+        else if (make) owed = false;
+        if (resized) gfx_urgent_ = true;
+        bool on_the_spot = vp != nullptr || resized || !pipe.wants_thread();
+        bool installed = false;
+        if (!on_the_spot) {
+            installed = !hold && pipe.take(key, outw, outh, g.rgb, g.hue, g.level);
+            if (installed && !tc) { const auto& pal = VideoPlayer::palette(); for (size_t i = 0; i < pal.size() && i < g.pal.size(); ++i) g.pal[i] = pal[i]; }
+            if (make && !pipe.submit(key, *frame, cx0, cy0, outw, outh, prev_for_fx(), pp)) on_the_spot = true;   // (no worker thread: as before)
+        }
+        g.fresh = on_the_spot ? (make || resized) : installed;
+        video_timing().worker = !on_the_spot;
+        if (on_the_spot && g.fresh) {
+            pipe.cancel();   // (a picture made now is newer than anything the worker has)
             VideoFrame shown;
             const VideoFrame* src = frame;
             if (cx0 != 0 || cy0 != 0 || outw != dw || outh != dh) { shown = VideoPlayer::crop(*frame, cx0, cy0, outw, outh); src = &shown; }
-            VideoFrame fxf;
-            const auto tm0 = std::chrono::steady_clock::now();
-            if (look.active()) { fxf = *src; VideoPlayer::apply_look(fxf, look, t, false, prevp); src = &fxf; }
-            const auto tm1 = std::chrono::steady_clock::now();
-            if (tc) { g.rgb = src->rgb; g.level.assign(static_cast<size_t>(g.w) * g.h, 255); g.hue.clear(); }
-            else VideoPlayer::quantize(*src, g.hue, g.level, look.dither);
-            video_timing().look_ms = std::chrono::duration<double, std::milli>(tm1 - tm0).count();
-            video_timing().quant_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - tm1).count();
-            if (round_corners) {   // the corners cut round, like the corners of the UI: a quarter circle of about one cell row
-                const int rp = std::clamp(g.w / std::max(1, vcols) * 11 / 20, 2, std::min(g.w, g.h) / 2);   // (the curve of a terminal corner such as "─╮": about half a cell width, a little more)
-                const float rf = static_cast<float>(rp);
-                for (int y = 0; y < rp; ++y)
-                    for (int x = 0; x < rp; ++x) {
-                        const float dx = rf - static_cast<float>(x) - 0.5f, dy = rf - static_cast<float>(y) - 0.5f;
-                        if (dx * dx + dy * dy <= rf * rf) continue;
-                        const int xs[2] = {x, g.w - trim - 1 - x}, ys[2] = {y, g.h - 1 - y};
-                        for (int a = 0; a < 2; ++a) for (int b = 0; b < 2; ++b) g.level[static_cast<size_t>(ys[b]) * g.w + xs[a]] = 0;
-                    }
-            }
-            if (trim > 0)
-                for (int y = 0; y < g.h; ++y)
-                    for (int x = g.w - trim; x < g.w; ++x) g.level[static_cast<size_t>(y) * g.w + x] = 0;
-            if (cut_w > 0) {
-                const int xa = cut_c * g.w / std::max(1, vcols), xb = (cut_c + cut_w) * g.w / std::max(1, vcols);
-                const int ya = cut_r * g.h / std::max(1, vrows), yb = (cut_r + cut_h) * g.h / std::max(1, vrows);
-                for (int y = ya; y < yb && y < g.h; ++y)
-                    for (int x = xa; x < xb && x < g.w; ++x) g.level[static_cast<size_t>(y) * g.w + x] = 0;
-            }
+            VideoPic pic;   // (the buffers of the GfxFrame go through the picture and back: no allocation per frame)
+            pic.rgb.swap(g.rgb); pic.hue.swap(g.hue); pic.level.swap(g.level);
+            video_make_picture(*src, prev_for_fx(), pp, pic);
+            g.rgb.swap(pic.rgb); g.hue.swap(pic.hue); g.level.swap(pic.level);
+            pipe.note_cost(pic.look_ms + pic.quant_ms);
             if (!tc) { const auto& pal = VideoPlayer::palette(); for (size_t i = 0; i < pal.size() && i < g.pal.size(); ++i) g.pal[i] = pal[i]; }
             video_pic_key_ = key;
         }
@@ -742,7 +749,7 @@ bool App::video_draw(std::vector<std::string>& rows, int W, int H, int abs_col, 
         const VideoFrame* src = frame;
         if (cx0 != 0 || cy0 != 0 || outw != dw || outh != dh) { shown = VideoPlayer::crop(*frame, cx0, cy0, outw, outh); src = &shown; }
         VideoFrame fxf;
-        if (look.active()) { fxf = *src; VideoPlayer::apply_look(fxf, look, t, true, prevp); src = &fxf; }
+        if (look.active()) { fxf = *src; VideoPlayer::apply_look(fxf, look, t, true, prev_for_fx()); src = &fxf; }
         const auto cells = VideoPlayer::braille(*src, vcols, vrows);
         auto dots = [&](int r, int c0, int c1) {
             std::string line, last_ansi;

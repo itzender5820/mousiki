@@ -13,6 +13,7 @@
 #include <map>
 #include <set>
 #include <memory>
+#include "video_pipe.h"
 #include "video_player.h"
 #include <mutex>
 #include <optional>
@@ -58,6 +59,7 @@
 #include "youtube_source.h"
 #include "cache_manager.h"
 #include "converter.h"
+#include "library_search.h"
 #include "app_types.h"
 
 namespace muisc {
@@ -180,6 +182,7 @@ private:
         mutable std::vector<SearchIdx> idx;
         std::string buffer;
         bool nav_moved = false;   // Up/Down used in the search box: ENTER then plays the highlighted entry
+        bool preview_pending = false;   // the box changed in this pass of the loop and the live list below it has not been made yet (see request_live_search_preview())
         // --- async online search ---
         std::thread thread;
         std::mutex mutex;
@@ -322,6 +325,11 @@ private:
                     const std::vector<std::string>& ov, int ov_w, bool flush_bottom = false, bool trim_right = false, VideoPlayer* vp = nullptr, const fs::path* look_track = nullptr) const;
     // The Style Option preview of a track that is not the playing one: a decoder of its own (stopped when the overlay is closed)
     mutable VideoPlayer sty_video_;
+    // The effect list's picture preview decodes the video itself, at the size and resolution the preview is shown in (the video behind it is decoded for
+    // another size -- or, under the frozen Style Option overlay, not at all). It runs while the list is open (stopped 0.8 s after it was last drawn).
+    mutable VideoPlayer fxpick_video_;
+    mutable std::string fxpick_video_src_;
+    mutable std::chrono::steady_clock::time_point fxpick_video_t0_{}, fxpick_video_seen_{};
     mutable std::string sty_video_src_;
     mutable std::chrono::steady_clock::time_point sty_video_t0_{}, sty_video_seen_{};
     std::string build_video_full(int W, const char* clear_prefix) const;
@@ -340,16 +348,23 @@ private:
     // The options panel inside the full screen video (SHIFT+s): the track's own effect, contrast, colours and chromatic aberration, the same
     // choices (and storage) as the video rows of the Style Option overlay.
     bool video_opts_open_ = false;
-    // The VIDEO EFFECT picker (app_fxpick.cpp): ENTER on a Video Effect row opens it beside the menu (2 columns + a preview, arrow keys, ENTER, ESC).
+    // The VIDEO EFFECT picker (app_fxpick.cpp): ENTER on a Video Effect row opens it as one centred panel over the menu (2 columns + a large preview, arrow keys, ENTER, ESC).
     struct FxPick { bool open = false; int target = 0; int cursor = 0; int current = 0; bool with_default = false; };   // target: 0 Settings, 1 VIDEO overlay, 2 VIDEO OPTIONS panel, 3 Style Option
     FxPick fxpick_;
     std::vector<int> fxpick_entries() const;
     void fxpick_open(int target);
     void fxpick_apply(int fx);
     bool fxpick_key(int key, bool arrow);
-    std::vector<std::string> build_fxpick_panel(int W, int& panel_w, int menu_w) const;   // menu_w: the width of the menu it stands beside (0 = none)
-    int fxpick_names_w() const;                                                           // the width of the two columns of names
-    int fxpick_menu_col(int menu_w, int W) const;                                         // 1-based column to draw the menu at so that the picker fits beside it (0 = centred as usual, no picker / no room)
+    // The list as one panel, centred in the window: its lines (and its width). abs_col / abs_row (0-based, the panel's left / top border; -1 = not known, or
+    // no picture wanted): with them, and a picture protocol, the preview column is a real picture (fxpick_picture()). layout_only: just the size.
+    std::vector<std::string> build_fxpick_panel(int W, int& panel_w, int abs_col = -1, int abs_row = -1, bool layout_only = false) const;
+    // The preview as a real picture in the second picture slot (the first one where the screen has no picture of its own): in VIDEO OPTIONS of the big
+    // video, the VIDEO SETTINGS overlay and the Style Option overlay over the main screen, with a picture protocol.
+    // Fills `out` (cols x rows cells: the picture's cells are placeholders) and returns true when the picture is on.
+    bool fxpick_picture(int fx, int cols, int rows, int abs_col, int abs_row, std::vector<std::string>& out) const;
+    bool fxpick_picture_possible() const;
+    mutable int fxpick_pic_ = 0;                 // 0 = no picture of the picker this frame, 1 = it is in gfx_, 2 = in gfx2_ (see app_render.cpp: such a picture lies inside its panel)
+    mutable std::string fxpick_pic_key_;         // what the picture in the slot shows (made again 25 times a second at most)
     std::vector<std::string> fxpick_preview(int fx, int cols, int rows) const;   // the preview column: the video (or a test picture) with the effect on it, as half blocks in true colour
     VideoLook fxpick_look(int fx) const;                                          // the look the picker shows for `fx`: the target's own grade, the effect of the entry
     mutable std::vector<std::string> fxpick_prev_;                                // (the preview rows of the last tick: made again 25 times a second at most)
@@ -1030,7 +1045,12 @@ private:
     mutable double viz_dt_ = 0.08;
     double present_lead_s_ = 0.0;     // how far ahead of the playing position the big overlay's picture and scope are drawn (about one terminal write), 0 = not
     void scope_ring_ahead(OscilloscopeVisualizer& dst, double lead_s) const;   // dst takes the audio of the moment lead_s ahead of the playing position, when the track's samples are at hand (else the newest audio as it is)
-    double last_build_ms_ = 15.0;     // how long the last frame took to build (the lead of write_frame_wait_nearly_idle)
+    double last_build_ms_ = 15.0;     // how long the last frame took to build
+    // A picture the terminal could not take yet (the writer was still busy with the one before): made / sent with the first frame after.
+    mutable bool video_owed_[2] = {false, false};   // video_draw(): a new frame of the film was not made into a picture yet
+    bool gfx_owed_ = false, gfx2_owed_ = false;     // a picture that was made was not sent yet
+    mutable bool gfx_urgent_ = false;               // the picture's place or size changed: it is sent at once
+    bool picture_owed() const { return video_owed_[0] || video_owed_[1] || gfx_owed_ || gfx2_owed_; }
     // gfxs_: the `gfx_*` data of this feature, grouped (they were 7 loose members of App)
     struct GfxState {
         // The scope as a pixel image (Settings osci_style 1): filled while the lyrics column is built, emitted by run().
@@ -1045,6 +1065,7 @@ private:
     GfxState gfxs_;
     mutable GfxFrame gfx_;
     mutable GfxFrame gfx2_;                    // the big oscilloscope overlay's second picture (gfx_ is its YT picture there)
+    mutable VideoPipe video_pipe_[2];          // the worker that makes the video's picture for gfx_ / gfx2_ when a look is heavy (video_pipe.h)
     mutable bool gfx2_shown_ = false;
     mutable int gfx2_last_crop_ = -1;
     mutable std::vector<uint8_t> gfx2_full_level_;     // the same for the second picture slot (the video next to the disk)
@@ -1148,6 +1169,11 @@ private:
     // build_console_screen().
     void log_event(const std::string& msg);
     void toggle_latin_letters();
+    // SHIFT+2 / SHIFT+' (HKeyTranslit) on the main screen while the lyrics field shows synced lyrics that have a saved translation: three stops --
+    // original -> Latin letters -> Latin letters + the translation in the lyrics field -> original. Anywhere else it is the Latin letters switch.
+    bool main_lyr_tr_ = false;   // the lyrics field shows the translation (where a line has one; this session only)
+    bool main_lyrics_translation_possible(std::string* label = nullptr) const;
+    void main_translit_key();
     // The status messages ("Latin letters: on", "added to queue", Settings notes ...) are not shown on the main screen: every new one is
     // kept here with its time and shown in the second pane of the console overlay. capture_status() looks at the message lines each tick.
     std::vector<std::string> status_history_;       // "[HH:MM:SS] message", oldest first (the last kMaxStatusHistory)
@@ -1548,6 +1574,9 @@ private:
     // --- helpers ---
     void refresh_local_view();
     void update_live_search_preview();
+    // The live list below the search box is made once per pass of the loop, not once per key: a paste, or keys that piled up while a frame took long, are one scan.
+    void request_live_search_preview() { search_.preview_pending = true; }
+    void flush_live_search_preview() { if (search_.preview_pending) { search_.preview_pending = false; update_live_search_preview(); } }
     std::vector<LocalTrack> filter_and_rank_local(const std::string& query) const;
     void apply_local_sort(std::vector<LocalTrack>& tracks) const;
     std::vector<LocalTrack> filter_and_rank_local_view(const std::string& query) const; // + folder filter
@@ -1647,6 +1676,8 @@ private:
         // (Mode::SpectroMenu), SHIFT+u full screen. area = where this frame put the picture (row, col, cols, rows,
         // 0-based; row -1 = no picture), used = a spectrogram was drawn this frame (else the feed is switched off).
         mutable bool used = false;
+        // since when no spectrogram has been on screen (spectro_keep_analysing() in app.cpp gives the memory of its analysis back after ten seconds)
+        std::chrono::steady_clock::time_point hidden_since{};
         mutable int area[4] = {-1, 0, 0, 0};
         SpectroGfx gfx;
         bool full = false;
@@ -1683,6 +1714,7 @@ private:
     void scope_window_toggle();
     void scope_window_sync(bool check_alive = true);
     void spectro_window_toggle();
+    bool spectro_keep_analysing(bool on_screen);   // the spectrogram's analysis runs this frame? (also gives its memory back after ten hidden seconds)
     void spectro_window_sync(bool check_alive = true);
     std::string enforce_visual_switches(int changed = -1);   // returns what it changed, for the status line
     static constexpr int kOsciMenuPanelWidth = 50; // just wide enough for the key legend

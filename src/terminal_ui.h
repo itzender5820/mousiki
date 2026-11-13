@@ -294,8 +294,8 @@ void write_frame_drain();
 // A frame with the hidden cursor parked at the top left ("ESC[H" added), unless its last cursor escape is "show" (a text caret to be seen).
 std::string park_cursor(const std::string& frame);
 bool write_frame_async_allowed();   // false with MOUSIKI_SYNC_WRITE=1
-void write_frame_wait_nearly_idle(double lead_ms);   // wait until the frame being written is nearly done (the next one is built from fresher data)
 double write_frame_last_ms();       // how long the terminal took for the last frame the writer wrote
+bool write_frame_picture_busy();    // the writer is writing a frame with a picture, or one waits: no new picture is made or sent until it is done
 
 // 24-bit colours (ESC[38;2;r;g;bm / 48;2) need a terminal that knows them. macOS Terminal before macOS 26 does not and shows
 // wrong colours for them, so there write_frame() turns every one into the nearest of the 256 fixed colours (to_256_colours()).
@@ -385,7 +385,11 @@ std::string paint_legend_row(const LegendRow& row, const std::string& border, co
 // written top to bottom from row 1 with '\n' (or "\r\n") between the lines; each changed line is sent with its own
 // cursor position and a colour reset in front. `prev` holds the last frame's lines and is updated. Returns false when
 // the number of lines changed -- then the caller sends the whole frame (and `prev` is set from it).
-bool diff_frame_lines(const std::string& body, std::vector<std::string>& prev, std::string& out);
+// Of a changed line only the middle part is sent when the glyphs at its start (and end) are the same as on screen and are all of one column
+// (ASCII, box drawing, braille): the cursor goes to the column where the difference starts, the colours in force there are set again, the
+// differing glyphs follow. A line with another escape sequence or a wide glyph in the shared parts is sent whole, as before.
+// `whole_lines`: every changed line is sent whole (the caller does that now and then, so that stray text on screen is written over again).
+bool diff_frame_lines(const std::string& body, std::vector<std::string>& prev, std::string& out, bool whole_lines = false);
 
 // Emoji handling (set_emoji_mode(): 0 off, 1 safe = keep plain one-codepoint emoji, 2 all; see the long comment above replace_emoji() in
 // terminal_ui.cpp). On (the default): every emoji cluster is measured and

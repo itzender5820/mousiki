@@ -14,7 +14,7 @@ namespace muisc {
 enum SetId {
     kSidVizField, kSidDisk, kSidDummy, kSidQueue, kSidWave, kSidLyricsEngine, kSidLyricViz, kSidVisualizer, kSidNoLyricsViz,
     kSidStereo, kSidNormalize, kSidMetaOnly, kSidEmoji, kSidMarquee, kSidUseLyrics, kSidUseOsci, kSidUseSpectro, kSidUseSphere,
-    kSidOrder1, kSidOrder2, kSidOrder3, kSidOrder4, kSidOrder5, kSidUseVideo, kSidNoVideoViz, kSidVideoSize, kSidVideoFx, kSidVideoContrast, kSidVideoBrightness, kSidVideoColors, kSidVideoChroma, kSidVideoDither, kSidVideoBase, kSidVideoGradSat, kSidVideoRound, kSidVideoClap, kSidVideoCover, kSidVideoRes, kSidVideoBuffer, kSidVideoMp3, kSidCoverChroma,
+    kSidOrder1, kSidOrder2, kSidOrder3, kSidOrder4, kSidOrder5, kSidUseVideo, kSidNoVideoViz, kSidVideoSize, kSidVideoFx, kSidVideoContrast, kSidVideoBrightness, kSidVideoColors, kSidVideoChroma, kSidVideoDither, kSidVideoBase, kSidVideoFxContrast, kSidVideoGradSat, kSidVideoRound, kSidVideoClap, kSidVideoCover, kSidVideoRes, kSidVideoFps, kSidVideoBuffer, kSidVideoMp3, kSidCoverChroma,
     kSidPlayback, kSidStartMode, kSidBlackBg, kSidShareProfiles, kSidRemoteApp, kSidUpdateCheck, kSidMediaKeys, kSidUseTermSettings, kSidTermSize, kSidFullScreen, kSidLatinLookup, kSidLatinMacrons, kSidLatinWo, kSidLatinHanzi, kSidLyricsVariants, kSidRateCap, kSidTrackBuffer,
     kSidVisFluidity, kSidWaveStyle, kSidDiskSpeed, kSidVisDegr, kSidVisVisc, kSidLyrAlign, kSidLyrAnim,
     kSidVolIndicator,
@@ -30,6 +30,7 @@ enum SetId {
     kSidPauseFade,     // AUDIO: pause / resume fade over about 8 ms (no click)
     kSidCliScripts,    // CLI / REMOTE / UPDATES: [ENTER] opens the script overlay
     kSidAudioDevice,   // the sound output: shows the device in use, [ENTER] opens the CHOOSE AUDIO DEVICE overlay
+    kSidSpectroHistory,  // OSCI/SPECTRO SETTINGS: keep analysing the sound while no spectrogram is shown (true, default) or only while one is (false: less RAM)
 };
 // True while the audio book player is the mode that runs (set by App::run()): its GENERAL and ANIMA/VIZ tabs leave out what only
 // belongs to the music player and name the lyrics view "notes".

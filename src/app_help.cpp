@@ -92,6 +92,7 @@ void App::wizard_close() {
         settings_.wizard_seen = true;
         save_settings(settings_);
     }
+    wizard::release_memory();   // (the text and its pages are read again at the next opening)
 }
 
 void App::build_wizard_screen(std::ostringstream& frame, int W) {
@@ -242,7 +243,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "HKeyClearFilter", "Clear filter"},
         {nullptr, "HKeyCycleSortMode", "Cycle local list sort mode (folder order / title A-Z / artist A-Z / recently added, newest first)"},
         {nullptr, "HKeyToggleMetaOnly", "Toggle metadata-only track list (no filename)"},
-        {nullptr, "HKeyTranslit", "Latin letters on / off: Japanese kana, Korean and Chinese text (titles, tags, lyrics, karaoke) shown in Latin letters (SHIFT+' on a US keyboard; the radio has the same key; the search finds such titles by their Latin spelling in any case)"},
+        {nullptr, "HKeyTranslit", "Latin letters on / off: Japanese kana, Korean and Chinese text (titles, tags, lyrics, karaoke) shown in Latin letters (SHIFT+' on a US keyboard; the radio has the same key; the search finds such titles by their Latin spelling in any case); on the main screen with synced lyrics that have a saved translation: original -> Latin letters -> + the translation -> original"},
         {nullptr, "HKeyToggleWaveform", "Toggle waveform style (raw/smooth)"},
         {nullptr, "HKeyRefreshUi", "Refresh UI (redraw)"},
         {"BIG OVERLAYS (MAIN UI)", "HKeyFolderOverlay", "Big folder overlay: tree of the library's folders (ENTER opens, f shows the folder in the list, / searches)"},
@@ -335,7 +336,7 @@ void App::build_cheatsheet_screen(std::ostringstream& frame, int W) const {
         {nullptr, "#ESC", "Leave the field you typed in (LEFT/RIGHT switch tabs again); outside a field: close (asks to save unsaved changes)"},
         {nullptr, "#" MUISC_ALT_NAME_UC "+LEFT/RIGHT", "Switch tab from anywhere, also while typing"},
         {nullptr, "#TAB", "Cycle focus (name field / library picker / track list); ENTER on the name field opens its edit mode (CHANGE colours), LEFT/RIGHT switch the tab until then"},
-        {nullptr, "#SHIFT+'  (\" key)", "Latin letters on / off (Japanese, Korean, Chinese text shown in Latin letters), also while typing; the Hotkeys setting HKeyTranslit decides the key"},
+        {nullptr, "#SHIFT+'  (\" key)", "Latin letters on / off (Japanese, Korean, Chinese text shown in Latin letters), also while typing; on the main screen with synced lyrics that have a translation also the translation (three stops); the Hotkeys setting HKeyTranslit decides the key"},
         {nullptr, "#UP/DOWN", "Navigate the focused list/picker (fixed arrow keys)"},
         {nullptr, "#ENTER", "Add hovering track to playlist / load selected playlist"},
         {nullptr, "#e", "Saved Playlists tab: export the hovered playlist, or with the scope Currently (filtered) list every playlist the (filtered) list shows, as M3U8 (default) or M3U -- overlay with folder, format, scope (default folder: export, inside the playlist folder)"},

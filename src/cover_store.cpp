@@ -397,10 +397,10 @@ VideoTrackOpts cover_track_video_opts(const std::string& track_path) {
     load_locked(c);
     const auto it = c.vopts.find(track_path);
     if (it == c.vopts.end()) return o;
-    int v[14] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+    int v[15] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
     std::istringstream in(it->second);
     std::string part;
-    for (int i = 0; i < 14 && std::getline(in, part, ','); ++i) v[i] = muisc::atoi_safe(part.c_str());
+    for (int i = 0; i < 15 && std::getline(in, part, ','); ++i) v[i] = muisc::atoi_safe(part.c_str());
     o.on = v[0] == 0 ? 0 : -1;
     o.size = v[1] >= 0 && v[1] <= 3 ? v[1] : -1;
     o.fx = v[2] >= 0 && v[2] < kVideoFxCount ? video_fx_canon(v[2]) : -1;
@@ -415,6 +415,9 @@ VideoTrackOpts cover_track_video_opts(const std::string& track_path) {
     o.dither = v[11] >= 0 && v[11] < kDitherPatterns ? v[11] : -1;   // (an older entry has no 12th field: as in Settings)
     o.gsat = v[12] >= 0 && v[12] <= 100 ? v[12] : -1;   // (an older entry has no 13th field: as in Settings)
     o.base = v[13] >= 0 && v[13] < kBaseLayers ? v[13] : -1;   // (an older entry has no 14th field: as in Settings)
+    // (an older entry has no 15th field: as in Settings. The field counts from 1: 1 full, 2 reduced, 3 low; 0 is what the "auto" of the first
+    // version of this setting wrote -- that is "as in Settings" now, as there is no auto any more)
+    o.fxc = video_fxc_from_store(v[14]);
     return o;
 }
 
@@ -425,8 +428,8 @@ void set_cover_track_video_opts(const std::string& track_path, const VideoTrackO
     {
         std::lock_guard<std::mutex> lk(c.mu);
         load_locked(c);
-        if (o.on != 0 && o.size < 0 && o.fx < 0 && o.contrast < 0 && o.colors < 0 && o.chroma < 0 && o.res < 0 && o.round < 0 && o.lyrics < 0 && o.brightness < 0 && o.mp4audio < 0 && o.dither < 0 && o.gsat < 0 && o.base < 0) c.vopts.erase(track_path);
-        else c.vopts[track_path] = std::to_string(o.on == 0 ? 0 : -1) + "," + std::to_string(o.size) + "," + std::to_string(o.fx) + "," + std::to_string(o.contrast) + "," + std::to_string(o.colors) + "," + std::to_string(o.chroma) + "," + std::to_string(o.res) + "," + std::to_string(o.round) + "," + std::to_string(o.lyrics) + "," + std::to_string(o.brightness) + "," + std::to_string(o.mp4audio) + "," + std::to_string(o.dither) + "," + std::to_string(o.gsat) + "," + std::to_string(o.base);
+        if (o.on != 0 && o.size < 0 && o.fx < 0 && o.contrast < 0 && o.colors < 0 && o.chroma < 0 && o.res < 0 && o.round < 0 && o.lyrics < 0 && o.brightness < 0 && o.mp4audio < 0 && o.dither < 0 && o.gsat < 0 && o.base < 0 && o.fxc < 0) c.vopts.erase(track_path);
+        else c.vopts[track_path] = std::to_string(o.on == 0 ? 0 : -1) + "," + std::to_string(o.size) + "," + std::to_string(o.fx) + "," + std::to_string(o.contrast) + "," + std::to_string(o.colors) + "," + std::to_string(o.chroma) + "," + std::to_string(o.res) + "," + std::to_string(o.round) + "," + std::to_string(o.lyrics) + "," + std::to_string(o.brightness) + "," + std::to_string(o.mp4audio) + "," + std::to_string(o.dither) + "," + std::to_string(o.gsat) + "," + std::to_string(o.base) + "," + std::to_string(video_fxc_to_store(o.fxc));
         save_locked(c);
     }
     if (old_on != o.on) cover_store_touch();   // (only "video of this track" can change what the disk shows; a look change must not make the cover load again: it blinked away)

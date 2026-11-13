@@ -570,7 +570,10 @@ int RadioApp::interactive() {
             // one -- or when it is not on screen yet / the screen was cleared (then the current one is sent at once).
             const int sp_proto = gfx == GfxProto::Kitty ? 1 : gfx == GfxProto::Sixel ? 2 : 0;
             const bool sp_img = ui.model.spectro_area[0] >= 0 && sp_proto != 0;
-            if (!ui.model.spectro_used) spectro().set_visible(false);
+            if (!ui.model.spectro_used) {
+                spectro().set_visible(false);
+                if (std::chrono::duration<double>(now - spectro_shown_at).count() >= muisc::kSpectroIdleFreeSeconds) spectro().release();   // (no spectrogram for ten seconds: its memory goes back)
+            } else spectro_shown_at = now;
             if (out.find("\x1b[2J") != std::string::npos) spectro_gfx.invalidate();
             const bool sixel_on = (gfx == GfxProto::Sixel && ui.model.gfx.active) || (sp_img && sp_proto == 2);
             if (sixel_on && (!gfx_shown || out.find("\x1b[2J") != std::string::npos)) { ui.model.gfx.fresh = true; ui.model.gfx2.fresh = true; }

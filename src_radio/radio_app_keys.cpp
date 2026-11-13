@@ -36,6 +36,7 @@ bool RadioApp::key_wizard(KeyCtx& kc) {
             ui.model.wizard_open = false;
             out_clear_next = true;
             wizard_seen_save();
+            wizard::release_memory();   // (the text and its pages are read again at the next opening)
         }
         return true;
     }

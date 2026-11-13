@@ -473,7 +473,7 @@ void apply_default_hotkeys(Settings& s) {
 #else
             {"HKeyLyricsTiming",                "ALT+L"},         // lyrics timing overlay
 #endif
-            {"HKeyTranslit",                    "\""},           // SHIFT+' (US keyboard): Japanese / Korean / Chinese text in Latin letters on / off
+            {"HKeyTranslit",                    "\""},           // SHIFT+' (US keyboard): Japanese / Korean / Chinese text in Latin letters on / off (main screen, synced lyrics with a translation: original -> Latin letters -> + translation)
 #if defined(__APPLE__)
             {"HKeyCoverFetch",                  "Q"},             // cover fetch overlay (SHIFT+q on a Mac: no OPTION key, which types special characters there)
 #else
@@ -1135,7 +1135,7 @@ static Settings load_from_config(const fs::path& path) {
             {"ElimentDisk", "Eliment_disk"}, {"ElimentDummyButtons", "Element_dummy_buttons"},
             {"ElimentQueue", "Eliment_queue"}, {"ElimentWaveForm", "Eliment_waveform_progress_bar"},
             {"ElimentLyrics", "Eliment_lyrics"}, {"VizLyricsField", "Eliment_vizfield"}, {"LyricsPlaceholderBall", "Eliment_lyrics_placeholder_ball"},
-            {"LyricViz", "lyric_viz"}, {"NoLyricsViz", "nolyrics_viz"}, {"VizDefault", "viz_default"}, {"NoVideoViz", "novideo_viz"}, {"VideoMode", "video_mode"}, {"VideoLyrics", "video_lyrics"}, {"VideoAuto", "video_auto"}, {"VideoCover", "video_cover"}, {"VideoSize", "video_size"}, {"VideoFx", "video_fx"}, {"VideoResolution", "video_resolution"}, {"VideoContrast", "video_contrast"}, {"VideoColors", "video_colors"}, {"VideoChroma", "video_chroma"}, {"VideoDither", "video_dither"}, {"VideoBase", "video_base"}, {"VideoRound", "video_round"}, {"VideoBrightness", "video_brightness"}, {"VideoClap", "video_clap"}, {"CoverChroma", "cover_chroma"}, {"VideoBuffer", "video_buffer"}, {"VideoMp3", "video_mp3"}, {"VideoFullLyrics", "video_full_lyrics"}, {"VideoDownHeight", "video_down_height"}, {"VideoView", "video_view"},
+            {"LyricViz", "lyric_viz"}, {"NoLyricsViz", "nolyrics_viz"}, {"VizDefault", "viz_default"}, {"NoVideoViz", "novideo_viz"}, {"VideoMode", "video_mode"}, {"VideoLyrics", "video_lyrics"}, {"VideoAuto", "video_auto"}, {"VideoCover", "video_cover"}, {"VideoSize", "video_size"}, {"VideoFx", "video_fx"}, {"VideoResolution", "video_resolution"}, {"VideoContrast", "video_contrast"}, {"VideoColors", "video_colors"}, {"VideoChroma", "video_chroma"}, {"VideoDither", "video_dither"}, {"VideoBase", "video_base"}, {"VideoEffectContrast", "video_fxc"}, {"VideoRound", "video_round"}, {"VideoBrightness", "video_brightness"}, {"VideoClap", "video_clap"}, {"CoverChroma", "cover_chroma"}, {"VideoBuffer", "video_buffer"}, {"VideoFrameRate", "video_frame_rate"}, {"VideoMp3", "video_mp3"}, {"VideoFullLyrics", "video_full_lyrics"}, {"VideoDownHeight", "video_down_height"}, {"VideoView", "video_view"},
             {"Visualizer", "Eliment_visualizer"},
             {"VisualizerFluidity", "visualizer_fluidity"}, {"DiskRotationSpeed", "disk_rotation_speed"},
             {"VisualizerDegradationSpeed", "visualizer_degradation_speed"}, {"VisualizerViscosity", "visualizer_viscosity"},
@@ -1157,6 +1157,7 @@ static Settings load_from_config(const fs::path& path) {
         // These two don't map onto an existing key 1:1 (string enum ->
         // bool / int), so they're handled directly instead of aliased.
         if (key == "ColorCodes") { s.colors_palette = trim_ws(unquote(value)) == "palette"; continue; }   // the marker: colour numbers are palette numbers
+        if (key == "VideoBaseDefault") { s.base_default_clean = ascii_lower_str(trim_ws(unquote(value))) == "clean"; continue; }   // the marker: this file knows that clean is the default Base Layer
         if (key == "VolumeIndicator") {   // "#", "⠶", "⣿" or "⡾⣽"; anything else keeps the default
             const int st = volume_style_from_name(trim_ws(unquote(value)));
             if (st >= 0) s.volume_indicator = st;
@@ -1173,6 +1174,12 @@ static Settings load_from_config(const fs::path& path) {
             std::string v = trim_ws(unquote(value));
             for (char& ch : v) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
             s.share_profiles = (v == "true" || v == "1" || v == "on" || v == "yes");
+            continue;
+        }
+        if (key == "SpectroHistory") {
+            std::string v = trim_ws(unquote(value));
+            for (char& ch : v) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+            s.spectro_history = !(v == "false" || v == "0" || v == "off" || v == "no");   // (true is the default: anything else keeps it)
             continue;
         }
         if (key == "BookmarkAsk") {
@@ -1362,10 +1369,12 @@ static Settings load_from_config(const fs::path& path) {
         }
         if (key == "video_round") { const std::string v = ascii_lower_str(trim_ws(unquote(value))); if (v == "true" || v == "yes" || v == "1" || v == "on") s.video_round = true; else if (v == "false" || v == "no" || v == "0" || v == "off") s.video_round = false; continue; }   // (anything else leaves the default)
         if (key == "video_base") { s.video_base = base_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
+        if (key == "video_fxc") { s.video_fxc = fxc_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
         if (key == "video_dither") { s.video_dither = dither_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
         if (key == "video_chroma") { s.video_chroma = chroma_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
         if (key == "cover_chroma") { s.cover_chroma = chroma_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
         if (key == "video_resolution") { s.video_res = video_res_from(ascii_lower_str(trim_ws(unquote(value)))); continue; }
+        if (key == "video_frame_rate") { s.video_fps = muisc::atoi_safe(trim_ws(unquote(value)).c_str()) >= 60 ? 60 : 25; continue; }
         if (key == "video_buffer") { int mb = muisc::atoi_safe(trim_ws(unquote(value)).c_str()); int best = 32; for (int c : kVideoBufferChoices) if (mb >= c) best = c; if (mb < kVideoBufferChoices[0]) best = kVideoBufferChoices[0]; s.video_buffer = best; continue; }
         if (key == "video_fx") { std::string v = ascii_lower_str(trim_ws(unquote(value))); s.video_fx = video_fx_from(v); continue; }
         if (key == "video_full_lyrics") continue;   // (older versions: the lyrics of the big video overlay are the track's "Use Lyrics on Video" now)
@@ -2032,14 +2041,22 @@ Settings load_settings() {
     // else: all defaults
 
     apply_default_hotkeys(s);
+    bool resave = false;
     if (!s.colors_palette) {
         // An older config.txt: convert its colours, and write the file once so that it carries the marker from now on (otherwise a
         // palette number typed by hand later would be converted again).
-        const bool from_file = loaded_ok;
         migrate_legacy_colors(s);
         s.colors_palette = true;
-        if (from_file) save_settings(s);
+        resave = loaded_ok;
     }
+    if (!s.base_default_clean) {
+        // A config.txt from before "clean" was the default Base Layer holds the old default (scanlines) as a value it saved by itself, so it
+        // is read as clean this once; the file is written again with VideoBaseDefault=clean, and from then on a Base Layer chosen (or typed by
+        // hand) stays.
+        if (loaded_ok) { s.video_base = kBaseLayers - 1; resave = true; }
+        s.base_default_clean = true;
+    }
+    if (resave) save_settings(s);
     return s;
 }
 
@@ -2159,7 +2176,7 @@ static void write_settings(std::ostream& out, const Settings& s) {
     out << "VideoSize=" << (s.video_size == 1 ? "cropped" : s.video_size == 2 ? "full" : s.video_size == 3 ? "framed" : "regular") << "\n";
     out << "## the video's picture in the small field: regular = the whole picture | cropped = two columns cut off each side | full = fills the field (the oscilloscope's space), cropped to fit, the lyric line as a small black box over it\n";
     out << "VideoFx=" << video_fx_key(s.video_fx) << "\n";
-    out << "## a retro effect on the video's picture (small field and full screen): off | scanlines | crt | vhs | glitch | pixel | gradient | quiet glitch\n";
+    out << "## a retro effect on the video's picture (small field and full screen): off | scanlines | crt | vhs | laserdisc | interlace | glitch | quiet glitch | phosphor green | phosphor green glow | phosphor amber | thermal | vector | neon edge | neon edge gradient | film | silent film | technicolor | risograph | halftone | halftone cmyk | halftone cmyk high-res | dither b/w | dither gradient | pixel | gradient | game boy high-res (+ gradient, b/w) | game boy low-res (+ gradient, b/w) | ega 16 | cga | zx spectrum | amstrad cpc | c64 | amiga ham | teletext | ascii\n";
     write_simple_setting(out, s, "VideoContrast");
     write_simple_setting(out, s, "VideoBrightness");
     write_simple_setting(out, s, "VideoColors");
@@ -2168,9 +2185,13 @@ static void write_settings(std::ostream& out, const Settings& s) {
     out << "VideoClap=" << (s.video_clap == 2 ? "none" : s.video_clap == 0 ? "text note" : "clap") << "\n## Show Clap Loading: what shows while a video loads, in the small field and in the big video overlay: text note (\"video: starting ...\") | clap (a small clapperboard in the border colours) | none\n";
     out << "VideoChroma=" << chroma_name(s.video_chroma) << "\n## chromatic aberration of the video's picture (red and blue pushed apart, more towards the corners; works with every effect): off | subtle | medium | strong\n";
     out << "VideoBase=" << base_name(s.video_base) << "\n## the structure of the screen under the tube looks (CRT, VHS, Glitch, Quiet Glitch, Phosphor Green / Amber / Green Glow): scanlines | aperture grille | shadow mask | slot mask | clean (default) (a track can have its own: Style Option)\n";
+    out << "VideoBaseDefault=clean\n## set by Mousiki, leave it as it is: it tells a newer version that this file knows clean as the default Base Layer (a file without this line, from before that, has its VideoBase read as clean once)\n";
+    out << "VideoEffectContrast=" << fxc_name(s.video_fxc) << "\n## how hard the blacks and whites of the photographic video looks are (Scanlines, CRT, VHS, Glitch, Quiet Glitch, Pixel, Gradient, Film, Silent Film, Interlace, Technicolor, LaserDisc): full (no softening: the deepest blacks) | reduced (default: the blacks lifted a little, the whites lowered a little) | low (blacks lifted more, whites lowered more: the shadows keep their detail). The palette and mask looks (Game Boy, Dither, CGA, ASCII, Neon Edge ...) need their hard blacks and are never touched; for Halftone CMYK and its High-Res version it is the strength of the print: full 100 %, reduced 70 %, low 50 % over the picture (a track can have its own: Style Option)\n";
     out << "VideoDither=" << dither_name(s.video_dither) << "\n## the pattern of the dots where a look dithers (Game Boy, EGA 16, Dither B/W and Gradient) and where the picture is reduced to the 256 colours of a terminal's picture protocol (e.g. sixel): auto (each look's own) | blue noise | bayer 2x2 | bayer 4x4 | bayer 8x8 | interleaved noise (default) | golden ratio (a track can have its own: Style Option)\n";
     out << "VideoResolution=" << video_res_name(s.video_res) << "\n";
     out << "## the sharpness of the video's picture: standard (up to 640 px wide, Sixel 480; the soft look) | high (1280 px, Sixel 720; Kitty in true colour) | full (1920 px, Sixel 960; Kitty in true colour). Wider pictures need more of the terminal and the processor\n";
+    out << "VideoFrameRate=" << (s.video_fps >= 60 ? 60 : 25) << "\n";
+    out << "## pictures a second the video is decoded at: 25 (every video at 25, as it always was: light on the processor and the terminal; a 30 fps video loses every sixth picture) | 60 (the video's own rate, up to 60: smoother motion for 30, 50 and 60 fps videos, up to 2.4 times the decoding, effect and terminal work; the buffer holds fewer seconds)\n";
     out << "VideoBuffer=" << s.video_buffer << "\n";
     out << "## megabytes of decoded video frames kept ahead of the picture: 8 | 16 | 32 | 64 | 128 | 256 (a wider picture holds fewer seconds in it)\n";
     out << "VideoMp3=" << tf(s.video_mp3) << "\n## yt-dlp mp3 from mp4: SEARCH YT also saves the sound of a downloaded video as an mp3 song in the download folder when no song is the target (CTRL+o in SEARCH YT changes it per download): true | false\n";
@@ -2236,6 +2257,7 @@ write_simple_setting(out, s, "VideoLayout");
     out << "RemoteAppPort=" << s.remote_port << "\n## 1024 - 65535 -- the network port of the remote app (default 4747)\n";
     write_simple_setting(out, s, "RemoteAppPin");
     out << "ShareProfiles=" << (s.share_profiles ? "true" : "false") << "\n## true , false -- the radio uses this file's oscilloscope and spectrogram settings instead of its own (its own come back when this is false; player and radio)\n";
+    out << "SpectroHistory=" << (s.spectro_history ? "true" : "false") << "\n## true , false (default true) -- true: while a track plays the spectrogram keeps analysing the sound even when none is on screen, so its picture is complete when you open it (about 11 MB of RAM at the 30 s default, more with a longer time span or a hi-res track); false: it analyses only while one is shown and gives the memory back after ten seconds without one (less RAM; a spectrogram opened later starts empty and fills as the music goes on)\n";
     out << "BookmarkAsk=" << (s.book_ask_bookmark ? "true" : "false") << "\n## true , false -- audio book mode: changing the chapter, the mode or quitting asks first whether to set a bookmark at the exact time (the audio is paused meanwhile)\n";
     out << "BookCoverWave=" << (s.book_cover_wave ? "true" : "false") << "\n## true , false -- with BookCover on: true = the colour wave runs over the cover (a grey cover), false = the cover is shown in its own colours (the standard picture always has the wave)\n";
     write_simple_setting(out, s, "TerminalDefaultFont");

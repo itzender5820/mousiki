@@ -325,6 +325,11 @@ void App::poll_pending_load() {
         sty_video_.stop();
         sty_video_src_.clear();
     }
+    if (!fxpick_video_src_.empty() && std::chrono::steady_clock::now() - fxpick_video_seen_ > std::chrono::milliseconds(800)) {   // the effect list's preview is not drawn any more
+        fxpick_video_.set_source("");
+        fxpick_video_.stop();
+        fxpick_video_src_.clear();
+    }
     if (swap_repause_ && device_->play_pending_gen.load() == 0) { swap_repause_ = false; player_.pause(); }   // (the new audio is in: a paused song stays paused)
     if (!load_ready_.load()) return;
     PendingLoad pl;

@@ -61,10 +61,20 @@ public:
     // scaled with the sharper filter (Video Resolution high / full). A new filter restarts the decoder; the buffer changes at once.
     void set_buffer_mb(int mb);
     void set_sharp(bool sharp) { sharp_ = sharp; }
+    // Video Frame Rate (VideoFrameRate=): 25 = every video is decoded at 25 pictures a second (as it always was: a 30 fps film loses every sixth
+    // picture, a 50 / 60 fps one more than half); 60 = at the video's own rate, up to 60 (a faster one is cut to 60). Another rate restarts the
+    // decoder at the picture on screen, like another filter.
+    void set_rate_mode(int fps) { rate_mode_ = fps >= 60 ? 60 : 25; }
+    // The rate the decoder delivers now, as a fraction (pictures per second = num / den) -- the video's own (from ffprobe, r_frame_rate) or 25.
+    static void decode_rate(int mode, int src_num, int src_den, int& num, int& den);
+    double source_fps() const { return src_den_ > 0 ? static_cast<double>(src_num_) / src_den_ : 0.0; }
+    // The time of the next picture that is waiting to be shown (false: none decoded yet). The main loop wakes up at that moment, so a picture
+    // is shown when it is due and not at the next tick of a fixed rhythm.
+    bool next_pts(double& pts);
     void stop();                  // ends the decoder (the source stays)
     // What the picture is doing while there is no frame: "starting ..." or why it failed ("ffmpeg: ..."); "" once a frame was shown.
     std::string status();
-    int frames_per_second() const { return kFps; }
+    int frames_per_second() const;   // the rate the decoder runs at (25, or the video's own up to 60)
 
     // ---- turning a frame into something the terminal shows (pure functions, tested) ----
     // Palette picture: `hue` gets indices into palette() (216 colour cube + 24 greys), `level` is 255 everywhere. x0,y0: where the
@@ -84,7 +94,7 @@ public:
     //              flash of inverted colours; in between a light scanline look
     // Deterministic for the same frame / time (tested); no allocations beyond one copy of the frame.
     // `prev`: the frame shown before this one (the interlace look combs where the two differ; nullptr = none).
-    static void apply_fx(VideoFrame& f, int fx, double t, bool braille = false, const VideoFxGradient* grad = nullptr, const VideoFrame* prev = nullptr, int dither = 0, int base = 0);   // dither: 0 auto, else a pattern of video_fx.h; base: the base layer of the tube looks (video_fx.h)
+    static void apply_fx(VideoFrame& f, int fx, double t, bool braille = false, const VideoFxGradient* grad = nullptr, const VideoFrame* prev = nullptr, int dither = 0, int base = 0, int contrast = kFxContrastDefault);   // dither: 0 auto, else a pattern of video_fx.h; base: the base layer of the tube looks (video_fx.h); contrast: the Effect Contrast (video_fx.h; only the Gradient look reads it here, the tone of the others is applied by apply_look)
     // The grade: contrast (0..100 %: 0 = as it is, 100 = 2.5 times the distance from the middle grey), colours (0 = greyscale .. 100 = as they
     // are) and chromatic aberration (0 off .. 3 strong: red and blue are pushed apart, more towards the corners).
     static void apply_grade(VideoFrame& f, int contrast, int colors, int chroma, int brightness = 50);   // brightness 0..100: 50 = as it is, lower darker, higher brighter (a gamma curve: black and white stay)
@@ -106,7 +116,10 @@ public:
     static std::vector<std::vector<Cell>> braille(const VideoFrame& f, int cols, int rows);
 
 private:
-    static constexpr int kFps = 25;
+    static constexpr int kFps = 25;   // (Video Frame Rate 25: the rate every video was decoded at before there was a choice)
+    int rate_mode_ = 25, run_rate_mode_ = 25;
+    int src_num_ = 0, src_den_ = 0;     // the video's own rate (r_frame_rate; 0 = not known)
+    int run_num_ = 25, run_den_ = 1;    // the rate of the running decoder
     void start(double from, bool keep_picture = false);
     void run(uint64_t gen, double from, int w, int h);
     void halt();

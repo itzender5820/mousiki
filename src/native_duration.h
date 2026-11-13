@@ -65,5 +65,6 @@ NativeId3Tags probe_id3v2_native(const fs::path& path);
 NativeId3Tags probe_flac_native(const fs::path& path);   // FLAC: Vorbis comment metadata block
 NativeId3Tags probe_ogg_native(const fs::path& path);    // Ogg Vorbis or Opus: Vorbis-comment packet
 NativeId3Tags probe_mp4_native(const fs::path& path);    // M4A/MP4/AAC: moov/udta/meta/ilst atoms
+NativeId3Tags probe_wav_native(const fs::path& path);    // WAV: the RIFF chunk list, a LIST/INFO chunk (INAM, IART, IPRD, ICRD); resolved with no fields = a WAV without tags
 
 } // namespace muisc

@@ -29,6 +29,7 @@ TEST(settings_defaults_per_oscilloscope_style) {
     CHECK_EQ(s.osci_set[0].trace, 1024);
     CHECK(s.black_background);
     CHECK(!s.share_profiles);
+    CHECK(s.spectro_history);   // (the analysis of the spectrogram keeps running while a track plays: on by default)
 }
 
 TEST(settings_save_load_is_stable) {
@@ -41,8 +42,10 @@ TEST(settings_save_load_is_stable) {
     s.osci_mode = 3;
     s.image_detail = 1;
     s.share_profiles = true;
+    s.spectro_history = false;
     save_settings(s);
     const Settings back = load_settings();
+    CHECK(!back.spectro_history);
     CHECK_NEAR(back.osci_set[1].decay, 0.10, 0.001);
     CHECK_EQ(back.osci_set[1].trace, 8192);
     CHECK(!back.osci_set[0].rough);
@@ -561,6 +564,8 @@ TEST(settings_video_resolution_buffer_and_effect_are_saved_and_read_back) {
     CHECK_EQ(dither_from("nonsense"), 0);   // (anything unknown: auto)
     CHECK_EQ(dither_from("line screen"), 5);   // (gone: the default one)
     CHECK_EQ(dither_from("clustered dot"), 5);
+    CHECK_EQ(dither_from("bayer 2x2"), 2);
+    CHECK_EQ(dither_from("bayer 4x4"), 3);
     CHECK_EQ(dither_from("auto"), 0);
     CHECK_EQ(b2.video_contrast, 40);
     CHECK_EQ(b2.video_brightness, 65);
@@ -620,6 +625,48 @@ TEST(settings_old_dither_effect_reads_as_dither_bw) {
     CHECK_EQ(s.video_fx, 21);                  // Dither B/W
 }
 
+// The Video Effect Contrast: reduced by default, saved by name, an unknown name (and the "auto" of the first version) reads as the default, a track's own is separate (test_cover_art).
+TEST(settings_video_effect_contrast_round_trips) {
+    mt::TempHome home;
+    CHECK_EQ(load_settings().video_fxc, 1);                  // no file: reduced
+    Settings s = load_settings();
+    s.video_fxc = 2;
+    save_settings(s);
+    std::string text;
+    { std::ifstream f(config_path()); std::stringstream ss; ss << f.rdbuf(); text = ss.str(); }
+    CHECK(text.find("VideoEffectContrast=low") != std::string::npos);
+    CHECK_EQ(load_settings().video_fxc, 2);
+    { std::ofstream f(config_path()); f << "VideoEffectContrast=full\n"; }
+    CHECK_EQ(load_settings().video_fxc, 0);
+    { std::ofstream f(config_path()); f << "VideoEffectContrast=reduced\n"; }
+    CHECK_EQ(load_settings().video_fxc, 1);
+    { std::ofstream f(config_path()); f << "VideoEffectContrast=gibberish\n"; }
+    CHECK_EQ(load_settings().video_fxc, 1);                  // anything unknown: the default
+    { std::ofstream f(config_path()); f << "VideoEffectContrast=auto\n"; }
+    CHECK_EQ(load_settings().video_fxc, 1);                  // the first version's "auto": the default
+}
+
+// "clean" is the default Base Layer: a fresh install has it, and a config.txt from before (scanlines was the default then, and the file kept it as
+// if it had been chosen) is read as clean once -- the file is written again with the VideoBaseDefault marker, after which a choice stays.
+TEST(settings_base_layer_is_clean_by_default_and_an_old_saved_default_is_read_as_clean_once) {
+    mt::TempHome home;
+    CHECK_EQ(load_settings().video_base, 4);                 // no file: clean
+    fs::create_directories(config_path().parent_path());
+    { std::ofstream f(config_path()); f << "VideoFx=crt\nVideoBase=scanlines\n"; }
+    const Settings a = load_settings();
+    CHECK_EQ(a.video_base, 4);                               // the old saved default: clean
+    std::string text;
+    { std::ifstream f(config_path()); std::stringstream ss; ss << f.rdbuf(); text = ss.str(); }
+    CHECK(text.find("VideoBaseDefault=clean") != std::string::npos);
+    CHECK(text.find("VideoBase=clean") != std::string::npos);
+    { std::ofstream f(config_path()); f << "VideoBaseDefault=clean\nVideoBase=aperture grille\n"; }   // chosen (or typed) after that: it stays
+    CHECK_EQ(load_settings().video_base, 1);
+    Settings b = load_settings();
+    b.video_base = 0;
+    save_settings(b);
+    CHECK_EQ(load_settings().video_base, 0);                 // scanlines picked on purpose stays scanlines
+}
+
 // The safety net of every change to the settings code: for each `Key=value` line of the default config.txt, a copy of the file with that
 // one value changed is read and written again; the changed value has to come back (a flag flipped, a number one up or one down -- one of the
 // two is inside every range). It finds a setting that is written but not read, read but not written, or clamped where it should not be.
@@ -634,7 +681,8 @@ TEST(settings_every_simple_key_round_trips_with_a_changed_value) {
     { std::istringstream in(base); std::string l; while (std::getline(in, l)) { if (!l.empty() && l.back() == '\r') l.pop_back(); lines.push_back(l); } }
     // keys whose value is set by other settings on purpose (the written value is not the one read):
     //   VideoView: only on while the video mode and the lyrics are on;  SpectroLastStyle0/1: the view in use shows its own style.
-    const std::set<std::string> skip = {"VideoView", "SpectroLastStyle0", "SpectroLastStyle1"};
+    //   VideoFrameRate: two values only, 25 and 60 (settings_video_frame_rate_is_25_or_60 below)
+    const std::set<std::string> skip = {"VideoView", "SpectroLastStyle0", "SpectroLastStyle1", "VideoFrameRate"};
     int bools = 0, ints = 0, colours = 0, other = 0;
     std::vector<std::string> problems;
     auto round_trip = [&](size_t idx, const std::string& key, const std::string& value) {
@@ -747,4 +795,28 @@ TEST(settings_table_reads_old_names_clamps_numbers_and_takes_flag_spellings) {
     CHECK(read("ListSeparator=\" / \"\n").list_separator == " / ");
     CHECK(read("legend_cmd_color=77\n").legend_cmd_color == "77");
     CHECK(read("ColorLegendCommand=88\n").legend_cmd_color == "88");
+}
+
+// Video Frame Rate (VideoFrameRate=, batch 278): 25 (the default, as every video was decoded before) or 60 (the video's own rate, up to 60);
+// anything else is read as the nearer of the two kinds (60 and more = 60, less = 25).
+TEST(settings_video_frame_rate_is_25_or_60) {
+    mt::TempHome home;
+    CHECK_EQ(load_settings().video_fps, 25);
+    save_settings(load_settings());   // (the config folder and file exist from here on)
+    auto with = [&](const std::string& v) {
+        Settings s = load_settings();
+        std::string text = settings_to_text(s);
+        const size_t at = text.find("VideoFrameRate=");
+        CHECK(at != std::string::npos);
+        const size_t nl = text.find('\n', at);
+        text = text.substr(0, at) + "VideoFrameRate=" + v + text.substr(nl);
+        { std::ofstream o(config_path(), std::ios::binary | std::ios::trunc); o << text; }
+        return load_settings().video_fps;
+    };
+    CHECK_EQ(with("60"), 60);
+    CHECK(settings_to_text(load_settings()).find("VideoFrameRate=60\n") != std::string::npos);
+    CHECK_EQ(with("25"), 25);
+    CHECK_EQ(with("120"), 60);
+    CHECK_EQ(with("30"), 25);
+    CHECK_EQ(with("nonsense"), 25);
 }

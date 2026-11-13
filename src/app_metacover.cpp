@@ -319,7 +319,7 @@ bool App::handle_meta_sty_key(int key) {
             return true;
         }
         case kStVideoOn: case kStVideoLyrics: case kStVideoSize: case kStVideoEffect: case kStVideoContrast: case kStVideoBrightness:
-        case kStVideoColors: case kStVideoChroma: case kStVideoDither: case kStVideoBase: case kStVideoGradSat: case kStVideoResolution: case kStVideoRounded: {   // the video of this track (-1 = as in the VIDEO overlay / in Settings)
+        case kStVideoColors: case kStVideoChroma: case kStVideoDither: case kStVideoBase: case kStVideoFxContrast: case kStVideoGradSat: case kStVideoResolution: case kStVideoRounded: {   // the video of this track (-1 = as in the VIDEO overlay / in Settings)
             VideoTrackOpts o = cover_track_video_opts(meta_->sty_track);
             switch (sel) {
                 case kStVideoOn: o.on = reset ? -1 : (o.on == 0 ? -1 : 0); break;
@@ -331,6 +331,7 @@ bool App::handle_meta_sty_key(int key) {
                 case kStVideoColors: o.colors = reset ? -1 : sty_step(o.colors, dir, 100, 5); break;
                 case kStVideoChroma: o.chroma = reset ? -1 : sty_step(o.chroma, dir, kChromaLevels - 1, 1); break;
                 case kStVideoBase: o.base = reset ? -1 : sty_step(o.base, dir, kBaseLayers - 1, 1); break;
+                case kStVideoFxContrast: o.fxc = reset ? -1 : sty_step(o.fxc, dir, kFxContrasts - 1, 1); break;
                 case kStVideoDither: o.dither = reset ? -1 : sty_step(o.dither, dir, kDitherPatterns - 1, 1); break;
                 case kStVideoGradSat: o.gsat = reset ? -1 : sty_step(o.gsat, dir, 100, 5); break;
                 case kStVideoResolution: o.res = reset ? -1 : sty_step(o.res, dir, 2, 1); break;
@@ -572,6 +573,7 @@ std::vector<std::string> App::build_meta_sty_panel(int screen_w) const {
             case kStVideoSize: return {"Video Size", vo.size >= 0 ? std::string(size_names[vo.size]) : std::string("as in VIDEO SETTINGS (") + size_names[std::clamp(settings_.video_size, 0, 3)] + ")"};
             case kStVideoEffect: return {"Video Effect", vo.fx >= 0 ? std::string(video_fx_name(vo.fx)) : std::string("VIDEO SETTINGS (") + video_fx_name(settings_.video_fx) + ")"};
             case kStVideoBase: return {"Video Base Layer", vo.base >= 0 ? std::string(base_name(vo.base)) : std::string("as in Settings (") + base_name(settings_.video_base) + ")"};
+            case kStVideoFxContrast: return {"Video Effect Contrast", vo.fxc >= 0 ? std::string(fxc_name(vo.fxc)) : std::string("as in Settings (") + fxc_name(settings_.video_fxc) + ")"};
             case kStVideoContrast: return {"Video Contrast", pct(vo.contrast, settings_.video_contrast)};
             case kStVideoBrightness: return {"Video Brightness", pct(vo.brightness, settings_.video_brightness)};
             case kStVideoColors: return {"Video Colors", pct(vo.colors, settings_.video_colors)};

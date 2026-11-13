@@ -669,8 +669,9 @@ std::vector<std::string> render_radio_frame_inner(const UiModel& m, const RadioS
     for (int i = 0; i < kPanelH; ++i) {
         const size_t r = static_cast<size_t>(i);
         std::string body;
-        if (show_sign) body += centred(left[r], kLeftW, kLeftW + ex_first);
-        if (show_sign) body += s.border + " : : " + kReset;
+        // (Sign border off, GENERAL tab: no " : : " column -- the sign sits in the middle of the space up to the station info, which stays where it is)
+        if (show_sign && cfg.sign_border) body += centred(left[r], kLeftW, kLeftW + ex_first) + s.border + " : : " + kReset;
+        else if (show_sign) body += centred(left[r], kLeftW, kLeftW + ex_first + kSepW);
         body += centred(meta[r], kMetaW, kMetaW + (show_sign ? ex_second : 0));
         if (show_scope) body += show_sign ? scope[r] : centred(scope[r], scope_w, rest_w);
         else if (!show_sign) body += spaces(rest_w);

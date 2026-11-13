@@ -110,6 +110,10 @@ public:
     double speed() const { return speed_.load(); }
 
     double poll_elapsed() const;
+    // The playback time for pictures: poll_elapsed() moves in the steps of the sound device (one block of samples, 10-50 ms), which made a
+    // video's pictures come early or late by up to a block. This one goes on from the last step by the time that has passed since (at the
+    // playback speed), at most a quarter of a second; paused, it is poll_elapsed().
+    double smooth_elapsed() const;
     bool finished() const { return finished_.load(); }
     // Synchronously clears a stale finished flag left over from the
     // previous track. play() itself resets this too, but play() now
@@ -173,6 +177,7 @@ private:
     OscilloscopeVisualizer* scope_sink_ = nullptr; // raw-waveform feed; same lifetime rules as fft_sink_
     std::atomic<int> sample_rate_{44100};
     std::atomic<long long> cursor_frames_{0};
+    std::atomic<long long> clock_stamp_ns_{0};   // (steady clock) when the audio thread last moved cursor_frames_ on
     std::atomic<bool> finished_{false};
     std::atomic<float> gain_{0.7f};
     std::atomic<float> fade_{1.0f};

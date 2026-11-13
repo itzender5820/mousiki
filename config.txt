@@ -137,7 +137,7 @@ VideoCover=cover
 VideoSize=full
 ## the video's picture in the small field: regular = the whole picture | cropped = two columns cut off each side | full = fills the field (the oscilloscope's space), cropped to fit, the lyric line as a small black box over it | framed = like full, but one row and two columns smaller on every side (an empty frame)
 VideoFx=off
-## a retro effect on the video's picture (small field and full screen): off | scanlines | crt | vhs | glitch | quiet glitch | pixel | gradient | ...
+## a retro effect on the video's picture (small field and full screen): off | scanlines | crt | vhs | laserdisc | interlace | glitch | quiet glitch | phosphor green | phosphor green glow | phosphor amber | thermal | vector | neon edge | neon edge gradient | film | silent film | technicolor | risograph | halftone | halftone cmyk | halftone cmyk high-res | dither b/w | dither gradient | pixel | gradient | game boy high-res (+ gradient, b/w) | game boy low-res (+ gradient, b/w) | ega 16 | cga | zx spectrum | amstrad cpc | c64 | amiga ham | teletext | ascii
 VideoContrast=0
 ## 0 .. 100 (percent, steps of 5) -- more contrast for the video's picture (0 = as it is)
 VideoBrightness=50
@@ -150,14 +150,20 @@ VideoChroma=subtle
 ## chromatic aberration of the video's picture (red and blue pushed apart, more towards the corners; works with every effect): off | subtle | medium | strong
 VideoBase=clean
 ## the structure of the screen under the tube looks (CRT, VHS, Glitch, Quiet Glitch, Phosphor Green / Amber / Green Glow): scanlines | aperture grille (Trinitron stripes) | shadow mask (fine round dots) | slot mask | clean (no structure, default); a track can have its own: Style Option
+VideoBaseDefault=clean
+## set by Mousiki, leave it as it is: it tells a newer version that this file knows clean as the default Base Layer (a file without this line, from before that, has its VideoBase read as clean once)
+VideoEffectContrast=reduced
+## how hard the blacks and whites of the photographic video looks are (Scanlines, CRT, VHS, Glitch, Quiet Glitch, Pixel, Gradient, Film, Silent Film, Interlace, Technicolor, LaserDisc): full (no softening: the deepest blacks) | reduced (default: the blacks lifted a little, the whites lowered a little) | low (blacks lifted more, whites lowered more: the shadows keep their detail). The palette and mask looks (Game Boy, Dither, CGA, ASCII, Neon Edge ...) need their hard blacks and are never touched; for Halftone CMYK and its High-Res version it is the strength of the print: full 100 %, reduced 70 %, low 50 % over the picture (a track can have its own: Style Option)
 VideoDither=interleaved noise
-## the video looks that use the gradient colours (Gradient, Dither Gradient, Neon Edge Gradient, Game Boy gradient): how saturated those colours are, 0 .. 100 (percent, steps of 5; 100 = the colours as they are, lower = paler, 0 = grey of the same brightness; 85 = default); a track can have its own: Style Option
-VideoGradientSaturation=85
 ## the pattern of the dots where a look dithers (Game Boy, EGA 16, Dither B/W and Gradient) and where the picture is reduced to the 256 colours of a terminal's picture protocol (e.g. sixel): auto (each look's own) | blue noise | bayer 2x2 | bayer 4x4 | bayer 8x8 | interleaved noise (default) | golden ratio (a track can have its own: Style Option)
+VideoGradientSaturation=85
+## the video looks that use the gradient colours (Gradient, Dither Gradient, Neon Edge Gradient, Game Boy gradient): how saturated those colours are, 0 .. 100 (percent, steps of 5; 100 = the colours as they are, lower = paler, 0 = grey of the same brightness; 85 = default); a track can have its own: Style Option
 VideoRound=true
 ## Rounded Corners: the corners of the video's picture are cut round like the corners of the UI (a track can have its own: Style Option): true | false
 VideoResolution=standard
 ## the sharpness of the video's picture: standard (up to 640 px wide, Sixel 480; the soft look) | high (1280 px, Sixel 720; Kitty in true colour) | full (1920 px, Sixel 960; Kitty in true colour). Wider pictures need more of the terminal and the processor
+VideoFrameRate=25
+## pictures a second the video is decoded at: 25 (every video at 25, as it always was: light on the processor and the terminal; a 30 fps video loses every sixth picture) | 60 (the video's own rate, up to 60: smoother motion for 30, 50 and 60 fps videos, up to 2.4 times the decoding, effect and terminal work; the buffer holds fewer seconds)
 VideoBuffer=32
 ## megabytes of decoded video frames kept ahead of the picture: 8 | 16 | 32 | 64 | 128 | 256 (a wider picture holds fewer seconds in it)
 VideoMp3=true
@@ -404,6 +410,8 @@ RemoteAppHosts=
 ## names (comma separated, e.g. mousiki.home,nas) the remote app's web server answers to besides IP addresses and localhost; a request with any other Host is refused (DNS rebinding protection). Empty (default): addresses only
 ShareProfiles=false
 ## true , false -- the radio uses the player's oscilloscope and spectrogram settings (its own are kept as a backup and come back when off)
+SpectroHistory=true
+## true , false (default true) -- true: while a track plays the spectrogram keeps analysing the sound even when none is on screen, so its picture is complete when you open it (about 11 MB of RAM at the 30 s default, more with a longer time span or a hi-res track); false: it analyses only while one is shown and gives the memory back after ten seconds without one (less RAM; a spectrogram opened later starts empty and fills as the music goes on)
 
 ##-------------------------------------------
 ##             AUDIO BOOK MODE

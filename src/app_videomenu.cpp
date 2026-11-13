@@ -124,6 +124,12 @@ void App::video_menu_change(int row, int dir) {
             status_line_ = std::string("video base layer: ") + base_name(settings_.video_base) + " (the structure under CRT, VHS, Glitch and the Phosphor looks)";
             video_pic_key_.clear();
             break;
+        case kVmFxContrast:
+            settings_.video_fxc = (std::clamp(settings_.video_fxc, 0, kFxContrasts - 1) + (dir < 0 ? kFxContrasts - 1 : 1)) % kFxContrasts;
+            set_config_value("VideoEffectContrast", fxc_name(settings_.video_fxc));
+            status_line_ = std::string("video effect contrast: ") + fxc_name(settings_.video_fxc) + " (how hard the blacks of Glitch, Gradient, the tube and the film looks are; the palette looks are never touched)";
+            video_pic_key_.clear();
+            break;
         case kVmGradSat:   // 0 .. 100 % in steps of 5, round and round
             settings_.video_grad_sat = (((std::clamp(settings_.video_grad_sat, 0, 100) / 5) + (dir < 0 ? 20 : 1)) % 21) * 5;
             set_config_value("VideoGradientSaturation", std::to_string(settings_.video_grad_sat));
@@ -135,6 +141,13 @@ void App::video_menu_change(int row, int dir) {
             set_config_value("VideoResolution", video_res_name(settings_.video_res));
             status_line_ = "video resolution: " + video_res_label(settings_.video_res, gfxs_.proto == GfxProto::Sixel);
             video_pic_key_.clear();
+            force_redraw_ = true;
+            break;
+        case kVmFrameRate:   // 25 <-> 60
+            settings_.video_fps = settings_.video_fps >= 60 ? 25 : 60;
+            set_config_value("VideoFrameRate", std::to_string(settings_.video_fps));
+            status_line_ = settings_.video_fps >= 60 ? "video frame rate: 60 -- the video's own rate, up to 60 pictures a second (smoother; more work for the processor and the terminal)"
+                                                     : "video frame rate: 25 -- every video at 25 pictures a second";
             force_redraw_ = true;
             break;
         case kVmBuffer: {
@@ -214,6 +227,7 @@ void App::video_opts_change(int row, int dir, bool reset) {
         case kVoChroma: o.chroma = reset ? -1 : vopts_step(o.chroma, dir, kChromaLevels - 1, 1); break;
         case kVoDither: o.dither = reset ? -1 : vopts_step(o.dither, dir, kDitherPatterns - 1, 1); break;
         case kVoBase: o.base = reset ? -1 : vopts_step(o.base, dir, kBaseLayers - 1, 1); break;
+        case kVoFxContrast: o.fxc = reset ? -1 : vopts_step(o.fxc, dir, kFxContrasts - 1, 1); break;
         case kVoGradSat: o.gsat = reset ? -1 : vopts_step(o.gsat, dir, 100, 5); break;
         case kVoResolution: o.res = reset ? -1 : vopts_step(o.res, dir, 2, 1); break;
         case kVoRounded: o.round = reset ? -1 : vopts_step(o.round, dir, 1, 1); break;
@@ -241,6 +255,7 @@ std::vector<std::string> App::build_video_opts_panel() const {
     std::vector<Row> rows = {
         {"Video Effect", o.fx >= 0 ? std::string(video_fx_name(o.fx)) : std::string("VIDEO SETTINGS (") + video_fx_name(settings_.video_fx) + ")"},
         {"Video Base Layer", o.base >= 0 ? std::string(base_name(o.base)) : std::string("as in Settings (") + base_name(settings_.video_base) + ")"},
+        {"Video Effect Contrast", o.fxc >= 0 ? std::string(fxc_name(o.fxc)) : std::string("as in Settings (") + fxc_name(settings_.video_fxc) + ")"},
         {"Video Contrast", pct(o.contrast, settings_.video_contrast)},
         {"Video Brightness", pct(o.brightness, settings_.video_brightness)},
         {"Video Colors", pct(o.colors, settings_.video_colors)},
@@ -430,6 +445,7 @@ std::vector<std::string> App::build_video_menu_panel() const {
     lines.push_back(row(entry(vmenu_sel_ == kVmRounded, "Rounded Corners", toggle(settings_.video_round)), vmenu_sel_ == kVmRounded));
     lines.push_back(row(entry(vmenu_sel_ == kVmEffect, "Effect", std::string("< ") + video_fx_name(settings_.video_fx) + " >"), vmenu_sel_ == kVmEffect));
     lines.push_back(row(entry(vmenu_sel_ == kVmBase, "Base Layer", std::string("< ") + base_name(settings_.video_base) + " >"), vmenu_sel_ == kVmBase));
+    lines.push_back(row(entry(vmenu_sel_ == kVmFxContrast, "Effect Contrast", std::string("< ") + fxc_name(settings_.video_fxc) + " >"), vmenu_sel_ == kVmFxContrast));
     {
         auto pct = [&](int v) { return std::string("< ") + std::to_string(std::clamp(v, 0, 100)) + " % >"; };
         lines.push_back(row(entry(vmenu_sel_ == kVmContrast, "Contrast", pct(settings_.video_contrast)), vmenu_sel_ == kVmContrast));
@@ -439,6 +455,7 @@ std::vector<std::string> App::build_video_menu_panel() const {
         lines.push_back(row(entry(vmenu_sel_ == kVmDither, "Dither Pattern", std::string("< ") + dither_name(settings_.video_dither) + " >"), vmenu_sel_ == kVmDither));
         lines.push_back(row(entry(vmenu_sel_ == kVmGradSat, "Gradient Saturation", pct(settings_.video_grad_sat)), vmenu_sel_ == kVmGradSat));
         lines.push_back(row(entry(vmenu_sel_ == kVmResolution, "Resolution", std::string("< ") + video_res_label(settings_.video_res, gfxs_.proto == GfxProto::Sixel) + " >"), vmenu_sel_ == kVmResolution));
+        lines.push_back(row(entry(vmenu_sel_ == kVmFrameRate, "Frame Rate", std::string("< ") + (settings_.video_fps >= 60 ? "60" : "25") + " >"), vmenu_sel_ == kVmFrameRate));
         lines.push_back(row(entry(vmenu_sel_ == kVmBuffer, "Buffer", "< " + std::to_string(settings_.video_buffer) + " MB >"), vmenu_sel_ == kVmBuffer));
     }
     lines.push_back(row(entry(vmenu_sel_ == kVmClap, "Show Clap Loading", std::string("< ") + (settings_.video_clap == 2 ? "none" : settings_.video_clap == 0 ? "text note" : "clap") + " >"), vmenu_sel_ == kVmClap));

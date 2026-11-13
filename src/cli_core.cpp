@@ -45,6 +45,18 @@ std::vector<std::string> split_words(const std::string& s) {
     return out;
 }
 
+size_t word_start(const std::string& s, size_t index) {
+    bool q = false, in_word = false;
+    size_t n = 0;
+    for (size_t i = 0; i < s.size(); ++i) {
+        const char c = s[i];
+        if ((c == ' ' || c == '\t') && !q) { in_word = false; continue; }
+        if (!in_word) { in_word = true; if (n++ == index) return i; }
+        if (c == '"') q = !q;
+    }
+    return std::string::npos;
+}
+
 std::string unquote(const std::string& s) {
     const std::string t = trim(s);
     if (t.size() >= 2 && t.front() == '"' && t.back() == '"') return t.substr(1, t.size() - 2);

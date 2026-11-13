@@ -944,6 +944,18 @@ void App::meta_panel_field(MetaPanel& m) const {
             lyric_rows[0] = pad_right(std::string(pad, ' ') + lyrics_status, lyrics_w);
         }
     } else {
+        // SHIFT+2 (main_translit_key): the translation in place of the lines that have one (they keep the line's timing; no word timing of their own)
+        if (main_lyr_tr_ && !lines_orig.empty() && lines_orig.size() == lines_copy.size()) {
+            const std::vector<VTr>& all = video_translations(lines_orig);
+            if (!all.empty()) {
+                const std::vector<std::string>& tr = all[static_cast<size_t>(std::clamp(vfull_tr_idx_, 0, static_cast<int>(all.size()) - 1))].lines;
+                for (size_t i = 0; i < lines_copy.size() && i < tr.size(); ++i) {
+                    if (tr[i].empty()) continue;
+                    lines_copy[i].full_text = translit_enabled() ? transliterate(tr[i]) : tr[i];
+                    lines_copy[i].words.clear();
+                }
+            }
+        }
         const double lyric_t = elapsed - lyrics_delay; // the time the lyrics are looked up at
         int active = 0;
         for (size_t i = 0; i < lines_copy.size(); ++i) {
@@ -1694,8 +1706,14 @@ std::vector<std::string> App::build_queue_panel(int total_width, int height, boo
             std::string padded = pad_right(truncate_str(content, inner), inner);
             std::string color_ansi;
             const bool is_hit = wide_artist && !qst_.find.empty() && idx < static_cast<int>(queue_.size()) && queue_find_match(qst_.find, static_cast<size_t>(idx));
-            if (is_row_hovering) color_ansi = cursor_sgr(settings_.queue_cursor_color, settings_.queue_cursor_bg_color);
-            else if (is_hit) color_ansi = header_sgr(settings_);   // (a match of the search bar)
+            if (is_hit) {
+                // A match of the search bar: the text is in the header colour, whatever state the row is in -- the background is the one the row
+                // has anyway (the hovering row's cursor background, the playing row's, the plain one), so a match under the cursor stays marked.
+                const std::string bg = bg_ansi_for(is_row_hovering ? settings_.queue_cursor_bg_color : is_row_playing ? settings_.queue_playing_bg_color : settings_.queue_inactive_bg_color);
+                color_ansi = header_sgr(settings_) + bg;
+                if (is_row_hovering && bg.empty()) color_ansi = "\x1b[7m" + header_sgr(settings_);   // (no cursor background chosen: reverse video, so the cursor is never invisible)
+            }
+            else if (is_row_hovering) color_ansi = cursor_sgr(settings_.queue_cursor_color, settings_.queue_cursor_bg_color);
             else if (is_row_playing) color_ansi = ansi_for(settings_.queue_playing_color, true) + bg_ansi_for(settings_.queue_playing_bg_color);
             else color_ansi = ansi_for(settings_.queue_color, false) + bg_ansi_for(settings_.queue_inactive_bg_color);
             out.push_back(bar + " " + color_ansi + padded + "\x1b[0m " + bar);

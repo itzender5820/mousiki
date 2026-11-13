@@ -17,6 +17,7 @@ enum VMenuRow : int {
     kVmRounded,         // Rounded Corners
     kVmEffect,          // Effect
     kVmBase,            // Base Layer (right under the effect it belongs to)
+    kVmFxContrast,      // Effect Contrast (how hard the blacks of the photographic looks are)
     kVmContrast,
     kVmBrightness,
     kVmColors,
@@ -24,6 +25,7 @@ enum VMenuRow : int {
     kVmDither,          // Dither Pattern
     kVmGradSat,         // Video Gradient Saturation (0 .. 100 %)
     kVmResolution,
+    kVmFrameRate,       // Frame Rate (25 | 60)
     kVmBuffer,
     kVmClap,            // Show Clap Loading
     kVmLastSetting = kVmClap,   // (rows up to here change a setting with the arrow keys; the rest are buttons)
@@ -40,6 +42,7 @@ enum VMenuRow : int {
 enum VOptsRow : int {
     kVoEffect,
     kVoBase,
+    kVoFxContrast,
     kVoContrast,
     kVoBrightness,
     kVoColors,
@@ -68,6 +71,7 @@ enum StyleRow : int {
     kStVideoSize,
     kStVideoEffect,
     kStVideoBase,
+    kStVideoFxContrast,
     kStVideoContrast,
     kStVideoBrightness,
     kStVideoColors,

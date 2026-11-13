@@ -474,7 +474,7 @@ void App::creator_preview_close() {
         creator_->live = false;
     }
     creator_->show = false;
-    creator_->spectro.set_visible(false);
+    creator_->spectro.release();   // (switches it off and gives its memory back)
     creator_->audio.reset();
     if (has_track_) {
         device_stop();   // on the device worker (see App::device_run())

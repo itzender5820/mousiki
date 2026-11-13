@@ -75,6 +75,7 @@ struct RadioApp {
     std::vector<std::string> prev_lines;               // the screen's lines as last sent (diff_frame_lines)
     bool out_clear_next = false;                       // the next frame clears the screen (full-screen spectrogram on / off)
     SpectroGfx spectro_gfx;                            // the spectrogram picture (tiles)
+    Clock::time_point spectro_shown_at = Clock::now();   // when a spectrogram was last on screen (its memory goes back after ten seconds without one)
     Clock::time_point last_full_frame{};   // the window may have been opened in the player already
     unsigned long scope_win_tick = 0;
     bool spectro_win_was = false;

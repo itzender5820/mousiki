@@ -18,6 +18,7 @@ kitty_cover_options, radio_latin_toggle, selftest_command).
 Needs Linux or macOS and the Python package `pyte` (pip install pyte). Without them the test reports "skipped"
 (exit code 77, which CTest treats as skipped).
 """
+import base64
 import os
 import re
 import select
@@ -67,8 +68,16 @@ def make_png(path, size=64):
 
 
 class Session:
-    def __init__(self, binary, home, scripts, env_extra=None, quiet_stderr=False):
+    def __init__(self, binary, home, scripts, env_extra=None, quiet_stderr=False, gfx=False):
         self.raw = b""
+        # gfx=True: the Kitty graphics commands are taken out of the stream before the screen model sees it (otherwise their data ends up as text on
+        # the screen) and kept: self.pics = {image id: where it is placed (row, col of the cell, c x r cells, the cropped pixels x, y, w, h)},
+        # self.pic_rgba = {image id: (width, height, RGBA bytes) of the last complete transmission}
+        self.gfx = gfx
+        self.pics = {}
+        self.pic_rgba = {}
+        self._apc_rest = b""
+        self._apc_pending = None
         env = dict(os.environ, HOME=home, USERPROFILE=home, TERM="xterm-256color", LANG="C.UTF-8")
         env.pop("KITTY_WINDOW_ID", None)
         env.pop("WT_SESSION", None)
@@ -123,7 +132,59 @@ class Session:
                 if not data:
                     return
                 self.raw += data
-                self.stream.feed(data)
+                if self.gfx:
+                    self._feed_gfx(data)
+                else:
+                    self.stream.feed(data)
+
+    def _feed_gfx(self, data):
+        buf = self._apc_rest + data
+        self._apc_rest = b""
+        pos = 0
+        while True:
+            a = buf.find(b"\x1b_G", pos)
+            if a < 0:
+                self.stream.feed(buf[pos:])
+                return
+            self.stream.feed(buf[pos:a])
+            e = buf.find(b"\x1b\\", a)
+            if e < 0:
+                self._apc_rest = buf[a:]
+                return
+            ctrl, _, payload = buf[a + 3:e].partition(b";")
+            keys = dict(kv.split("=", 1) for kv in ctrl.decode("ascii", "replace").split(",") if "=" in kv)
+            pos = e + 2
+            if keys.get("a") == "d":
+                if "i" in keys:
+                    self.pics.pop(int(keys["i"]), None)
+                    self.pic_rgba.pop(int(keys["i"]), None)
+                else:
+                    self.pics.clear()
+                    self.pic_rgba.clear()
+                continue
+            if "a" in keys:
+                self._apc_pending = (keys, bytearray(payload))
+            elif self._apc_pending:
+                self._apc_pending[1].extend(payload)
+            else:
+                continue
+            if keys.get("m", "0") != "0":
+                continue
+            k, body = self._apc_pending
+            self._apc_pending = None
+            if k.get("a") != "T" or "i" not in k:
+                continue
+            try:
+                raw_px = base64.b64decode(bytes(body))
+                if k.get("o") == "z":
+                    raw_px = zlib.decompress(raw_px)
+                w, h, i = int(k["s"]), int(k["v"]), int(k["i"])
+            except Exception:
+                continue
+            if len(raw_px) == w * h * 4:
+                self.pic_rgba[i] = (w, h, raw_px)
+            self.pics[i] = dict(row=self.screen.cursor.y, col=self.screen.cursor.x, c=int(k.get("c", 0)), r=int(k.get("r", 0)),
+                                x=int(k.get("x", 0)), y=int(k.get("y", 0)), w=int(k.get("w", w)), h=int(k.get("h", h)))
 
     def send(self, keys, wait=0.8):
         try:
@@ -319,10 +380,70 @@ def radio_latin_toggle(binary, root, scripts):
         sess.kill()
 
 
+def radio_sign_border(binary, root, scripts):
+    """Radio, GENERAL tab: Sign border (SignBorder=, true by default) -- the " : : " column between the ON AIR / OFF AIR sign and the station info.
+    Off: no column, the station info stays in its place, nothing runs past the window; the row is in the settings and ENTER on it switches it."""
+    def start(tag, border):
+        home = os.path.join(root, "rsb_home_" + tag)
+        cfgdir = os.path.join(home, ".config", "mousiki")
+        os.makedirs(cfgdir)
+        with open(os.path.join(cfgdir, "stations.txt"), "w", encoding="utf-8") as f:
+            f.write("# name | genre | country | codec | kbps | url | [*] favorite\nPlain Station | Rock | US | MP3 | 128 | http://127.0.0.1:9/c | *\n")
+        with open(os.path.join(cfgdir, "config.txt"), "w", encoding="utf-8") as f:
+            f.write("LocalMusicPath=%s\nStartMode=radio\nWizardSeen=true\n" % os.path.join(root, "music"))
+        if border is not None:
+            with open(os.path.join(cfgdir, "radio_config.txt"), "w", encoding="utf-8") as f:
+                f.write("SignBorder=%s\nWizardSeen=true\n" % ("true" if border else "false"))
+        sess = Session(binary, home, scripts, {"MOUSIKI_RADIO_NULL": "1"})
+        for _ in range(30):
+            sess.pump(0.5)
+            if "Plain Station" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)   # (a first start may show the help wizard)
+        return sess, cfgdir
+    def panel(sess):   # the rows of the info panel (between the first top border and its bottom border)
+        rows = sess.screen.display
+        out = []
+        for l in rows[1:]:
+            if l.startswith("╰") or l.startswith("└"):
+                break
+            out.append(l)
+        return out
+    sess, _ = start("on", None)
+    try:
+        p_on = panel(sess)
+        check(len(p_on) >= 8 and sum(1 for l in p_on if " : : " in l) >= len(p_on) - 1, "radio sign border: on by default, the \" : : \" column runs down the info panel")
+        col_on = next((l.find(":") for l in p_on if " : : " in l), -1)
+    finally:
+        sess.kill()
+    sess, cfgdir = start("off", False)
+    try:
+        p_off = panel(sess)
+        check(len(p_off) >= 8 and not any(" : : " in l for l in p_off), "radio sign border: SignBorder=false leaves the column out")
+        check_fit(sess, "radio sign border off", False)
+        # the station info starts in the same column either way (the column is replaced by spaces, the sign moves into the middle)
+        same = len(p_on) == len(p_off) and all(len(a) == len(b) for a, b in zip(p_on, p_off))
+        check(same and col_on > 0, "radio sign border: the panel keeps its width and rows")
+        info_on = [l.find("Currently No Station") for l in p_on if "Currently No Station" in l]
+        info_off = [l.find("Currently No Station") for l in p_off if "Currently No Station" in l]
+        check(info_on and info_on == info_off, "radio sign border: the station info is where it was (column %s / %s)" % (info_on, info_off))
+        # the settings row
+        sess.send("s", 1.2)
+        found = False
+        for _ in range(4):
+            if "Sign border" in sess.text():
+                found = True
+                break
+            sess.send(b"\t", 0.6)
+        check(found, "radio sign border: the GENERAL tab has the Sign border row")
+    finally:
+        sess.kill()
+
+
 def radio_idle_rate(binary, root, scripts):
     """Radio mode, nothing tuned: Reduce Motion When Paused lowers the frame rate after a few quiet seconds, a key brings it back,
     and with the setting off the full rate stays."""
-    def run(tag, extra):
+    def run(tag, extra, wait_low=False):
         home = os.path.join(root, "radioidle_" + tag)
         os.makedirs(os.path.join(home, ".config", "mousiki"))
         with open(os.path.join(home, ".config", "mousiki", "stations.txt"), "w", encoding="utf-8") as f:
@@ -334,13 +455,18 @@ def radio_idle_rate(binary, root, scripts):
             sess.wait_for(lambda t: "Plain Station" in t)
             sess.send(b"\x1b", 0.5)   # (a first start may show the help wizard)
             sess.pump(9)               # quiet: no key for more than 3 s (with a margin: a busy runner reads the key late, and the low rate only starts 3 s after it)
+            if wait_low:               # a starved runner (three scenarios at a time on a few cores) can read the key many seconds late: wait until the low rate is on (10 a second), at most 40 s
+                for _ in range(40):
+                    b0 = len(sess.raw); sess.pump(1)
+                    if sess.raw[b0:].count(b"\x1b[?2026h") <= 15:
+                        break
             b0 = len(sess.raw); sess.pump(3); quiet = sess.raw[b0:].count(b"\x1b[?2026h")
             sess.send(b"\x1b[B", 0.0)   # a key
             b0 = len(sess.raw); sess.pump(1); after_key = sess.raw[b0:].count(b"\x1b[?2026h")
             return quiet, after_key, sess.alive()
         finally:
             sess.kill()
-    q, k, alive = run("on", "")
+    q, k, alive = run("on", "", True)
     check(alive, "radio idle rate: the program is still running")
     check(q <= 60, "radio idle rate: nothing tuned and untouched, the screen is redrawn at a low rate (%d frames in 3 s)" % q)
     check(k >= 20, "radio idle rate: a key brings the full rate back (%d frames in 1 s)" % k)
@@ -1731,7 +1857,7 @@ def disk_field_setting(binary, root, scripts):
         t = sess.text()
         check("DISK / COVER OPTIONS" in t and "Eliment Disk / Cover" in t and "Album Cover" in t, "disk field: the tab has DISK and DISK / COVER OPTIONS")
         check(t.index("Disk Speed") < t.index("DISK / COVER OPTIONS") < t.index("Album Cover"), "disk field: Disk Speed is under DISK, Album Cover under DISK / COVER OPTIONS")
-        for _ in range(21):                                 # to Eliment Disk (after Lyrics/Viz Default: When No Lyrics Show, When No Video Shows, Lyrics Alignment, Lyrics Animation, Include Lyrics, Video Size, Effect, Contrast, Colors, Chromatic Aberration, Dither Pattern, Base Layer, Rounded Corners, Show Clap Loading, Disk/Cover/Thumbnail, Resolution, Buffer, yt-dlp mp3 from mp4)
+        for _ in range(23):                                 # to Eliment Disk (after Lyrics/Viz Default: When No Lyrics Show, When No Video Shows, Lyrics Alignment, Lyrics Animation, Include Lyrics, Video Size, Effect, Contrast, Colors, Chromatic Aberration, Dither Pattern, Base Layer, Effect Contrast, Rounded Corners, Show Clap Loading, Disk/Cover/Thumbnail, Resolution, Frame Rate, Buffer, yt-dlp mp3 from mp4)
             sess.send(b"\x1b[B", 0.2)
         sess.pump(0.6)
         check("Show Disk / Cover" in sess.text(), "disk field: the row says Show Disk / Cover")
@@ -1740,7 +1866,7 @@ def disk_field_setting(binary, root, scripts):
         sess.send(b"\x1b[C", 1.0)
         check("Show Disk / Cover" in sess.text() and "Disk / Cover field removed" not in sess.text(), "disk field: Show Disk / Cover brings the preview back")
         check(sess.alive(), "disk field: the program is still running")
-        for _ in range(5):                                  # up to Show Clap Loading (yt-dlp mp3 from mp4, Video Buffer, Video Resolution and Disk/Cover/Thumbnail are in between)
+        for _ in range(6):                                  # up to Show Clap Loading (yt-dlp mp3 from mp4, Video Buffer, Video Frame Rate, Video Resolution and Disk/Cover/Thumbnail are in between)
             sess.send(b"\x1b[A", 0.2)
         sess.pump(0.8)
         t = sess.text()
@@ -2082,6 +2208,70 @@ def queue_shuffle(binary, root, scripts):
         sess.kill()
 
 
+def queue_search_colors(binary, root, scripts):
+    """The search bar of the big queue overlay: a match is written in the header colour -- also under the cursor, where the row keeps the cursor's
+    background (before, the cursor colours replaced the header colour and the match was no longer marked there)."""
+    home = os.path.join(root, "qc_home")
+    lib = os.path.join(root, "music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nColorHeader=10\nColorQueueCursorFg=75\nColorQueueCursorBg=240\nColorQueueInactiveBg=0\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    probe = pyte.Screen(8, 1)
+    pyte.ByteStream(probe).feed(b"\x1b[38;5;10mH\x1b[0m\x1b[38;5;75m\x1b[48;5;240mC\x1b[0mP")
+    HEADER_FG, CURSOR_FG, CURSOR_BG, PLAIN = probe.buffer[0][0].fg, probe.buffer[0][1].fg, probe.buffer[0][1].bg, probe.buffer[0][2].bg
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Alpha Song" in sess.text():
+                break
+        for i in range(4):
+            sess.send("e", 0.4)
+            sess.send(b"\x1b[B", 0.3)
+        if shutil.which("ffprobe") is None:
+            print("  skipped: queue search colours (ffmpeg / ffprobe is not installed on this machine)")
+            return
+        sess.send("K", 1.2)
+        sess.send("/", 0.5)
+        for ch in "Beta":
+            sess.send(ch, 0.25)
+        sess.send(b"\r", 0.8)   # leave the bar: the matches stay marked, the cursor is on the first one
+
+        def cell_of(name):
+            for y, line in enumerate(sess.screen.display):
+                x = line.find(name)
+                if x >= 0 and line.lstrip().startswith(("\u2502", "|")):
+                    return sess.screen.buffer[y][x]
+            return None
+        for _ in range(10):
+            if cell_of("Beta Song") is not None:
+                break
+            sess.pump(0.5)
+        c = cell_of("Beta Song")
+        check(c is not None, "queue search colours: the match is on the screen")
+        if c is not None:
+            check(c.fg == HEADER_FG and c.bg == CURSOR_BG, "queue search colours: a match under the cursor is in the header colour on the cursor's background (fg %s bg %s)" % (c.fg, c.bg))
+        sess.send(b"\x1b[A", 0.6)   # the cursor goes to the row above: the match is a plain match again
+        c = cell_of("Beta Song")
+        a = cell_of("Alpha Song")
+        if c is not None:
+            check(c.fg == HEADER_FG and c.bg == PLAIN, "queue search colours: a match away from the cursor is in the header colour on the plain background (fg %s bg %s)" % (c.fg, c.bg))
+        if a is not None:
+            check(a.fg == CURSOR_FG and a.bg == CURSOR_BG, "queue search colours: a row that does not match keeps the cursor colours under the cursor (fg %s bg %s)" % (a.fg, a.bg))
+        else:
+            check(False, "queue search colours: the row above is on the screen")
+        sess.send(b"\x1b", 0.8)   # ESC clears the search
+        sess.send(b"\x1b", 0.8)
+        check(sess.alive(), "queue search colours: the program is still running")
+    finally:
+        sess.kill()
+
+
 def video_overlays(binary, root, scripts):
     """The & overlay (VIDEO), VIDEO OPTION, SEARCH YT and the [ Video Option ] button of the meta editor open, show their rows and close."""
     home = os.path.join(root, "vo_home")
@@ -2106,7 +2296,7 @@ def video_overlays(binary, root, scripts):
         check("Video Size" in t and "Effect" in t and "Full Screen Video" in t, "video overlay: picture size, effect and full screen video rows are listed")
         check("Contrast" in t and "Colors" in t and "Chromatic Aberration" in t and "Resolution" in t and "Buffer" in t, "video overlay: contrast, colors, chromatic aberration, resolution and buffer rows")
         check("Dither Pattern" in t and "< interleaved noise >" in t, "video overlay: the Dither Pattern row is listed, interleaved noise by default")
-        for _ in range(19):   # (to "Manually Couple Local Files", under "Full Screen Video"; Show Clap Loading is the row before it)
+        for _ in range(21):   # (to "Manually Couple Local Files", under "Full Screen Video"; Show Clap Loading is the row before it; Effect Contrast and Frame Rate are among the rows above)
             sess.send(b"\x1b[B", 0.2)
         sess.wait_for(lambda t: "> Manually Couple Local Files" in t, 15.0)   # (the keys may be late on a busy machine: not before the row is reached)
         sess.send("\r", 1.0)
@@ -2145,15 +2335,48 @@ def video_overlays(binary, root, scripts):
         sess.kill()
 
 
+def fx_panel(sess):
+    """The effect list on the screen: (top, bottom, left, right) = the rows / columns of the corners of its border, or None while it is not there."""
+    d = sess.screen.display
+    top = next((y for y, l in enumerate(d) if "VIDEO EFFECT" in l), None)
+    if top is None:
+        return None
+    a = d[top].index("VIDEO EFFECT")
+    left, right = d[top].rfind("\u256d", 0, a), d[top].find("\u256e", a)
+    if left < 0 or right < 0:
+        return None
+    bot = next((y for y in range(top + 1, len(d)) if d[y][left:left + 1] == "\u2570" and d[y][right:right + 1] == "\u256f"), None)
+    return None if bot is None else (top, bot, left, right)
+
+
+def fx_centred(sess, pan):
+    """(rows above, rows below, columns left, columns right) of the panel: centred means each pair differs by at most one."""
+    top, bot, left, right = pan
+    return top, sess.screen.lines - 1 - bot, left, sess.screen.columns - 1 - right
+
+
+def fx_preview_cells(sess, pan):
+    """The number of true colour cells inside the panel: the half blocks of the text preview carry their pixels in true colour backgrounds."""
+    top, bot, left, right = pan
+    scr = sess.screen
+    n = 0
+    for y in range(top, bot + 1):
+        for x in range(left, right + 1):
+            bg = scr.buffer[y][x].bg
+            if len(bg) == 6 and bg != "default":
+                n += 1
+    return n
+
+
 def video_fx_picker(binary, root, scripts):
-    """ENTER on the Effect row of the VIDEO overlay opens the effect list (two columns and a preview, beside the menu, which stays visible); arrows move, ENTER chooses, ESC leaves it.
-    The Base Layer row cycles and is written to config.txt."""
+    """ENTER on the Effect row of the VIDEO overlay opens the effect list: one panel in the middle of the window (rows and columns), over the menu it came from (that is not
+    drawn meanwhile), two columns of names and a large preview; arrows move, ENTER chooses, ESC leaves it. The Base Layer row cycles and is written to config.txt."""
     home = os.path.join(root, "fxp_home")
     lib = os.path.join(root, "music")
     cfg = os.path.join(home, ".config", "mousiki", "config.txt")
     os.makedirs(os.path.join(home, ".config", "mousiki"))
     with open(cfg, "w", encoding="utf-8") as f:
-        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nHKeyVideo=Y\nWizardSeen=true\n" % lib)
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nHKeyVideo=Y\nWizardSeen=true\nVideoBase=scanlines\n" % lib)   # (a config from before clean was the default: it is read as clean once)
     sess = Session(binary, home, scripts, quiet_stderr=True)
     try:
         for _ in range(30):
@@ -2167,15 +2390,26 @@ def video_fx_picker(binary, root, scripts):
             sess.send(b"\x1b[B", 0.25)
         check("> Effect" in sess.text() and "< Off >" in sess.text(), "effect picker: the Effect row is reached, Off at first")
         sess.send("\r", 1.0)
+        sess.wait_for(lambda t: "VIDEO EFFECT" in t)
         t = sess.text()
         check("VIDEO EFFECT" in t and "Phosphor Green Glow" in t and "Night Vision" not in t and "Game Boy High-Res Gradient" in t and "CGA" in t and "C64" in t, "effect picker: ENTER lists all the effects, the new ones too (no Night Vision): %r" % t[:0])
-        rows = [l for l in t.splitlines() if "Halftone" in l and "Neon Edge Gradient" in l]
+        rows = [l for l in t.splitlines() if "Scanlines" in l and "Halftone CMYK" in l]
         check(bool(rows), "effect picker: the effects stand in two columns side by side")
-        check("VIDEO SETTINGS" in t and "Use Video in Lyrics Field" in t, "effect picker: the VIDEO SETTINGS overlay it came from stays visible")
+        check("VIDEO SETTINGS" not in t and "Use Video in Lyrics Field" not in t, "effect picker: the list is the only panel while it is open (the VIDEO SETTINGS overlay it came from is not drawn beside it or behind it)")
         check("\u2580" in t, "effect picker: the preview column is drawn (half blocks)")
+        pan = fx_panel(sess)
+        check(pan is not None, "effect picker: the panel's border is found")
+        if pan:
+            above, below, lft, rgt = fx_centred(sess, pan)
+            check(abs(above - below) <= 1 and abs(lft - rgt) <= 1 and min(above, below, lft, rgt) >= 0,
+                  "effect picker: the panel is centred in rows and columns (rows above / below: %d / %d, columns left / right: %d / %d)" % (above, below, lft, rgt))
+            inside = fx_preview_cells(sess, pan)
+            # the preview was a strip of at most 36 columns x 10 rows of half blocks (360 cells): three times that
+            check(inside >= 1080, "effect picker: the preview is at least three times as large as before (%d half-block cells; was 360 at most)" % inside)
         sess.send(b"\x1b", 0.8)
         t = sess.text()
         check("VIDEO EFFECT" not in t and "< Off >" in t, "effect picker: ESC leaves the effect as it was")
+        check("VIDEO SETTINGS" in t and "Use Video in Lyrics Field" in t, "effect picker: ESC shows the VIDEO SETTINGS overlay again")
         sess.send("\r", 1.0)
         sess.send(b"\x1b[B", 0.3)          # Scanlines
         sess.send(b"\x1b[B", 0.3)          # CRT
@@ -2195,7 +2429,10 @@ def video_fx_picker(binary, root, scripts):
             if "> Base Layer" in sess.text():
                 break
             sess.send(b"\x1b[B", 0.25)
-        check("> Base Layer" in sess.text() and "< clean >" in sess.text(), "base layer: the row is listed, clean by default")
+        check("> Base Layer" in sess.text() and "< clean >" in sess.text(), "base layer: the row is listed, clean by default (the old config.txt said VideoBase=scanlines)")
+        with open(cfg, encoding="utf-8") as f:
+            c0 = f.read()
+        check("VideoBaseDefault=clean" in c0, "base layer: the old config.txt was written again with the marker VideoBaseDefault=clean")
         sess.send(b"\x1b[C", 0.6)
         check("< scanlines >" in sess.text(), "base layer: the right arrow goes round to scanlines")
         sess.send(b"\x1b[C", 0.6)
@@ -2217,12 +2454,25 @@ def video_fx_picker(binary, root, scripts):
                 break
         check(hit, "effect picker: the Video Effect row of the settings is reached")
         sess.send("\r", 1.0)
+        sess.wait_for(lambda t: "VIDEO EFFECT" in t)
+        sess.pump(0.6)
         t = sess.text()
         check("VIDEO EFFECT" in t and "Phosphor Green Glow" in t, "effect picker: ENTER in Settings opens the list too")
+        pan = fx_panel(sess)
+        if pan:
+            above, below, lft, rgt = fx_centred(sess, pan)
+            check(abs(above - below) <= 1 and abs(lft - rgt) <= 1, "effect picker: in Settings the panel is centred as well (rows above / below: %d / %d, columns left / right: %d / %d)" % (above, below, lft, rgt))
+            inside = fx_preview_cells(sess, pan)
+            check(inside >= 1080, "effect picker: in Settings the preview is large too (%d half-block cells)" % inside)
+            check("Preview: Video Effect" not in sess.text(), "effect picker: in Settings the box of its own preview is not drawn behind the list (a cut-off half of it showed above the list)")
+        else:
+            check(False, "effect picker: in Settings the panel's border is found")
+            sess.dump("effect picker in Settings")
+            print("  reverse rows:", [(y, sess.screen.display[y].rstrip()[:60]) for y in range(sess.screen.lines) if any(sess.screen.buffer[y][x].reverse for x in range(sess.screen.columns))])
         sess.send(b"\x1b[B", 0.3)
         sess.send("\r", 1.2)
         t = sess.text()
-        check("VIDEO EFFECT" not in t and "video effect: Game Boy Low-Res" in t, "effect picker: Settings takes the choice (Game Boy Low-Res, one below Game Boy High-Res Gradient where the picker started: the right arrow had taken CRT one column on)")
+        check("VIDEO EFFECT" not in t and "video effect: Dither Gradient" in t, "effect picker: Settings takes the choice (Dither Gradient, one below Dither B/W where the picker started: the right arrow had taken CRT one column on)")
         check(sess.alive(), "effect picker: the program is still running")
     finally:
         sess.kill()
@@ -2230,7 +2480,7 @@ def video_fx_picker(binary, root, scripts):
 
 def video_base_per_track(binary, root, scripts):
     """The Base Layer of a track (VIDEO OPTIONS of the big video, SHIFT+s) is kept: it cycles, stays after the panel is closed and opened again,
-    and is stored with the track (it was never read back). The effect list opened from that panel stands beside it: the panel stays visible."""
+    and is stored with the track (it was never read back). The effect list opened from that panel replaces it while it is open (one centred panel) and the panel is back after it."""
     import shutil, subprocess
     if not shutil.which("ffmpeg"):
         print("  skipped: base layer per track (ffmpeg is not installed on this machine)")
@@ -2276,17 +2526,237 @@ def video_base_per_track(binary, root, scripts):
         check("\u25c0 shadow mask \u25b6" in sess.text(), "base layer per track: the choice is still there after closing and opening the panel")
         sess.send(b"\x7f", 0.6)           # DEL: back to as in Settings
         check("as in Settings (clean)" in sess.text() and "\u25c0 shadow mask" not in sess.text(), "base layer per track: DEL puts the row back to as in Settings")
-        # the effect list from this panel: beside the panel, which stays visible
+        sess.send(b"\x1b[B", 0.3)   # Video Effect Contrast is right under the Base Layer row
+        check("Video Effect Contrast" in sess.text() and "as in Settings (reduced)" in sess.text(), "effect contrast per track: the row reads as in Settings (reduced, the default) at first")
+        sess.send(b"\x1b[C", 0.6)
+        check("\u25c0 full \u25b6" in sess.text(), "effect contrast per track: RIGHT gives the track its own level (full)")
+        sess.send(b"\x1b[C", 0.6)
+        check("\u25c0 reduced \u25b6" in sess.text(), "effect contrast per track: RIGHT again: reduced")
+        sess.send(b"\x7f", 0.6)
+        check("as in Settings (reduced)" in sess.text() and "\u25c0 reduced" not in sess.text(), "effect contrast per track: DEL puts the row back to as in Settings")
+        sess.send(b"\x1b[A", 0.3)   # (back on the Base Layer row)
+        # the effect list from this panel: the panel is not drawn while the list is open
         sess.send(b"\x1b[A", 0.3)
         sess.send(b"\r", 1.2)
         t = sess.text()
-        check("VIDEO EFFECT" in t and "VIDEO OPTIONS" in t and "Video Base Layer" in t, "effect list from VIDEO OPTIONS: the list opens and the panel stays visible")
+        check("VIDEO EFFECT" in t and "VIDEO OPTIONS" not in t and "Video Base Layer" not in t, "effect list from VIDEO OPTIONS: the list opens in the middle and the panel is not drawn meanwhile")
         check("as in Settings" in t and "Phosphor Green Glow" in t and "Night Vision" not in t, "effect list from VIDEO OPTIONS: its first entry is as in Settings; no Night Vision")
         sess.send(b"\x1b[B", 0.3)
         sess.send(b"\r", 1.2)
         t = sess.text()
         check("VIDEO EFFECT" not in t and "VIDEO OPTIONS" in t and "\u25c0 Off \u25b6" in t, "effect list from VIDEO OPTIONS: DOWN + ENTER choose Off for the track")
         check(sess.alive(), "base layer per track: the program is still running")
+    finally:
+        sess.kill()
+
+
+def fx_hole(sess, pan, image=7201):
+    """The picture behind the panel (the video of the big screen, Kitty image 7201) is cut open where the panel lies and nowhere else.
+    Returns (share of transparent pixels inside the panel, share of opaque pixels in the two cell rows above it, the same below it), or None
+    when the picture is not there. (The picture's own pixels are mapped to cells by the placement's c x r cells over its cropped pixels.)"""
+    p, img = sess.pics.get(image), sess.pic_rgba.get(image)
+    if not p or not img or not p["r"] or not p["c"]:
+        return None
+    w, h, px = img
+    top, bot, left, right = pan
+    def py(row): return p["y"] + (row - p["row"]) * p["h"] / p["r"]
+    def pxc(col): return p["x"] + (col - p["col"]) * p["w"] / p["c"]
+    def share(r0, r1, c0, c1, transparent):
+        y0, y1 = max(0, int(py(max(r0, p["row"])) + 1)), min(h, int(py(min(r1, p["row"] + p["r"])) - 1))
+        x0, x1 = max(0, int(pxc(max(c0, p["col"])) + 1)), min(w, int(pxc(min(c1, p["col"] + p["c"])) - 1))
+        n = hit = 0
+        for y in range(y0, y1):
+            row = px[(y * w + x0) * 4:(y * w + x1) * 4]
+            alpha = row[3::4]
+            n += len(alpha)
+            hit += sum(1 for a in alpha if (a == 0) == transparent)
+        return hit / n if n else None
+    return (share(top, bot + 1, left, right + 1, True), share(top - 2, top, left, right + 1, False), share(bot + 1, bot + 3, left, right + 1, False))
+
+
+def video_fx_picker_picture(binary, root, scripts):
+    """In a Kitty terminal the preview of the effect list is a real picture (not half blocks of text), in the three menus that have a picture behind
+    them or room for one: VIDEO OPTIONS of the big video (SHIFT+s), the Style Option overlay over the main screen and the VIDEO SETTINGS overlay. It lies in the
+    second picture slot (Kitty image 7202) inside the one centred panel, is large (it was 18 x 5 cells), is made again as the highlighted effect changes, and is
+    deleted when the list closes. The picture behind (the video) is cut open exactly where the panel lies: no black rectangle of another size."""
+    import shutil, subprocess
+    if not shutil.which("ffmpeg"):
+        print("  skipped: effect list picture (ffmpeg is not installed on this machine)")
+        return
+    home = os.path.join(root, "fpp_home")
+    lib = os.path.join(root, "fpp_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    os.makedirs(lib)
+    ff = ["ffmpeg", "-v", "error", "-y"]
+    ok = subprocess.run(ff + ["-f", "lavfi", "-i", "sine=frequency=440:duration=30", os.path.join(lib, "Clip Song.mp3")], capture_output=True).returncode == 0
+    ok &= subprocess.run(ff + ["-f", "lavfi", "-i", "testsrc=size=160x90:rate=10:duration=30", "-pix_fmt", "yuv420p", os.path.join(lib, "Clip Song.mp4")], capture_output=True).returncode == 0
+    if not ok:
+        print("  (skipped: ffmpeg could not make the test files)")
+        return
+    cfg = os.path.join(home, ".config", "mousiki", "config.txt")
+    with open(cfg, "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nVideoMode=true\nHKeyVideo=Y\nWizardSeen=true\n" % lib)
+    sess = Session(binary, home, scripts, {"KITTY_WINDOW_ID": "1", "TERM": "xterm-kitty"}, quiet_stderr=True, gfx=True)
+    PIC = b"i=7202,"
+    def pic_after(mark, wait=8.0):
+        end = time.time() + wait
+        while time.time() < end:
+            if PIC in sess.raw[mark:]:
+                return True
+            sess.pump(0.25)
+        return PIC in sess.raw[mark:]
+    def picture_in_panel(what):
+        """The list is one centred panel and its preview picture (image 7202) is large and lies inside it."""
+        pan, p2 = fx_panel(sess), sess.pics.get(7202)
+        check(pan is not None, "effect list picture (%s): the panel is on the screen" % what)
+        check(p2 is not None, "effect list picture (%s): the preview picture is placed" % what)
+        if not (pan and p2):
+            return pan
+        above, below, lft, rgt = fx_centred(sess, pan)
+        check(abs(above - below) <= 1 and abs(lft - rgt) <= 1, "effect list picture (%s): the panel is centred (rows above / below: %d / %d, columns left / right: %d / %d)" % (what, above, below, lft, rgt))
+        check(p2["c"] * p2["r"] >= 3 * 18 * 5 and p2["c"] >= 40, "effect list picture (%s): the preview picture is at least three times as large as the 18 x 5 cells it had (%d x %d cells)" % (what, p2["c"], p2["r"]))
+        # its pixels: the resolution of the video everywhere else (standard: 640 across on Kitty), not the 480 it was cut to
+        check(p2["w"] >= 600, "effect list picture (%s): the preview has the video's resolution (%d x %d pixels; standard is 640 across)" % (what, p2["w"], p2["h"]))
+        top, bot, left, right = pan
+        check(top < p2["row"] and p2["row"] + p2["r"] <= bot and left < p2["col"] and p2["col"] + p2["c"] <= right,
+              "effect list picture (%s): the preview picture lies inside the panel (picture rows %d..%d, columns %d..%d; panel rows %d..%d, columns %d..%d)" % (what, p2["row"], p2["row"] + p2["r"] - 1, p2["col"], p2["col"] + p2["c"] - 1, top, bot, left, right))
+        check("VIDEO OPTIONS" not in sess.text() and "VIDEO SETTINGS" not in sess.text() and "STYLE OPTION" not in sess.text(), "effect list picture (%s): the menu it came from is not drawn while the list is open" % what)
+        return pan
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "Clip Song" in sess.text():
+                break
+        sess.send("/", 0.5)
+        sess.send("clip song", 1.0)
+        sess.send(b"\r", 0.5)
+        sess.send(b"\r", 3.0)
+        # --- the big video: SHIFT+s, the Video Effect row, ENTER
+        sess.send("v", 2.0)
+        mark = len(sess.raw)
+        sess.send("S", 1.0)
+        check(b"VIDEO OPTIONS" in sess.raw[mark:], "effect list picture: SHIFT+s opens VIDEO OPTIONS of the big video")
+        mark = len(sess.raw)
+        sess.send(b"\r", 1.5)
+        check("VIDEO EFFECT" in sess.text(), "effect list picture: the list opens")
+        check(pic_after(mark), "effect list picture (big video): the preview is a picture (Kitty image 7202)")
+        check("▀".encode() not in sess.raw[mark:], "effect list picture (big video): no half blocks of text are drawn for it")
+        sess.pump(1.0)
+        pan = picture_in_panel("big video")
+        if pan:
+            hole = fx_hole(sess, pan)
+            check(hole is not None and hole[0] is not None and hole[0] >= 0.98, "effect list picture (big video): the video behind is cut open over the whole panel (%s of its pixels are clear)" % (None if hole is None else "%.0f%%" % (100 * (hole[0] or 0))))
+            # (no larger hole: the cell rows just above and below the panel keep their picture; the old hole was the union of the menu and the list)
+            check(hole is not None and all(v is None or v >= 0.3 for v in hole[1:]), "effect list picture (big video): the video is not cut open above or below the panel (opaque share above / below: %s)" % (None if hole is None else ", ".join("-" if v is None else "%.0f%%" % (100 * v) for v in hole[1:])))
+        mark = len(sess.raw)
+        sess.send(b"\x1b[B", 0.3)
+        sess.send(b"\x1b[B", 0.3)
+        check(pic_after(mark), "effect list picture (big video): it is made again for the effect that is highlighted")
+        mark = len(sess.raw)
+        sess.send(b"\x1b", 1.0)
+        check(b"a=d,d=I,i=7202" in sess.raw[mark:], "effect list picture (big video): the picture is deleted when the list closes")
+        check(7202 not in sess.pics and "VIDEO OPTIONS" in sess.text(), "effect list picture (big video): the panel it came from is back")
+        if pan:
+            sess.pump(1.5)
+            hole = fx_hole(sess, pan)
+            check(hole is not None and hole[0] is not None and hole[0] <= 0.5, "effect list picture (big video): the video is sent whole again after the list (%s of the pixels where the panel was are clear)" % (None if hole is None or hole[0] is None else "%.0f%%" % (100 * hole[0])))
+        sess.send(b"\x1b", 0.8)       # the panel
+        sess.send("v", 1.5)            # the big video
+        # --- the Style Option overlay over the main screen
+        mark = len(sess.raw)
+        sess.send("S", 1.5)
+        check(b"STYLE OPTION" in sess.raw[mark:], "effect list picture: SHIFT+s opens Style Option over the main screen")
+        for _ in range(10):          # Look, five cover rows, Use Disk/Cover/Thumbnail, Video of this track, Use Lyrics on Video, Video Size: the next row is Video Effect
+            sess.send(b"\x1b[B", 0.25)
+        mark = len(sess.raw)
+        sess.send(b"\r", 1.5)
+        check("VIDEO EFFECT" in sess.text(), "effect list picture: ENTER in Style Option opens the list")
+        check(pic_after(mark), "effect list picture (Style Option): the preview is a picture (Kitty image 7202)")
+        check("▀".encode() not in sess.raw[mark:], "effect list picture (Style Option): no half blocks of text are drawn for it")
+        sess.pump(1.0)
+        picture_in_panel("Style Option")
+        mark = len(sess.raw)
+        sess.send(b"\x1b", 1.0)
+        check(pic_after(mark), "effect list picture (Style Option): the preview of Style Option itself (the same second slot) is a picture again when the list closes")
+        sess.send(b"\x1b", 1.0)
+        # --- the VIDEO SETTINGS overlay
+        sess.send("Y", 1.5)
+        for _ in range(12):
+            if "> Effect" in sess.text():
+                break
+            sess.send(b"\x1b[B", 0.25)
+        check("> Effect" in sess.text(), "effect list picture: the Effect row of the VIDEO SETTINGS overlay is reached")
+        mark = len(sess.raw)
+        sess.send(b"\r", 1.5)
+        check("VIDEO EFFECT" in sess.text(), "effect list picture: ENTER in VIDEO SETTINGS opens the list")
+        check(pic_after(mark), "effect list picture (VIDEO SETTINGS): the preview is a picture (Kitty image 7202)")
+        sess.pump(1.0)
+        picture_in_panel("VIDEO SETTINGS")
+        mark = len(sess.raw)
+        sess.send(b"\x1b", 1.0)
+        check(b"a=d,d=I,i=7202" in sess.raw[mark:] and "VIDEO SETTINGS" in sess.text(), "effect list picture (VIDEO SETTINGS): the picture is deleted when the list closes and the overlay is back")
+        check(sess.alive(), "effect list picture: the program is still running")
+    finally:
+        sess.kill()
+
+
+def video_fx_picker_sizes(binary, root, scripts):
+    """The effect list in every window size: while it is open the window is made smaller and larger again. The panel stays inside the window and centred
+    (a column / row of margin where the window allows), the preview grows with the room and is left out where there is none (under 18 columns), and
+    nothing is written past the window's edges. ESC closes the list at the end and the VIDEO SETTINGS overlay is back."""
+    global COLS, ROWS
+    COLS, ROWS = 140, 45
+    home = os.path.join(root, "fps_home")
+    lib = os.path.join(root, "fps_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    make_wav(os.path.join(lib, "Song A.wav"), 30)
+    make_wav(os.path.join(lib, "Song B.wav"), 30)
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nHKeyVideo=Y\nWizardSeen=true\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+
+    def resize(c, r):
+        global COLS, ROWS
+        COLS, ROWS = c, r
+        fcntl.ioctl(sess.fd, termios.TIOCSWINSZ, struct.pack("HHHH", r, c, 0, 0))
+        os.kill(sess.pid, signal.SIGWINCH)
+        sess.screen = pyte.Screen(c, r)
+        sess.stream = pyte.ByteStream(sess.screen)
+        sess.raw = b""
+        sess.pump(1.2)
+
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "Song A" in sess.text():
+                break
+        sess.send("Y", 1.0)
+        for _ in range(12):
+            if "> Effect" in sess.text():
+                break
+            sess.send(b"\x1b[B", 0.25)
+        sess.send("\r", 1.2)
+        check(fx_panel(sess) is not None, "effect list sizes: the list is open at 140 x 45")
+        # (columns, rows, the least half-block cells of the preview; 0 = it may be left out)
+        for c, r, least in ((140, 45, 1080), (120, 32, 900), (100, 30, 400), (80, 24, 100), (60, 20, 0), (50, 16, 0), (44, 12, 0), (140, 45, 1080)):
+            resize(c, r)
+            sess.send(b"\x1b[B", 0.4)   # (an arrow key: the list is redrawn with the next effect)
+            pan = fx_panel(sess)
+            check(pan is not None, "effect list sizes @%dx%d: the panel is on the screen" % (c, r))
+            if not pan:
+                sess.dump("effect list sizes %dx%d" % (c, r))
+                continue
+            above, below, lft, rgt = fx_centred(sess, pan)
+            check(min(above, below, lft, rgt) >= 0 and abs(above - below) <= 1 and abs(lft - rgt) <= 1,
+                  "effect list sizes @%dx%d: the panel is inside the window and centred (rows above / below: %d / %d, columns left / right: %d / %d)" % (c, r, above, below, lft, rgt))
+            inside = fx_preview_cells(sess, pan)
+            check(inside >= least, "effect list sizes @%dx%d: the preview has %d half-block cells (at least %d)" % (c, r, inside, least))
+            if c >= 100 and r >= 30:
+                check(min(above, below, lft, rgt) >= 1, "effect list sizes @%dx%d: a row / column of the window is left free around the panel" % (c, r))
+            check_fit(sess, "effect list sizes @%dx%d" % (c, r), False)
+        check("VIDEO SETTINGS" not in sess.text(), "effect list sizes: the overlay it came from is still not drawn")
+        sess.send(b"\x1b", 1.0)
+        check(fx_panel(sess) is None and "VIDEO SETTINGS" in sess.text(), "effect list sizes: ESC closes the list; the VIDEO SETTINGS overlay is back")
     finally:
         sess.kill()
 
@@ -2400,21 +2870,35 @@ def video_dither_option(binary, root, scripts):
             if "Alpha Song" in sess.text():
                 break
         sess.send("Y", 1.0)
-        base_seen = False
-        for _ in range(20):
-            if "> Base Layer" in sess.text() and "< clean >" in sess.text():
-                base_seen = True
-            if "> Dither Pattern" in sess.text():
-                break
-            sess.send(b"\x1b[B", 0.2)
-        sess.pump(0.4)
-        check(base_seen, "base layer: the row sits under the effect, clean by default")
-        check("> Dither Pattern" in sess.text() and "< interleaved noise >" in sess.text(), "dither pattern: the row is reached and says interleaved noise (the default)")
         def saved():
             try:
                 return open(cfg, encoding="utf-8").read()
             except OSError:
                 return ""
+        def fxc_line():
+            return " ".join(l for l in sess.text().split("\n") if "Effect Contrast" in l)
+        base_seen = False
+        fxc_done = False
+        for _ in range(20):
+            if "> Base Layer" in sess.text() and "< clean >" in sess.text():
+                base_seen = True
+            if not fxc_done and "> Effect Contrast" in sess.text():   # the row under the base layer: reduced by default, then low, full, reduced
+                fxc_done = True
+                check("< reduced >" in fxc_line(), "effect contrast: the row sits under the base layer and says reduced (the default)")
+                for want in ("low", "full", "reduced"):
+                    sess.send(b"\x1b[C", 0.6)
+                    check("< %s >" % want in fxc_line(), "effect contrast: the next level is %s" % want)
+                    check("VideoEffectContrast=%s" % want in saved(), "effect contrast: %s is saved in the config" % want)
+                sess.send(b"\x1b[D", 0.6)
+                check("< full >" in fxc_line(), "effect contrast: left arrow goes back one (round and round)")
+                sess.send(b"\x1b[C", 0.6)
+            if "> Dither Pattern" in sess.text():
+                break
+            sess.send(b"\x1b[B", 0.2)
+        sess.pump(0.4)
+        check(base_seen, "base layer: the row sits under the effect, clean by default")
+        check(fxc_done, "effect contrast: the row was reached between the base layer and the dither pattern")
+        check("> Dither Pattern" in sess.text() and "< interleaved noise >" in sess.text(), "dither pattern: the row is reached and says interleaved noise (the default)")
         for want in ("golden ratio", "auto", "blue noise", "bayer 2x2", "bayer 4x4", "bayer 8x8", "interleaved noise"):
             sess.send(b"\x1b[C", 0.6)
             check("< %s >" % want in sess.text(), "dither pattern: the next one is %s" % want)
@@ -2652,6 +3136,50 @@ def video_library_modes(binary, root, scripts):
         sess.kill()
 
 
+def main_lyrics_translation_key(binary, root, scripts):
+    """The Latin letters key (" = SHIFT+2 on a German keyboard) on the main screen while the lyrics field shows synced lyrics that have a saved
+    translation: original -> Latin letters -> Latin letters + the translation -> original."""
+    home = os.path.join(root, "mlt_home")
+    lib = os.path.join(root, "mlt_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    os.makedirs(os.path.join(lib, "lyrics", "translations"))
+    make_wav(os.path.join(lib, "Clip Song.wav"), 40)
+    lines = ["さくら さくら", "やよいの そらは", "みわたす かぎり"]
+    with open(os.path.join(lib, "lyrics", "Clip Song.lrc"), "w", encoding="utf-8") as f:
+        f.write("[00:00.10]%s\n[00:30.00]%s\n[00:35.00]%s\n" % tuple(lines))
+    h = 1469598103934665603
+    for l in lines:
+        for c in l.encode("utf-8"):
+            h = ((h ^ c) * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+        h = ((h ^ 0x0a) * 1099511628211) & 0xFFFFFFFFFFFFFFFF
+    with open(os.path.join(lib, "lyrics", "translations", "Clip Song.en.txt"), "w", encoding="utf-8") as f:
+        f.write("#mousiki-translation to=en from=ja svc=google lines=3 hash=%016x\n" % h)
+        f.write("Cherry blossoms, cherry blossoms\nIn the spring sky\nAs far as you can see\n")
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\nTranslateTo=en\nLyricsAnimation=0\nWizardSeen=true\nLatinLetters=false\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "Clip Song" in sess.text():
+                break
+        sess.send(b"\r", 0.5)
+        sess.send(b"\r", 3.0)
+        check(sess.wait_for(lambda t: "\u3084\u3088\u3044" in t, 8), "lyrics translation key: the lyrics field shows the original lyrics")
+        check("Cherry" not in sess.text(), "lyrics translation key: ... and no translation")
+        sess.send('"', 1.0)
+        check(sess.wait_for(lambda t: "yayoino" in t, 4) and "Cherry" not in sess.text(), "lyrics translation key: 1st press = the lyrics in Latin letters")
+        sess.send('"', 1.0)
+        check(sess.wait_for(lambda t: "In the spring sky" in t, 4) and "yayoino" not in sess.text(), "lyrics translation key: 2nd press = the translation in the lyrics field")
+        sess.send('"', 1.0)
+        check(sess.wait_for(lambda t: "\u3084\u3088\u3044" in t, 4) and "spring" not in sess.text() and "yayoino" not in sess.text(), "lyrics translation key: 3rd press = the original again (Latin letters off)")
+        sess.send('"', 1.0)
+        check(sess.wait_for(lambda t: "yayoino" in t, 4), "lyrics translation key: and round again: Latin letters")
+        check(sess.alive(), "lyrics translation key: the program is still running")
+    finally:
+        sess.kill()
+
+
 def video_translation_tab(binary, root, scripts):
     """The big video overlay: TAB goes off -> lyrics -> lyrics + translation -> translation only, through every saved translation; the
     legend names the one shown. (Needs ffmpeg for the test video.)"""
@@ -2769,7 +3297,7 @@ def video_fullscreen_sizes(binary, root, scripts):
         check("< Scanlines >" in sess.text(), "video overlay: the effect row cycles to scanlines")
         sess.send(b"\x1b[D", 0.5)
         sess.send(b"\x1b[D", 0.5)
-        check("< Interlace >" in sess.text(), "video overlay: LEFT from off goes round to interlace")
+        check("< ASCII >" in sess.text(), "video overlay: LEFT from off goes round to the last effect of the list (ASCII)")
         sess.send(b"\x1b[C", 0.5)                              # back to off
         sess.send(b"\x1b", 0.8)
         conf = open(cfg, encoding="utf-8").read()
@@ -3027,7 +3555,22 @@ def cli_core(binary, root, scripts):
         check(code == 0 and "night" in out, "cli core: an alias runs its commands: %r" % out)
         code, out = outside("--query", "if playing echo yes")
         check(code == 0 and ("yes" in out) == ("(playing)" in out), "cli core: if <condition> <command> runs the command only when the condition holds: %r" % out)
-        # typed
+        code, out = outside("--query", "volume 80; if volume>50 volume 20; get volume")
+        check(code == 0 and out.endswith("20"), "cli core: if volume>50 volume 20 -- the command word is also in the condition: %r" % out)
+        code, out = outside("--query", "volume 80; mute; if unmuted mute; if muted unmute; get volume")
+        check(code == 0 and "(not unmuted)" in out and out.endswith("80"), "cli core: if unmuted mute -- 'mute' is also inside 'unmuted': %r" % out)
+        code, out = outside("--query", "help")
+        check(code == 0 and "play-pause" in out and "volume <0-100" in out and out.count("\n") > 20, "cli core: help from outside answers with the list of commands: %r" % out[:100])
+        code, out = outside("--query", "track 99")
+        check(code == 3 and "no such title" in out and "has 2" in out, "cli core: track <n> with no such title is an error, not a claim that it plays: %r" % out)
+        code, out = outside("--query", "track 1; get title")
+        first_title = out.strip().split("\n")[-1]
+        code, out = outside("--query", "track 2; get title")
+        second_title = out.strip().split("\n")[-1]
+        check(first_title and second_title and first_title != second_title, "cli core: track 1 / track 2 name two titles (%r, %r)" % (first_title, second_title))
+        code, out = outside("--query", "track 1; next; get title")   # (before: the next was dropped while track 1 still loaded, and get title answered with the old title)
+        lines = out.strip().split("\n")
+        check(code == 0 and lines[-1] == second_title and lines[-2].startswith("next: " + second_title) and ("(was: " + first_title + ")") in lines[-2], "cli core: next after track 1 waits for it, and its answer names the title that really plays: %r" % out)
         sess.send("/", 0.5)
         sess.send("c:", 0.5)
         sess.send("queue alpha; queue beta\r", 1.2)
@@ -3173,6 +3716,8 @@ def cli_replies_hooks(binary, root, scripts):
         other, other_title = ("beta", "Beta Tune") if "Alpha" in out else ("alpha", "Alpha Song")   # (the program loads one of them, paused)
         code, out = q("play " + other)
         check(code == 0 and ("playing " + other_title) in out, "cli replies: play <words>: %r" % out)
+        code, out = q("play " + ("alpha" if other == "beta" else "beta") + "; get title; play " + other + "; get title")
+        check(code == 0 and out.strip().split("\n")[-1] == other_title and out.strip().split("\n")[-3] == ("Alpha Song" if other == "beta" else "Beta Tune"), "cli replies: play x; get title -- get title waits for the title: %r" % out)
         sess.pump(1.0)
         code, out = q("get volume")
         check(out == "12", "cli hooks: on track-change ran (volume 12): %r" % out)
@@ -3258,6 +3803,17 @@ def radio_cli(binary, root, scripts):
         check(code == 0 and out.startswith("tuning: Jazz Night") and "[2/2]" in out, "radio cli: tune <words>: %r" % out)
         code, out = q("tune 9")
         check(code == 3 and "no station 9" in out, "radio cli: tune with a wrong number is an error: %r" % out)
+        code, out = q("play plain")
+        check(code == 0 and out.startswith("tuning: Plain Station") and "[1/2]" in out, "radio cli: play <words> tunes the first station that matches (as in the player): %r" % out)
+        code, out = q("play 2")
+        check(code == 0 and out.startswith("tuning: Jazz Night"), "radio cli: play <n> tunes station n: %r" % out)
+        code, out = q("play nosuchstation")
+        check(code == 3 and "no station matches" in out, "radio cli: play <words> with no match is an error: %r" % out)
+        code, out = q("get volume")   # (the chain below needs a known volume)
+        code, out = q("if volume>10 echo loud")
+        check(code == 0 and "loud" in out, "radio cli: if <condition> <command> runs the command: %r" % out)
+        code, out = q("volume 60; if volume>50 volume 35; get volume")
+        check(code == 0 and out.endswith("35"), "radio cli: if volume>50 volume 35 -- the command word is also in the condition: %r" % out)
         code, out = q("volume 40")
         check(code == 0 and "-> 40%" in out, "radio cli: volume says old -> new: %r" % out)
         code, out = q("mute; unmute")
@@ -3283,6 +3839,61 @@ def radio_cli(binary, root, scripts):
         code, out = q("help seek")
         check(code == 0 and "seek <seconds>" in out, "radio cli: help <command>: %r" % out)
         check(sess.alive(), "radio cli: the radio is still running")
+    finally:
+        sess.kill()
+
+
+def spectro_history_setting(binary, root, scripts):
+    """Settings -> ANIMA/VIZ -> OSCI/SPECTRO SETTINGS: the row Keep Spectrogram History is true by default, LEFT / RIGHT switch it, the status line says what
+    it does, and the choice reaches config.txt (SpectroHistory=)."""
+    home = os.path.join(root, "sph_home")
+    lib = os.path.join(root, "music")
+    cfgdir = os.path.join(home, ".config", "mousiki")
+    os.makedirs(cfgdir)
+    cfg = os.path.join(cfgdir, "config.txt")
+    with open(cfg, "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Alpha Song" in sess.text():
+                break
+        sess.send("s", 1.2)
+        sess.send(b"\t", 0.5)
+        sess.send(b"\t", 0.8)                               # ANIMA/VIZ
+        label = "Keep Spectrogram History"
+
+        def row():
+            for y, line in enumerate(sess.screen.display):
+                if label in line and "Preview:" not in line:
+                    return y, line
+            return None, ""
+        for _ in range(150):                                 # down to the row: the cursor row is drawn in reverse video
+            sess.send(b"\x1b[B", 0.1)
+            y, line = row()
+            if y is not None and any(c.reverse for c in sess.screen.buffer[y].values()):
+                break
+        sess.pump(0.4)
+        y, line = row()
+        check(y is not None and "OSCI/SPECTRO SETTINGS" in sess.text(), "spectro history: the row is under OSCI/SPECTRO SETTINGS")
+        check("true" in line, "spectro history: true by default: %r" % line)
+        sess.send(b"\x1b[C", 0.8)
+        y, line = row()
+        check("false" in line and "keep spectrogram history: off" in sess.text(), "spectro history: RIGHT switches it off and the status line says so: %r" % line)
+        sess.send(b"\x1b[D", 0.8)
+        y, line = row()
+        check("true" in line and "keep spectrogram history: on" in sess.text(), "spectro history: LEFT switches it on again: %r" % line)
+        sess.send(b"\x1b[C", 0.6)                           # off; "s" saves and closes the settings
+        sess.send("s", 1.5)
+        txt = open(cfg, encoding="utf-8").read()
+        check("SpectroHistory=false" in txt, "spectro history: config.txt has SpectroHistory=false once the settings are saved")
+        check(sess.alive(), "spectro history: the program is still running")
     finally:
         sess.kill()
 
@@ -3531,6 +4142,66 @@ def xdg_dirs(binary, root, scripts):
         sess.kill()
 
 
+def make_tagged_wav(path, seconds, fields):
+    """A WAV with a LIST / INFO chunk (INAM title, IART artist, IPRD album) after the audio: what the player reads without ffprobe."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    def chunk(cid, body):
+        return cid + struct.pack("<I", len(body)) + body + (b"\0" if len(body) & 1 else b"")
+    fmt = struct.pack("<HHIIHH", 1, 1, 8000, 16000, 2, 16)
+    info = b"INFO" + b"".join(chunk(k.encode(), v.encode("utf-8") + b"\0") for k, v in fields)
+    body = b"WAVE" + chunk(b"fmt ", fmt) + chunk(b"data", b"\x00\x00" * 8000 * seconds) + chunk(b"LIST", info)
+    with open(path, "wb") as f:
+        f.write(b"RIFF" + struct.pack("<I", len(body)) + body)
+
+
+def search_wav_tags(binary, root, scripts):
+    """The tags of a WAV file (a LIST / INFO chunk) are read in the program, so the search finds the file by them; and a query typed in one go (a
+    paste, keys that piled up) gives the same list as the same query typed key by key (the list below the box is made once per pass of the loop)."""
+    home = os.path.join(root, "wt_home")
+    lib = os.path.join(root, "wt_music")
+    os.makedirs(os.path.join(home, ".config", "mousiki"))
+    make_wav(os.path.join(lib, "Plain One.wav"), 5)
+    make_wav(os.path.join(lib, "Plain Two.wav"), 5)
+    make_tagged_wav(os.path.join(lib, "Tagged.wav"), 5, [("INAM", "Zanzibar Nights"), ("IART", "Quartz Band"), ("IPRD", "Island Songs")])
+    with open(os.path.join(home, ".config", "mousiki", "config.txt"), "w", encoding="utf-8") as f:
+        f.write("LocalMusicPath=%s\nUseTerminalSettings=true\n" % lib)
+    sess = Session(binary, home, scripts, quiet_stderr=True)
+    try:
+        for _ in range(30):
+            sess.pump(0.5)
+            if "HELP WIZARD" in sess.text():
+                break
+        sess.send(b"\x1b", 1.0)
+        for _ in range(20):
+            sess.pump(0.5)
+            if "Tagged" in sess.text() and "Plain One" in sess.text():
+                break
+        def search(query, one_go):
+            sess.send("/", 0.5)
+            if one_go:
+                sess.send(query, 1.5)
+            else:
+                for c in query:
+                    sess.send(c, 0.12)
+                sess.pump(1.0)
+            t = sess.text()
+            sess.send(b"\x1b", 0.8)
+            return t
+        for query in ("zanzibar", "quartz", "island"):
+            for one_go in (True, False):
+                found = ""
+                for _ in range(6):   # (the tags are read by the background sweep: a moment after the start)
+                    found = search(query, one_go)
+                    if "| Tagged" in found:
+                        break
+                    sess.pump(1.0)
+                check("| Tagged" in found and "| Plain One" not in found and "| Plain Two" not in found,
+                      "wav tags: '%s' (%s) finds the WAV by its tags and nothing else" % (query, "typed in one go" if one_go else "key by key"))
+        check(sess.alive(), "wav tags: the program is still running at the end")
+    finally:
+        sess.kill()
+
+
 def search_key(binary, root, scripts):
     """The search key of the main screen ("/", SHIFT+7 on a German keyboard) also searches in the cheat sheet, the help wizard and READ LYRICS
     (the old SHIFT+s / CTRL+s do not any more); the legends name it for the keyboard."""
@@ -3682,11 +4353,13 @@ def shrinking_window(binary, root, scripts):
 
     def resize(c, r):
         global COLS, ROWS
+        same = (sess.screen.columns, sess.screen.lines) == (c, r)
         COLS, ROWS = c, r
         fcntl.ioctl(sess.fd, termios.TIOCSWINSZ, struct.pack("HHHH", r, c, 0, 0))
         os.kill(sess.pid, signal.SIGWINCH)
-        sess.screen = pyte.Screen(c, r)
-        sess.stream = pyte.ByteStream(sess.screen)
+        if not same:   # (a real terminal keeps what it shows when the size stays the same: only a new size makes a new screen)
+            sess.screen = pyte.Screen(c, r)
+            sess.stream = pyte.ByteStream(sess.screen)
         sess.raw = b""
         sess.pump(1.2)
 
@@ -3743,6 +4416,18 @@ def shrinking_window(binary, root, scripts):
         resize(120, 40)
         check("File      :" in sess.text(), "shrinking: the meta data panel is back when there are rows for it and the list")
         check_fit(sess, "shrinking 120x40", False)
+        # stray text over a line that keeps changing (the disk spins next to the meta data): the line is sent whole now and then, so it heals
+        row = next((i for i, l in enumerate(sess.screen.display) if "File      :" in l), -1)
+        check(row >= 0, "shrinking: the File row is on the screen")
+        if row >= 0:
+            col = sess.screen.display[row].index("File      :")
+            sess.stream.feed(("\x1b[%d;%dHZZZZZZZZ" % (row + 1, col + 1)).encode())
+            check("ZZZZZZZZ" in sess.screen.display[row], "shrinking: (the stray text is on the emulator's screen)")
+            for _ in range(14):
+                sess.pump(0.5)
+                if "ZZZZZZZZ" not in sess.screen.display[row]: break
+            check("ZZZZZZZZ" not in sess.screen.display[row] and "File      :" in sess.screen.display[row],
+                  "shrinking: stray text in a line that keeps changing is written over within a few seconds")
         check(sess.alive(), "shrinking: the program is still running")
     finally:
         sess.kill()
@@ -3796,6 +4481,8 @@ def run_scenario(name, binary, root, scripts):
         selftest_command(binary, scripts)
     elif name == "search_key":
         search_key(binary, root, scripts)
+    elif name == "search_wav_tags":
+        search_wav_tags(binary, root, scripts)
     elif name == "cli_commands":
         cli_commands(binary, root, scripts)
     elif name == "settings_cli_row":
@@ -3806,6 +4493,12 @@ def run_scenario(name, binary, root, scripts):
         radio_cli(binary, root, scripts)
     elif name == "video_fx_picker":
         video_fx_picker(binary, root, scripts)
+    elif name == "video_fx_picker_sizes":
+        video_fx_picker_sizes(binary, root, scripts)
+    elif name == "radio_sign_border":
+        radio_sign_border(binary, root, scripts)
+    elif name == "main_lyrics_translation_key":
+        main_lyrics_translation_key(binary, root, scripts)
     elif name == "radio_cli_extras":
         radio_cli_extras(binary, root, scripts)
     elif name == "radio_cli_typed":
@@ -3834,6 +4527,10 @@ def run_scenario(name, binary, root, scripts):
         disk_field_setting(binary, root, scripts)
     elif name == "queue_shuffle":
         queue_shuffle(binary, root, scripts)
+    elif name == "queue_search_colors":
+        queue_search_colors(binary, root, scripts)
+    elif name == "spectro_history_setting":
+        spectro_history_setting(binary, root, scripts)
     elif name == "narrow80":
         narrow_sweep(binary, root, scripts, 80, 24)
     elif name == "narrow100":
@@ -3843,7 +4540,7 @@ def run_scenario(name, binary, root, scripts):
 
 
 SCENARIOS = ["narrow80", "narrow100", "main", "read_lyrics_play", "karaoke_timing", "book_speed_and_devices", "paging_and_translit_row",
-             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "radio_organigram", "radio_idle_rate", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "bulk_add_options", "bulk_add_flow", "translation_editor", "translation_create", "play_mode_back", "disk_border_setting", "translation_paste_undo", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key", "video_overlays", "video_dither_option", "book_embedded_chapters", "cli_commands", "cli_core", "radio_cli", "radio_cli_typed", "radio_cli_extras", "video_fx_picker", "xdg_dirs", "settings_cli_row", "cli_replies_hooks", "cli_scripts_overlay", "video_pair_tags", "video_fetch_flow", "video_fetch_restore", "settings_video_preview", "video_files_tab", "video_library_modes", "video_fullscreen_sizes", "video_base_per_track", "video_translation_tab", "organigram_menu", "scope_spectro_overlays", "radio_waterfall", "radio_station_edit"]
+             "mode_keys", "kitty_cover_options", "radio_latin_toggle", "radio_organigram", "radio_idle_rate", "selftest_command", "opened_lyrics_is_current", "disk_field_setting", "queue_shuffle", "queue_search_colors", "bulk_add_options", "bulk_add_flow", "translation_editor", "translation_create", "play_mode_back", "disk_border_setting", "translation_paste_undo", "translation_lines", "waterfall_view", "colors_scroll", "shrinking_window", "search_key", "search_wav_tags", "video_overlays", "video_dither_option", "book_embedded_chapters", "cli_commands", "cli_core", "radio_cli", "radio_cli_typed", "radio_cli_extras", "video_fx_picker", "video_fx_picker_sizes", "main_lyrics_translation_key", "radio_sign_border", "xdg_dirs", "settings_cli_row", "cli_replies_hooks", "cli_scripts_overlay", "video_pair_tags", "video_fetch_flow", "video_fetch_restore", "settings_video_preview", "video_files_tab", "video_library_modes", "video_fullscreen_sizes", "video_base_per_track", "video_fx_picker_picture", "video_translation_tab", "organigram_menu", "scope_spectro_overlays", "radio_waterfall", "radio_station_edit", "spectro_history_setting"]
 
 
 def main():

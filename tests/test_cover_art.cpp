@@ -272,6 +272,40 @@ TEST(video_track_dither_pattern_is_kept_per_track_and_old_entries_read_as_settin
     CHECK_EQ(cover_track_video_opts("/music/a.mp3").dither, -1);
 }
 
+TEST(video_track_effect_contrast_store_field_maps_the_old_auto_to_as_in_settings) {
+    CHECK_EQ(video_fxc_from_store(0), -1);    // the "auto" of the first version
+    CHECK_EQ(video_fxc_from_store(1), 0);     // full
+    CHECK_EQ(video_fxc_from_store(2), 1);     // reduced
+    CHECK_EQ(video_fxc_from_store(3), 2);     // low
+    CHECK_EQ(video_fxc_from_store(4), -1);
+    CHECK_EQ(video_fxc_from_store(-1), -1);
+    CHECK_EQ(video_fxc_from_store(99), -1);
+    for (int level = -1; level < kFxContrasts; ++level) CHECK_EQ(video_fxc_from_store(video_fxc_to_store(level)), level);   // (what is written is read back)
+    CHECK_EQ(video_fxc_to_store(-1), -1);
+    CHECK_EQ(video_fxc_to_store(7), -1);
+}
+
+TEST(video_track_effect_contrast_is_kept_per_track) {
+    mt::TempHome home;
+    CHECK_EQ(cover_track_video_opts("/music/a.mp3").fxc, -1);           // as in Settings
+    VideoTrackOpts o;
+    o.fxc = 0;                                                          // "full" chosen for this track is not the same as "as in Settings"
+    o.dither = 3;
+    set_cover_track_video_opts("/music/a.mp3", o);
+    CHECK_EQ(cover_track_video_opts("/music/a.mp3").fxc, 0);
+    CHECK_EQ(cover_track_video_opts("/music/a.mp3").dither, 3);         // the fields around it stay intact
+    o.fxc = 2;
+    set_cover_track_video_opts("/music/a.mp3", o);
+    CHECK_EQ(cover_track_video_opts("/music/a.mp3").fxc, 2);
+    CHECK_EQ(cover_track_video_opts("/music/b.mp3").fxc, -1);           // other tracks keep the default
+    o.fxc = 9;                                                          // nonsense in the file: as in Settings
+    set_cover_track_video_opts("/music/a.mp3", o);
+    CHECK_EQ(cover_track_video_opts("/music/a.mp3").fxc, -1);
+    o.fxc = -1; o.dither = -1;
+    set_cover_track_video_opts("/music/a.mp3", o);                      // all default: the entry is gone
+    CHECK_EQ(cover_track_video_opts("/music/a.mp3").fxc, -1);
+}
+
 TEST(video_track_base_layer_is_kept_per_track) {
     mt::TempHome home;
     CHECK_EQ(cover_track_video_opts("/music/a.mp3").base, -1);          // as in Settings

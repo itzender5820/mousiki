@@ -84,6 +84,8 @@ ColorFocus=246
 ##-------------------------------------------
 
 OnAirAscii=true
+# the " : : " column between the ON AIR / OFF AIR sign and the station info: true | false (the sign sits in the middle of that space)
+SignBorder=true
 PulseWave=true
 DummyButtons=true
 # what the VOLUME BAR is drawn with: # | ⠶ | ⣿ | ⡾⣽ (a fixed row, not repeating) | disk (the braille effect of the disk)

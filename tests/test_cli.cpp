@@ -37,6 +37,28 @@ TEST(cli_words_and_quotes) {
     CHECK_EQ(cli::unquote(" plain "), std::string("plain"));
 }
 
+TEST(cli_word_start_finds_the_word_where_it_stands) {
+    // `if volume>50 volume 20`: the command is the word after the condition, not the first place its text occurs in the line
+    const std::string l = "volume>50 volume 20";
+    CHECK_EQ(cli::word_start(l, 0), static_cast<size_t>(0));
+    CHECK_EQ(cli::word_start(l, 1), static_cast<size_t>(10));
+    CHECK_EQ(l.substr(cli::word_start(l, 1)), std::string("volume 20"));
+    const std::string m = "unmuted mute";                     // "mute" is also inside "unmuted"
+    CHECK_EQ(m.substr(cli::word_start(m, 1)), std::string("mute"));
+    const std::string q = "  a  \"b c\"   d";                 // spaces inside quotes do not separate; leading / repeated spaces do not count
+    CHECK_EQ(cli::word_start(q, 0), static_cast<size_t>(2));
+    CHECK_EQ(cli::word_start(q, 1), static_cast<size_t>(5));
+    CHECK_EQ(cli::word_start(q, 2), static_cast<size_t>(13));
+    CHECK_EQ(cli::word_start(q, 3), std::string::npos);
+    CHECK_EQ(cli::word_start("", 0), std::string::npos);
+    // it counts the words the way split_words does, also for an empty quoted word and an open quote
+    for (const std::string& t : {std::string("a \"\" b"), std::string("x \"y z"), std::string("  \t p \t q ")}) {
+        const auto w = cli::split_words(t);
+        CHECK(cli::word_start(t, w.size()) == std::string::npos);
+        CHECK(w.empty() || cli::word_start(t, w.size() - 1) != std::string::npos);
+    }
+}
+
 TEST(cli_durations) {
     double s = 0;
     CHECK(cli::parse_duration("90", s) && s == 90.0);

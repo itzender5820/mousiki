@@ -676,7 +676,8 @@ std::string App::render_frame(TerminalIO& term) {
             GfxFrame& F = k == 0 ? gfx_ : gfx2_;
             int cut[4] = {-1, -1, -1, -1};
             const int fx = float_rect_[0], fy = float_rect_[1], fw = float_rect_[2], fh = float_rect_[3];
-            if (fw > 0 && fh > 0) {
+            const bool own_pic = k == 1 && fxpick_.open && fxpick_pic_ == 2;   // (the effect list's preview picture lies inside its own panel: no hole in it)
+            if (fw > 0 && fh > 0 && !own_pic) {
                 const int c0 = std::max(fx, F.col), c1 = std::min(fx + fw, F.col + F.cols);
                 const int r0 = std::max(fy, F.row), r1 = std::min(fy + fh, F.row + F.rows);
                 if (c0 < c1 && r0 < r1) { cut[0] = c0 - F.col; cut[1] = r0 - F.row; cut[2] = c1 - c0; cut[3] = r1 - r0; }
@@ -732,9 +733,9 @@ std::string App::render_frame(TerminalIO& term) {
         }
         if (video_opts_open_) {   // SHIFT+s: the options panel over the picture
             std::ostringstream floating;
-            draw_floating_panel(floating, build_video_opts_panel(), kVideoOptsPanelWidth, W, fxpick_menu_col(kVideoOptsPanelWidth, W));
-            // (the effect picker stands beside the panel; the picture is cut for both)
+            // (while the effect list is open it is the only panel, exactly in the middle: the picture is cut for it alone)
             if (fxpick_.open) draw_fxpick(floating, W);
+            else draw_floating_panel(floating, build_video_opts_panel(), kVideoOptsPanelWidth, W);
             out += floating.str();
             cut_gfx_holes();
         }
@@ -941,8 +942,9 @@ std::string App::render_frame(TerminalIO& term) {
     } else if (mode_ == Mode::VideoMenu) {
         if (vdel_stage_ > 0) draw_floating_panel(floating, build_video_delete_panel(), 64, W, 0, true);   // (the question of Delete Current Video / Refetch this Video)
         else {
-            draw_floating_panel(floating, build_video_menu_panel(), kVideoMenuPanelWidth, W, fxpick_menu_col(kVideoMenuPanelWidth, W), true);   // (exactly centred, rows and columns; moved aside while the effect list is open)
-            if (fxpick_.open) draw_fxpick(floating, W);   // (beside the panel; the picture is cut for both)
+            // (exactly centred, rows and columns; while the effect list is open it takes the menu's place, also exactly centred, and the picture is cut for it alone)
+            if (fxpick_.open) draw_fxpick(floating, W);
+            else draw_floating_panel(floating, build_video_menu_panel(), kVideoMenuPanelWidth, W, 0, true);
         }
     } else if (mode_ == Mode::VideoLink) {
         if (vdel_stage_ > 0) { vl_->pic = 0; draw_floating_panel(floating, build_video_delete_panel(), 64, W, 0, true); }   // (the two questions of Delete COMPLETE VIDEO FILE connected to track)
@@ -975,8 +977,9 @@ std::string App::render_frame(TerminalIO& term) {
     } else if (mode_ == Mode::MetaEdit) {   // the Style Option panel of the playing track (HKeyStyleOptions), over the main screen
         meta_refresh_hover_values();
         meta_->sty_pic = 0;
-        { const auto sty = build_meta_sty_panel(W); draw_floating_panel(floating, sty, meta_sty_panel_width(W), W, fxpick_menu_col(meta_sty_panel_width(W), W), false, meta_sty_start_row(static_cast<int>(sty.size()))); }
+        // (while the effect list is open it takes the panel's place, exactly centred; the panel has no preview picture then -- sty_pic stays 0 -- and the picture is cut for the list alone)
         if (fxpick_.open) draw_fxpick(floating, W);
+        else { const auto sty = build_meta_sty_panel(W); draw_floating_panel(floating, sty, meta_sty_panel_width(W), W, 0, false, meta_sty_start_row(static_cast<int>(sty.size()))); }
     }
     out += floating.str();
     // A picture (not a beam) under a floating panel: only the pixels the panel covers are left out. `full` is the picture as made; the hole
@@ -1018,7 +1021,7 @@ std::string App::render_frame(TerminalIO& term) {
         const bool floating_mode = mode_ != Mode::Browse && mode_ != Mode::Search;
         const bool covered_all = list_overlay_active() || queue_overlay_active() || folder_overlay_active() || convert_overlay_active();
         if (covered_all || (mode_family(mode_) != 0)) gfx_.active = false;
-        else if ((meta_->sty_pic == 1 && mode_ == Mode::MetaEdit) || (vs_->pic == 1 && mode_ == Mode::VideoSearch) || (vl_->pic == 1 && mode_ == Mode::VideoLink)) {   // the preview of the Style Option panel (over the main screen) owns the picture slot: it lies inside the panel
+        else if ((meta_->sty_pic == 1 && mode_ == Mode::MetaEdit) || (fxpick_.open && fxpick_pic_ == 1) || (vs_->pic == 1 && mode_ == Mode::VideoSearch) || (vl_->pic == 1 && mode_ == Mode::VideoLink)) {   // the preview of the Style Option panel (over the main screen) owns the picture slot: it lies inside the panel
             gfx_.crop = 0;
             gfx_.cut_w = 0;
         } else {
@@ -1037,7 +1040,7 @@ std::string App::render_frame(TerminalIO& term) {
         // the oscilloscope picture next to an album cover (second slot): a floating panel frees its columns as it does for gfx_
         if (gfx_.active && gfx2_.active) {
             gfx2_.crop = 0;
-            const bool own_second = (meta_->sty_pic == 2 && mode_ == Mode::MetaEdit) || (vs_->pic == 2 && mode_ == Mode::VideoSearch) || (vl_->pic == 2 && mode_ == Mode::VideoLink);   // the Style Option preview lies inside its own panel
+            const bool own_second = (meta_->sty_pic == 2 && mode_ == Mode::MetaEdit) || (fxpick_.open && fxpick_pic_ == 2) || (vs_->pic == 2 && mode_ == Mode::VideoSearch) || (vl_->pic == 2 && mode_ == Mode::VideoLink);   // the Style Option preview lies inside its own panel
             const bool floating_mode = !own_second && mode_ != Mode::Browse && mode_ != Mode::Search;
             const int fx = float_rect_[0], fy = float_rect_[1], fw = float_rect_[2], fh = float_rect_[3];
             if (gfx2_.plain) plain_hole(gfx2_, gfx2_full_level_, gfx2_last_cut_, floating_mode);   // (the video next to the disk: a hole, not a cut-off of whole columns)

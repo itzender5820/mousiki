@@ -20,7 +20,7 @@ struct RCmd { const char* name; const char* usage; const char* help; };
 const RCmd kRadioCmds[] = {
     {"help", "[command]", "this list, or one command"},
     {"status", "", "what plays: station, song, volume, live / paused / behind"},
-    {"play", "", "tune the station under the cursor, or resume a paused / muted one"},
+    {"play", "[n | words]", "tune the station under the cursor (or station n, or the first one that matches the words), or resume a paused / muted one"},
     {"pause", "", "pause the live stream (it keeps buffering; play continues where you were)"},
     {"stop", "", "stop the station"},
     {"play-pause", "", "pause / resume"},
@@ -59,7 +59,7 @@ const RCmd kRadioCmds[] = {
 // The settings `set` / `get` can reach: the on / off rows of the radio (no texts, colours, paths, keys, remote app address / port / PIN).
 struct RSetting { const char* key; bool RadioSettings::*field; };
 const RSetting kRadioSettings[] = {
-    {"OnAirAscii", &RadioSettings::on_air_ascii}, {"PulseWave", &RadioSettings::pulse_wave}, {"DummyButtons", &RadioSettings::dummy_buttons},
+    {"OnAirAscii", &RadioSettings::on_air_ascii}, {"SignBorder", &RadioSettings::sign_border}, {"PulseWave", &RadioSettings::pulse_wave}, {"DummyButtons", &RadioSettings::dummy_buttons},
     {"Visualizer", &RadioSettings::element_visualizer}, {"StereoSound", &RadioSettings::stereo}, {"NormalizeVolume", &RadioSettings::normalize},
     {"TuneNoise", &RadioSettings::tune_noise}, {"MarqueeScrolling", &RadioSettings::marquee}, {"UseOscilloscope", &RadioSettings::use_osci},
     {"UseSpectrogram", &RadioSettings::use_spectro},
@@ -251,6 +251,7 @@ std::string RadioApp::cli_exec(const std::string& line_in, cli::Job& job, bool& 
     name = lower(name);
     if (!name.empty() && name[0] == '/') name.erase(0, 1);
     for (const auto& a : kRadioAlias) if (name == a.first) { name = a.second; break; }
+    if (name == "play" && !arg.empty()) name = "tune";   // (`play beta` plays the first station that matches, as in the player; it was ignored here)
     const bool net = job.origin == cli::Origin::Network;
     if (name == "quit" || name == "exit") {
         if (job.origin == cli::Origin::Typed) return fail("quit is not a command of the radio command line: close the radio with [" + window_key_label("Quit") + "] (`mousiki --cmd quit` does it from outside)");
@@ -415,7 +416,7 @@ std::string RadioApp::cli_exec(const std::string& line_in, cli::Job& job, bool& 
         if (k >= w.size()) return fail("if <condition> <command>");
         bool cok = true;
         const bool yes = cli::eval_condition(cond, cli_state(), cok);
-        const size_t pos = arg.find(w[k]);
+        const size_t pos = cli::word_start(arg, k);   // (not arg.find(w[k]): the command word may also be part of the condition)
         const std::string rest = pos == std::string::npos ? w[k] : arg.substr(pos);
         if (!yes) return "(not " + cond + ")";
         job.lines.push_front(rest);

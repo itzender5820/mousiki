@@ -127,10 +127,13 @@ struct Settings : VizPrefs {
     int video_chroma = 1;             // Video Chromatic Aberration (VideoChroma=; default subtle): 0 off, 1 subtle, 2 medium, 3 strong
     int video_grad_sat = 85;          // Video Gradient Saturation (VideoGradientSaturation=): 0 .. 100 in steps of 5 (%): the gradient colours of the video looks as they are at 100, paler towards 0 (grey); 85 = default
     int video_dither = 5;             // Video Dither Pattern (VideoDither=): 0 auto (each look's own), 1 blue noise, 2 bayer 2x2, 3 bayer 4x4, 4 bayer 8x8, 5 interleaved noise (default), 6 golden ratio
+    int video_fxc = kFxContrastDefault;   // Video Effect Contrast (VideoEffectContrast=): how hard the blacks and whites of the photographic looks are: 0 full, 1 reduced (default), 2 low (video_fx.h)
     int video_base = 4;               // Video Base Layer (VideoBase=): the structure under the tube looks: 0 scanlines, 1 aperture grille, 2 shadow mask, 3 slot mask, 4 clean (default)
+    bool base_default_clean = false;  // config.txt carries VideoBaseDefault=clean: a file without it is older than the clean default; its VideoBase (scanlines was the default then) is read as clean once
     int cover_chroma = 0;             // Cover Chromatic Aberration (CoverChroma=): the same, for covers that show their own colours
     int video_res = 0;                // Video Resolution (VideoResolution=): 0 standard, 1 high, 2 full (see video_fx.h)
     int video_buffer = 32;            // Video Buffer (VideoBuffer=): MB of decoded frames the decoder keeps ahead of the picture
+    int video_fps = 25;               // Video Frame Rate (VideoFrameRate=): 25 (every video decoded at 25 pictures a second, as it always was) | 60 (the video's own rate, up to 60)
     // The layout of the full screen video (SHIFT+UP / SHIFT+DOWN there): 0 video, 1 video + oscilloscope, 2 video + oscilloscope + spectrogram
     // (spectrogram at the bottom). The picture styles and versions of the two visuals are the layout's own (-1 = as in the oscilloscope /
     // spectrogram options); every other option is shared with them.
@@ -372,6 +375,11 @@ struct Settings : VizPrefs {
     // this config.txt) instead of its own; its own values wait in radio_config.txt and come back when this is turned off.
     // One value for both programs (config.txt: ShareProfiles=true|false); the radio reads / writes that line. Colours are never shared.
     bool share_profiles = false;
+    // Keep Spectrogram History (config.txt: SpectroHistory=true|false; player and audio book): true (default) = while a track plays the spectrogram keeps
+    // analysing the sound even when no spectrogram is on screen, so its picture is complete the moment it is opened (some 11 MB of RAM at the 30 s default
+    // span, more with a longer span or a hi-res track). false = the analysis runs only while a spectrogram is shown and its memory is given back after
+    // ten seconds without one: less RAM, but the picture starts empty when it is opened and fills as the music goes on.
+    bool spectro_history = true;
     // Audio book mode: leaving a chapter, the mode or the program asks whether to set a bookmark (config.txt: BookmarkAsk=true|false).
     bool book_ask_bookmark = true;
     // Audio book mode: false = the picture of the woman reading in the disk's place, true = the cover image found in the book's folder

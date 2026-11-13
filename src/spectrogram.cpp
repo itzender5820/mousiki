@@ -13,6 +13,9 @@
 #include <sstream>
 
 #include "kiss_fftr.h"
+#if defined(__GLIBC__)
+#include <malloc.h>   // malloc_trim: the freed buffers go back to the system (a heap does not shrink by itself)
+#endif
 #include "miniz.h"
 
 namespace muisc {
@@ -394,15 +397,15 @@ std::vector<std::pair<int, std::string>> spectro_axis(const SpectroSettings& s, 
 
 // ---- analyzer --------------------------------------------------------------------------------------------------------
 void SpectroAnalyzer::push(const float* lr, size_t frames, int rate) {
-    if (!on_.load(std::memory_order_relaxed) || !lr || frames == 0) return;
+    if (!on_.load(std::memory_order_relaxed) || !lr || frames == 0 || !feed_) return;
     if (rate > 0) feed_rate_.store(rate, std::memory_order_relaxed);
     const size_t w = fw_.load(std::memory_order_relaxed);
     const size_t r = fr_.load(std::memory_order_acquire);
     const size_t n = std::min(frames, kFeed - (w - r));
     for (size_t i = 0; i < n; ++i) {
         const size_t at = (w + i) & (kFeed - 1);
-        feed_[2 * at] = lr[2 * i];
-        feed_[2 * at + 1] = lr[2 * i + 1];
+        feed_.get()[2 * at] = lr[2 * i];
+        feed_.get()[2 * at + 1] = lr[2 * i + 1];
     }
     fw_.store(w + n, std::memory_order_release);
 }
@@ -426,8 +429,8 @@ void SpectroAnalyzer::configure(const SpectroSettings& s, int rate) {
     const int win = 1 << std::clamp(s.window_log2, 8, 13);
     const int fft = std::min(16384, win * std::clamp(s.zero_pad, 1, 8));   // memory: the history keeps fft / 2 bins per column
     const int nch = s.channels == 1 ? 1 : 2;
-    Shape sh{rate, fft, win, s.span, nch};
-    if (sh.rate == shape_.rate && sh.fft == shape_.fft && sh.win == shape_.win && sh.span == shape_.span && sh.ch == shape_.ch) return;
+    Shape sh{rate, fft, win, s.span, nch, s.view == 1};
+    if (sh.rate == shape_.rate && sh.fft == shape_.fft && sh.win == shape_.win && sh.span == shape_.span && sh.ch == shape_.ch && sh.wf == shape_.wf) return;
     const bool new_rate = sh.rate != shape_.rate;
     shape_ = sh;
     rate_ = rate;
@@ -446,7 +449,7 @@ void SpectroAnalyzer::configure(const SpectroSettings& s, int rate) {
     fft_out_.assign(static_cast<size_t>(fft + 2), 0.0f);
     // columns: one page (the width of the view) holds cols_per_page_ columns, whatever the time span
     hop_ = std::max(1, static_cast<int>(std::lround(static_cast<double>(rate) * s.span / cols_per_page_)));
-    cap_ = static_cast<size_t>(cols_per_page_) * 2 + 64;
+    cap_ = static_cast<size_t>(cols_per_page_) * (s.view == 1 ? 2 : 1) + 64;   // (the picture reads back one page at most; the waterfall two)
     hist_.assign(cap_ * static_cast<size_t>(nch) * static_cast<size_t>(bins_), 0);
     cache_tag_.assign(cap_, ~0ull);
     cache_.clear();
@@ -454,17 +457,71 @@ void SpectroAnalyzer::configure(const SpectroSettings& s, int rate) {
     cache_key_.clear();
     ++gen_;
     rebuilt_ = true;
+    // The samples a page of the picture is made of (cols_per_page_ + 64 columns, `hop_` samples apart) and the longest window (8192) with a margin:
+    // that is all a recompute needs, so a 30 s page keeps 30 s of samples, not a minute.
+    const size_t need = (static_cast<size_t>(cols_per_page_) + 64) * static_cast<size_t>(hop_) + 16384;
     if (new_rate || raw_.empty()) {   // another track / station rate: start afresh
-        raw_cap_ = static_cast<size_t>(rate) * 61 + 16384;
+        raw_cap_ = need;
         raw_.assign(raw_cap_ * 2, 0);
         raw_total_ = 0;
         ncols_ = 0;
         return;
     }
+    if (need != raw_cap_) resize_raw(need);   // another time span: the newest samples stay
     // same signal, other analysis: compute what is on screen again from the kept samples
     ncols_ = raw_total_ / static_cast<uint64_t>(hop_);
     const uint64_t redo = std::min<uint64_t>(ncols_, static_cast<uint64_t>(cols_per_page_) + 32);
     for (uint64_t c = ncols_ - redo; c < ncols_; ++c) column(c);
+}
+
+void SpectroAnalyzer::resize_raw(size_t frames) {
+    if (frames == 0 || raw_cap_ == 0) return;
+    std::vector<int16_t> n(frames * 2, 0);
+    const uint64_t have = std::min<uint64_t>(raw_total_, raw_cap_);
+    const uint64_t keep = std::min<uint64_t>(have, frames);
+    for (uint64_t i = raw_total_ - keep; i < raw_total_; ++i) {
+        const size_t from = static_cast<size_t>(i % raw_cap_), to = static_cast<size_t>(i % frames);
+        n[2 * to] = raw_[2 * from];
+        n[2 * to + 1] = raw_[2 * from + 1];
+    }
+    raw_.swap(n);
+    raw_cap_ = frames;
+}
+
+void SpectroAnalyzer::release() {
+    on_.store(false);
+    if (cap_ == 0 && raw_.capacity() == 0 && hist_.capacity() == 0) return;
+    std::vector<int16_t>().swap(raw_);
+    std::vector<uint8_t>().swap(hist_);
+    std::vector<uint8_t>().swap(cache_);
+    std::vector<uint64_t>().swap(cache_tag_);
+    std::vector<uint8_t>().swap(wf_img_);
+    std::vector<float>().swap(window_);
+    std::vector<float>().swap(fft_in_);
+    std::vector<float>().swap(fft_out_);
+    std::vector<int>().swap(row_lo_);
+    std::vector<int>().swap(row_hi_);
+    if (fft_cfg_) { kiss_fftr_free(static_cast<kiss_fftr_cfg>(fft_cfg_)); fft_cfg_ = nullptr; }
+    raw_cap_ = 0;
+    raw_total_ = 0;
+    cap_ = 0;
+    ncols_ = 0;
+    shape_ = Shape{};
+    cache_h_ = 0;
+    cache_key_.clear();
+    wf_key_.clear();
+    cw_last_w_ = 0; cw_last_cols_ = 0; cw_last_off_ = 0;
+    disp_cols_ = 0;
+    rebuilt_ = true;
+    ++gen_;
+#if defined(__GLIBC__)
+    malloc_trim(0);
+#endif
+}
+
+size_t SpectroAnalyzer::memory_bytes() const {
+    return raw_.capacity() * sizeof(int16_t) + hist_.capacity() + cache_.capacity() + cache_tag_.capacity() * sizeof(uint64_t) + wf_img_.capacity() +
+           (window_.capacity() + fft_in_.capacity() + fft_out_.capacity()) * sizeof(float);
 }
 
 void SpectroAnalyzer::column(uint64_t c) {
@@ -504,16 +561,17 @@ bool SpectroAnalyzer::update(const SpectroSettings& s_in) {
         s.span = std::clamp(static_cast<int>(std::ceil(need / 1.9 / 5.0)) * 5, 5, 60);
         s.channels = 1;
     }
-    configure(s, std::max(8000, feed_rate_.load(std::memory_order_relaxed)));
     const size_t w = fw_.load(std::memory_order_acquire);
     size_t r = fr_.load(std::memory_order_relaxed);
+    if (w == r && cap_ == 0) { advance_display(); return false; }   // no sample has arrived yet: nothing is allocated (a spectrogram on a screen with no track costs no memory)
+    configure(s, std::max(8000, feed_rate_.load(std::memory_order_relaxed)));
     if (w == r) { advance_display(); return false; }
     const uint64_t before = ncols_;
     for (; r != w; ++r) {
         const size_t at = r & (kFeed - 1);
         const size_t pos = static_cast<size_t>(raw_total_ % raw_cap_);
-        raw_[2 * pos] = static_cast<int16_t>(std::lround(std::clamp(feed_[2 * at], -1.0f, 1.0f) * 32767.0f));
-        raw_[2 * pos + 1] = static_cast<int16_t>(std::lround(std::clamp(feed_[2 * at + 1], -1.0f, 1.0f) * 32767.0f));
+        raw_[2 * pos] = static_cast<int16_t>(std::lround(std::clamp(feed_.get()[2 * at], -1.0f, 1.0f) * 32767.0f));
+        raw_[2 * pos + 1] = static_cast<int16_t>(std::lround(std::clamp(feed_.get()[2 * at + 1], -1.0f, 1.0f) * 32767.0f));
         ++raw_total_;
         if (raw_total_ % static_cast<uint64_t>(hop_) == 0) {   // a column is due: its window ends here
             column(ncols_);
